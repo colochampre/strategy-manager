@@ -73,9 +73,15 @@ class InvalidAllocationRequestError(DomainError):
 
 @dataclass(frozen=True, slots=True)
 class AllocateCommand:
+    """``user_id`` is the delivery's user: the subscriber whose pool this is
+    allocated in, never the strategy's author unless the author is the
+    subscriber. ``delivery_id`` is the delivery the reservation serves."""
+
     signal_id: UUID
     strategy_id: UUID
     requested: Money
+    user_id: UUID
+    delivery_id: UUID
 
 
 @dataclass(frozen=True, slots=True)
@@ -116,13 +122,14 @@ class AllocateCapital:
         self._pool_status = pool_status
 
     async def allocate(self, command: AllocateCommand) -> AllocationResult:
-        # The policy is read first because it names the strategy's AUTHOR, whose
-        # reservations these are (multi-user design AD8, B.5): the resume below
-        # looks only among that user's. It is a plain read and takes no lock.
+        # The reservations are the DELIVERY's user's (multi-user design AD5 and
+        # AD8, C.6): the resume below looks only among that user's. The policy is
+        # the strategy's, shared by every subscriber; it names the market, not
+        # whose pool this is. It is a plain read and takes no lock.
         policy = await self._strategy_policy.policy_for(command.strategy_id)
 
         existing = await self._reservations.find_by_signal_id(
-            policy.author_id, command.signal_id
+            command.user_id, command.signal_id
         )
         if existing is not None:
             return self._resume(existing, command)
@@ -131,7 +138,7 @@ class AllocateCapital:
             # 2f.1 (orchestrator's outcome map, finding 8): the ONLY record
             # of this skip -- ``process_signal.py`` discards
             # ``AllocationResult`` entirely once ``reservation_id is None``,
-            # and ``signals.status`` never leaves ACCEPTED. Distinct from
+            # and the delivery's status never leaves ACCEPTED. Distinct from
             # 2c's in-lock re-check WARNING below: this one fires BEFORE the
             # lock is ever taken.
             detail = (
@@ -144,7 +151,7 @@ class AllocateCapital:
             # here rather than riding on a neighbouring commit. It takes no
             # lock, so it cannot disturb the lock order.
             await self._skip_recorder.record_skip(
-                command.signal_id, STRATEGY_DISABLED_SKIP_REASON, detail
+                command.delivery_id, STRATEGY_DISABLED_SKIP_REASON, detail
             )
             await self._commit.commit()
             return AllocationResult(
@@ -171,7 +178,7 @@ class AllocateCapital:
 
         # ---- TXN-A begins: the advisory lock serializes everything below
         # per (venue, settlement_currency) (design.md § Transaction Boundaries)
-        await self._lock.acquire(LockKey.from_pool_key(policy.author_id, pool_key))
+        await self._lock.acquire(LockKey.from_pool_key(command.user_id, pool_key))
 
         # In-lock re-check (design.md § 8 point (ii), "AllocateCapital
         # re-reads the policy inside the lock"): the pre-lock read above can
@@ -191,7 +198,7 @@ class AllocateCapital:
                 if policy.archived
                 else STRATEGY_DISABLED_SKIP_REASON
             )
-            # The ONLY record of this refusal: signals.status never leaves
+            # The ONLY record of this refusal: the delivery's status never leaves
             # ACCEPTED and the job handler discards its result (orchestrator
             # binding requirement 4), so a skipped WARNING here is the sole
             # trace that this signal was ever seen and set aside.
@@ -202,7 +209,7 @@ class AllocateCapital:
             logger.warning("%s", detail)
             # Decision 25: staged immediately before the commit that also
             # releases the pool lock (design.md § C).
-            await self._skip_recorder.record_skip(command.signal_id, skip_reason, detail)
+            await self._skip_recorder.record_skip(command.delivery_id, skip_reason, detail)
             await self._commit.commit()
             return AllocationResult(
                 outcome=DecisionOutcome.SKIP,
@@ -215,11 +222,10 @@ class AllocateCapital:
         # held. It MUST follow ``acquire``: a read before the wait would see the
         # pool enabled. A plain read, never ``FOR UPDATE`` -- ``DeleteCredential``
         # updates this row, and a waiting allocation must not hold a lock it needs.
-        # The pool is the strategy's AUTHOR's (B.5): until subscriptions exist,
-        # a signal is allocated in its author's pool, never another user's pool
-        # on the same market.
+        # The pool is the DELIVERY's user's (C.6): the subscriber's own, never
+        # another user's pool on the same market.
         if await self._pool_status.is_disabled(
-            policy.author_id, policy.exchange, policy.venue, policy.settlement_currency
+            command.user_id, policy.exchange, policy.venue, policy.settlement_currency
         ):
             detail = (
                 f"in-lock re-check skips signal {command.signal_id} for strategy "
@@ -229,7 +235,7 @@ class AllocateCapital:
             )
             logger.warning("%s", detail)
             await self._skip_recorder.record_skip(
-                command.signal_id, POOL_DISABLED_SKIP_REASON, detail
+                command.delivery_id, POOL_DISABLED_SKIP_REASON, detail
             )
             await self._commit.commit()
             return AllocationResult(
@@ -241,7 +247,7 @@ class AllocateCapital:
 
         try:
             pool_balance = await self._pool_balance.read(
-                policy.author_id, policy.exchange, policy.venue, policy.settlement_currency
+                command.user_id, policy.exchange, policy.venue, policy.settlement_currency
             )
         except DomainError as exc:
             raise UnknownPoolError(
@@ -250,7 +256,7 @@ class AllocateCapital:
 
         now = self._clock.now()
         reserved_active = await self._reservations.sum_active(
-            policy.author_id, policy.exchange, policy.venue, policy.settlement_currency, now
+            command.user_id, policy.exchange, policy.venue, policy.settlement_currency, now
         )
         pool = CapitalPool(
             key=pool_key, balance=pool_balance.available, reserved_active=reserved_active
@@ -266,14 +272,16 @@ class AllocateCapital:
             pool_total_at_open = self._pool_total_to_record(
                 pool_balance.total, command.signal_id, command.strategy_id
             )
-            # The author's reservation, in the author's pool (B.5): the same
-            # user whose balance and reservations the decision was made from.
+            # The subscriber's reservation, in the subscriber's pool: the same
+            # user whose balance and reservations the decision was made from, and
+            # the delivery it serves.
             await self._reservations.insert(
-                policy.author_id,
+                command.user_id,
                 Reservation(
                     id=reservation_id,
                     strategy_id=command.strategy_id,
                     signal_id=command.signal_id,
+                    delivery_id=command.delivery_id,
                     pool_key=pool_key,
                     amount=decision.granted,
                     status=ReservationStatus.PENDING,
@@ -294,7 +302,7 @@ class AllocateCapital:
             logger.warning("%s", detail)
             # Decision 25: staged before the commit just below, the same one
             # a granted reservation's insert would use (design.md § C).
-            await self._skip_recorder.record_skip(command.signal_id, skip_reason, detail)
+            await self._skip_recorder.record_skip(command.delivery_id, skip_reason, detail)
 
         await self._commit.commit()
         # ---- TXN-A ends; the advisory lock is released by commit

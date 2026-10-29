@@ -91,7 +91,12 @@ from tests.ledger.infrastructure.conftest import (  # noqa: F401
     pg_engine,
     pg_session_factory,
 )
-from tests.owner import OWNER_ID, seed_other_user
+from tests.owner import (
+    OWNER_ID,
+    allocate_command,
+    ensure_author_subscription,
+    seed_other_user,
+)
 
 pytestmark = pytest.mark.integration
 
@@ -190,8 +195,15 @@ async def _pool_enabled(
 async def _strategy(
     factory: async_sessionmaker[AsyncSession], *, enabled: bool = False
 ) -> UUID:
+    """An enabled one gets its author's ACTIVE subscription, as
+    ``RegisterStrategy`` makes it: that is what blocks the delete (owner
+    decision 20)."""
     strategy_id = uuid4()
     await seed_strategy(factory, strategy_id=strategy_id, enabled=enabled)
+    if enabled:
+        async with factory() as session:
+            await ensure_author_subscription(session, strategy_id)
+            await session.commit()
     return strategy_id
 
 
@@ -635,8 +647,13 @@ def _balance_source() -> FakeBalanceSource:
     return source
 
 
-def _allocate_command(signal_id: UUID, strategy_id: UUID) -> AllocateCommand:
-    return AllocateCommand(
+async def _allocate_command(
+    factory: async_sessionmaker[AsyncSession], signal_id: UUID, strategy_id: UUID
+) -> AllocateCommand:
+    """The owner's allocation, with the delivery it serves seeded and committed
+    first (migration 0032: a reservation always names one)."""
+    return await allocate_command(
+        factory,
         signal_id=signal_id,
         strategy_id=strategy_id,
         requested=Money(amount=REQUEST_AMOUNT, currency=Currency.USDT),
@@ -699,8 +716,9 @@ async def test_concurrent_allocation_and_deletion_on_same_pool_serialized_by_adv
                 StrategyPolicyAdapter(SqlAlchemyStrategyRepository(session)),
                 _HoldingCommit(session, reached, resume_allocation),
             )
-            allocated["value"] = await use_case.allocate(_allocate_command(signal_id, strategy_id))
+            allocated["value"] = await use_case.allocate(command)
 
+    command = await _allocate_command(factory, signal_id, strategy_id)
     task_allocation = asyncio.create_task(run_allocation())
     await asyncio.wait_for(reached.wait(), WAIT_SECONDS)
     assert (await _advisory_counts(factory))[0] >= 1  # the allocation holds the pool lock
@@ -765,8 +783,9 @@ async def test_concurrent_allocation_and_deletion_on_same_pool_serialized_by_adv
             )
             policies.append(policy)
             use_case = _allocator(session, policy, session)
-            allocated["value"] = await use_case.allocate(_allocate_command(signal_id, strategy_id))
+            allocated["value"] = await use_case.allocate(command)
 
+    command = await _allocate_command(factory, signal_id, strategy_id)
     task_allocation = asyncio.create_task(run_allocation())
     await _until(lambda: _policy_read_reached(policies), "the allocation's pre-lock read")
     await set_strategy_enabled(factory, strategy_id, False)

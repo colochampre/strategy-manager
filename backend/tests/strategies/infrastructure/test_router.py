@@ -59,6 +59,7 @@ from tests.identity_auth import (
     sign_in_as_admin,
 )
 from tests.owner import OWNER_ID, seed_reservation_row
+from tests.strategies.wiring import real_subscribers
 
 pytestmark = pytest.mark.integration
 
@@ -791,6 +792,7 @@ _HISTORY_KEYS = {
     "ledger_entries",
     "booking_proposals",
     "enablement_events",
+    "subscriptions",
 }
 
 
@@ -810,6 +812,7 @@ class _NoHistory:
             ledger_entries=0,
             booking_proposals=0,
             enablement_events=0,
+            subscriptions=0,
         )
 
 
@@ -851,6 +854,7 @@ async def _delete_client(
             return DeleteStrategy(
                 repository=SqlAlchemyStrategyRepository(session),
                 pool_lock=PoolLockAdapter(session),
+                subscribers=real_subscribers(session),
                 history=_NoHistory(),
                 enablement_log=SqlAlchemyEnablementLog(session),
                 clock=SystemClock(),
@@ -981,7 +985,8 @@ async def test_delete_with_history_409_has_history_carries_all_six_integer_count
     detail = response.json()["detail"]
     assert detail["error"] == "HAS_HISTORY"
     assert isinstance(detail["message"], str)
-    assert detail["history"] == _history_body(signals=1)
+    # Registering subscribed the author (C.4b): reported, never the cause.
+    assert detail["history"] == _history_body(signals=1, subscriptions=1)
     assert all(type(count) is int for count in detail["history"].values())
     assert (
         await deleting.get(f"/strategies/{strategy_id}", headers=ADMIN_HEADERS)
@@ -1024,7 +1029,39 @@ async def test_delete_a_toggled_strategy_with_a_signal_409_still_reports_its_eve
     response = await deleting.delete(f"/strategies/{strategy_id}", headers=ADMIN_HEADERS)
 
     assert response.status_code == 409
-    assert response.json()["detail"]["history"] == _history_body(signals=1, enablement_events=2)
+    assert response.json()["detail"]["history"] == _history_body(
+        signals=1, enablement_events=2, subscriptions=1
+    )
+
+
+async def test_delete_a_subscribed_strategy_with_a_signal_409_reports_its_subscriptions(
+    deleting: AsyncClient, pg_session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    strategy_id = await _register(deleting, allowed_pairs=["STXUSDT"])  # subscribes its author
+    await _seed_signal(pg_session_factory, strategy_id)
+
+    response = await deleting.delete(f"/strategies/{strategy_id}", headers=ADMIN_HEADERS)
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["history"] == _history_body(signals=1, subscriptions=1)
+
+
+async def test_delete_a_subscribed_strategy_with_nothing_else_is_204(
+    deleting: AsyncClient, pg_session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    strategy_id = await _register(deleting, allowed_pairs=["STXUSDT"])  # subscribes its author
+
+    response = await deleting.delete(f"/strategies/{strategy_id}", headers=ADMIN_HEADERS)
+
+    assert response.status_code == 204
+    async with pg_session_factory() as session:
+        remaining = (
+            await session.execute(
+                text("SELECT count(*) FROM subscriptions WHERE strategy_id = :id"),
+                {"id": strategy_id},
+            )
+        ).scalar_one()
+    assert remaining == 0
 
 
 async def test_delete_database_refusal_is_409_has_history_never_500(
@@ -1161,32 +1198,24 @@ async def test_delete_archived_with_no_history_204(deleting: AsyncClient) -> Non
 
 
 # --------------------------------------------------------------------------
-# 12f.9.7 -- the share in plain notation, and the PATCH's contract (design.md,
-# unit 12f addendum, section C; spec: admin-api "The Strategy Update Takes The
-# Share As A Plain Decimal And The Strategy View Serves It In Plain Notation").
-#
-# ``StrategyView.allocation_percent`` is written with the wire's plain
-# notation, so a very small share is never an exponent (``1E-7``). The request
-# bodies and the validation (0 < share <= 100) are unchanged.
+# C.4b -- a strategy no longer carries a share on the API. The share is the
+# subscription's (``/api/subscriptions``); the column stays on the strategy row
+# until C.6 because ``process_signal`` still sizes from it, but neither the view
+# nor the PATCH touches it. A PATCH that still sends one is refused, never
+# silently dropped. (This replaces unit 12f.9.7, which served and edited it.)
 # --------------------------------------------------------------------------
 
 
-async def _set_stored_share(
-    pg_session_factory: async_sessionmaker[AsyncSession], strategy_id: UUID, value: str
-) -> None:
-    """Writes the share straight to the column, which is an unscaled ``Numeric``."""
+async def _stored_share(
+    pg_session_factory: async_sessionmaker[AsyncSession], strategy_id: UUID
+) -> Decimal:
+    """The column itself, which is what ``process_signal`` still reads."""
     async with pg_session_factory() as session:
-        await session.execute(
-            text("UPDATE strategies SET allocation_percent = CAST(:v AS numeric) WHERE id = :id"),
-            {"v": value, "id": strategy_id},
+        value = await session.scalar(
+            text("SELECT allocation_percent FROM strategies WHERE id = :id"), {"id": strategy_id}
         )
-        await session.commit()
-
-
-async def _share_of(client: AsyncClient, strategy_id: UUID) -> Any:
-    response = await client.get(f"/strategies/{strategy_id}", headers=ADMIN_HEADERS)
-    assert response.status_code == 200, response.text
-    return response.json()["allocation_percent"]
+    assert isinstance(value, Decimal)
+    return value
 
 
 async def _patch_share(client: AsyncClient, strategy_id: UUID, value: Any) -> Any:
@@ -1195,89 +1224,96 @@ async def _patch_share(client: AsyncClient, strategy_id: UUID, value: Any) -> An
     )
 
 
-async def test_a_very_small_share_is_never_served_with_an_exponent(
-    client: AsyncClient, pg_session_factory: async_sessionmaker[AsyncSession]
-) -> None:
-    """Stored ``0.0000001``: pydantic writes ``Decimal("0.0000001")`` as ``1E-7``
-    unless the wire's plain notation is used. Read by GET, and answered by a
-    PATCH of the same value."""
-    strategy_id = await _register(client)
-    await _set_stored_share(pg_session_factory, strategy_id, "0.0000001")
-
-    got = await _share_of(client, strategy_id)
-    patched = await _patch_share(client, strategy_id, "0.0000001")
-
-    assert got == "0.0000001"
-    assert patched.status_code == 200
-    assert patched.json()["allocation_percent"] == "0.0000001"
-
-
-async def test_a_decimal_share_is_saved_and_served_as_it_is(client: AsyncClient) -> None:
-    strategy_id = await _register(client)
-
-    patched = await _patch_share(client, strategy_id, "33.5")
-
-    assert patched.status_code == 200
-    assert patched.json()["allocation_percent"] == "33.5"
-    assert await _share_of(client, strategy_id) == "33.5"
-
-
-async def test_the_patch_answer_and_a_later_get_show_the_same_text(
+async def test_no_answer_that_serves_a_strategy_carries_a_share(
     client: AsyncClient,
 ) -> None:
-    strategy_id = await _register(client)
+    """POST, GET (detail and list), PATCH, the pairs PUT and the archive all serve a
+    ``StrategyView``: none of them carries ``allocation_percent`` any more."""
+    body = _post_body(name="no-share")
+    created = await client.post("/strategies", json=body, headers=ADMIN_HEADERS)
+    strategy_id = body["id"]
+    answers = {
+        "POST": created,
+        "GET detail": await client.get(f"/strategies/{strategy_id}", headers=ADMIN_HEADERS),
+        "GET list": await client.get("/strategies", headers=ADMIN_HEADERS),
+        "PATCH": await client.patch(
+            f"/strategies/{strategy_id}", json={"enabled": False}, headers=ADMIN_HEADERS
+        ),
+        "PUT pairs": await client.put(
+            f"/strategies/{strategy_id}/allowed-pairs",
+            json={"pairs": ["ETHUSDT"]},
+            headers=ADMIN_HEADERS,
+        ),
+        "archive": await client.post(f"/strategies/{strategy_id}/archive", headers=ADMIN_HEADERS),
+    }
 
-    patched = await _patch_share(client, strategy_id, "33.50")
-
-    assert patched.status_code == 200
-    assert patched.json()["allocation_percent"] == await _share_of(client, strategy_id)
-
-
-async def test_a_share_below_one_is_accepted(client: AsyncClient) -> None:
-    strategy_id = await _register(client)
-
-    patched = await _patch_share(client, strategy_id, "0.5")
-
-    assert patched.status_code == 200
-    assert patched.json()["allocation_percent"] == "0.5"
-    assert await _share_of(client, strategy_id) == "0.5"
-
-
-async def test_a_share_of_exactly_100_is_accepted(client: AsyncClient) -> None:
-    strategy_id = await _register(client, allocation_percent="40")
-
-    patched = await _patch_share(client, strategy_id, "100")
-
-    assert patched.status_code == 200
-    assert patched.json()["allocation_percent"] == "100"
-    assert await _share_of(client, strategy_id) == "100"
+    assert {name: response.status_code for name, response in answers.items()} == {
+        "POST": 201,
+        "GET detail": 200,
+        "GET list": 200,
+        "PATCH": 200,
+        "PUT pairs": 200,
+        "archive": 200,
+    }
+    served = {
+        name: response.json()[0] if name == "GET list" else response.json()
+        for name, response in answers.items()
+    }
+    assert {name: "allocation_percent" in view for name, view in served.items()} == dict.fromkeys(
+        served, False
+    )
 
 
-@pytest.mark.parametrize("value", ["0", "100.5", "abc"])
-async def test_zero_above_100_and_a_text_that_is_not_a_decimal_are_422_and_the_stored_share_is_unchanged(  # noqa: E501
-    client: AsyncClient, value: str
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {"allocation_percent": "25"},
+        {"allocation_percent": None},
+        {"name": "renamed", "allocation_percent": "25"},
+    ],
+)
+async def test_a_patch_that_still_carries_a_share_is_422_and_changes_nothing(
+    client: AsyncClient, pg_session_factory: async_sessionmaker[AsyncSession], extra: dict[str, Any]
+) -> None:
+    """Refused, never silently accepted and ignored: a panel that still sent the
+    share would otherwise believe it had changed it. The error names the field, and
+    nothing else in the same body is applied either."""
+    strategy_id = await _register(client, name="original", allocation_percent="40")
+
+    patched = await client.patch(f"/strategies/{strategy_id}", json=extra, headers=ADMIN_HEADERS)
+
+    assert patched.status_code == 422
+    assert [error["loc"] for error in patched.json()["detail"]] == [["body", "allocation_percent"]]
+    assert await _stored_share(pg_session_factory, strategy_id) == Decimal("40")
+    kept = await client.get(f"/strategies/{strategy_id}", headers=ADMIN_HEADERS)
+    assert kept.json()["name"] == "original"
+
+
+async def test_a_patch_of_the_other_fields_leaves_the_stored_share_alone(
+    client: AsyncClient, pg_session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     strategy_id = await _register(client, allocation_percent="40")
 
-    patched = await _patch_share(client, strategy_id, value)
-
-    assert patched.status_code == 422
-    assert await _share_of(client, strategy_id) == "40"
-
-
-async def test_only_the_share_changes(client: AsyncClient) -> None:
-    strategy_id = await _register(client, allowed_pairs=["ETHUSDT", "SOLUSDT"])
-    enabled = await client.patch(
-        f"/strategies/{strategy_id}", json={"enabled": True}, headers=ADMIN_HEADERS
+    patched = await client.patch(
+        f"/strategies/{strategy_id}",
+        json={"name": "renamed", "fill_mode": "SKIP", "enabled": True},
+        headers=ADMIN_HEADERS,
     )
-    assert enabled.status_code == 200
+
+    assert patched.status_code == 200
+    assert await _stored_share(pg_session_factory, strategy_id) == Decimal("40")
+
+
+async def test_only_the_named_fields_change(client: AsyncClient) -> None:
+    strategy_id = await _register(client, allowed_pairs=["ETHUSDT", "SOLUSDT"])
     before = (await client.get(f"/strategies/{strategy_id}", headers=ADMIN_HEADERS)).json()
 
-    patched = await _patch_share(client, strategy_id, "25")
+    patched = await client.patch(
+        f"/strategies/{strategy_id}", json={"enabled": True}, headers=ADMIN_HEADERS
+    )
 
     assert patched.status_code == 200
     after = patched.json()
-    assert after["allocation_percent"] == "25"
     assert after["enabled"] is True
     assert after["allowed_pairs"] == ["ETHUSDT", "SOLUSDT"]
     unchanged = ("id", "name", "exchange", "venue", "settlement_currency", "fill_mode")
@@ -1285,43 +1321,14 @@ async def test_only_the_share_changes(client: AsyncClient) -> None:
     assert after["archived_at"] is None
 
 
-async def test_a_disabled_strategys_share_is_accepted_and_it_stays_disabled(
-    client: AsyncClient,
-) -> None:
-    strategy_id = await _register(client)
-    assert (await client.get(f"/strategies/{strategy_id}", headers=ADMIN_HEADERS)).json()[
-        "enabled"
-    ] is False
-
-    patched = await _patch_share(client, strategy_id, "12.5")
-
-    assert patched.status_code == 200
-    assert patched.json()["allocation_percent"] == "12.5"
-    assert patched.json()["enabled"] is False
-
-
 async def test_patching_an_unknown_strategy_is_404_with_its_existing_body(
     client: AsyncClient,
 ) -> None:
     unknown = uuid4()
 
-    response = await _patch_share(client, unknown, "25")
+    response = await client.patch(
+        f"/strategies/{unknown}", json={"enabled": True}, headers=ADMIN_HEADERS
+    )
 
     assert response.status_code == 404
     assert response.json() == {"detail": f"no strategy registered under id {unknown}"}
-
-
-async def test_an_archived_strategys_share_is_refused_409_and_the_stored_share_is_unchanged(
-    client: AsyncClient,
-) -> None:
-    """Spec scenario "An archived strategy's share is refused" (12f.9.14: the
-    existing archived test patches the NAME, so the share had no test of its own)."""
-    strategy_id = await _register(client, allocation_percent="30")
-    archived = await client.post(f"/strategies/{strategy_id}/archive", headers=ADMIN_HEADERS)
-    assert archived.status_code == 200
-
-    response = await _patch_share(client, strategy_id, "40")
-
-    assert response.status_code == 409
-    assert response.json()["detail"]["error"] == "STRATEGY_ARCHIVED"
-    assert await _share_of(client, strategy_id) == "30"

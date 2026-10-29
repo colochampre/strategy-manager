@@ -34,6 +34,7 @@ from strategy_manager.shared.application.ports import ClockPort
 from strategy_manager.shared.domain.errors import DomainError, InvariantViolation
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 from strategy_manager.strategies.application.ports import (
+    AuthorSubscriptionPort,
     CommitPort,
     EnablementLogPort,
     PairCatalogPort,
@@ -116,6 +117,7 @@ class RegisterStrategy:
         commit: CommitPort,
         enablement_log: EnablementLogPort,
         clock: ClockPort,
+        author_subscriptions: AuthorSubscriptionPort,
     ) -> None:
         self._repository = repository
         self._pools = pools
@@ -123,6 +125,7 @@ class RegisterStrategy:
         self._commit = commit
         self._enablement_log = enablement_log
         self._clock = clock
+        self._author_subscriptions = author_subscriptions
 
     async def register(self, command: RegisterCommand) -> Strategy:
         existing = await self._repository.get_by_id(command.strategy_id)
@@ -167,6 +170,10 @@ class RegisterStrategy:
         )
 
         await self._repository.insert(strategy)
+        # A subscription is the only way to trade a strategy, its author included
+        # (C.4b). Written before the one commit, so a pool that vanished since
+        # the check above leaves neither row.
+        await self._author_subscriptions.subscribe_author(strategy)
 
         if strategy.enabled:  # pragma: no cover -- dead today; see class docstring
             await self._enablement_log.append(

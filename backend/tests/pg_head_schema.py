@@ -18,7 +18,9 @@ here instead.
 5. drops the database (``WITH (FORCE)``) on exit, success or failure.
 
 The URL is the only thing that carries credentials. It is never printed: a failed
-migration reports alembic's output with the URL and the password scrubbed.
+migration reports alembic's output with the URL and the password scrubbed, and
+the yielded URL's ``repr``, which pytest uses to report a failing assertion,
+is ``<throwaway database url>``.
 
 A test module uses it through a module-scoped fixture of its own::
 
@@ -46,6 +48,18 @@ from strategy_manager.shared.config import get_settings
 from tests.pg_drop import drop_database_if_exists
 
 _BACKEND_DIR = Path(__file__).resolve().parents[1]
+
+
+class _ThrowawayUrl(str):
+    """The URL as text, for alembic, asyncpg and SQLAlchemy, with a repr that
+    names no credential. pytest reports a failing assertion through ``repr``,
+    arguments of the calls inside it included, so ``assert _scalar(url, ...)
+    == x`` printed the local password before this (seen 2026-10-27)."""
+
+    __slots__ = ()
+
+    def __repr__(self) -> str:
+        return "<throwaway database url>"
 
 
 def _maintenance_dsn(dev_url: str) -> str:
@@ -113,6 +127,6 @@ def migrated_database(name: str, revision: str) -> Iterator[str]:
     asyncio.run(_create_database(maintenance_dsn, name))
     try:
         _upgrade(url, revision)
-        yield url
+        yield _ThrowawayUrl(url)
     finally:
         asyncio.run(drop_database_if_exists(maintenance_dsn, name))

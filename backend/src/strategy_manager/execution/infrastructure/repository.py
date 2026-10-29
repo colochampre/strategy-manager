@@ -49,6 +49,7 @@ def _to_domain(row: ExecutionAttemptRow) -> ExecutionAttempt:
         exchange_order_id=row.exchange_order_id,
         error=row.error,
         signal_id=row.signal_id,
+        delivery_id=row.delivery_id,
         created_at=row.created_at,
         updated_at=row.updated_at,
     )
@@ -83,6 +84,7 @@ class SqlAlchemyExecutionAttemptRepository:
                 exchange_order_id=attempt.exchange_order_id,
                 error=attempt.error,
                 signal_id=attempt.signal_id,
+                delivery_id=attempt.delivery_id,
             )
         )
         await self._session.flush()

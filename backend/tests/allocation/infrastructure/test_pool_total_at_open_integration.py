@@ -31,7 +31,6 @@ from strategy_manager.accounts.domain.pool_config import PoolConfig
 from strategy_manager.accounts.infrastructure.fake_balance_source import FakeBalanceSource
 from strategy_manager.allocation.application.allocate_capital import (
     AllocateCapital,
-    AllocateCommand,
     AllocationResult,
 )
 from strategy_manager.allocation.application.ports import AdvisoryLockPort
@@ -45,7 +44,7 @@ from strategy_manager.strategies.application.policy_adapter import StrategyPolic
 from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStrategyRepository
 from tests.allocation.fakes import AlwaysEnabledPool, RecordingSkipRecorder
 from tests.allocation.infrastructure.conftest import seed_signal, seed_strategy
-from tests.owner import OWNER_ID
+from tests.owner import OWNER_ID, allocate_command
 
 pytestmark = pytest.mark.integration
 
@@ -141,16 +140,23 @@ async def _run_two_actors_on_one_pool(
     resume_immediately = asyncio.Event()
     resume_immediately.set()
 
+    first_command = await allocate_command(
+        factory,
+        signal_id=first_signal,
+        strategy_id=strategy_id,
+        requested=Money(amount=Decimal("200"), currency=Currency.USDT),
+    )
+    second_command = await allocate_command(
+        factory,
+        signal_id=second_signal,
+        strategy_id=strategy_id,
+        requested=Money(amount=Decimal("200"), currency=Currency.USDT),
+    )
+
     async def first() -> AllocationResult:
         async with factory() as session:
             use_case = _build(session, source, _PausingCommit(session, reached, resume))
-            return await use_case.allocate(
-                AllocateCommand(
-                    signal_id=first_signal,
-                    strategy_id=strategy_id,
-                    requested=Money(amount=Decimal("200"), currency=Currency.USDT),
-                )
-            )
+            return await use_case.allocate(first_command)
 
     async def second() -> AllocationResult:
         async with factory() as session:
@@ -160,13 +166,7 @@ async def _run_two_actors_on_one_pool(
                 _PausingCommit(session, asyncio.Event(), resume_immediately),
                 second_lock,
             )
-            return await use_case.allocate(
-                AllocateCommand(
-                    signal_id=second_signal,
-                    strategy_id=strategy_id,
-                    requested=Money(amount=Decimal("200"), currency=Currency.USDT),
-                )
-            )
+            return await use_case.allocate(second_command)
 
     task_first = asyncio.create_task(first())
     await asyncio.wait_for(reached.wait(), timeout=10)  # first holds the lock now
@@ -241,22 +241,22 @@ async def test_pool_total_at_open_is_the_capital_of_the_reservations_own_pool(
     source.set_balance("pionex", "spot", "USDT", Decimal("1000"))
     source.set_balance("pionex", "coin-m", "BTC", Decimal("0.5"))
 
+    usdt_command = await allocate_command(
+        pg_session_factory,
+        signal_id=usdt_signal,
+        strategy_id=usdt_strategy,
+        requested=Money(amount=Decimal("200"), currency=Currency.USDT),
+    )
+    btc_command = await allocate_command(
+        pg_session_factory,
+        signal_id=btc_signal,
+        strategy_id=btc_strategy,
+        requested=Money(amount=Decimal("0.1"), currency=Currency.BTC),
+    )
     async with pg_session_factory() as session:
-        await _build(session, source, session).allocate(
-            AllocateCommand(
-                signal_id=usdt_signal,
-                strategy_id=usdt_strategy,
-                requested=Money(amount=Decimal("200"), currency=Currency.USDT),
-            )
-        )
+        await _build(session, source, session).allocate(usdt_command)
     async with pg_session_factory() as session:
-        await _build(session, source, session).allocate(
-            AllocateCommand(
-                signal_id=btc_signal,
-                strategy_id=btc_strategy,
-                requested=Money(amount=Decimal("0.1"), currency=Currency.BTC),
-            )
-        )
+        await _build(session, source, session).allocate(btc_command)
 
     assert await _stored_total(pg_session_factory, usdt_signal) == Decimal("1000")
     assert await _stored_total(pg_session_factory, btc_signal) == Decimal("0.5")

@@ -91,6 +91,11 @@ class ExecutionAttempt:
     # before PR 5c, for an orphan close (no signal asked for it) and for a
     # VENUE-origin booking -- and ``None`` records nothing at settle.
     signal_id: UUID | None = None
+    # ``execution_attempts.delivery_id`` (migration ``0032``, tasks.md C.7): the
+    # delivery whose work placed this attempt, and so the row its outcome lands
+    # on. It is written beside ``signal_id``, never instead of it. ``None`` for the
+    # same attempts ``signal_id`` is, and nothing is recorded for those at settle.
+    delivery_id: UUID | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
 

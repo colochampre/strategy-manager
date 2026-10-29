@@ -52,6 +52,7 @@ OWNER = UUID("0a1b2c3d-0000-4000-8000-0000000e0e0e")
 ALLOCATION_ID = uuid4()
 STRATEGY_ID = uuid4()
 SIGNAL_ID = uuid4()
+DELIVERY_ID = uuid4()
 ALERT_PRICE = Decimal("0.4633")
 
 
@@ -228,6 +229,8 @@ def _command(
         symbol="BTC_USDT",
         side=side,
         signal_id=signal_id,
+        # The delivery travels with the signal: both set, or both None (an orphan).
+        delivery_id=None if signal_id is None else DELIVERY_ID,
         reference_price=reference_price,
     )
 
@@ -464,6 +467,7 @@ async def test_a_symbol_the_pool_cannot_fund_is_refused_before_any_write() -> No
         symbol="ETH_BTC",
         side=OrderSide.SELL,
         signal_id=SIGNAL_ID,
+        delivery_id=DELIVERY_ID,
         reference_price=ALERT_PRICE,
     )
 
@@ -583,7 +587,7 @@ async def test_a_dust_residual_rejects_the_signal_on_a_commit_added_at_that_bran
 
     logged = [r.getMessage() for r in caplog.records if r.levelname == "ERROR"]
     assert result.status == "NOT_CLOSABLE"
-    assert outcomes.rejected == [(SIGNAL_ID, "CLOSE_DUST_NOT_CLOSABLE", logged[0])]
+    assert outcomes.rejected == [(DELIVERY_ID, "CLOSE_DUST_NOT_CLOSABLE", logged[0])]
     assert outcomes.processing == []
     assert log == ["outcome.rejected", "commit"]
 
@@ -617,7 +621,7 @@ async def test_a_venue_rejection_rejects_the_signal_on_the_post_network_commit(
 
     logged = [r.getMessage() for r in caplog.records if r.levelname == "ERROR"]
     assert result.status == "FAILED"
-    assert outcomes.rejected == [(SIGNAL_ID, "CLOSE_REJECTED_BY_VENUE", logged[0])]
+    assert outcomes.rejected == [(DELIVERY_ID, "CLOSE_REJECTED_BY_VENUE", logged[0])]
     assert outcomes.processing == []
     assert log == [
         "attempt.insert",
@@ -636,7 +640,7 @@ async def test_a_placed_close_leaves_the_signal_processing_on_the_placed_commit(
     result = await use_case.close(_command())
 
     assert result.status == "PLACED"
-    assert outcomes.processing == [SIGNAL_ID]
+    assert outcomes.processing == [DELIVERY_ID]
     assert outcomes.rejected == []
     assert log == [
         "attempt.insert",
@@ -675,9 +679,22 @@ async def test_the_closing_attempt_is_linked_to_the_closing_signal() -> None:
     assert attempts.inserted[0].signal_id == SIGNAL_ID
 
 
+async def test_the_closing_attempt_is_linked_to_the_closing_delivery() -> None:
+    """C.7: a closing attempt has no reservation, and the one it unwinds names the
+    OPENING delivery, so the command is the only route to the closing one. It is
+    written beside the signal link."""
+    use_case, attempts, _, _, _, _ = _build()
+
+    await use_case.close(_command(signal_id=SIGNAL_ID))
+
+    assert attempts.inserted[0].delivery_id == DELIVERY_ID
+    assert attempts.inserted[0].signal_id == SIGNAL_ID
+
+
 async def test_a_close_with_no_signal_writes_a_null_link() -> None:
     use_case, attempts, _, _, _, _ = _build()
 
     await use_case.close(_command(signal_id=None))
 
     assert attempts.inserted[0].signal_id is None
+    assert attempts.inserted[0].delivery_id is None

@@ -21,7 +21,6 @@ from strategy_manager.accounts.domain.pool_config import PoolConfig
 from strategy_manager.accounts.infrastructure.fake_balance_source import FakeBalanceSource
 from strategy_manager.allocation.application.allocate_capital import (
     AllocateCapital,
-    AllocateCommand,
 )
 from strategy_manager.allocation.domain.decision import DecisionOutcome
 from strategy_manager.allocation.domain.percent import requested_from_percent
@@ -33,7 +32,7 @@ from strategy_manager.strategies.application.policy_adapter import StrategyPolic
 from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStrategyRepository
 from tests.allocation.fakes import AlwaysEnabledPool, RecordingSkipRecorder
 from tests.allocation.infrastructure.conftest import seed_signal, seed_strategy
-from tests.owner import OWNER_ID
+from tests.owner import OWNER_ID, allocate_command
 
 pytestmark = pytest.mark.integration
 
@@ -108,25 +107,31 @@ async def test_two_strategies_at_60_percent_second_is_clamped_by_decide(
 
     async with pg_session_factory() as session:
         requested = await _requested_for(session, first_strategy_id)
-        assert requested.amount == Decimal("600")
+    assert requested.amount == Decimal("600")
+    first_command = await allocate_command(
+        pg_session_factory,
+        signal_id=first_signal_id,
+        strategy_id=first_strategy_id,
+        requested=requested,
+    )
+    async with pg_session_factory() as session:
         use_case = _build_allocate_capital(session)
-        first = await use_case.allocate(
-            AllocateCommand(
-                signal_id=first_signal_id, strategy_id=first_strategy_id, requested=requested
-            )
-        )
+        first = await use_case.allocate(first_command)
     assert first.outcome is DecisionOutcome.FULL
     assert first.granted == Decimal("600")
 
     async with pg_session_factory() as session:
         requested = await _requested_for(session, second_strategy_id)
-        assert requested.amount == Decimal("600")  # the ask is unaffected by the first grant
+    assert requested.amount == Decimal("600")  # the ask is unaffected by the first grant
+    second_command = await allocate_command(
+        pg_session_factory,
+        signal_id=second_signal_id,
+        strategy_id=second_strategy_id,
+        requested=requested,
+    )
+    async with pg_session_factory() as session:
         use_case = _build_allocate_capital(session)
-        second = await use_case.allocate(
-            AllocateCommand(
-                signal_id=second_signal_id, strategy_id=second_strategy_id, requested=requested
-            )
-        )
+        second = await use_case.allocate(second_command)
 
     # decide() clamps the grant to whatever remains: 1000 - 600 = 400.
     assert second.outcome is DecisionOutcome.PARTIAL

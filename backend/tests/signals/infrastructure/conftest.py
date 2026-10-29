@@ -241,10 +241,13 @@ async def seed_execution_attempt(
     symbol: str = "BTCUSDT",
     status: str = "SUBMITTED",
     signal_id: UUID | None = None,
+    delivery_id: UUID | None = None,
 ) -> None:
     """Seeds either kind of attempt (migration ``0012``): an opening one bound
     to the reservation it spends, or a closing one bound to the allocation it
-    unwinds. Exactly one of the two ids belongs on a row."""
+    unwinds. Exactly one of the two ids belongs on a row. ``delivery_id`` is the
+    delivery settle records the attempt's outcome on (C.7); ``None`` is an
+    attempt that records nothing."""
     async with session_factory() as session:
         session.add(
             ExecutionAttemptRow(
@@ -265,6 +268,7 @@ async def seed_execution_attempt(
                 status=status,
                 client_order_id=f"client-{attempt_id}",
                 signal_id=signal_id,
+                delivery_id=delivery_id,
             )
         )
         await session.commit()

@@ -6,13 +6,17 @@ test has nothing worth keeping, and archiving it would keep its name and its id
 forever. A strategy that ever acted (a signal, a reservation, an execution attempt,
 a ledger entry, a booking proposal) cannot be removed without breaking a record, so
 it is refused and archiving stays the only path. Enablement events are NOT history
-(owner decision 42, Q1): migration 0028 deletes them with their strategy.
+(owner decision 42, Q1): migration 0028 deletes them with their strategy. Neither are
+subscriptions (owner decision 19): migration 0031 deletes them with it too.
 
 **The sequence, in order:**
 
 1. An UNLOCKED read of the strategy row: it answers the 404 and gives the pool. A
    strategy's pool is immutable, so reading it before any lock is safe.
-2. The pool's advisory lock -- the SAME key ``AllocateCapital`` takes (``PoolLockPort``).
+2. The advisory lock of EVERY pool that holds a live subscription of the strategy,
+   lowest ``pool_id`` first -- the SAME key ``AllocateCapital`` takes for each
+   (``PoolLockPort``; ``subscriber_locks`` has the order and the re-read under the
+   row lock). The subscriptions themselves go with the strategy (decision 19).
 3. ``SELECT ... FOR UPDATE`` on the strategy row, re-read fresh. Everything decided
    below comes from THIS read. A row that is gone was deleted by a concurrent
    request: 404.
@@ -20,8 +24,8 @@ it is refused and archiving stays the only path. Enablement events are NOT histo
 5. Archived? Nothing to decide (owner decision 42, Q3): an archived strategy is
    disabled by construction and the history alone decides. It is never un-archived.
 6. The history, read inside both locks. Any non-zero BLOCKING count refuses
-   (``StrategyHasHistory``); the enablement events never do. Then the events are read,
-   while they still exist, for the INFO line.
+   (``StrategyHasHistory``); the enablement events and the subscriptions never do.
+   Then the events are read, while they still exist, for the INFO line.
 7. The ``DELETE``. A foreign-key refusal here means the count missed something: it is
    logged at ERROR naming the constraint and answered as ``StrategyHasHistory``.
 8. Commit, releasing both locks, then one INFO line. The events went with the strategy
@@ -62,7 +66,9 @@ from strategy_manager.strategies.application.ports import (
     StrategyHistoryPort,
     StrategyRepositoryPort,
     StrategyStillReferenced,
+    StrategySubscribersPort,
 )
+from strategy_manager.strategies.application.subscriber_locks import SubscriberLocks
 from strategy_manager.strategies.application.update_strategy import UnknownStrategy
 from strategy_manager.strategies.domain.enablement import uptime
 
@@ -89,13 +95,14 @@ class DeleteStrategy:
         self,
         repository: StrategyRepositoryPort,
         pool_lock: PoolLockPort,
+        subscribers: StrategySubscribersPort,
         history: StrategyHistoryPort,
         enablement_log: EnablementReaderPort,
         clock: ClockPort,
         commit: CommitPort,
     ) -> None:
         self._repository = repository
-        self._pool_lock = pool_lock
+        self._locks = SubscriberLocks(subscribers, pool_lock)
         self._history = history
         self._enablement_log = enablement_log
         self._clock = clock
@@ -113,15 +120,20 @@ class DeleteStrategy:
             unlocked.policy.settlement_currency.value,
         )
 
-        # Step 2: the pool's advisory lock FIRST, then the row lock (see the
-        # module docstring, "Lock order").
-        await self._pool_lock.acquire(unlocked.author_id, *pool)
+        # Step 2: the advisory lock of EVERY live subscriber's pool FIRST, lowest
+        # pool_id first, then the row lock (see the module docstring, "Lock
+        # order").
+        locked = await self._locks.acquire(strategy_id)
 
         # Step 3: the row lock, second, and a fresh read: everything below is
         # decided from it, never from the unlocked read.
         strategy = await self._repository.get_by_id_for_update(strategy_id)
         if strategy is None:
             self._refuse_unknown(strategy_id)
+
+        # The subscribers again, under the row lock: one who joined after step
+        # 2's read has a pool no lock covers (``SubscriberLocks``).
+        await self._locks.confirm(strategy_id, locked, action="delete")
 
         # Step 4: refused in the application, before any history is read.
         if strategy.enabled:
@@ -181,12 +193,13 @@ class DeleteStrategy:
         await self._commit.commit()
         logger.info(
             "strategy deleted: id=%s name=%r pool=%s/%s/%s archived=%s "
-            "enablement_events=%d first_enabled_at=%s uptime_seconds=%d",
+            "enablement_events=%d subscriptions=%d first_enabled_at=%s uptime_seconds=%d",
             strategy_id,
             strategy.name,
             *pool,
             strategy.archived_at is not None,
             history.enablement_events,
+            history.subscriptions,
             enablement.first_enabled_at.isoformat() if enablement.first_enabled_at else "never",
             round(enablement.seconds),
         )

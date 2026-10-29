@@ -2,6 +2,7 @@
 provider owns the adapter — ``main.py`` binds them together.
 """
 
+from collections.abc import Sequence
 from dataclasses import dataclass, fields
 from datetime import datetime
 from typing import Protocol
@@ -20,8 +21,9 @@ from strategy_manager.strategies.domain.strategy import Strategy
 PoolKey = tuple[str, str, str]
 
 
-# The history kinds that are reported but never refuse a delete (migration 0028).
-_NEVER_BLOCKING = frozenset({"enablement_events"})
+# The history kinds that are reported but never refuse a delete (migrations 0028
+# and 0031).
+_NEVER_BLOCKING = frozenset({"enablement_events", "subscriptions"})
 
 
 class StrategyRepositoryPort(Protocol):
@@ -111,6 +113,22 @@ class PoolCatalogPort(Protocol):
         (the public catalogue needs no key, and an existing strategy on a pool
         disabled later can still have its pairs edited).
         """
+        ...
+
+
+class AuthorSubscriptionPort(Protocol):
+    """Writes the author's own subscription to a strategy just registered.
+
+    A subscription is the only way to trade a strategy, its author included
+    (multi-user design AD3), so ``RegisterStrategy`` needs one in the SAME
+    transaction as the strategy row. The implementation flushes and never
+    commits: the caller commits once, so a failure here leaves neither row.
+    """
+
+    async def subscribe_author(self, strategy: Strategy) -> None:
+        """An ACTIVE subscription of ``strategy.author_id``, in the author's own
+        pool for the strategy's market, at the strategy's share. Raises
+        ``PoolNotAvailable`` when the author has no pool for the market."""
         ...
 
 
@@ -218,17 +236,20 @@ class StrategyHistory:
     of ``signals``, ``allocation``, ``execution``, ``ledger`` or
     ``reconciliation`` appears here, so this port stays free of those modules.
 
-    The six kinds are the five foreign keys into ``strategies`` plus the
+    The seven kinds are the six foreign keys into ``strategies`` plus the
     execution attempts that reach a strategy through a reservation or a
     signal. ``test_strategy_references_guard`` reads ``pg_constraint`` and
     fails when a migration adds a reference this class does not count.
 
     **Enablement events are counted but never block** (owner decision 42, Q1;
     migration 0028 deletes them with their strategy). They stay a field so the
-    refusal's body keeps its six keys and the delete's INFO line can name how
+    refusal's body keeps its keys and the delete's INFO line can name how
     many went; ``blocking()`` and ``is_empty()`` leave them out. Before 0028 is
     applied the foreign key still refuses a strategy that has events: the
     database says so, and ``DeleteStrategy`` answers it as ``HAS_HISTORY``.
+
+    **Subscriptions are the same** (owner decision 19; migration 0031 cascades
+    ``fk_subscriptions_strategy``): every status is counted, none refuses.
     """
 
     signals: int
@@ -237,10 +258,11 @@ class StrategyHistory:
     ledger_entries: int
     booking_proposals: int
     enablement_events: int
+    subscriptions: int
 
     def blocking(self) -> dict[str, int]:
         """The non-zero kinds that refuse a delete, in the fixed order of the
-        fields. Never ``enablement_events``."""
+        fields. Never ``enablement_events`` or ``subscriptions``."""
         return {
             field.name: count
             for field in fields(self)
@@ -259,6 +281,46 @@ class StrategyHistoryPort(Protocol):
     Read-only: it takes no lock and writes nothing."""
 
     async def history(self, strategy_id: UUID) -> StrategyHistory: ...
+
+
+@dataclass(frozen=True, slots=True)
+class SubscriberPool:
+    """One pool that holds a live (ACTIVE or LEAVING) subscription of a strategy.
+
+    ``pool`` is read from the capital pool's OWN row, not derived from the
+    strategy's market, so the lock taken is the one ``AllocateCapital`` takes for
+    that very row. ``user_id`` is the pool's owner, which ``LockKey`` folds in."""
+
+    pool_id: int
+    user_id: UUID
+    pool: PoolKey
+
+
+class StrategySubscribersPort(Protocol):
+    """What archive and delete need to know about a strategy's subscribers
+    (multi-user tasks.md C.9). Implemented by
+    ``strategies.infrastructure.subscribers_adapter.StrategySubscribersAdapter``,
+    which composes the subscriptions module's own repository and its
+    open-allocation read."""
+
+    async def live_pools(self, strategy_id: UUID) -> list[SubscriberPool]:
+        """The pool of every ACTIVE or LEAVING subscription of the strategy.
+        Read-only and unlocked: the caller sorts, locks, and then re-reads."""
+        ...
+
+    async def holders(
+        self, strategy_id: UUID, subscribers: Sequence[SubscriberPool]
+    ) -> list[UUID]:
+        """The subscribers (a subset of ``subscribers``, by user) that still hold
+        an open allocation of the strategy: a position the ledger holds under any
+        spelling of its symbol, or a reservation still holding capital."""
+        ...
+
+    async def end_all(self, strategy_id: UUID, now: datetime) -> int:
+        """Ends every ACTIVE or LEAVING subscription of the strategy through the
+        subscription's own ``end`` transition, and returns how many. Flushed, not
+        committed: the caller's commit makes it one unit with the archive."""
+        ...
 
 
 class PoolLockPort(Protocol):

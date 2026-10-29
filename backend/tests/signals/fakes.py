@@ -1,5 +1,5 @@
-"""Shared fakes for ``SignalOutcomePort`` (decision 25) and
-``TradeCapabilityPort`` (decisions 18 and 20)."""
+"""Shared fakes for ``SignalOutcomePort`` and ``DeliveryOutcomePort`` (decision 25;
+tasks.md C.7) and ``TradeCapabilityPort`` (decisions 18 and 20)."""
 
 from dataclasses import dataclass, field
 from uuid import UUID
@@ -26,8 +26,14 @@ class FakeTradeCapability:
 
 @dataclass
 class RecordingSignalOutcomes:
-    """``calls`` are ``record`` calls (settle, signal.process: a conflict with
-    a terminal signal warns); ``unless_terminal_calls`` are the silent path's
+    """Stands in for both outcome ports; the id it records is the row's: a
+    DELIVERY's for ``DeliveryOutcomePort`` and a SIGNAL's for ``SignalOutcomePort``.
+    The single-subscriber tests run in a world where a delivery's id IS its signal's
+    (``delivery_support.SoleSubscriberDeliveries``), so their assertions on that id
+    mean the same thing for either.
+
+    ``calls`` are ``record`` calls (settle, delivery.process: a conflict with a
+    terminal outcome warns); ``unless_terminal_calls`` are the silent path's
     (continuation abandonments, exhausted jobs). ``log`` (optional) receives
     ``"outcome.record"`` / ``"outcome.unless_terminal"`` in call order."""
 
@@ -35,12 +41,20 @@ class RecordingSignalOutcomes:
     unless_terminal_calls: list[tuple[UUID, SignalOutcome]] = field(default_factory=list)
     log: list[str] | None = None
 
-    async def record(self, signal_id: UUID, outcome: SignalOutcome) -> None:
-        self.calls.append((signal_id, outcome))
+    async def record(self, row_id: UUID, outcome: SignalOutcome) -> None:
+        self.calls.append((row_id, outcome))
         if self.log is not None:
             self.log.append("outcome.record")
 
-    async def record_unless_terminal(self, signal_id: UUID, outcome: SignalOutcome) -> None:
-        self.unless_terminal_calls.append((signal_id, outcome))
+    async def record_unless_terminal(self, row_id: UUID, outcome: SignalOutcome) -> None:
+        self.unless_terminal_calls.append((row_id, outcome))
         if self.log is not None:
             self.log.append("outcome.unless_terminal")
+
+
+class SoleSubscriberDeliverySignals:
+    """``DeliverySignalPort`` for the single-subscriber world: a delivery has its
+    signal's own id."""
+
+    async def signal_of(self, delivery_id: UUID) -> UUID:
+        return delivery_id

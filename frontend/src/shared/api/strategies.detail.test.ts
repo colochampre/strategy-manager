@@ -12,12 +12,11 @@ import {
   replaceAllowedPairs,
   useArchiveStrategy,
   useReplaceAllowedPairs,
-  useSetAllocationPercent,
   useSetStrategyEnabled,
   useStrategy,
 } from "@/shared/api/strategies";
 import type { Strategy } from "@/shared/api/types";
-import { jsonResponse } from "@/test/harness";
+import { jsonResponse, subscriptionOf } from "@/test/harness";
 
 const ID = "11111111-1111-4111-8111-111111111111";
 
@@ -29,7 +28,7 @@ function strategy(overrides: Partial<Strategy> = {}): Strategy {
     venue: "usdt-m",
     settlement_currency: "USDT",
     fill_mode: "SKIP",
-    allocation_percent: "100",
+    subscription: subscriptionOf(ID, "100"),
     enabled: false,
     archived_at: null,
     allowed_pairs: ["ETHUSDT"],
@@ -65,6 +64,27 @@ describe("fetchStrategy", () => {
 
   it("reads a body that is not a strategy as an error, never as a strategy", async () => {
     stubFetch(jsonResponse({ id: ID, name: "no pool" }));
+    await expect(fetchStrategy(ID)).rejects.toBeInstanceOf(ApiError);
+  });
+
+  it("reads the signed-in user's subscription with the strategy; the strategy carries no share of its own", async () => {
+    stubFetch(jsonResponse(strategy({ subscription: subscriptionOf(ID, "37.5") })));
+
+    await expect(fetchStrategy(ID)).resolves.toEqual(strategy({ subscription: subscriptionOf(ID, "37.5") }));
+  });
+
+  it("reads a strategy the user holds no subscription to", async () => {
+    stubFetch(jsonResponse(strategy({ subscription: null })));
+
+    await expect(fetchStrategy(ID)).resolves.toMatchObject({ id: ID, subscription: null });
+  });
+
+  it.each([
+    ["a subscription that is not one", { ...subscriptionOf(ID), status: "PAUSED" }],
+    ["no subscription key at all", undefined],
+  ])("reads %s as an error", async (_case, subscription) => {
+    stubFetch(jsonResponse({ ...strategy(), subscription }));
+
     await expect(fetchStrategy(ID)).rejects.toBeInstanceOf(ApiError);
   });
 
@@ -196,17 +216,6 @@ describe("what does not read the open positions again (T10)", () => {
     const keys = await invalidatedKeys(async (wrapper) => {
       const { result } = renderHook(() => useSetStrategyEnabled(ID), { wrapper });
       result.current.mutate(true);
-      await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    });
-
-    expect(keys).toContainEqual(["strategies"]);
-    expect(keys).not.toContainEqual(["positions", "open"]);
-  });
-
-  it("a share change invalidates no ['positions','open']", async () => {
-    const keys = await invalidatedKeys(async (wrapper) => {
-      const { result } = renderHook(() => useSetAllocationPercent(ID), { wrapper });
-      result.current.mutate("50");
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
     });
 

@@ -76,7 +76,8 @@ from strategy_manager.strategies.infrastructure.exposure_adapter import Strategy
 from strategy_manager.strategies.infrastructure.models import StrategyRow
 from strategy_manager.strategies.infrastructure.pool_lock_adapter import PoolLockAdapter
 from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStrategyRepository
-from tests.owner import OWNER_ID, ensure_pool
+from tests.owner import OWNER_ID, ensure_delivery, ensure_pool
+from tests.strategies.wiring import real_subscribers
 
 pytestmark = pytest.mark.integration
 
@@ -166,6 +167,9 @@ async def _seed_open_fill(
                 id=allocation_id,
                 strategy_id=strategy_id,
                 signal_id=signal_id,
+                delivery_id=await ensure_delivery(
+                    session, signal_id=signal_id, strategy_id=strategy_id
+                ),
                 pool_key=AllocationPoolKey(
                     exchange=Exchange(POOL[0]),
                     venue=Venue(POOL[1]),
@@ -254,6 +258,9 @@ async def _seed_open_short_fill(
                 id=allocation_id,
                 strategy_id=strategy_id,
                 signal_id=signal_id,
+                delivery_id=await ensure_delivery(
+                    session, signal_id=signal_id, strategy_id=strategy_id
+                ),
                 pool_key=AllocationPoolKey(
                     exchange=Exchange(POOL[0]),
                     venue=Venue(POOL[1]),
@@ -385,6 +392,7 @@ def _build_archive_strategy(
     return ArchiveStrategy(
         repository=SqlAlchemyStrategyRepository(session),
         pool_lock=PoolLockAdapter(session),
+        subscribers=real_subscribers(session),
         exposure=StrategyExposureAdapter(
             ledger=SqlAlchemyLedgerRepository(session),
             symbol_holdings=ReadSymbolHoldings(SqlAlchemyLedgerRepository(session)),
@@ -637,6 +645,7 @@ async def test_archive_unknown_strategy_raises() -> None:
     use_case = ArchiveStrategy(
         repository=_NeverCalledRepository(),  # type: ignore[arg-type]
         pool_lock=None,  # type: ignore[arg-type]
+        subscribers=None,  # type: ignore[arg-type]
         exposure=None,  # type: ignore[arg-type]
         commit=None,  # type: ignore[arg-type]
         clock=FixedClock(),
@@ -742,6 +751,9 @@ async def test_live_reservation_with_no_fill_yet_still_refuses_archive(
                 id=reservation_id,
                 strategy_id=strategy_id,
                 signal_id=signal_id,
+                delivery_id=await ensure_delivery(
+                    session, signal_id=signal_id, strategy_id=strategy_id
+                ),
                 pool_key=AllocationPoolKey(
                     exchange=Exchange(POOL[0]),
                     venue=Venue(POOL[1]),

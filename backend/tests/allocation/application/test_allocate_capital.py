@@ -179,11 +179,12 @@ def _build_use_case(
     return use_case, lock, reservations, commit
 
 
-async def test_the_pool_read_and_checked_is_the_strategy_authors() -> None:
-    """Multi-user design AD8 (B.5): a signal is allocated in its strategy's
-    author's pool. Both the in-lock balance read and the pool-status check ask
-    about the author's pool, never another user's on the same market."""
+async def test_the_pool_read_and_checked_is_the_deliverys_users_not_the_authors() -> None:
+    """Multi-user design AD5 (C.6): a delivery is allocated in its SUBSCRIBER's
+    pool. Both the in-lock balance read and the pool-status check ask about the
+    command's user, never the strategy's author on the same market."""
     author = UUID("5e6f7a8b-0000-4000-8000-00000000b1b1")
+    subscriber = UUID("5e6f7a8b-0000-4000-8000-00000000c1c1")
     balance = FakePoolBalancePort(
         PoolBalance(total=Decimal("1000"), available=Decimal("1000"), min_order_size=Decimal("10"))
     )
@@ -205,18 +206,21 @@ async def test_the_pool_read_and_checked_is_the_strategy_authors() -> None:
             signal_id=uuid4(),
             strategy_id=uuid4(),
             requested=Money(amount=Decimal("200"), currency=Currency.USDT),
+            user_id=subscriber,
+            delivery_id=uuid4(),
         )
     )
 
     assert result.outcome is DecisionOutcome.FULL
-    assert balance.users == [author]
-    assert status.users == [author]
+    assert balance.users == [subscriber]
+    assert status.users == [subscriber]
 
 
-async def test_the_pool_lock_taken_is_the_strategy_authors() -> None:
-    """B.4: the advisory lock identifies the author's pool, so two users on one
-    market never serialize against each other."""
+async def test_the_pool_lock_taken_is_the_deliverys_users_not_the_authors() -> None:
+    """B.4 / C.6: the advisory lock identifies the subscriber's pool, so two
+    users on one market never serialize against each other."""
     author = UUID("5e6f7a8b-0000-4000-8000-00000000b3b3")
+    subscriber = UUID("5e6f7a8b-0000-4000-8000-00000000c3c3")
     use_case, lock, _, _ = _build_use_case(
         policy=_enabled_snapshot(author_id=author),
         pool_balance=PoolBalance(
@@ -229,17 +233,22 @@ async def test_the_pool_lock_taken_is_the_strategy_authors() -> None:
             signal_id=uuid4(),
             strategy_id=uuid4(),
             requested=Money(amount=Decimal("200"), currency=Currency.USDT),
+            user_id=subscriber,
+            delivery_id=uuid4(),
         )
     )
 
-    assert [key.user_id for key in lock.acquired] == [author]
+    assert [key.user_id for key in lock.acquired] == [subscriber]
 
 
-async def test_the_reservations_read_and_written_are_the_strategy_authors() -> None:
-    """Multi-user design AD8 (B.5): the resume lookup, the active sum the
+async def test_the_reservations_read_and_written_are_the_deliverys_users_not_the_authors() -> None:
+    """Multi-user design AD8 / C.6: the resume lookup, the active sum the
     decision is made from and the reservation written all belong to the
-    strategy's author, never to another user on the same market."""
+    delivery's user, never to the strategy's author or another user on the
+    same market. The reservation also names the delivery it serves."""
     author = UUID("5e6f7a8b-0000-4000-8000-00000000b2b2")
+    subscriber = UUID("5e6f7a8b-0000-4000-8000-00000000c2c2")
+    delivery_id = uuid4()
     reservations = FakeReservationRepository()
     use_case, _, _, _ = _build_use_case(
         policy=_enabled_snapshot(author_id=author),
@@ -254,13 +263,16 @@ async def test_the_reservations_read_and_written_are_the_strategy_authors() -> N
             signal_id=uuid4(),
             strategy_id=uuid4(),
             requested=Money(amount=Decimal("200"), currency=Currency.USDT),
+            user_id=subscriber,
+            delivery_id=delivery_id,
         )
     )
 
     assert result.outcome is DecisionOutcome.FULL
-    assert reservations.found_for == [author]
-    assert reservations.summed_for == [author]
-    assert reservations.inserted_for == [author]
+    assert reservations.found_for == [subscriber]
+    assert reservations.summed_for == [subscriber]
+    assert reservations.inserted_for == [subscriber]
+    assert [r.delivery_id for r in reservations.inserted] == [delivery_id]
 
 
 async def test_resume_returns_existing_reservation_without_taking_the_lock() -> None:
@@ -287,6 +299,8 @@ async def test_resume_returns_existing_reservation_without_taking_the_lock() -> 
             signal_id=existing.signal_id,
             strategy_id=existing.strategy_id,
             requested=Money(amount=Decimal("200"), currency=Currency.USDT),
+            user_id=OWNER_ID,
+            delivery_id=uuid4(),
         )
     )
 
@@ -307,6 +321,8 @@ async def test_disabled_strategy_skips_without_taking_the_lock() -> None:
             signal_id=uuid4(),
             strategy_id=uuid4(),
             requested=Money(amount=Decimal("200"), currency=Currency.USDT),
+            user_id=OWNER_ID,
+            delivery_id=uuid4(),
         )
     )
 
@@ -326,6 +342,8 @@ async def test_unknown_pool_raises() -> None:
                 signal_id=uuid4(),
                 strategy_id=uuid4(),
                 requested=Money(amount=Decimal("200"), currency=Currency.USDT),
+            user_id=OWNER_ID,
+            delivery_id=uuid4(),
             )
         )
 
@@ -344,6 +362,8 @@ async def test_currency_mismatch_raises() -> None:
                 signal_id=uuid4(),
                 strategy_id=uuid4(),
                 requested=Money(amount=Decimal("200"), currency=Currency.BTC),
+                user_id=OWNER_ID,
+                delivery_id=uuid4(),
             )
         )
 
@@ -364,6 +384,8 @@ async def test_non_positive_request_raises() -> None:
                 signal_id=uuid4(),
                 strategy_id=uuid4(),
                 requested=Money(amount=Decimal("0"), currency=Currency.USDT),
+                user_id=OWNER_ID,
+                delivery_id=uuid4(),
             )
         )
 
@@ -384,6 +406,8 @@ async def test_full_allocation_takes_the_lock_writes_a_reservation_and_commits()
             signal_id=uuid4(),
             strategy_id=strategy_id,
             requested=Money(amount=Decimal("200"), currency=Currency.USDT),
+            user_id=OWNER_ID,
+            delivery_id=uuid4(),
         )
     )
 
@@ -447,6 +471,8 @@ async def test_in_lock_reread_skips_with_strategy_disabled_when_disabled_after_p
                 signal_id=signal_id,
                 strategy_id=strategy_id,
                 requested=Money(amount=Decimal("200"), currency=Currency.USDT),
+            user_id=OWNER_ID,
+            delivery_id=uuid4(),
             )
         )
 
@@ -506,6 +532,8 @@ async def test_in_lock_reread_skips_with_strategy_archived_when_archived_after_p
                 signal_id=signal_id,
                 strategy_id=strategy_id,
                 requested=Money(amount=Decimal("200"), currency=Currency.USDT),
+            user_id=OWNER_ID,
+            delivery_id=uuid4(),
             )
         )
 
@@ -550,6 +578,8 @@ async def test_pre_lock_disabled_skip_logs_exactly_one_warning(
                 signal_id=signal_id,
                 strategy_id=strategy_id,
                 requested=Money(amount=Decimal("200"), currency=Currency.USDT),
+            user_id=OWNER_ID,
+            delivery_id=uuid4(),
             )
         )
 
@@ -586,6 +616,8 @@ async def test_decide_skip_no_availability_logs_exactly_one_warning(
                 signal_id=signal_id,
                 strategy_id=strategy_id,
                 requested=Money(amount=Decimal("200"), currency=Currency.USDT),
+            user_id=OWNER_ID,
+            delivery_id=uuid4(),
             )
         )
 
@@ -621,6 +653,8 @@ async def test_decide_skip_insufficient_availability_logs_exactly_one_warning(
                 signal_id=signal_id,
                 strategy_id=strategy_id,
                 requested=Money(amount=Decimal("200"), currency=Currency.USDT),
+            user_id=OWNER_ID,
+            delivery_id=uuid4(),
             )
         )
 
@@ -656,6 +690,8 @@ async def test_decide_skip_below_min_order_size_logs_exactly_one_warning(
                 signal_id=signal_id,
                 strategy_id=strategy_id,
                 requested=Money(amount=Decimal("200"), currency=Currency.USDT),
+            user_id=OWNER_ID,
+            delivery_id=uuid4(),
             )
         )
 
@@ -726,6 +762,8 @@ async def test_reservation_records_in_lock_pool_capital_not_prelock_read() -> No
             signal_id=uuid4(),
             strategy_id=strategy_id,
             requested=Money(amount=Decimal("200"), currency=Currency.USDT),
+            user_id=OWNER_ID,
+            delivery_id=uuid4(),
         )
     )
 
@@ -752,6 +790,8 @@ async def test_reservation_records_the_total_not_the_available_of_the_pool() -> 
             signal_id=uuid4(),
             strategy_id=strategy_id,
             requested=Money(amount=Decimal("200"), currency=Currency.USDT),
+            user_id=OWNER_ID,
+            delivery_id=uuid4(),
         )
     )
 
@@ -776,6 +816,8 @@ async def test_a_partial_grant_records_the_pool_total_too() -> None:
             signal_id=uuid4(),
             strategy_id=strategy_id,
             requested=Money(amount=Decimal("200"), currency=Currency.USDT),
+            user_id=OWNER_ID,
+            delivery_id=uuid4(),
         )
     )
 
@@ -808,6 +850,8 @@ async def test_a_pool_total_of_zero_is_stored_as_none_never_as_zero(
                 signal_id=uuid4(),
                 strategy_id=strategy_id,
                 requested=Money(amount=Decimal("200"), currency=Currency.USDT),
+            user_id=OWNER_ID,
+            delivery_id=uuid4(),
             )
         )
 
@@ -864,6 +908,8 @@ async def test_resume_of_retried_allocation_returns_existing_row_unchanged() -> 
             signal_id=signal_id,
             strategy_id=strategy_id,
             requested=Money(amount=Decimal("200"), currency=Currency.USDT),
+            user_id=OWNER_ID,
+            delivery_id=uuid4(),
         )
     )
 

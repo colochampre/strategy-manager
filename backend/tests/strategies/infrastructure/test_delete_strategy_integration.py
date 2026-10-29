@@ -59,6 +59,9 @@ from strategy_manager.strategies.application.register_strategy import (
 )
 from strategy_manager.strategies.domain.enablement import uptime
 from strategy_manager.strategies.domain.strategy import FillMode
+from strategy_manager.strategies.infrastructure.author_subscription_adapter import (
+    SqlAlchemyAuthorSubscription,
+)
 from strategy_manager.strategies.infrastructure.enablement_log import (
     SqlAlchemyEnablementLog,
     StrategyEnablementEventRow,
@@ -67,8 +70,9 @@ from strategy_manager.strategies.infrastructure.history_adapter import StrategyH
 from strategy_manager.strategies.infrastructure.models import StrategyRow
 from strategy_manager.strategies.infrastructure.pool_lock_adapter import PoolLockAdapter
 from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStrategyRepository
-from tests.owner import OWNER_ID, ensure_pool, seed_owner
+from tests.owner import OWNER_ID, ensure_delivery, ensure_pool, seed_owner
 from tests.pg_head_schema import migrated_head_database
+from tests.strategies.wiring import real_subscribers
 
 pytestmark = pytest.mark.integration
 
@@ -111,7 +115,7 @@ class ZeroHistory:
     still be able to overrule."""
 
     async def history(self, strategy_id: UUID) -> StrategyHistory:
-        return StrategyHistory(0, 0, 0, 0, 0, 0)
+        return StrategyHistory(0, 0, 0, 0, 0, 0, 0)
 
 
 def _real_history(session: AsyncSession) -> StrategyHistoryAdapter:
@@ -122,6 +126,7 @@ def _real_history(session: AsyncSession) -> StrategyHistoryAdapter:
         ledger=SqlAlchemyLedgerRepository(session),
         proposals=SqlAlchemyBookingProposalRepository(session),
         enablement_log=SqlAlchemyEnablementLog(session),
+        session=session,
     )
 
 
@@ -129,6 +134,7 @@ def _use_case(session: AsyncSession, history: object | None = None) -> DeleteStr
     return DeleteStrategy(
         repository=SqlAlchemyStrategyRepository(session),
         pool_lock=PoolLockAdapter(session),
+        subscribers=real_subscribers(session),
         history=history if history is not None else _real_history(session),  # type: ignore[arg-type]
         enablement_log=SqlAlchemyEnablementLog(session),
         clock=_Clock(),  # type: ignore[arg-type]
@@ -216,7 +222,8 @@ async def test_a_never_enabled_strategy_is_deleted_and_no_table_carries_its_id(
         "reservations",
         "signals",
         "strategy_enablement_events",
-    ]  # the five tables of design addendum 9x, § A
+        "subscriptions",
+    ]  # the five tables of design addendum 9x, § A, and the subscriptions of 0031
     for table in tables:
         count = await _scalar(
             factory, f"SELECT count(*) FROM {table} WHERE strategy_id = :id", id=strategy_id
@@ -281,6 +288,59 @@ async def test_a_strategy_enabled_and_disabled_once_is_deleted_with_its_events(
     assert "enablement_events=2" in message
     assert f"first_enabled_at={enabled_at.isoformat()}" in message
     assert "uptime_seconds=5400" in message
+
+
+async def test_a_subscribed_strategy_is_deleted_with_its_subscriptions_and_no_others(
+    factory: Factory, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Migration 0031: the subscriptions go with their strategy, through the real
+    foreign key; another strategy's subscription stays. The INFO line counts them."""
+    strategy_id = await _strategy(factory)
+    kept = await _strategy(factory)
+    for subscribed in (strategy_id, strategy_id, kept):
+        await _scalar_insert_subscription(factory, subscribed, ended=subscribed == strategy_id)
+
+    with caplog.at_level(logging.DEBUG, logger=LOGGER):
+        refusal = await _refusal(factory, strategy_id)
+
+    assert refusal is None, repr(refusal)
+    assert await _strategy_rows(factory, strategy_id) == 0
+    gone = await _scalar(
+        factory, "SELECT count(*) FROM subscriptions WHERE strategy_id = :id", id=strategy_id
+    )
+    stayed = await _scalar(
+        factory, "SELECT count(*) FROM subscriptions WHERE strategy_id = :id", id=kept
+    )
+    assert gone == 0
+    assert stayed == 1
+    records = [record for record in caplog.records if record.name == LOGGER]
+    assert [record.levelno for record in records] == [logging.INFO]
+    assert "subscriptions=2" in records[0].getMessage()
+
+
+async def _scalar_insert_subscription(
+    factory: Factory, strategy_id: UUID, *, ended: bool
+) -> None:
+    """The owner's subscription, in the owner's pool on the strategy's market.
+    Two ENDED ones for one strategy are allowed by the partial unique."""
+    async with factory() as session:
+        await session.execute(
+            text(
+                "INSERT INTO subscriptions (id, user_id, strategy_id, pool_id, "
+                "allocation_percent, status) SELECT gen_random_uuid(), :owner, :strategy, p.id, "
+                "20, :status FROM capital_pools AS p WHERE p.user_id = :owner "
+                "AND (p.exchange, p.venue, p.settlement_currency) = (:e, :v, :c)"
+            ),
+            {
+                "owner": OWNER_ID,
+                "strategy": strategy_id,
+                "status": "ENDED" if ended else "ACTIVE",
+                "e": _POOL[0],
+                "v": _POOL[1],
+                "c": _POOL[2],
+            },
+        )
+        await session.commit()
 
 
 def _ledger_entry_of(strategy_id: UUID, other: UUID, pool_id: int) -> list[object]:
@@ -362,6 +422,13 @@ async def test_a_strategy_with_a_ledger_entry_is_refused_and_the_entry_is_byte_f
         pool_id = await ensure_pool(session, _POOL)
     signal, reservation, attempt, entry = _ledger_entry_of(strategy_id, other, pool_id)
     await _seed(factory, signal)
+    # The reservation serves a delivery of its signal (migration 0032), to a
+    # subscription of ``other``'s, the strategy that signal belongs to.
+    async with factory() as session:
+        reservation.delivery_id = await ensure_delivery(  # type: ignore[attr-defined]
+            session, signal_id=signal.id, strategy_id=other  # type: ignore[attr-defined]
+        )
+        await session.commit()
     await _seed(factory, reservation)
     await _seed(factory, attempt)
     await _seed(factory, entry)
@@ -455,6 +522,7 @@ async def test_a_deleted_id_registers_again_with_no_event_and_zero_uptime(
             commit=session,  # type: ignore[arg-type]
             enablement_log=SqlAlchemyEnablementLog(session),
             clock=_Clock(),  # type: ignore[arg-type]
+            author_subscriptions=SqlAlchemyAuthorSubscription(session),
         ).register(
             RegisterCommand(
                 strategy_id=strategy_id,

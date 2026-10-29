@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "@/shared/api/client";
 import { API_BASE_URL } from "@/shared/api/config";
 import { setStrategyName, useRenameStrategy } from "@/shared/api/strategies";
-import { jsonResponse } from "@/test/harness";
+import { jsonResponse, subscriptionOf } from "@/test/harness";
 
 const ID = "11111111-1111-4111-8111-111111111111";
 const OTHER_ID = "22222222-2222-4222-8222-222222222222";
@@ -19,7 +19,7 @@ function strategy(overrides: Record<string, unknown> = {}) {
     venue: "usdt-m",
     settlement_currency: "USDT",
     fill_mode: "SKIP",
-    allocation_percent: "33.5",
+    subscription: subscriptionOf(ID, "33.5"),
     enabled: true,
     archived_at: null,
     allowed_pairs: ["SOLUSDT"],

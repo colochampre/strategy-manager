@@ -32,7 +32,7 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -80,6 +80,7 @@ from strategy_manager.strategies.application.replace_allowed_pairs import (
     ReplaceAllowedPairs,
     ReplaceAllowedPairsCommand,
 )
+from strategy_manager.strategies.application.subscriber_locks import SubscribersChanged
 from strategy_manager.strategies.application.update_strategy import (
     StrategyArchived,
     UnknownStrategy,
@@ -95,6 +96,9 @@ from strategy_manager.strategies.domain.pair_catalog import (
     UnknownPairs,
 )
 from strategy_manager.strategies.domain.strategy import FillMode, Strategy
+from strategy_manager.strategies.infrastructure.author_subscription_adapter import (
+    SqlAlchemyAuthorSubscription,
+)
 from strategy_manager.strategies.infrastructure.enablement_log import (
     SqlAlchemyEnablementLog,
 )
@@ -111,6 +115,14 @@ from strategy_manager.strategies.infrastructure.repository import (
     SqlAlchemyStrategyRepository,
 )
 from strategy_manager.strategies.infrastructure.share_input import Share
+from strategy_manager.strategies.infrastructure.subscribers_adapter import (
+    StrategySubscribersAdapter,
+)
+from strategy_manager.subscriptions.domain.subscription import Subscription
+from strategy_manager.subscriptions.infrastructure.repository import (
+    SqlAlchemySubscriptionRepository,
+)
+from strategy_manager.subscriptions.infrastructure.router import SubscriptionView
 
 # Authentication is attached to the ROUTER, so it applies to every route
 # declared below AND to every route anyone adds after this line — without the
@@ -168,14 +180,18 @@ class StrategyView(BaseModel):
     venue: Venue
     settlement_currency: Currency
     fill_mode: FillMode
-    allocation_percent: Money
     enabled: bool
     archived_at: datetime | None
     allowed_pairs: list[str]
     uptime: UptimeView
+    # The SIGNED-IN user's own ACTIVE or LEAVING subscription to this strategy, or
+    # null (multi-user C.4b). The share lives there, not on the strategy.
+    subscription: SubscriptionView | None
 
     @classmethod
-    def of(cls, strategy: Strategy, uptime_value: Uptime) -> "StrategyView":
+    def of(
+        cls, strategy: Strategy, uptime_value: Uptime, subscription: Subscription | None
+    ) -> "StrategyView":
         return cls(
             id=strategy.id,
             name=strategy.name,
@@ -183,12 +199,22 @@ class StrategyView(BaseModel):
             venue=strategy.policy.venue,
             settlement_currency=strategy.policy.settlement_currency,
             fill_mode=strategy.policy.fill_mode,
-            allocation_percent=strategy.policy.allocation_percent.value,
             enabled=strategy.enabled,
             archived_at=strategy.archived_at,
             allowed_pairs=strategy.allowed_pairs.sorted(),
             uptime=UptimeView.of(uptime_value),
+            subscription=None if subscription is None else SubscriptionView.of(subscription),
         )
+
+
+async def _view(
+    session: AsyncSession, user: User, strategy: Strategy, events: list[EnablementEvent]
+) -> StrategyView:
+    """One strategy as ``user`` sees it: its uptime, and the user's own subscription."""
+    held = await SqlAlchemySubscriptionRepository(session).live_for_strategies(
+        user.id, [strategy.id]
+    )
+    return StrategyView.of(strategy, uptime(events, datetime.now(UTC)), held.get(strategy.id))
 
 
 class EnablementEventView(BaseModel):
@@ -226,8 +252,22 @@ class UpdateRequest(BaseModel):
 
     name: str | None = Field(default=None, min_length=1)
     fill_mode: FillMode | None = None
-    allocation_percent: Share | None = None
     enabled: bool | None = None
+    # The share is each subscriber's now (``PATCH /api/subscriptions/{id}``). A body
+    # that still carries one is refused, whatever its value, rather than accepted
+    # and ignored: the validator below fires for any value present, ``null``
+    # included, and never for the default. Only this field is refused; other
+    # unknown keys are ignored as before.
+    allocation_percent: object = Field(
+        default=None,
+        exclude=True,
+        description="Refused: change a share through PATCH /api/subscriptions/{id}.",
+    )
+
+    @field_validator("allocation_percent", mode="before")
+    @classmethod
+    def _refuse_share(cls, value: object) -> object:
+        raise ValueError("a strategy has no share; change it through its subscription")
 
 
 class SharePreviewPoolBody(BaseModel):
@@ -387,6 +427,7 @@ def get_register_strategy(session: SessionDep, pairs: PairCatalogDep) -> Registe
         commit=session,
         enablement_log=SqlAlchemyEnablementLog(session),
         clock=SystemClock(),
+        author_subscriptions=SqlAlchemyAuthorSubscription(session),
     )
 
 
@@ -408,12 +449,18 @@ def get_preview_share(sizing: Annotated[PoolSizingPort, Depends(get_pool_sizing)
     return PreviewShare(sizing)
 
 
+def _subscribers(session: AsyncSession) -> StrategySubscribersAdapter:
+    ledger = SqlAlchemyLedgerRepository(session)
+    return StrategySubscribersAdapter(session, ledger, ReadSymbolHoldings(ledger))
+
+
 def get_delete_strategy(session: SessionDep) -> DeleteStrategy:
     """The real wiring, the ``get_register_strategy`` pattern: a router test
     overrides this ONE dependency."""
     return DeleteStrategy(
         repository=SqlAlchemyStrategyRepository(session),
         pool_lock=PoolLockAdapter(session),
+        subscribers=_subscribers(session),
         history=StrategyHistoryAdapter(
             signals=SqlAlchemySignalRepository(session),
             reservations=SqlAlchemyReservationRepository(session),
@@ -421,6 +468,7 @@ def get_delete_strategy(session: SessionDep) -> DeleteStrategy:
             ledger=SqlAlchemyLedgerRepository(session),
             proposals=SqlAlchemyBookingProposalRepository(session),
             enablement_log=SqlAlchemyEnablementLog(session),
+            session=session,
         ),
         enablement_log=SqlAlchemyEnablementLog(session),
         clock=SystemClock(),
@@ -454,6 +502,9 @@ async def register_strategy(
     except StrategyAlreadyRegistered as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except PoolNotAvailable as exc:
+        # May come after the strategy row was flushed (the author's pool deleted
+        # since the check): the rollback leaves neither row and frees its locks.
+        await session.rollback()
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except EmptyAllowedPairs as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -470,16 +521,17 @@ async def register_strategy(
 
     # A just-created strategy has zero events by construction (creation
     # writes no event, F8) -- no query needed for its uptime.
-    return StrategyView.of(strategy, uptime([], datetime.now(UTC)))
+    return await _view(session, user, strategy, [])
 
 
 @router.get("", response_model=list[StrategyView])
 async def list_strategies(
-    session: SessionDep, include_archived: bool = False
+    session: SessionDep, user: CurrentUserDep, include_archived: bool = False
 ) -> list[StrategyView]:
     """Every author's strategies, unscoped by design: an admin read (owner
     decision 16 keeps strategies admin-only, and AD8 makes the strategy list a
-    public read once authoring opens). It takes no ``user_id``."""
+    public read once authoring opens). The strategies are not scoped to a user;
+    each carries the SIGNED-IN user's own subscription to it, from one query."""
     strategies = await SqlAlchemyStrategyRepository(session).list_all(
         include_archived=include_archived
     )
@@ -490,22 +542,27 @@ async def list_strategies(
     events_by_strategy = await SqlAlchemyEnablementLog(session).list_for_many(
         [strategy.id for strategy in strategies]
     )
+    held = await SqlAlchemySubscriptionRepository(session).live_for_strategies(
+        user.id, [strategy.id for strategy in strategies]
+    )
     now = datetime.now(UTC)
     return [
         StrategyView.of(
-            strategy, uptime(events_by_strategy.get(strategy.id, []), now)
+            strategy, uptime(events_by_strategy.get(strategy.id, []), now), held.get(strategy.id)
         )
         for strategy in strategies
     ]
 
 
 @router.get("/{strategy_id}", response_model=StrategyView)
-async def get_strategy(strategy_id: UUID, session: SessionDep) -> StrategyView:
+async def get_strategy(
+    strategy_id: UUID, session: SessionDep, user: CurrentUserDep
+) -> StrategyView:
     strategy = await SqlAlchemyStrategyRepository(session).get_by_id(strategy_id)
     if strategy is None:
         raise HTTPException(status_code=404, detail="no such strategy")
     events = await SqlAlchemyEnablementLog(session).list_for(strategy_id)
-    return StrategyView.of(strategy, uptime(events, datetime.now(UTC)))
+    return await _view(session, user, strategy, events)
 
 
 @router.get("/{strategy_id}/events", response_model=list[EnablementEventView])
@@ -523,6 +580,7 @@ async def get_strategy_events(
 async def preview_share(
     strategy_id: UUID,
     session: SessionDep,
+    user: CurrentUserDep,
     use_case: Annotated[PreviewShare, Depends(get_preview_share)],
     share: Annotated[Share | None, Query()] = None,
 ) -> SharePreviewBody:
@@ -544,11 +602,25 @@ async def preview_share(
         raise HTTPException(status_code=404, detail="no such strategy")
     policy = strategy.policy
     pool = PoolKey(policy.exchange, policy.venue, policy.settlement_currency)
-    previewed = policy.allocation_percent.value if share is None else share
+    # No ``share`` asked: the signed-in user's own subscription's share, since that
+    # is what sizes their next opening (tasks.md C.6). A user who holds none gets
+    # the strategy's own copy, which is what the preview always answered before.
+    previewed = share
+    if previewed is None:
+        held = await SqlAlchemySubscriptionRepository(session).live_for_strategies(
+            user.id, [strategy_id]
+        )
+        subscription = held.get(strategy_id)
+        previewed = (
+            subscription.allocation_percent.value
+            if subscription is not None
+            else policy.allocation_percent.value
+        )
     try:
-        # The author's pool (B.5): the pool a signal of this strategy is
-        # allocated in, whoever is signed in to look at it.
-        preview = await use_case.preview(strategy.author_id, pool, previewed)
+        # The SIGNED-IN user's own pool on the strategy's market (C.4b): a share is
+        # a part of the subscriber's pool, so another user previews against theirs,
+        # not the author's.
+        preview = await use_case.preview(user.id, pool, previewed)
     except UnknownPoolError as exc:
         logger.error("share preview refused for strategy %s: %s", strategy_id, exc)
         raise HTTPException(status_code=500, detail=SHARE_PREVIEW_FAULT_DETAIL) from exc
@@ -560,6 +632,7 @@ async def replace_allowed_pairs(
     strategy_id: UUID,
     body: ReplacePairsRequest,
     session: SessionDep,
+    user: CurrentUserDep,
     use_case: Annotated[ReplaceAllowedPairs, Depends(get_replace_allowed_pairs)],
 ) -> StrategyView:
     try:
@@ -583,12 +656,12 @@ async def replace_allowed_pairs(
         raise _pair_refusal(exc) from exc
 
     events = await SqlAlchemyEnablementLog(session).list_for(strategy_id)
-    return StrategyView.of(strategy, uptime(events, datetime.now(UTC)))
+    return await _view(session, user, strategy, events)
 
 
 @router.patch("/{strategy_id}", response_model=StrategyView)
 async def update_strategy(
-    strategy_id: UUID, body: UpdateRequest, session: SessionDep
+    strategy_id: UUID, body: UpdateRequest, session: SessionDep, user: CurrentUserDep
 ) -> StrategyView:
     use_case = UpdateStrategy(
         repository=SqlAlchemyStrategyRepository(session),
@@ -602,7 +675,6 @@ async def update_strategy(
                 strategy_id=strategy_id,
                 name=body.name,
                 fill_mode=body.fill_mode,
-                allocation_percent=body.allocation_percent,
                 enabled=body.enabled,
             )
         )
@@ -619,11 +691,13 @@ async def update_strategy(
         ) from exc
 
     events = await SqlAlchemyEnablementLog(session).list_for(strategy_id)
-    return StrategyView.of(strategy, uptime(events, datetime.now(UTC)))
+    return await _view(session, user, strategy, events)
 
 
 @router.post("/{strategy_id}/archive", response_model=StrategyView)
-async def archive_strategy(strategy_id: UUID, session: SessionDep) -> StrategyView:
+async def archive_strategy(
+    strategy_id: UUID, session: SessionDep, user: CurrentUserDep
+) -> StrategyView:
     """Decision 14: archive only a disabled, flat strategy. Idempotent --
     calling this again on an already-archived strategy answers 200 with the
     SAME ``archived_at``, never a fresh one (design.md § 8's sequence
@@ -631,6 +705,7 @@ async def archive_strategy(strategy_id: UUID, session: SessionDep) -> StrategyVi
     use_case = ArchiveStrategy(
         repository=SqlAlchemyStrategyRepository(session),
         pool_lock=PoolLockAdapter(session),
+        subscribers=_subscribers(session),
         exposure=StrategyExposureAdapter(
             ledger=SqlAlchemyLedgerRepository(session),
             symbol_holdings=ReadSymbolHoldings(SqlAlchemyLedgerRepository(session)),
@@ -647,6 +722,11 @@ async def archive_strategy(strategy_id: UUID, session: SessionDep) -> StrategyVi
     except StillEnabled as exc:
         raise HTTPException(
             status_code=409, detail={"error": "STILL_ENABLED", "message": str(exc)}
+        ) from exc
+    except SubscribersChanged as exc:
+        await session.rollback()
+        raise HTTPException(
+            status_code=409, detail={"error": "SUBSCRIBERS_CHANGED", "message": str(exc)}
         ) from exc
     except OpenPosition as exc:
         # ``HTTPException.detail`` is serialized by Starlette's plain
@@ -666,7 +746,7 @@ async def archive_strategy(strategy_id: UUID, session: SessionDep) -> StrategyVi
         ) from exc
 
     events = await SqlAlchemyEnablementLog(session).list_for(strategy_id)
-    return StrategyView.of(result.strategy, uptime(events, datetime.now(UTC)))
+    return await _view(session, user, result.strategy, events)
 
 
 @router.delete("/{strategy_id}", status_code=204)
@@ -695,6 +775,11 @@ async def delete_strategy(
         await session.rollback()
         raise HTTPException(
             status_code=409, detail={"error": "STILL_ENABLED", "message": str(exc)}
+        ) from exc
+    except SubscribersChanged as exc:
+        await session.rollback()
+        raise HTTPException(
+            status_code=409, detail={"error": "SUBSCRIBERS_CHANGED", "message": str(exc)}
         ) from exc
     except StrategyHasHistory as exc:
         await session.rollback()

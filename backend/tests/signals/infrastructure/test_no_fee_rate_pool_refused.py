@@ -35,8 +35,8 @@ from strategy_manager.shared.application.job import Job, JobKind
 from strategy_manager.shared.config import get_settings
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 from strategy_manager.shared.infrastructure.job_queue import PostgresJobQueue
-from strategy_manager.signals.infrastructure.models import SignalRow
-from tests.owner import OWNER_ID
+from strategy_manager.signals.infrastructure.models import SignalDeliveryRow, SignalRow
+from tests.owner import OWNER_ID, ensure_author_subscription
 from tests.signals.infrastructure.conftest import seed_strategy
 
 pytestmark = pytest.mark.integration
@@ -132,6 +132,11 @@ async def seed_strategy_on(factory: Factory, pool: PoolConfig) -> UUID:
         venue=pool.venue.value,
         allowed_pairs=frozenset({PAIR}),
     )
+    # ``FanOutSignal`` delivers only to subscriptions: the author's, as
+    # ``RegisterStrategy`` makes it, so the pool (seeded first) has a subscriber.
+    async with factory() as session:
+        await ensure_author_subscription(session, strategy_id)
+        await session.commit()
     return strategy_id
 
 
@@ -152,6 +157,16 @@ async def signal_row(factory: Factory, signal_id: UUID) -> SignalRow:
         ).scalar_one()
 
 
+async def delivery_row(factory: Factory, signal_id: UUID) -> SignalDeliveryRow:
+    """The outcome of the signal's (sole) delivery."""
+    async with factory() as session:
+        return (
+            await session.execute(
+                select(SignalDeliveryRow).where(SignalDeliveryRow.signal_id == signal_id)
+            )
+        ).scalar_one()
+
+
 async def test_a_signal_on_a_pool_of_an_exchange_without_a_rate_ends_rejected_untradable_pool_with_no_reservation_and_no_ledger_row(  # noqa: E501
     pg_engine: AsyncEngine,
     pg_session_factory: Factory,
@@ -167,10 +182,15 @@ async def test_a_signal_on_a_pool_of_an_exchange_without_a_rate_ends_rejected_un
     )
     caplog.set_level(logging.WARNING)
 
-    assert await runner.run_once() is True
+    assert await runner.run_once() is True  # signal.process: fans out
+    assert await runner.run_once() is True  # delivery.process: refuses
 
+    # C.7: the refusal is the DELIVERY's outcome; the signal that was delivered
+    # stays ACCEPTED, with its own outcome columns untouched.
+    delivery = await delivery_row(pg_session_factory, signal_id)
+    assert (delivery.status, delivery.outcome_reason) == ("REJECTED", "UNTRADABLE_POOL")
     signal = await signal_row(pg_session_factory, signal_id)
-    assert (signal.status, signal.outcome_reason) == ("REJECTED", "UNTRADABLE_POOL")
+    assert (signal.status, signal.outcome_reason, signal.decided_at) == ("ACCEPTED", None, None)
     assert await count(pg_session_factory, ReservationRow) == 0
     assert await count(pg_session_factory, ExecutionAttemptRow) == 0
     assert await count(pg_session_factory, LedgerEntryRow) == 0
@@ -209,8 +229,9 @@ async def test_the_same_worker_still_fills_a_bybit_signal_and_a_binance_signal_e
         [BYBIT_POOL, BINANCE_POOL, PIONEX_POOL], session_factory_override=pg_session_factory
     )
 
-    assert await runner.run_once() is True
-    assert await runner.run_once() is True
+    # Two signals, each fanned out and then worked as one delivery.
+    for _ in range(4):
+        assert await runner.run_once() is True
 
     async with pg_session_factory() as session:
         attempts = list((await session.execute(select(ExecutionAttemptRow))).scalars())

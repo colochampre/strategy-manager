@@ -29,7 +29,9 @@ from strategy_manager.execution.application.ports import (
     ExecutionAttemptRepositoryPort,
     FillRecord,
     FillRecorderPort,
+    LeavingSubscriptionPort,
     OrderNotFound,
+    PoolLockPort,
     ReservationGatewayPort,
     SettleOutcomeRecorderPort,
 )
@@ -74,7 +76,11 @@ class SettleExecution:
         clock: ClockPort,
         commit: CommitPort,
         outcomes: SettleOutcomeRecorderPort,
+        pool_lock: PoolLockPort,
+        leaving: LeavingSubscriptionPort,
     ) -> None:
+        self._pool_lock = pool_lock
+        self._leaving = leaving
         self._reservations = reservations
         self._exchanges = exchanges
         self._attempts = attempts
@@ -119,6 +125,17 @@ class SettleExecution:
         # for an opening one. ``allocation_id`` resolves to the reservation
         # that funded an open, or to the allocation a close is unwinding, and
         # both carry the same strategy.
+        #
+        # A close also takes the user's POOL lock, first of all and after the
+        # remote read above (a lock is never held across exchange latency): it
+        # books the fill that can leave a LEAVING subscription holding nothing,
+        # and ends that subscription in this same transaction. The lock is what
+        # makes that decision consistent with ``Leave`` and with an opening of the
+        # user's own, and the pool lock comes before every row lock.
+        if attempt.is_closing:
+            await self._pool_lock.acquire(
+                user_id, attempt.exchange, attempt.venue, attempt.settlement_currency
+            )
         reservation = await self._reservations.get_for_update(user_id, attempt.allocation_id)
         usd_rate = await self._usd_rate_provider.usd_rate(
             Currency(attempt.settlement_currency)
@@ -132,19 +149,33 @@ class SettleExecution:
             # unwinding went FILLED when the position opened. Re-marking it
             # would rewrite settled history to say something it already says.
             await self._reservations.mark(user_id, attempt.allocation_id, FILLED, now)
-        # Decision 25, rows 16-17 (5c.1, 5c.3): the signal's outcome rides the
-        # SAME commit as the fills, staged last so its row lock is the last
-        # one taken. An open resolves its signal through the reservation; a
-        # close through the attempt's own link, because ``reservation`` here
-        # is the OPENING allocation's and names the OPENING signal. A NULL
+        else:
+            # Owner decision 4: a subscription that left while it held a position
+            # is LEAVING, and ends when the strategy closes the last of it. The
+            # fill above is already recorded, so the holding read is current.
+            await self._leaving.end_if_flat(
+                user_id,
+                reservation.strategy_id,
+                attempt.exchange,
+                attempt.venue,
+                attempt.settlement_currency,
+            )
+        # Decision 25, rows 16-17 (5c.1, 5c.3; C.7): the DELIVERY's outcome rides
+        # the SAME commit as the fills, staged last so its row lock is the last
+        # one taken. The delivery is the attempt's own link for an open and a
+        # close alike: ``reservation`` here is the OPENING allocation's, so for
+        # a close it names the OPENING delivery, never the closing one. A NULL
         # link (an orphan close, an attempt written before 5c) records
         # nothing. Whether a REVERSE's close writes anything is the adapter's
         # call (decision 26: its open half decides).
-        if attempt.is_closing:
-            if attempt.signal_id is not None:
-                await self._outcomes.record_close_filled(attempt.signal_id)
-        else:
-            await self._outcomes.record_open_filled(reservation.signal_id)
+        if attempt.delivery_id is not None:
+            if attempt.is_closing:
+                if attempt.signal_id is not None:
+                    await self._outcomes.record_close_filled(
+                        attempt.delivery_id, attempt.signal_id
+                    )
+            else:
+                await self._outcomes.record_open_filled(attempt.delivery_id)
         await self._commit.commit()
 
         # 2f.4 (orchestrator's outcome map, finding 16): this file imported
@@ -175,13 +206,10 @@ class SettleExecution:
         why. Marking the opening reservation RELEASED here would be a lie about
         capital that is demonstrably still deployed.
         """
-        signal_id = attempt.signal_id
         if not attempt.is_closing:
             # Read before the release so the reservation's row lock is taken
-            # first; an open resolves its signal through the reservation.
-            signal_id = (
-                await self._reservations.get_for_update(user_id, attempt.allocation_id)
-            ).signal_id
+            # first, as the release's own update would take it.
+            await self._reservations.get_for_update(user_id, attempt.allocation_id)
             await self._reservations.mark(user_id, attempt.allocation_id, RELEASED, now)
         await self._attempts.mark_failed(
             user_id, attempt.id, "the exchange has no order under this client order id"
@@ -191,13 +219,14 @@ class SettleExecution:
         # the owner's attention even though nothing here raises. The message
         # is built once: it is both the log line and the signal's
         # ``outcome_detail`` (decision 25, row 17), staged on the release
-        # commit so the two land together.
+        # commit so the two land together. The delivery is the attempt's own
+        # link, for an open and a close alike (C.7).
         never_placed = (
             f"execution attempt {attempt.id} never reached the exchange; "
             + ("reservation released" if not attempt.is_closing else "position remains open")
         )
-        if signal_id is not None:
-            await self._outcomes.record_never_placed(signal_id, never_placed)
+        if attempt.delivery_id is not None:
+            await self._outcomes.record_never_placed(attempt.delivery_id, never_placed)
         await self._commit.commit()
         logger.warning("%s", never_placed)
         return SettleResult(status="NEVER_PLACED", execution_attempt_id=attempt.id)

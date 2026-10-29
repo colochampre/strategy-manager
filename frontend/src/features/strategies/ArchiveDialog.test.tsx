@@ -53,7 +53,7 @@ function strategy(overrides: Partial<Strategy> = {}): Strategy {
     venue: "usdt-m",
     settlement_currency: "USDT",
     fill_mode: "SKIP",
-    allocation_percent: "100",
+    subscription: null,
     enabled: false,
     archived_at: null,
     allowed_pairs: ["ETHUSDT"],

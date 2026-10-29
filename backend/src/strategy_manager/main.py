@@ -7,6 +7,7 @@ business logic, authentication and secrets; the frontend is a pure client.
 import logging
 from collections.abc import AsyncIterator, Mapping, Sequence
 from contextlib import AsyncExitStack, asynccontextmanager
+from dataclasses import replace
 from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
@@ -247,11 +248,16 @@ from strategy_manager.shared.infrastructure.validation_errors import (
 )
 from strategy_manager.shared.infrastructure.worker_runner import JobHandler, WorkerRunner
 from strategy_manager.signals.application.close_orphans import CloseOrphans
+from strategy_manager.signals.application.fan_out_signal import FanOutSignal
 from strategy_manager.signals.application.holding_guard import HoldingGuard
 from strategy_manager.signals.application.open_after_close import OpenAfterClose
 from strategy_manager.signals.application.process_signal import (
-    ProcessSignalHandler,
+    ProcessDelivery,
     ProcessSignalResult,
+)
+from strategy_manager.signals.infrastructure.delivery_adapters import (
+    SqlAlchemyDeliveries,
+    SqlAlchemySubscriptionReservations,
 )
 from strategy_manager.signals.infrastructure.exhausted_job_recorder import (
     ExhaustedJobSignalRecorder,
@@ -259,12 +265,23 @@ from strategy_manager.signals.infrastructure.exhausted_job_recorder import (
 from strategy_manager.signals.infrastructure.failed_job_signal_reader import (
     SqlAlchemyFailedJobSignalReader,
 )
+from strategy_manager.signals.infrastructure.fan_out_adapters import (
+    SignalFactsAdapter,
+    SqlAlchemyDeliveryRepository,
+    SqlAlchemySubscribers,
+)
 from strategy_manager.signals.infrastructure.in_flight_work import InFlightWorkAdapter
-from strategy_manager.signals.infrastructure.job_owner import attempt_owner, signal_owner
+from strategy_manager.signals.infrastructure.job_owner import (
+    UnresolvableContinuation,
+    attempt_owner,
+    continuation_delivery_id,
+    delivery_owner,
+)
 from strategy_manager.signals.infrastructure.order_outcome_recorder import (
     SignalOrderOutcomeRecorder,
 )
 from strategy_manager.signals.infrastructure.outcome_repository import (
+    SqlAlchemyDeliveryOutcomeAdapter,
     SqlAlchemySignalOutcomeAdapter,
 )
 from strategy_manager.signals.infrastructure.repository import SqlAlchemySignalRepository
@@ -290,9 +307,18 @@ from strategy_manager.strategies.infrastructure.pair_catalog import VenuePairCat
 from strategy_manager.strategies.infrastructure.pair_catalog_router import (
     router as pair_catalog_router,
 )
+from strategy_manager.strategies.infrastructure.pool_lock_adapter import PoolLockAdapter
 from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStrategyRepository
 from strategy_manager.strategies.infrastructure.router import (
     router as strategies_router,
+)
+from strategy_manager.subscriptions.application.end_leaving import EndLeavingSubscription
+from strategy_manager.subscriptions.infrastructure.adapters import OpenAllocationAdapter
+from strategy_manager.subscriptions.infrastructure.repository import (
+    SqlAlchemySubscriptionRepository,
+)
+from strategy_manager.subscriptions.infrastructure.router import (
+    router as subscriptions_router,
 )
 
 logger = logging.getLogger(__name__)
@@ -392,7 +418,25 @@ def _job_queue(session: AsyncSession, settings: Settings) -> PostgresJobQueue:
     )
 
 
-def _build_process_signal_handler(
+def _build_fan_out_signal(session: AsyncSession, settings: Settings) -> FanOutSignal:
+    """Composes ``FanOutSignal`` into the ``signal.process`` job handler (tasks.md
+    C.5/C.6). It reads who is subscribed and what they hold and writes deliveries
+    and jobs; it places no order, so it needs no exchange and no key."""
+    signal_repository = SqlAlchemySignalRepository(session)
+    return FanOutSignal(
+        facts=SignalFactsAdapter(signal_repository),
+        strategy_policy=StrategyPolicyAdapter(SqlAlchemyStrategyRepository(session)),
+        subscribers=SqlAlchemySubscribers(
+            session, ReadSymbolHoldings(SqlAlchemyLedgerRepository(session))
+        ),
+        deliveries=SqlAlchemyDeliveryRepository(session),
+        jobs=_job_queue(session, settings),
+        outcomes=SqlAlchemySignalOutcomeAdapter(session, SystemClock()),
+        commit=session,
+    )
+
+
+def _build_process_delivery(
     session: AsyncSession,
     pools_by_key: Mapping[tuple[UUID, tuple[str, str, str]], PoolConfig],
     settings: Settings,
@@ -400,10 +444,10 @@ def _build_process_signal_handler(
     tradable_pools: frozenset[tuple[str, str]],
     balance_refresh_reader: ExchangeBalanceReaderPort,
     venue_position_readers: VenuePositionReaderRegistryPort,
-) -> tuple[ProcessSignalHandler, OpenAfterClose]:
+) -> tuple[ProcessDelivery, OpenAfterClose]:
     """Composes ``AllocateCapital`` (slice 4) and ``ExecuteReservation``
-    (slice 5) into the ``signal.process`` job handler (design.md's job
-    handlers table).
+    (slice 5) into the ``delivery.process`` job handler (design.md's job
+    handlers table), for one subscription.
 
     ``BalanceSourcePort`` is now bound to ``DbBalanceSource``, which reads the
     snapshot the ``balance.sync`` job writes. It reads locally on purpose:
@@ -419,14 +463,17 @@ def _build_process_signal_handler(
     strategy_repository = SqlAlchemyStrategyRepository(session)
     signal_repository = SqlAlchemySignalRepository(session)
     reservation_repository = SqlAlchemyReservationRepository(session)
-    # Decision 25: one outcome adapter on the run's session, so every outcome
-    # write is staged on the same unit of work as the commit that decides it.
-    signal_outcomes = SqlAlchemySignalOutcomeAdapter(session, SystemClock())
+    # Decision 25 (C.7): one outcome adapter on the run's session, so every outcome
+    # write is staged on the same unit of work as the commit that decides it. The
+    # work of a delivery records on that DELIVERY's row; the signal's own row is
+    # written only by the fan-out's strategy-level refusals.
+    delivery_outcomes = SqlAlchemyDeliveryOutcomeAdapter(session, SystemClock())
 
     signal_context = SignalContextAdapter(
         signals=signal_repository,
         strategies=strategy_repository,
         reservations=reservation_repository,
+        subscription_reservations=SqlAlchemySubscriptionReservations(session),
     )
 
     strategy_policy = StrategyPolicyAdapter(strategy_repository)
@@ -488,7 +535,7 @@ def _build_process_signal_handler(
         commit=session,
         clock=SystemClock(),
         reservation_ttl_seconds=settings.reservation_ttl_seconds,
-        skip_recorder=SignalSkipRecorder(signal_outcomes),
+        skip_recorder=SignalSkipRecorder(delivery_outcomes),
         pool_status=SqlAlchemyPoolStatus(session),
     )
 
@@ -500,7 +547,7 @@ def _build_process_signal_handler(
         clock=SystemClock(),
         commit=session,
         settle_delay_seconds=settings.execution_settle_delay_seconds,
-        outcomes=SignalOrderOutcomeRecorder(signal_outcomes),
+        outcomes=SignalOrderOutcomeRecorder(delivery_outcomes),
     )
 
     # A close shares the exchange and the attempt repository with placement,
@@ -514,7 +561,7 @@ def _build_process_signal_handler(
         clock=SystemClock(),
         commit=session,
         settle_delay_seconds=settings.execution_settle_delay_seconds,
-        outcomes=SignalOrderOutcomeRecorder(signal_outcomes),
+        outcomes=SignalOrderOutcomeRecorder(delivery_outcomes),
     )
 
     # The S5 continuation (design.md § S5) and this handler need each other:
@@ -537,8 +584,10 @@ def _build_process_signal_handler(
         poll_interval_seconds=settings.open_after_close_poll_interval_seconds,
         max_signal_age_seconds=settings.delayed_open_max_signal_age_seconds,
         # Decision 25 (5c.4): abandonments write their outcome through the
-        # silent-on-terminal path, on this run's session.
-        outcomes=signal_outcomes,
+        # silent-on-terminal path, on this run's session, onto the delivery the
+        # continuation was seeded for (C.7, C.8).
+        outcomes=delivery_outcomes,
+        deliveries=SqlAlchemyDeliveries(session),
     )
 
     # The REAL branch of the Existing-Position Guard (design.md § S6): shares
@@ -553,7 +602,8 @@ def _build_process_signal_handler(
         commit=session,
     )
 
-    handler = ProcessSignalHandler(
+    handler = ProcessDelivery(
+        deliveries=SqlAlchemyDeliveries(session),
         signal_context=signal_context,
         strategy_policy=strategy_policy,
         pool_balance=pool_balance,
@@ -570,7 +620,7 @@ def _build_process_signal_handler(
         closing_attempts=SqlAlchemyExecutionAttemptRepository(session),
         close_orphans=close_orphans,
         tradable_pools=tradable_pools,
-        outcomes=signal_outcomes,
+        outcomes=delivery_outcomes,
         # Decisions 18 and 20 (design.md § 4a): chosen by DRY_RUN like the
         # exchange adapters. A rehearsal places nothing, so no key is needed
         # and none can be missing; live, the answer is one column read of the
@@ -603,8 +653,21 @@ def _build_settle_execution(
         # so the signal's outcome is staged on the same unit of work as the
         # fills (or the release) it is decided by.
         outcomes=SignalSettleOutcomeRecorder(
-            SqlAlchemySignalOutcomeAdapter(session, SystemClock()),
+            SqlAlchemyDeliveryOutcomeAdapter(session, SystemClock()),
             SqlAlchemySignalRepository(session),
+        ),
+        # C.6: a close takes the user's pool lock (the same ``LockKey`` path
+        # ``AllocateCapital`` takes) and ends a LEAVING subscription whose last
+        # open allocation it books, in the same transaction.
+        pool_lock=PoolLockAdapter(session),
+        leaving=EndLeavingSubscription(
+            SqlAlchemySubscriptionRepository(session),
+            OpenAllocationAdapter(
+                session,
+                SqlAlchemyLedgerRepository(session),
+                ReadSymbolHoldings(SqlAlchemyLedgerRepository(session)),
+            ),
+            SystemClock(),
         ),
     )
 
@@ -1028,7 +1091,8 @@ def build_worker_runner(
     alert_channel: AlertChannelPort | None = None,
     initial_degraded: frozenset[UserExchange] = frozenset(),
 ) -> WorkerRunner:
-    """Registers ``signal.process``, ``reservation.sweep``, ``balance.sync``,
+    """Registers ``signal.process``, ``delivery.process``, ``reservation.sweep``,
+    ``balance.sync``,
     ``execution.settle`` and ``reconciliation.scan``. One fresh session per
     claimed job, independent of the claim session (design.md § Transaction
     Boundaries: the claim's row lock must die with its own connection).
@@ -1593,16 +1657,26 @@ def build_worker_runner(
             yield VenuePositionReaderRegistry(readers)
 
     async def handle_signal_process(job: ClaimedJob) -> None:
+        """Fans the signal out to every eligible subscription (AD5, C.5/C.6). It
+        places nothing, so it builds no exchange client and decrypts no key: each
+        ``delivery.process`` job it enqueues is worked with its own subscriber's."""
         signal_id = UUID(str(job.payload["signal_id"]))
         async with factory() as session:
-            # The strategy author's key, and nobody else's (AD8, B.5).
-            owner = await signal_owner(session, signal_id)
+            # ``FanOutSignal.run`` commits once, at the end, itself.
+            await _build_fan_out_signal(session, settings).run(signal_id)
+
+    async def handle_delivery_process(job: ClaimedJob) -> None:
+        delivery_id = UUID(str(job.payload["delivery_id"]))
+        async with factory() as session:
+            # The SUBSCRIBER's key, and nobody else's: not the strategy author's
+            # unless the author is the subscriber (AD8, C.6).
+            owner = await delivery_owner(session, delivery_id)
             async with (
                 exchange_for(session, owner) as exchanges,
                 balance_refresh_reader_for(session, owner) as balance_refresh_reader,
                 venue_net_position_reader_for(session, owner) as venue_position_readers,
             ):
-                handler, _ = _build_process_signal_handler(
+                handler, _ = _build_process_delivery(
                     session,
                     pool_set.by_key,
                     settings,
@@ -1615,7 +1689,10 @@ def build_worker_runner(
                 # the handler owns every outcome (refused, failed, executed) and
                 # logs it itself. The result exists for tests and for the S5
                 # continuation -- do not "fix" this by branching on it.
-                await handler.handle(signal_id)
+                #
+                # ``halves`` goes in as the payload carries it: ``FanOutSignal``
+                # wrote it, and the handler refuses, loudly, one that is missing.
+                await handler.handle(delivery_id, job.payload.get("halves"))
                 # Required since S5: the guard's in-flight branch may seed a
                 # continuation (``enqueue_unique``, which never commits) without
                 # otherwise writing anything through this handler. Every other
@@ -1625,14 +1702,30 @@ def build_worker_runner(
 
     async def handle_signal_open_after_close(job: ClaimedJob) -> None:
         async with factory() as session:
-            # The continuation opens for the same signal's author (AD8, B.5).
-            owner = await signal_owner(session, UUID(str(job.payload["signal_id"])))
+            try:
+                delivery_id = await continuation_delivery_id(session, job.payload)
+            except UnresolvableContinuation as exc:
+                # A job queued before C.8 names its signal only. With several
+                # deliveries (or none) there is no telling which subscriber it opens
+                # for, and guessing would trade on someone else's money. Retrying
+                # cannot change that, so the job ends here, loudly.
+                logger.error(
+                    "refusing signal.open_after_close job %s: %s; nothing was opened",
+                    job.id,
+                    exc,
+                )
+                return
+            # The continuation opens for the DELIVERY's user, with that user's key
+            # (AD8, C.8). A legacy payload is handed on carrying the delivery it
+            # resolved to, so ``poll`` and the next seed work that delivery.
+            owner = await delivery_owner(session, delivery_id)
+            job = replace(job, payload={**job.payload, "delivery_id": str(delivery_id)})
             async with (
                 exchange_for(session, owner) as exchanges,
                 balance_refresh_reader_for(session, owner) as balance_refresh_reader,
                 venue_net_position_reader_for(session, owner) as venue_position_readers,
             ):
-                _, open_after_close = _build_process_signal_handler(
+                _, open_after_close = _build_process_delivery(
                     session,
                     pool_set.by_key,
                     settings,
@@ -2071,6 +2164,7 @@ def build_worker_runner(
                 session,
                 observer=ExhaustedJobSignalRecorder(
                     SqlAlchemySignalOutcomeAdapter(session, SystemClock()),
+                    SqlAlchemyDeliveryOutcomeAdapter(session, SystemClock()),
                     SqlAlchemyFailedJobSignalReader(session),
                 ),
                 backoff_base_seconds=settings.job_retry_backoff_base_seconds,
@@ -2079,6 +2173,7 @@ def build_worker_runner(
 
     handlers: Mapping[JobKind, JobHandler] = {
         JobKind.SIGNAL_PROCESS: handle_signal_process,
+        JobKind.DELIVERY_PROCESS: handle_delivery_process,
         JobKind.SIGNAL_OPEN_AFTER_CLOSE: handle_signal_open_after_close,
         JobKind.RESERVATION_SWEEP: handle_reservation_sweep,
         JobKind.BALANCE_SYNC: handle_balance_sync,
@@ -2149,6 +2244,7 @@ def create_app() -> FastAPI:
     # directly, and never inside ``api_router``.
     api_router = APIRouter(prefix="/api")
     api_router.include_router(strategies_router)
+    api_router.include_router(subscriptions_router)
     api_router.include_router(pair_catalog_router)
     api_router.include_router(reconciliation_router)
     api_router.include_router(pools_router)

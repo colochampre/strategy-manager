@@ -15,6 +15,7 @@ import {
   renderAt,
   resetExchangeScope,
   stubApi,
+  subscriptionOf,
   unlock,
 } from "@/test/harness";
 import type { ExtraRoute } from "@/test/harness";
@@ -32,7 +33,7 @@ function strategy(overrides: Record<string, unknown> = {}) {
     venue: "usdt-m",
     settlement_currency: "USDT",
     fill_mode: "SKIP",
-    allocation_percent: "100",
+    subscription: null,
     enabled: true,
     archived_at: null,
     allowed_pairs: ["SOLUSDT"],
@@ -163,7 +164,7 @@ describe("the strategies list", () => {
   });
 
   it("test_the_strategies_list_shows_no_rows_share", async () => {
-    const api = strategiesApi([strategy({ allocation_percent: "37.5" })]);
+    const api = strategiesApi([strategy({ subscription: subscriptionOf("11111111-1111-4111-8111-111111111111", "37.5") })]);
     stubApi(HEALTH, [], POOLS, {}, api.route);
     renderAt(<AppRoutes />, "/strategies");
 

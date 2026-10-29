@@ -4,8 +4,9 @@
 pool?" for archiving. Deleting an exchange's key asks the question of the whole
 pool, so this adapter composes the same three provider repositories (ledger
 holdings, reservations, execution attempts) WITHOUT a strategy filter, and adds
-the strategies still enabled, which archiving never has to ask about because it
-has already refused an enabled one.
+the enabled strategies the user holds an ACTIVE subscription to (owner decision
+20), which archiving never has to ask about because it has already refused an
+enabled one.
 
 It reads; it never writes and never locks. The caller (``DeleteCredential``)
 holds the pool's advisory lock across the read, which is what makes the answer
@@ -18,6 +19,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from strategy_manager.accounts.application.ports import EnabledStrategy, PoolExposure, PoolKey
+from strategy_manager.accounts.infrastructure.models import CapitalPoolRow
 from strategy_manager.allocation.infrastructure.repository import (
     SqlAlchemyReservationRepository,
 )
@@ -29,6 +31,7 @@ from strategy_manager.ledger.application.read_symbol_holdings import ReadSymbolH
 from strategy_manager.ledger.infrastructure.repository import SqlAlchemyLedgerRepository
 from strategy_manager.reconciliation.infrastructure.models import ReconciliationDiscrepancyRow
 from strategy_manager.strategies.infrastructure.models import StrategyRow
+from strategy_manager.subscriptions.infrastructure.models import SubscriptionRow
 
 
 class PoolExposureAdapter:
@@ -62,19 +65,30 @@ class PoolExposureAdapter:
 
     async def exposure(self, user_id: UUID, pool: PoolKey) -> PoolExposure:
         """``user_id`` is the user whose key is being deleted (multi-user design
-        AD8): only that user's enabled strategies, live reservations, ledger rows
-        and open discrepancies stand in the way. Another user's strategy works in
-        its author's pool with its author's key, never this one, and its id and
-        name are not this user's to read."""
+        AD8): only that user's subscriptions, live reservations, ledger rows and
+        open discrepancies stand in the way. A strategy the user holds no ACTIVE
+        subscription to is worked in its subscribers' pools with their keys,
+        never this one, and its id and name are not this user's to read."""
         exchange, venue, settlement_currency = pool
 
+        # Owner decision 20: the strategies whose next signal would be worked
+        # with this key are the enabled ones this user holds an ACTIVE
+        # subscription to in this pool, authored by anyone. A LEAVING one holds
+        # an open position, which the ledger read below already reports.
         enabled = await self._session.execute(
             select(StrategyRow.id, StrategyRow.name)
+            .join(SubscriptionRow, SubscriptionRow.strategy_id == StrategyRow.id)
+            .join(
+                CapitalPoolRow,
+                (CapitalPoolRow.id == SubscriptionRow.pool_id)
+                & (CapitalPoolRow.user_id == SubscriptionRow.user_id),
+            )
             .where(
-                StrategyRow.author_id == user_id,
-                StrategyRow.exchange == exchange,
-                StrategyRow.venue == venue,
-                StrategyRow.settlement_currency == settlement_currency,
+                SubscriptionRow.user_id == user_id,
+                SubscriptionRow.status == "ACTIVE",
+                CapitalPoolRow.exchange == exchange,
+                CapitalPoolRow.venue == venue,
+                CapitalPoolRow.settlement_currency == settlement_currency,
                 StrategyRow.enabled.is_(True),
             )
             .order_by(StrategyRow.name)

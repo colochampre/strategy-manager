@@ -12,6 +12,7 @@ never from the alert's ``position_size``/``contracts`` (design.md's GAP
 FOUND note, closed by this slice).
 """
 
+import logging
 import os
 from collections.abc import Sequence
 from dataclasses import dataclass, field
@@ -72,10 +73,7 @@ from strategy_manager.signals.application.ports import (
     RefreshStatus,
     TradeCapability,
 )
-from strategy_manager.signals.application.process_signal import (
-    ProcessSignalHandler,
-    SignalContext,
-)
+from strategy_manager.signals.application.process_signal import Delivery, SignalContext
 from strategy_manager.signals.domain.holding import HeldAllocation
 from strategy_manager.strategies.infrastructure.pool_lock_adapter import PoolLockAdapter
 from tests.accounts.fakes import BYBIT_KEY, BYBIT_SECRET, TickingClock
@@ -85,6 +83,10 @@ from tests.ledger.infrastructure.conftest import (  # noqa: F401
     pg_session_factory,
 )
 from tests.owner import OWNER_ID
+from tests.signals.application.delivery_support import (
+    SoleSubscriberHandler,
+    sole_subscriber_handler,
+)
 from tests.signals.fakes import FakeTradeCapability, RecordingSignalOutcomes
 
 
@@ -202,7 +204,7 @@ class SpyClosePosition:
 class FakeSignalContextPort:
     context: SignalContext
 
-    async def load(self, signal_id: UUID) -> SignalContext:
+    async def load(self, delivery: Delivery) -> SignalContext:
         return self.context
 
 
@@ -242,7 +244,7 @@ class SpyContinuationSeeder:
     asked for, without needing a real job queue.
 
     Mimics ``enqueue_unique``'s own ``dedupe_key`` semantics: the FIRST seed
-    for a given ``(signal_id, poll)`` pair inserts (``True``); a LATER one
+    for a given ``(delivery_id, poll)`` pair inserts (``True``); a LATER one
     for the exact same pair collides (``False``), regardless of
     ``replay_expected`` -- which only ever picks the log level a real
     ``OpenAfterClose.seed`` would choose, never the return value
@@ -253,14 +255,14 @@ class SpyContinuationSeeder:
 
     async def seed(
         self,
-        signal_id: UUID,
+        delivery_id: UUID,
         awaited_allocation_ids: list[UUID],
         poll: int = 0,
         *,
         replay_expected: bool = False,
     ) -> bool:
-        self.calls.append((signal_id, awaited_allocation_ids, poll, replay_expected))
-        key = (signal_id, poll)
+        self.calls.append((delivery_id, awaited_allocation_ids, poll, replay_expected))
+        key = (delivery_id, poll)
         if key in self._seen:
             return False
         self._seen.add(key)
@@ -304,7 +306,7 @@ class SpyCloseOrphans:
 
     async def close(
         self,
-        signal_id: UUID,
+        delivery_id: UUID,
         pool: PoolKey,
         strategy_id: UUID,
         symbol: str,
@@ -314,7 +316,7 @@ class SpyCloseOrphans:
         user_id: UUID,
         reference_price: Decimal | None,
     ) -> None:
-        self.calls.append((signal_id, pool, strategy_id, symbol, holdings, next_poll))
+        self.calls.append((delivery_id, pool, strategy_id, symbol, holdings, next_poll))
         self.reference_prices.append(reference_price)
         self.users.append(user_id)
 
@@ -466,8 +468,8 @@ def _process_signal_handler(
     close_orphans: SpyCloseOrphans | None = None,
     outcomes: RecordingSignalOutcomes | None = None,
     trade_capability: FakeTradeCapability | None = None,
-) -> ProcessSignalHandler:
-    return ProcessSignalHandler(
+) -> SoleSubscriberHandler:
+    return sole_subscriber_handler(
         signal_context=FakeSignalContextPort(context),
         strategy_policy=FakeStrategyPolicyPort(policy or _snapshot()),
         pool_balance=FakePoolBalancePort(
@@ -1594,7 +1596,7 @@ async def test_the_guard_then_the_refresh_then_the_sizing_read_run_in_that_order
             )
 
     lock = SpyAdvisoryLock()
-    handler = ProcessSignalHandler(
+    handler = sole_subscriber_handler(
         signal_context=FakeSignalContextPort(_open_long_context()),
         strategy_policy=FakeStrategyPolicyPort(_snapshot()),
         pool_balance=OrderingPoolBalance(),  # type: ignore[arg-type]
@@ -1729,7 +1731,7 @@ async def test_the_refresh_and_the_sizing_read_are_the_strategy_authors_pool() -
     sizing = FakePoolBalancePort(
         PoolBalance(total=Decimal("1000"), available=Decimal("1000"), min_order_size=Decimal("1"))
     )
-    handler = ProcessSignalHandler(
+    handler = sole_subscriber_handler(
         signal_context=FakeSignalContextPort(_open_long_context()),
         strategy_policy=FakeStrategyPolicyPort(policy),
         pool_balance=sizing,
@@ -1760,7 +1762,7 @@ async def test_the_in_flight_read_and_the_placement_are_the_strategy_authors() -
     policy = _snapshot(author_id=author)
     in_flight_work = FakeInFlightWorkPort()
     place_order = SpyPlaceOrder()
-    handler = ProcessSignalHandler(
+    handler = sole_subscriber_handler(
         signal_context=FakeSignalContextPort(_open_long_context()),
         strategy_policy=FakeStrategyPolicyPort(policy),
         pool_balance=FakePoolBalancePort(
@@ -2225,6 +2227,7 @@ async def test_a_retried_reverse_with_a_committed_close_does_not_place_a_second(
         status=ExecutionStatus.SUBMITTED,
         origin=ExecutionOrigin.SYSTEM,
         client_order_id="client-1",
+        delivery_id=signal_id,
     )
     handler = _process_signal_handler(
         context=context,
@@ -2304,6 +2307,7 @@ async def test_a_plain_close_retried_after_a_committed_close_does_not_place_a_se
         prior_reservation_id=prior_reservation_id,
         settlement_currency="USDT",
     )
+    signal_id = uuid4()
     existing_close = ExecutionAttempt(
         id=uuid4(),
         reservation_id=None,
@@ -2319,6 +2323,7 @@ async def test_a_plain_close_retried_after_a_committed_close_does_not_place_a_se
         status=ExecutionStatus.SUBMITTED,
         origin=ExecutionOrigin.SYSTEM,
         client_order_id="client-1",
+        delivery_id=signal_id,
     )
     handler = _process_signal_handler(
         context=context,
@@ -2328,12 +2333,114 @@ async def test_a_plain_close_retried_after_a_committed_close_does_not_place_a_se
         closing_attempts=FakeClosingAttemptsPort(latest=existing_close),
     )
 
-    result = await handler.handle(uuid4())
+    result = await handler.handle(signal_id)
 
     assert close_position.calls == []
     assert result.executed is True
     assert result.refused is None
     assert result.failed is None
+
+
+def _another_deliverys_close(allocation_id: UUID) -> ExecutionAttempt:
+    """A FILLED close of ``allocation_id`` placed by a delivery other than the one
+    under test."""
+    return ExecutionAttempt(
+        id=uuid4(),
+        reservation_id=None,
+        closes_allocation_id=allocation_id,
+        exchange="bybit",
+        venue="usdt-m",
+        settlement_currency="USDT",
+        symbol="ETHUSDT.P",
+        side=OrderSide.SELL,
+        quantity=Decimal("1"),
+        quote_amount=None,
+        leverage=None,
+        status=ExecutionStatus.FILLED,
+        origin=ExecutionOrigin.SYSTEM,
+        client_order_id="client-1",
+        delivery_id=uuid4(),
+    )
+
+
+async def test_a_plain_close_whose_allocation_another_delivery_closed_is_refused_with_a_warning(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """PR C verifier, B1a: the prior reservation's close belongs to ANOTHER
+    delivery, so it is not a retry of this one. Nothing is open to close, and
+    reporting success would leave the delivery ACCEPTED for ever without a word."""
+    caplog.set_level(logging.WARNING, logger="strategy_manager.signals.application.process_signal")
+    close_position = SpyClosePosition()
+    outcomes = RecordingSignalOutcomes()
+    prior_reservation_id = uuid4()
+    signal_id = uuid4()
+    context = SignalContext(
+        strategy_id=uuid4(),
+        symbol="ETHUSDT.P",
+        price=Decimal("2000"),
+        position_size=Decimal("0"),
+        prior_position_size=Decimal("1"),
+        prior_reservation_id=prior_reservation_id,
+        settlement_currency="USDT",
+    )
+    handler = _process_signal_handler(
+        context=context,
+        allocate_capital=_allocate_capital(SpyAdvisoryLock()),
+        place_order=SpyPlaceOrder(),
+        close_position=close_position,
+        closing_attempts=FakeClosingAttemptsPort(
+            latest=_another_deliverys_close(prior_reservation_id)
+        ),
+        outcomes=outcomes,
+    )
+
+    result = await handler.handle(signal_id)
+
+    assert close_position.calls == []
+    assert result.executed is False
+    assert [(row, outcome.reason) for row, outcome in outcomes.calls] == [
+        (signal_id, "NO_POSITION_TO_CLOSE")
+    ]
+    warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 1
+    assert "which is not this delivery's" in warnings[0]
+    assert result.refused == warnings[0]
+
+
+async def test_a_reverse_whose_allocation_another_delivery_closed_waits_for_it_and_opens(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """PR C verifier, B1b: two reverses queued back to back. The second one's prior
+    allocation was closed by the FIRST one's delivery, whose continuation the second
+    supersedes. The second still seeds its own continuation on that close and opens
+    the new side, exactly as a replay does, and places no second close."""
+    caplog.set_level(logging.WARNING, logger="strategy_manager.signals.application.process_signal")
+    close_position = SpyClosePosition()
+    seeder = SpyContinuationSeeder()
+    outcomes = RecordingSignalOutcomes()
+    prior_reservation_id = uuid4()
+    signal_id = uuid4()
+    context = _holdable_reverse_context(prior_reservation_id=prior_reservation_id)
+    handler = _process_signal_handler(
+        context=context,
+        allocate_capital=_allocate_capital(SpyAdvisoryLock()),
+        place_order=SpyPlaceOrder(),
+        close_position=close_position,
+        open_after_close=seeder,
+        closing_attempts=FakeClosingAttemptsPort(
+            latest=_another_deliverys_close(prior_reservation_id)
+        ),
+        outcomes=outcomes,
+    )
+
+    result = await handler.handle(signal_id)
+
+    assert close_position.calls == []
+    assert seeder.calls == [(signal_id, [prior_reservation_id], 0, True)]
+    assert result.executed is True
+    assert result.refused is None
+    assert outcomes.calls == []
+    assert [r for r in caplog.records if r.levelno == logging.WARNING] == []
 
 
 async def test_a_plain_close_retried_after_a_failed_close_places_a_new_one() -> None:
@@ -2414,7 +2521,7 @@ def _sized_handler(
     allocation_percent: Decimal,
     strategy_id: UUID,
     symbol: str = "ETHUSDT",
-) -> tuple[ProcessSignalHandler, SpyAllocateCapital, SpyAdvisoryLock, SpyPlaceOrder]:
+) -> tuple[SoleSubscriberHandler, SpyAllocateCapital, SpyAdvisoryLock, SpyPlaceOrder]:
     """A CONSUMES-path handler whose ask is sized from ``pool_total`` and
     ``allocation_percent`` -- the two numbers whose product decides whether
     the request is strictly positive at all."""
@@ -2554,6 +2661,8 @@ async def test_an_empty_pool_is_refused_rather_than_raised() -> None:
                 signal_id=uuid4(),
                 strategy_id=uuid4(),
                 requested=Money(amount=Decimal("0"), currency=Currency("USDT")),
+                user_id=OWNER_ID,
+                delivery_id=uuid4(),
             )
         )
 
@@ -3211,7 +3320,7 @@ async def test_no_key_refused_live_immediately_after_delete_credential_commits_n
 
         def handler(
             lock: SpyAdvisoryLock, place_order: SpyPlaceOrder, outcomes: RecordingSignalOutcomes
-        ) -> ProcessSignalHandler:
+        ) -> SoleSubscriberHandler:
             return _process_signal_handler(
                 context=_stx_open_context(),
                 allocate_capital=_allocate_capital(lock),

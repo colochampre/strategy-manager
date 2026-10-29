@@ -46,3 +46,22 @@ async def test_the_head_database_has_the_three_foreign_keys_the_orm_schema_lacks
     )
 
     assert {row.conname for row in rows} == _FOREIGN_KEYS_THE_ORM_SCHEMA_LACKS
+
+
+def test_the_yielded_url_shows_no_credentials_when_printed(head_database_url: str) -> None:
+    """pytest reports a failing ``assert _scalar(url, ...) == x`` with the call's
+    arguments, through ``repr``. The URL carries the local password, so its repr
+    must not (seen 2026-10-27). The comparison is held in a bool so that this
+    test's own failure prints no URL either."""
+    hidden = repr(head_database_url) == "<throwaway database url>"
+
+    assert hidden
+
+
+def test_the_yielded_url_still_reads_as_the_url(head_database_url: str) -> None:
+    """alembic's environment, asyncpg and SQLAlchemy read the text, not the repr."""
+    usable = str(head_database_url).startswith("postgresql+asyncpg://") and isinstance(
+        head_database_url, str
+    )
+
+    assert usable

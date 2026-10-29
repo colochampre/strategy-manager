@@ -36,6 +36,7 @@ from strategy_manager.strategies.domain.strategy import (
     Strategy,
 )
 from tests.owner import OWNER_ID
+from tests.strategies.fakes import FakeSubscribers
 
 STRATEGY_ID = UUID("7256917a-9937-4a6c-b6d3-9cb2b4a9cedd")
 NAME = "Delete Me v1"
@@ -48,9 +49,11 @@ KINDS = [
     "ledger_entries",
     "booking_proposals",
     "enablement_events",
+    "subscriptions",
 ]
-# Migration 0028: events are reported in the history but never block it.
-BLOCKING_KINDS = [kind for kind in KINDS if kind != "enablement_events"]
+# Migrations 0028 and 0031: events and subscriptions are reported in the history
+# but never block it.
+BLOCKING_KINDS = [kind for kind in KINDS if kind not in ("enablement_events", "subscriptions")]
 FIRST_ENABLED = datetime(2026, 10, 1, 8, 0, tzinfo=UTC)
 
 
@@ -202,6 +205,7 @@ class Harness:
         self.use_case = DeleteStrategy(
             repository=self.repository,
             pool_lock=self.pool_lock,
+            subscribers=FakeSubscribers.sole_author(self.repository.unlocked or _strategy()),
             history=self.history,
             enablement_log=FakeEnablementLog(self.events, enablement or []),
             clock=FixedClock(),
@@ -305,8 +309,10 @@ async def test_each_blocking_kind_of_history_alone_refuses_and_nothing_is_delete
     assert "delete" not in harness.events
 
 
-async def test_the_refusal_carries_all_six_counts() -> None:
-    answered = _history(signals=3, reservations=2, ledger_entries=1, enablement_events=4)
+async def test_the_refusal_carries_all_seven_counts() -> None:
+    answered = _history(
+        signals=3, reservations=2, ledger_entries=1, enablement_events=4, subscriptions=5
+    )
     harness = Harness(history=answered)
 
     with pytest.raises(StrategyHasHistory) as raised:
@@ -336,6 +342,16 @@ async def _refusal(harness: Harness) -> Exception | None:
 
 async def test_a_strategy_with_only_enablement_events_is_deleted() -> None:
     harness = Harness(history=_history(enablement_events=4), enablement=_toggled(0, 1, 2, 2.5))
+
+    refusal = await _refusal(harness)
+
+    assert refusal is None, repr(refusal)
+    assert harness.repository.deleted == [STRATEGY_ID]
+    assert harness.commit.commits == 1
+
+
+async def test_a_strategy_with_only_subscriptions_is_deleted() -> None:
+    harness = Harness(history=_history(subscriptions=2))
 
     refusal = await _refusal(harness)
 
@@ -387,7 +403,9 @@ async def test_the_info_line_names_the_events_deleted_the_first_enable_time_and_
 ) -> None:
     """Two enabled stretches, 1 h and 0.5 h: 5400 s. The line is the only record
     of when the strategy was switched on once its events are gone."""
-    harness = Harness(history=_history(enablement_events=4), enablement=_toggled(0, 1, 2, 2.5))
+    harness = Harness(
+        history=_history(enablement_events=4, subscriptions=3), enablement=_toggled(0, 1, 2, 2.5)
+    )
 
     with caplog.at_level(logging.DEBUG, logger=LOGGER):
         refusal = await _refusal(harness)
@@ -397,6 +415,7 @@ async def test_the_info_line_names_the_events_deleted_the_first_enable_time_and_
     assert [record.levelno for record in records] == [logging.INFO]
     message = records[0].getMessage()
     assert "enablement_events=4" in message
+    assert "subscriptions=3" in message
     assert f"first_enabled_at={FIRST_ENABLED.isoformat()}" in message
     assert "uptime_seconds=5400" in message
 
@@ -411,6 +430,7 @@ async def test_the_info_line_of_a_never_enabled_strategy_says_so(
 
     message = _records(caplog)[0].getMessage()
     assert "enablement_events=0" in message
+    assert "subscriptions=0" in message
     assert "first_enabled_at=never" in message
     assert "uptime_seconds=0" in message
 

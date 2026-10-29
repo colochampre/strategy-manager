@@ -21,6 +21,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
 from strategy_manager.shared.db import Base
+from strategy_manager.signals.infrastructure.models import SignalDeliveryRow  # noqa: F401
 
 
 class ReservationRow(Base):
@@ -52,7 +53,7 @@ class ReservationRow(Base):
         PGUUID(as_uuid=True), ForeignKey("strategies.id"), nullable=False
     )
     signal_id: Mapped[UUID] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("signals.id"), nullable=False, unique=True
+        PGUUID(as_uuid=True), ForeignKey("signals.id"), nullable=False
     )
     exchange: Mapped[str] = mapped_column(Text, nullable=False)
     venue: Mapped[str] = mapped_column(Text, nullable=False)
@@ -77,3 +78,13 @@ class ReservationRow(Base):
     # every row written before that migration -- it cannot be backfilled. A
     # CHECK there enforces NULL-or-positive; nothing sums it across pools.
     pool_total_at_open: Mapped[Decimal | None] = mapped_column(Numeric(38, 18), nullable=True)
+    # Added by migration 0032: the delivery (one signal reaching one subscription)
+    # this reservation serves. It is the reservation's uniqueness now: two
+    # subscribers each hold a reservation for one signal, so ``signal_id`` is not
+    # unique, and one delivery is served by one reservation.
+    delivery_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("signal_deliveries.id", name="fk_reservations_delivery"),
+        nullable=False,
+        unique=True,
+    )

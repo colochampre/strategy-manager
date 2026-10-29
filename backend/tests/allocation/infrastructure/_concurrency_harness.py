@@ -16,7 +16,6 @@ from strategy_manager.accounts.domain.pool_config import PoolConfig
 from strategy_manager.accounts.infrastructure.fake_balance_source import FakeBalanceSource
 from strategy_manager.allocation.application.allocate_capital import (
     AllocateCapital,
-    AllocateCommand,
     AllocationResult,
 )
 from strategy_manager.allocation.application.ports import AdvisoryLockPort
@@ -27,7 +26,7 @@ from strategy_manager.shared.infrastructure.clock import SystemClock
 from strategy_manager.strategies.application.policy_adapter import StrategyPolicyAdapter
 from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStrategyRepository
 from tests.allocation.fakes import AlwaysEnabledPool, RecordingSkipRecorder
-from tests.owner import OWNER_ID
+from tests.owner import OWNER_ID, allocate_command
 
 POOL_BALANCE = Decimal("1000")
 REQUEST_AMOUNT = Decimal("200")
@@ -75,18 +74,23 @@ async def run_concurrent_allocations(
     shared session."""
 
     barrier = asyncio.Event()
+    # Each signal's delivery to the owner is seeded before the race starts: the
+    # reservation a granted allocation writes names it (C.6).
+    commands = {
+        signal_id: await allocate_command(
+            session_factory,
+            signal_id=signal_id,
+            strategy_id=strategy_id,
+            requested=Money(amount=REQUEST_AMOUNT, currency=Currency.USDT),
+        )
+        for signal_id in signal_ids
+    }
 
     async def one(signal_id: UUID) -> AllocationResult:
         async with session_factory() as session:
             use_case = build_allocate_capital(session, lock_factory(session))
             await barrier.wait()  # align the starts
-            return await use_case.allocate(
-                AllocateCommand(
-                    signal_id=signal_id,
-                    strategy_id=strategy_id,
-                    requested=Money(amount=REQUEST_AMOUNT, currency=Currency.USDT),
-                )
-            )
+            return await use_case.allocate(commands[signal_id])
 
     tasks = [asyncio.create_task(one(signal_id)) for signal_id in signal_ids]
     await asyncio.sleep(0)  # let every task reach the barrier before releasing it

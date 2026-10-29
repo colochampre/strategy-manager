@@ -39,6 +39,10 @@ RESERVATION_ID = uuid4()
 STRATEGY_ID = uuid4()
 SIGNAL_ID = uuid4()
 CLOSING_SIGNAL_ID = uuid4()
+# The delivery each attempt names (C.7): the row settle records its outcome on. The
+# reservation of the closing attempt belongs to the OPENING delivery, never this one.
+DELIVERY_ID = uuid4()
+CLOSING_DELIVERY_ID = uuid4()
 CLIENT_ORDER_ID = "client-order-1"
 # The job's owner: the author of the strategy behind the attempt.
 OWNER = UUID("0a1b2c3d-0000-4000-8000-0000000c0c0c")
@@ -70,6 +74,8 @@ def _closing_attempt(
         origin=ExecutionOrigin.SYSTEM,
         client_order_id=CLIENT_ORDER_ID,
         signal_id=signal_id,
+        # The signal and the delivery travel together: an orphan close has neither.
+        delivery_id=None if signal_id is None else CLOSING_DELIVERY_ID,
     )
 
 
@@ -90,6 +96,7 @@ def _attempt(status: ExecutionStatus = ExecutionStatus.SUBMITTED) -> ExecutionAt
         status=status,
         origin=ExecutionOrigin.SYSTEM,
         client_order_id=CLIENT_ORDER_ID,
+        delivery_id=DELIVERY_ID,
     )
 
 
@@ -108,12 +115,15 @@ def _fill(quantity: str, price: str, fill_id: str = "F-1") -> Fill:
 class FakeReservations:
     """Records whose reservation each call was for (multi-user design AD8)."""
 
-    def __init__(self) -> None:
+    def __init__(self, log: list[str] | None = None) -> None:
         self.marks: list[tuple[UUID, str]] = []
         self.users: list[UUID] = []
+        self._log = log
 
     async def get_for_update(self, user_id: UUID, reservation_id: UUID) -> ReservationSnapshot:
         self.users.append(user_id)
+        if self._log is not None:
+            self._log.append("reservation.get_for_update")
         return ReservationSnapshot(exchange="pionex",
             id=RESERVATION_ID,
             strategy_id=STRATEGY_ID,
@@ -218,13 +228,54 @@ class SpyCommit:
             self._log.append("commit")
 
 
+class FakePoolLock:
+    """Records which pool each acquisition was for; ``log`` (optional) receives
+    ``"pool_lock"`` in call order."""
+
+    def __init__(self, log: list[str] | None = None) -> None:
+        self.acquired: list[tuple[UUID, str, str, str]] = []
+        self._log = log
+
+    async def acquire(
+        self, user_id: UUID, exchange: str, venue: str, settlement_currency: str
+    ) -> None:
+        self.acquired.append((user_id, exchange, venue, settlement_currency))
+        if self._log is not None:
+            self._log.append("pool_lock")
+
+
+class FakeLeaving:
+    """Stands in for the subscriptions side. ``log`` (optional) receives
+    ``"leaving.end_if_flat"`` in call order."""
+
+    def __init__(self, log: list[str] | None = None) -> None:
+        self.asked: list[tuple[UUID, UUID, str, str, str]] = []
+        self._log = log
+
+    async def end_if_flat(
+        self,
+        user_id: UUID,
+        strategy_id: UUID,
+        exchange: str,
+        venue: str,
+        settlement_currency: str,
+    ) -> bool:
+        self.asked.append((user_id, strategy_id, exchange, venue, settlement_currency))
+        if self._log is not None:
+            self._log.append("leaving.end_if_flat")
+        return False
+
+
 def _build(
     exchange: FakeExchange,
     attempt: ExecutionAttempt | None = None,
     outcomes: RecordingSettleOutcomes | None = None,
     log: list[str] | None = None,
+    trace_locks: bool = False,
+    lock: FakePoolLock | None = None,
+    leaving: FakeLeaving | None = None,
 ) -> tuple[SettleExecution, FakeReservations, FakeAttempts, SpyLedger, StubUsdRate]:
-    reservations = FakeReservations()
+    reservations = FakeReservations(log if trace_locks else None)
     attempts = FakeAttempts(attempt or _attempt())
     ledger = SpyLedger(log)
     usd_rate = StubUsdRate()
@@ -239,6 +290,8 @@ def _build(
         clock=FrozenClock(),
         commit=SpyCommit(log),
         outcomes=outcomes,
+        pool_lock=lock or FakePoolLock(log if trace_locks else None),
+        leaving=leaving or FakeLeaving(log if trace_locks else None),
     )
     return use_case, reservations, attempts, ledger, usd_rate
 
@@ -439,6 +492,80 @@ async def test_a_close_the_exchange_never_saw_releases_nothing() -> None:
 
 
 # --------------------------------------------------------------------------
+# C.6 -- a close that books the last open allocation ends a LEAVING subscription
+# --------------------------------------------------------------------------
+
+
+async def test_a_settled_close_takes_the_pool_lock_first_and_then_asks_to_end_a_leaving_one() -> (
+    None
+):
+    """Lock order: the user's pool lock BEFORE the reservation's row lock. The
+    subscription is ended after the closing fill is recorded and before the one
+    commit, so both land (or neither) together."""
+    log: list[str] = []
+    exchange = FakeExchange([_fill("0.00199960", "50010")])
+    use_case, _, _, _, _ = _build(
+        exchange, attempt=_closing_attempt(), log=log, trace_locks=True
+    )
+
+    await use_case.settle(OWNER, ATTEMPT_ID)
+
+    assert log == [
+        "pool_lock",
+        "reservation.get_for_update",
+        "ledger.record",
+        "leaving.end_if_flat",
+        "outcome.close_filled",
+        "commit",
+    ]
+
+
+async def test_the_pool_locked_and_the_subscription_asked_about_are_the_job_owners() -> None:
+    lock = FakePoolLock()
+    leaving = FakeLeaving()
+    use_case, _, _, _, _ = _build(
+        FakeExchange([_fill("0.00199960", "50010")]),
+        attempt=_closing_attempt(),
+        lock=lock,
+        leaving=leaving,
+    )
+
+    await use_case.settle(OWNER, ATTEMPT_ID)
+
+    assert lock.acquired == [(OWNER, "pionex", "spot", "USDT")]
+    assert leaving.asked == [(OWNER, STRATEGY_ID, "pionex", "spot", "USDT")]
+
+
+async def test_a_settled_open_takes_no_pool_lock_and_ends_no_subscription() -> None:
+    """An opening settlement is unchanged: it books fills for a reservation and
+    needs neither the pool lock nor the subscription."""
+    log: list[str] = []
+    use_case, _, _, _, _ = _build(
+        FakeExchange(fills=[_fill("2", "50")]), log=log, trace_locks=True
+    )
+
+    await use_case.settle(OWNER, ATTEMPT_ID)
+
+    assert "pool_lock" not in log
+    assert "leaving.end_if_flat" not in log
+
+
+async def test_a_close_the_exchange_never_saw_ends_no_subscription() -> None:
+    """The position stays open, so a LEAVING subscription stays LEAVING."""
+    log: list[str] = []
+    use_case, _, _, _, _ = _build(
+        FakeExchange(raises=OrderNotFound("no such order")),
+        attempt=_closing_attempt(),
+        log=log,
+        trace_locks=True,
+    )
+
+    await use_case.settle(OWNER, ATTEMPT_ID)
+
+    assert "leaving.end_if_flat" not in log
+
+
+# --------------------------------------------------------------------------
 # 2f.4 -- a log line on FILLED and on NEVER_PLACED (orchestrator's outcome
 # map, findings 16 and 17: this file imports no ``logging`` at all today,
 # so the ONE place that learns an order's true fate leaves no trace).
@@ -488,9 +615,8 @@ async def test_a_never_placed_order_logs_exactly_one_warning(
 
 
 async def test_a_filled_open_ends_its_signal_processed_on_the_fills_commit() -> None:
-    """5c.1. The signal is resolved through ``reservation.signal_id`` (the
-    attempt here carries none, like every attempt written before 5c), and the
-    write sits after the ledger rows and BEFORE the one commit."""
+    """5c.1. The delivery is the attempt's own link (C.7), and the write sits
+    after the ledger rows and BEFORE the one commit."""
     outcomes = RecordingSettleOutcomes()
     log: list[str] = []
     use_case, _, _, _, _ = _build(
@@ -499,7 +625,7 @@ async def test_a_filled_open_ends_its_signal_processed_on_the_fills_commit() -> 
 
     await use_case.settle(OWNER, ATTEMPT_ID)
 
-    assert outcomes.open_filled == [SIGNAL_ID]
+    assert outcomes.open_filled == [DELIVERY_ID]
     assert outcomes.close_filled == []
     assert log == ["ledger.record", "outcome.open_filled", "commit"]
 
@@ -507,8 +633,9 @@ async def test_a_filled_open_ends_its_signal_processed_on_the_fills_commit() -> 
 async def test_a_filled_close_resolves_the_closing_signal_never_the_opening_one() -> None:
     """5c.3. ``allocation_id`` of a close is the OPENING allocation, so its
     reservation names the OPENING signal (``SIGNAL_ID`` in this fake). The
-    signal to tell is the one the attempt carries. Must fail if settle reads
-    the reservation's signal for a close."""
+    delivery to tell is the one the attempt carries, and the signal handed beside
+    it is the CLOSING one. Must fail if settle reads the reservation's for a
+    close."""
     outcomes = RecordingSettleOutcomes()
     log: list[str] = []
     use_case, _, _, _, _ = _build(
@@ -520,8 +647,10 @@ async def test_a_filled_close_resolves_the_closing_signal_never_the_opening_one(
 
     await use_case.settle(OWNER, ATTEMPT_ID)
 
-    assert outcomes.close_filled == [CLOSING_SIGNAL_ID]
-    assert SIGNAL_ID not in outcomes.close_filled + outcomes.open_filled
+    assert outcomes.close_filled == [CLOSING_DELIVERY_ID]
+    assert outcomes.close_filled_signals == [CLOSING_SIGNAL_ID]
+    assert DELIVERY_ID not in outcomes.close_filled + outcomes.open_filled
+    assert SIGNAL_ID not in outcomes.close_filled_signals
     assert outcomes.open_filled == []
     assert log == ["ledger.record", "outcome.close_filled", "commit"]
 
@@ -546,7 +675,7 @@ async def test_a_filled_close_with_no_linked_signal_records_nothing() -> None:
 async def test_a_never_placed_open_ends_its_signal_rejected_on_the_release_commit(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """5c.2. Resolved through the reservation; the detail is the exact
+    """5c.2. Resolved through the attempt's delivery; the detail is the exact
     message logged, and the write sits before the release's one commit."""
     caplog.set_level("WARNING", logger="strategy_manager.execution.application.settle_execution")
     outcomes = RecordingSettleOutcomes()
@@ -560,8 +689,8 @@ async def test_a_never_placed_open_ends_its_signal_rejected_on_the_release_commi
     await use_case.settle(OWNER, ATTEMPT_ID)
 
     assert len(outcomes.never_placed) == 1
-    [(signal_id, detail)] = outcomes.never_placed
-    assert signal_id == SIGNAL_ID
+    [(delivery_id, detail)] = outcomes.never_placed
+    assert delivery_id == DELIVERY_ID
     assert log == ["outcome.never_placed", "commit"]
     [warning] = [r for r in caplog.records if r.levelname == "WARNING"]
     assert detail == warning.getMessage()
@@ -581,8 +710,8 @@ async def test_a_never_placed_close_ends_the_closing_signal_rejected() -> None:
     await use_case.settle(OWNER, ATTEMPT_ID)
 
     assert len(outcomes.never_placed) == 1
-    [(signal_id, detail)] = outcomes.never_placed
-    assert signal_id == CLOSING_SIGNAL_ID  # never the opening signal
+    [(delivery_id, detail)] = outcomes.never_placed
+    assert delivery_id == CLOSING_DELIVERY_ID  # never the opening delivery
     assert "position remains open" in detail
     assert log == ["outcome.never_placed", "commit"]
 

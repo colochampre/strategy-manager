@@ -6,6 +6,7 @@ import { vi } from "vitest";
 
 import type { BookedItem, ConfirmedDiscrepancy, ConfirmedReading } from "@/shared/api/discrepancies";
 import type { InFlightOrder, OpenPosition, OpenState } from "@/shared/api/positions";
+import type { Subscription } from "@/shared/api/types";
 import { page } from "@/shared/auth/reauthenticate";
 import { useExchangeStore } from "@/shared/scope/exchange-store";
 
@@ -282,6 +283,25 @@ export function emptyPerformance(exchange: string, venue: string, currency: stri
 }
 
 /** What `GET /strategies/{id}/share-preview` answers for a pool nothing has synced: no balance, so no amount. */
+/**
+ * The signed-in user's ACTIVE subscription to strategy `strategyId`, at `share` percent of their own pool:
+ * what `StrategyView.subscription` holds for the author of a strategy.
+ */
+export function subscriptionOf(strategyId: string, share = "100", overrides: Partial<Subscription> = {}): Subscription {
+  return {
+    // Its own id, derived from the strategy's so two strategies' subscriptions never share one.
+    id: `99999999-9999-4999-8999-${strategyId.replace(/-/g, "").slice(-12)}`,
+    strategy_id: strategyId,
+    pool_id: 1,
+    allocation_percent: share,
+    status: "ACTIVE",
+    created_at: "2026-10-27T10:00:00Z",
+    left_at: null,
+    ended_at: null,
+    ...overrides,
+  };
+}
+
 export function unsyncedSharePreview(id: string, exchange = "bybit", venue = "usdt-m", currency = "USDT") {
   return {
     strategy_id: id,
@@ -307,7 +327,7 @@ export function strategyRoute(id: string, name: string): ExtraRoute {
     venue: "usdt-m",
     settlement_currency: "USDT",
     fill_mode: "SKIP",
-    allocation_percent: "100",
+    subscription: subscriptionOf(id),
     enabled: false,
     archived_at: null,
     allowed_pairs: ["ETHUSDT"],

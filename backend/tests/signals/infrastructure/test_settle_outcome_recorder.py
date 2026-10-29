@@ -84,23 +84,26 @@ def _recorder(
     return SignalSettleOutcomeRecorder(outcomes, _FakeSignals(*signals)), outcomes
 
 
-async def test_a_filled_open_ends_the_signal_processed() -> None:
+async def test_a_filled_open_ends_the_delivery_processed() -> None:
+    """C.7: the outcome lands on the DELIVERY id, which is not the signal's."""
     opening = _signal("1", _T0)
+    delivery_id = uuid4()
     recorder, outcomes = _recorder(opening)
 
-    await recorder.record_open_filled(opening.id)  # type: ignore[arg-type]
+    await recorder.record_open_filled(delivery_id)
 
-    assert outcomes.calls == [(opening.id, SignalOutcome.processed())]
+    assert outcomes.calls == [(delivery_id, SignalOutcome.processed())]
 
 
-async def test_a_filled_plain_close_ends_the_signal_processed() -> None:
+async def test_a_filled_plain_close_ends_the_delivery_processed() -> None:
     opening = _signal("1", _T0)
     closing = _signal("0", _T0 + timedelta(hours=1))
+    delivery_id = uuid4()
     recorder, outcomes = _recorder(opening, closing)
 
-    await recorder.record_close_filled(closing.id)  # type: ignore[arg-type]
+    await recorder.record_close_filled(delivery_id, closing.id)  # type: ignore[arg-type]
 
-    assert outcomes.calls == [(closing.id, SignalOutcome.processed())]
+    assert outcomes.calls == [(delivery_id, SignalOutcome.processed())]
 
 
 @pytest.mark.parametrize(("prior", "current"), [("1", "-1"), ("-2", "3")])
@@ -111,7 +114,7 @@ async def test_a_filled_reverse_close_writes_nothing(prior: str, current: str) -
     reverse = _signal(current, _T0 + timedelta(hours=1))
     recorder, outcomes = _recorder(opening, reverse)
 
-    await recorder.record_close_filled(reverse.id)  # type: ignore[arg-type]
+    await recorder.record_close_filled(uuid4(), reverse.id)  # type: ignore[arg-type]
 
     assert outcomes.calls == []
 
@@ -120,22 +123,24 @@ async def test_a_close_of_a_signal_with_no_prior_is_not_a_reverse() -> None:
     """No prior signal reads as position 0, which classifies as an OPEN, not a
     REVERSE, so the recorder must not treat it as one."""
     only = _signal("1", _T0)
+    delivery_id = uuid4()
     recorder, outcomes = _recorder(only)
 
-    await recorder.record_close_filled(only.id)  # type: ignore[arg-type]
+    await recorder.record_close_filled(delivery_id, only.id)  # type: ignore[arg-type]
 
-    assert outcomes.calls == [(only.id, SignalOutcome.processed())]
+    assert outcomes.calls == [(delivery_id, SignalOutcome.processed())]
 
 
-async def test_a_never_placed_order_rejects_the_signal_with_its_detail() -> None:
+async def test_a_never_placed_order_rejects_the_delivery_with_its_detail() -> None:
     opening = _signal("1", _T0)
+    delivery_id = uuid4()
     recorder, outcomes = _recorder(opening)
 
-    await recorder.record_never_placed(opening.id, "attempt X never reached the exchange")  # type: ignore[arg-type]
+    await recorder.record_never_placed(delivery_id, "attempt X never reached the exchange")
 
     assert outcomes.calls == [
         (
-            opening.id,
+            delivery_id,
             SignalOutcome.rejected(
                 "ORDER_NEVER_REACHED_EXCHANGE", "attempt X never reached the exchange"
             ),
@@ -149,12 +154,13 @@ async def test_a_reverse_whose_close_never_reached_the_exchange_is_rejected() ->
     for."""
     opening = _signal("1", _T0)
     reverse = _signal("-1", _T0 + timedelta(hours=1))
+    delivery_id = uuid4()
     recorder, outcomes = _recorder(opening, reverse)
 
-    await recorder.record_never_placed(reverse.id, "detail")  # type: ignore[arg-type]
+    await recorder.record_never_placed(delivery_id, "detail")
 
     assert outcomes.calls == [
-        (reverse.id, SignalOutcome.rejected("ORDER_NEVER_REACHED_EXCHANGE", "detail"))
+        (delivery_id, SignalOutcome.rejected("ORDER_NEVER_REACHED_EXCHANGE", "detail"))
     ]
 
 
@@ -162,6 +168,6 @@ async def test_a_close_for_an_unknown_signal_is_loud_not_silent() -> None:
     recorder, outcomes = _recorder()
 
     with pytest.raises(InvariantViolation):
-        await recorder.record_close_filled(uuid4())
+        await recorder.record_close_filled(uuid4(), uuid4())
 
     assert outcomes.calls == []

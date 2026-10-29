@@ -56,7 +56,6 @@ from strategy_manager.accounts.domain.pool_config import PoolConfig
 from strategy_manager.accounts.infrastructure.fake_balance_source import FakeBalanceSource
 from strategy_manager.allocation.application.allocate_capital import (
     AllocateCapital,
-    AllocateCommand,
     AllocationResult,
 )
 from strategy_manager.allocation.application.ports import StrategyPolicySnapshot
@@ -79,7 +78,8 @@ from strategy_manager.strategies.infrastructure.models import StrategyRow
 from strategy_manager.strategies.infrastructure.pool_lock_adapter import PoolLockAdapter
 from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStrategyRepository
 from tests.allocation.fakes import AlwaysEnabledPool, RecordingSkipRecorder
-from tests.owner import OWNER_ID
+from tests.owner import OWNER_ID, allocate_command, ensure_author_subscription
+from tests.strategies.wiring import real_subscribers
 
 pytestmark = pytest.mark.integration
 
@@ -206,6 +206,11 @@ async def _seed_strategy(
             )
         )
         await session.commit()
+    # The author's own subscription (what RegisterStrategy makes): since C.9 the
+    # pool lock an archive takes is that of the strategy's subscribers.
+    async with session_factory() as session:
+        await ensure_author_subscription(session, strategy_id)
+        await session.commit()
 
 
 async def _seed_signal(
@@ -245,6 +250,7 @@ def _build_archive_strategy(session: AsyncSession, pool_lock: object) -> Archive
     return ArchiveStrategy(
         repository=SqlAlchemyStrategyRepository(session),
         pool_lock=pool_lock,  # type: ignore[arg-type]
+        subscribers=real_subscribers(session),
         exposure=StrategyExposureAdapter(
             ledger=SqlAlchemyLedgerRepository(session),
             symbol_holdings=ReadSymbolHoldings(SqlAlchemyLedgerRepository(session)),
@@ -284,6 +290,12 @@ async def test_allocation_wins_lock_first_archive_then_refused_sees_live_reserva
     signal_id = uuid4()
     await _seed_strategy(pg_session_factory, strategy_id=strategy_id)
     await _seed_signal(pg_session_factory, signal_id=signal_id, strategy_id=strategy_id)
+    command = await allocate_command(
+        pg_session_factory,
+        signal_id=signal_id,
+        strategy_id=strategy_id,
+        requested=Money(amount=REQUEST_AMOUNT, currency=Currency.USDT),
+    )
 
     resume_allocate_commit = asyncio.Event()
     allocate_result: dict[str, AllocationResult] = {}
@@ -301,13 +313,7 @@ async def test_allocation_wins_lock_first_archive_then_refused_sees_live_reserva
                 skip_recorder=RecordingSkipRecorder(),
                 pool_status=AlwaysEnabledPool(),
             )
-            allocate_result["value"] = await use_case.allocate(
-                AllocateCommand(
-                    signal_id=signal_id,
-                    strategy_id=strategy_id,
-                    requested=Money(amount=REQUEST_AMOUNT, currency=Currency.USDT),
-                )
-            )
+            allocate_result["value"] = await use_case.allocate(command)
 
     task_allocate = asyncio.create_task(run_allocate())
     await asyncio.sleep(0.2)  # AllocateCapital ran its whole transaction body (pre-lock
@@ -366,6 +372,12 @@ async def test_archive_wins_lock_first_allocation_in_lock_reread_sees_archived_s
     signal_id = uuid4()
     await _seed_strategy(pg_session_factory, strategy_id=strategy_id)
     await _seed_signal(pg_session_factory, signal_id=signal_id, strategy_id=strategy_id)
+    command = await allocate_command(
+        pg_session_factory,
+        signal_id=signal_id,
+        strategy_id=strategy_id,
+        requested=Money(amount=REQUEST_AMOUNT, currency=Currency.USDT),
+    )
 
     resume_policy = asyncio.Event()
     allocate_result: dict[str, AllocationResult] = {}
@@ -385,13 +397,7 @@ async def test_archive_wins_lock_first_allocation_in_lock_reread_sees_archived_s
                 skip_recorder=RecordingSkipRecorder(),
                 pool_status=AlwaysEnabledPool(),
             )
-            allocate_result["value"] = await use_case.allocate(
-                AllocateCommand(
-                    signal_id=signal_id,
-                    strategy_id=strategy_id,
-                    requested=Money(amount=REQUEST_AMOUNT, currency=Currency.USDT),
-                )
-            )
+            allocate_result["value"] = await use_case.allocate(command)
 
     task_allocate = asyncio.create_task(run_allocate())
     await asyncio.sleep(0.2)  # AllocateCapital's pre-lock read (enabled=True) has run and
@@ -476,6 +482,12 @@ async def test_archive_takes_pool_lock_before_row_lock_no_deadlock_with_inflight
     signal_id = uuid4()
     await _seed_strategy(pg_session_factory, strategy_id=strategy_id)
     await _seed_signal(pg_session_factory, signal_id=signal_id, strategy_id=strategy_id)
+    command = await allocate_command(
+        pg_session_factory,
+        signal_id=signal_id,
+        strategy_id=strategy_id,
+        requested=Money(amount=REQUEST_AMOUNT, currency=Currency.USDT),
+    )
 
     resume_allocate_policy = asyncio.Event()
     allocate_result: dict[str, AllocationResult] = {}
@@ -499,13 +511,7 @@ async def test_archive_takes_pool_lock_before_row_lock_no_deadlock_with_inflight
                 pool_status=AlwaysEnabledPool(),
             )
             try:
-                allocate_result["value"] = await use_case.allocate(
-                    AllocateCommand(
-                        signal_id=signal_id,
-                        strategy_id=strategy_id,
-                        requested=Money(amount=REQUEST_AMOUNT, currency=Currency.USDT),
-                    )
-                )
+                allocate_result["value"] = await use_case.allocate(command)
             except BaseException as exc:  # noqa: BLE001 -- captured for the assertion below
                 allocate_exc["value"] = exc
 

@@ -22,6 +22,7 @@ from decimal import Decimal
 from uuid import UUID, uuid4
 
 import pytest
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from strategy_manager.allocation.infrastructure.models import ReservationRow
@@ -47,7 +48,8 @@ from strategy_manager.strategies.infrastructure.enablement_log import (
 )
 from strategy_manager.strategies.infrastructure.history_adapter import StrategyHistoryAdapter
 from strategy_manager.strategies.infrastructure.models import StrategyRow
-from tests.owner import OWNER_ID, ensure_pool
+from strategy_manager.subscriptions.infrastructure.models import SubscriptionRow
+from tests.owner import OWNER_ID, ensure_delivery, ensure_pool
 
 pytestmark = pytest.mark.integration
 
@@ -65,9 +67,32 @@ def _history(**counts: int) -> StrategyHistory:
         "ledger_entries": 0,
         "booking_proposals": 0,
         "enablement_events": 0,
+        "subscriptions": 0,
     }
     base.update(counts)
     return StrategyHistory(**base)
+
+
+async def _host_strategy(session: AsyncSession) -> UUID:
+    """A strategy nobody counts, to host the subscription of a seeded delivery."""
+    host = uuid4()
+    exchange, venue, currency = _POOL
+    await session.execute(
+        text(
+            "INSERT INTO strategies "
+            "(id, name, exchange, venue, settlement_currency, enabled, fill_mode, author_id) "
+            "VALUES (:id, :name, :exchange, :venue, :currency, false, 'PARTIAL', :author)"
+        ),
+        {
+            "id": host,
+            "name": f"host-{host}",
+            "exchange": exchange,
+            "venue": venue,
+            "currency": currency,
+            "author": OWNER_ID,
+        },
+    )
+    return host
 
 
 async def _seed(factory: Factory, *rows: object) -> None:
@@ -82,6 +107,19 @@ async def _seed(factory: Factory, *rows: object) -> None:
                     (row.exchange, row.venue, row.settlement_currency),
                     user_id=row.user_id,
                 )
+                if isinstance(row, ReservationRow) and row.delivery_id is None:
+                    # The reservation serves a delivery (migration 0032), whose
+                    # subscription is hosted on a strategy of its own so that no
+                    # count under test sees it.
+                    row.delivery_id = await ensure_delivery(
+                        session,
+                        signal_id=row.signal_id,
+                        strategy_id=row.strategy_id,
+                        user_id=row.user_id,
+                        subscription_strategy_id=await _host_strategy(session),
+                    )
+            if isinstance(row, SubscriptionRow):
+                row.pool_id = await ensure_pool(session, _POOL, user_id=row.user_id)
         session.add_all(rows)
         await session.commit()
 
@@ -232,8 +270,21 @@ def _event(strategy_id: UUID) -> StrategyEnablementEventRow:
     )
 
 
+def _subscription(strategy_id: UUID, *, status: str = "ACTIVE") -> SubscriptionRow:
+    """``pool_id`` is placed by ``_seed``, in the owner's pool on ``_POOL``."""
+    return SubscriptionRow(
+        id=uuid4(),
+        user_id=OWNER_ID,
+        strategy_id=strategy_id,
+        pool_id=0,
+        allocation_percent=Decimal("20"),
+        status=status,
+    )
+
+
 def _adapter(session: AsyncSession) -> StrategyHistoryAdapter:
     return StrategyHistoryAdapter(
+        session=session,
         signals=SqlAlchemySignalRepository(session),
         reservations=SqlAlchemyReservationRepository(session),
         attempts=SqlAlchemyExecutionAttemptRepository(session),
@@ -286,6 +337,10 @@ async def _seed_event_only(factory: Factory, strategy_id: UUID, other: UUID) -> 
     await _seed(factory, _event(strategy_id))
 
 
+async def _seed_subscription_only(factory: Factory, strategy_id: UUID, other: UUID) -> None:
+    await _seed(factory, _subscription(strategy_id))
+
+
 async def test_a_strategy_with_nothing_counts_zero_in_every_kind(
     pg_session_factory: Factory,
 ) -> None:
@@ -312,6 +367,7 @@ async def test_a_strategy_with_nothing_counts_zero_in_every_kind(
         pytest.param(_seed_ledger_entry_only, _history(ledger_entries=1), id="ledger_entries"),
         pytest.param(_seed_proposal_only, _history(booking_proposals=1), id="booking_proposals"),
         pytest.param(_seed_event_only, _history(enablement_events=1), id="enablement_events"),
+        pytest.param(_seed_subscription_only, _history(subscriptions=1), id="subscriptions"),
     ],
 )
 async def test_one_row_of_each_kind_is_counted_in_its_own_kind(
@@ -326,9 +382,23 @@ async def test_one_row_of_each_kind_is_counted_in_its_own_kind(
     history = await _history_of(pg_session_factory, strategy_id)
 
     assert history == expected
-    # Migration 0028: an enablement event is counted, and is the one kind that
-    # does not make the history non-empty.
-    assert history.is_empty() is (seed is _seed_event_only)
+    # Migrations 0028 and 0031: an enablement event and a subscription are
+    # counted, and are the kinds that do not make the history non-empty.
+    assert history.is_empty() is (seed in (_seed_event_only, _seed_subscription_only))
+
+
+async def test_subscriptions_are_counted_in_every_status(pg_session_factory: Factory) -> None:
+    strategy_id = await _strategy(pg_session_factory)
+    await _seed(
+        pg_session_factory,
+        _subscription(strategy_id, status="ENDED"),
+        _subscription(strategy_id, status="ENDED"),
+        _subscription(strategy_id, status="LEAVING"),
+    )
+
+    history = await _history_of(pg_session_factory, strategy_id)
+
+    assert history == _history(subscriptions=3)
 
 
 async def test_an_execution_attempt_is_counted_through_its_reservation_its_closed_allocation_and_its_signal(  # noqa: E501
@@ -421,6 +491,7 @@ async def test_another_strategys_rows_are_never_counted(pg_session_factory: Fact
         _ledger_entry(other, reservation.id, attempt.id),
         _proposal(other),
         _event(other),
+        _subscription(other),
     )
 
     mine = await _history_of(pg_session_factory, strategy_id)
@@ -434,6 +505,7 @@ async def test_another_strategys_rows_are_never_counted(pg_session_factory: Fact
         ledger_entries=1,
         booking_proposals=1,
         enablement_events=1,
+        subscriptions=1,
     )
 
 

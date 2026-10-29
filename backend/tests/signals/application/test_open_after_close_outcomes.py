@@ -29,8 +29,10 @@ from tests.signals.application.test_open_after_close import (
     OWNER,
     SETTLE_TIMEOUT_SECONDS,
     FakeClosingAttemptsPort,
+    FakeDeliverySignals,
     FakeSignalLookupPort,
     _attempt,
+    _claimed_from,
     _continuation,
     _job,
     _signal,
@@ -62,6 +64,31 @@ async def test_a_superseded_signal_is_rejected_with_the_logged_message(
     assert signal_id == signal.id
     assert outcome == SignalOutcome.rejected("SIGNAL_SUPERSEDED", _abandonment_message(caplog))
     assert outcomes.calls == []  # never the warning path
+
+
+async def test_an_abandonment_ends_the_delivery_the_job_names_not_the_signal(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """C.7/C.8: the outcome lands on the delivery the continuation was seeded for, and
+    the second INFO line names both ids. The delivery's id is not its signal's."""
+    signal = _signal()
+    delivery_id = uuid4()
+    outcomes = RecordingSignalOutcomes()
+    continuation, _, queue, _ = _continuation(
+        signals=FakeSignalLookupPort(signal=signal, newer=True),
+        outcomes=outcomes,
+        deliveries=FakeDeliverySignals({delivery_id: signal.id}),
+    )
+    await continuation.seed(delivery_id, [uuid4()], poll=0)
+
+    with caplog.at_level("INFO", logger=_LOGGER):
+        await continuation.poll(_claimed_from(queue.enqueued[-1]), OWNER)
+
+    [(row_id, outcome)] = outcomes.unless_terminal_calls
+    assert row_id == delivery_id and row_id != signal.id
+    assert outcome.reason == "SIGNAL_SUPERSEDED"
+    info = [r.getMessage() for r in caplog.records if r.levelno == 20 and r.name == _LOGGER]
+    assert len(info) == 1 and str(delivery_id) in info[0] and str(signal.id) in info[0]
 
 
 async def test_an_awaited_close_that_failed_rejects_the_signal(

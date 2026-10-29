@@ -137,6 +137,9 @@ class _Allocation:
         self._factory = factory
         self._strategy_id = strategy_id
         self.result: AllocationResult | None = None
+        # The delivery the command serves: a skip is recorded on it, never on the
+        # signal (tasks.md C.7).
+        self.delivery_id: UUID | None = None
         self.task: asyncio.Task[None] = asyncio.create_task(self._run())
 
     async def _run(self) -> None:
@@ -152,9 +155,9 @@ class _Allocation:
                 skip_recorder=self.recorder,
                 pool_status=SqlAlchemyPoolStatus(session),
             )
-            self.result = await use_case.allocate(
-                _allocate_command(self.signal_id, self._strategy_id)
-            )
+            command = await _allocate_command(self._factory, self.signal_id, self._strategy_id)
+            self.delivery_id = command.delivery_id
+            self.result = await use_case.allocate(command)
 
 
 async def _seed(factory: async_sessionmaker[AsyncSession]) -> tuple[UUID, UUID]:
@@ -199,8 +202,10 @@ async def test_allocation_that_waited_while_the_pool_was_disabled_skips_pool_dis
     assert result.skip_reason == "POOL_DISABLED"
     assert result.reservation_id is None
     assert await _reservation_count(factory, strategy_id) == 0
+    assert allocation.delivery_id is not None
+    assert allocation.delivery_id != signal_id
     assert [(call[0], call[1]) for call in allocation.recorder.calls] == [
-        (signal_id, "POOL_DISABLED")
+        (allocation.delivery_id, "POOL_DISABLED")
     ]
     assert await _pool_enabled(factory) is False
 
@@ -334,6 +339,8 @@ async def test_w1_interleaving_with_the_real_delete_credential_enabling_a_strate
     assert await _reservation_count(factory, strategy_id) == 0
     assert await _credential_flags(factory) == [False]
     assert await _pool_enabled(factory) is False
+    assert allocation.delivery_id is not None
+    assert allocation.delivery_id != signal_id
     assert [(call[0], call[1]) for call in allocation.recorder.calls] == [
-        (signal_id, "POOL_DISABLED")
+        (allocation.delivery_id, "POOL_DISABLED")
     ]

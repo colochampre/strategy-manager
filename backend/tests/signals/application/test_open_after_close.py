@@ -31,8 +31,9 @@ from strategy_manager.execution.domain.order import OrderSide
 from strategy_manager.shared.application.job import ClaimedJob, Job, JobKind
 from strategy_manager.signals.application.holding_guard import HoldingGuard
 from strategy_manager.signals.application.open_after_close import OpenAfterClose
-from strategy_manager.signals.application.process_signal import ProcessSignalHandler
+from strategy_manager.signals.application.process_signal import UnknownDeliveryError
 from strategy_manager.signals.domain.signal import IdempotencyKey, SignalStatus, WebhookSignal
+from tests.signals.application.delivery_support import sole_subscriber_handler
 from tests.signals.application.test_process_signal import (
     TRADABLE,
     FakeBalanceRefreshPort,
@@ -56,7 +57,11 @@ from tests.signals.application.test_process_signal import (
 from tests.signals.application.test_process_signal import (
     FakeClosingAttemptsPort as FakeProcessClosingAttemptsPort,
 )
-from tests.signals.fakes import FakeTradeCapability, RecordingSignalOutcomes
+from tests.signals.fakes import (
+    FakeTradeCapability,
+    RecordingSignalOutcomes,
+    SoleSubscriberDeliverySignals,
+)
 
 NOW = datetime(2026, 9, 22, 12, 0, 0, tzinfo=UTC)
 # The job's owner: the author of the signal's strategy (multi-user design AD8).
@@ -82,8 +87,10 @@ class FakeSignalLookupPort:
     signal: WebhookSignal | None
     newer: bool = False
     has_newer_calls: list[tuple[UUID, str, datetime]] = field(default_factory=list)
+    asked: list[UUID] = field(default_factory=list)
 
     async def get_by_id(self, signal_id: UUID) -> WebhookSignal | None:
+        self.asked.append(signal_id)
         return self.signal
 
     async def has_newer(
@@ -91,6 +98,21 @@ class FakeSignalLookupPort:
     ) -> bool:
         self.has_newer_calls.append((strategy_id, symbol, received_at))
         return self.newer
+
+
+@dataclass
+class FakeDeliverySignals:
+    """``DeliverySignalPort`` for a world where a delivery's id is NOT its signal's:
+    ``signals`` maps a delivery to its signal, and an unknown delivery raises as the
+    adapter does."""
+
+    signals: dict[UUID, UUID] = field(default_factory=dict)
+
+    async def signal_of(self, delivery_id: UUID) -> UUID:
+        try:
+            return self.signals[delivery_id]
+        except KeyError:
+            raise UnknownDeliveryError(f"no delivery registered for id {delivery_id}") from None
 
 
 @dataclass
@@ -236,6 +258,7 @@ def _continuation(
     open_now: SpyOpenNow | FakeGuardedOpenNow | None = None,
     clock: FrozenClock | None = None,
     outcomes: RecordingSignalOutcomes | None = None,
+    deliveries: FakeDeliverySignals | SoleSubscriberDeliverySignals | None = None,
 ) -> tuple[OpenAfterClose, FakeClosingAttemptsPort, SpyJobQueue, SpyOpenNow | FakeGuardedOpenNow]:
     attempts_port = attempts or FakeClosingAttemptsPort()
     queue_port = queue or SpyJobQueue()
@@ -250,16 +273,20 @@ def _continuation(
         poll_interval_seconds=POLL_INTERVAL_SECONDS,
         max_signal_age_seconds=MAX_SIGNAL_AGE_SECONDS,
         outcomes=outcomes if outcomes is not None else RecordingSignalOutcomes(),
+        deliveries=deliveries if deliveries is not None else SoleSubscriberDeliverySignals(),
     )
     return continuation, attempts_port, queue_port, open_now_port
 
 
-def _job(signal_id: UUID, awaited_allocation_ids: list[UUID], poll: int = 0) -> ClaimedJob:
+def _job(delivery_id: UUID, awaited_allocation_ids: list[UUID], poll: int = 0) -> ClaimedJob:
+    """The job as ``seed`` writes it. Most tests here run in the single-subscriber
+    world, where a delivery has its signal's own id (``SoleSubscriberDeliverySignals``),
+    so ``_job(signal.id, ...)`` names that signal's only delivery."""
     return ClaimedJob(
         id=uuid4(),
         kind=JobKind.SIGNAL_OPEN_AFTER_CLOSE,
         payload={
-            "signal_id": str(signal_id),
+            "delivery_id": str(delivery_id),
             "awaited_allocation_ids": [str(a) for a in awaited_allocation_ids],
             "poll": poll,
         },
@@ -270,21 +297,91 @@ def _job(signal_id: UUID, awaited_allocation_ids: list[UUID], poll: int = 0) -> 
 
 async def test_seed_enqueues_the_expected_payload_and_dedupe_key() -> None:
     continuation, _, queue, _ = _continuation(signals=FakeSignalLookupPort(signal=None))
-    signal_id = uuid4()
+    delivery_id = uuid4()
     allocation_id = uuid4()
 
-    await continuation.seed(signal_id, [allocation_id], poll=2)
+    await continuation.seed(delivery_id, [allocation_id], poll=2)
 
     assert len(queue.enqueued) == 1
     job = queue.enqueued[0]
     assert job.kind is JobKind.SIGNAL_OPEN_AFTER_CLOSE
+    # The delivery and nothing that names a signal (tasks.md C.8).
     assert job.payload == {
-        "signal_id": str(signal_id),
+        "delivery_id": str(delivery_id),
         "awaited_allocation_ids": [str(allocation_id)],
         "poll": 2,
     }
-    assert job.dedupe_key == f"signal.open_after_close:{signal_id}:2"
+    assert job.dedupe_key == f"signal.open_after_close:{delivery_id}:2"
     assert job.run_after == NOW + timedelta(seconds=POLL_INTERVAL_SECONDS)
+
+
+async def test_two_deliveries_of_one_signal_seed_two_continuations_that_never_collide() -> None:
+    """A continuation keyed by the signal would let the second subscriber's seed
+    conflict with the first's and be dropped; keyed by the delivery, each is its own."""
+    continuation, _, queue, _ = _continuation(signals=FakeSignalLookupPort(signal=None))
+    first, second = uuid4(), uuid4()
+
+    assert await continuation.seed(first, [], poll=0) is True
+    assert await continuation.seed(second, [], poll=0) is True
+
+    assert [job.dedupe_key for job in queue.enqueued] == [
+        f"signal.open_after_close:{first}:0",
+        f"signal.open_after_close:{second}:0",
+    ]
+
+
+async def test_a_seeded_continuation_polls_the_signal_of_its_delivery() -> None:
+    """The delivery and its signal have different ids and the delivery's user is not
+    the strategy's author: the poll reads the signal the DELIVERY belongs to, opens
+    for that delivery, and reads the awaited closes as that user."""
+    signal = _signal(received_at=NOW - timedelta(seconds=10))
+    delivery_id, subscriber, allocation_id = uuid4(), uuid4(), uuid4()
+    signals = FakeSignalLookupPort(signal=signal)
+    attempts = FakeClosingAttemptsPort(
+        closes={
+            allocation_id: _attempt(
+                allocation_id=allocation_id, status=ExecutionStatus.FILLED, created_at=NOW
+            )
+        }
+    )
+    continuation, _, queue, open_now = _continuation(
+        signals=signals,
+        attempts=attempts,
+        deliveries=FakeDeliverySignals({delivery_id: signal.id}),
+    )
+    await continuation.seed(delivery_id, [allocation_id], poll=1)
+
+    await continuation.poll(_claimed_from(queue.enqueued[-1]), subscriber)
+
+    assert signals.asked == [signal.id]
+    assert open_now.calls == [(delivery_id, 1)]
+    assert attempts.users == [subscriber]
+
+
+@pytest.mark.parametrize("owner", [None, OWNER], ids=["no-owner", "owner"])
+async def test_a_continuation_whose_delivery_is_gone_is_abandoned_loudly(
+    caplog: pytest.LogCaptureFixture, owner: UUID | None
+) -> None:
+    """Nothing can be opened for a delivery that no longer exists, and nothing can be
+    recorded on it: one ERROR names the delivery, the poll does not raise, and it
+    neither opens nor reschedules. The handler resolves no owner for a gone delivery
+    (``None``), but the abandonment does not depend on that."""
+    gone = uuid4()
+    signals = FakeSignalLookupPort(signal=_signal())
+    continuation, attempts, queue, open_now = _continuation(
+        signals=signals, deliveries=FakeDeliverySignals()
+    )
+    await continuation.seed(gone, [uuid4()], poll=0)
+
+    with caplog.at_level("ERROR"):
+        await continuation.poll(_claimed_from(queue.enqueued[-1]), owner)
+
+    errors = [r.getMessage() for r in caplog.records if r.levelname == "ERROR"]
+    assert len(errors) == 1 and str(gone) in errors[0]
+    assert signals.asked == []
+    assert attempts.calls == []
+    assert open_now.calls == []
+    assert len(queue.enqueued) == 1  # only the seed itself
 
 
 async def test_signal_no_longer_existing_abandons_without_raising() -> None:
@@ -637,6 +734,7 @@ async def test_in_flight_that_never_clears_keeps_rescheduling_until_the_age_boun
         poll_interval_seconds=1.0,
         max_signal_age_seconds=3.0,
         outcomes=RecordingSignalOutcomes(),
+        deliveries=SoleSubscriberDeliverySignals(),
     )
     open_now.continuation = continuation
 
@@ -712,7 +810,7 @@ async def test_a_deferred_opening_is_sized_with_the_share_stored_when_it_finally
     pool_balance = PoolBalance(
         total=Decimal("1000"), available=Decimal("1000"), min_order_size=Decimal("1")
     )
-    handler = ProcessSignalHandler(
+    handler = sole_subscriber_handler(
         signal_context=FakeSignalContextPort(
             replace(_open_long_context(), received_at=NOW)
         ),

@@ -9,9 +9,14 @@ tasks.md 2c.15 -- see "Lock order" below for why):
 
 1. An UNLOCKED read of the strategy row, to learn whether it exists at all
    and, if so, its pool. 404s (``UnknownStrategy``) here, and ONLY here.
-2. Acquire the pool's advisory lock -- the SAME key ``AllocateCapital``
-   takes for this pool (``PoolLockPort``'s own docstring explains why that
-   identity matters).
+2. Acquire the advisory lock of EVERY pool that holds a live (ACTIVE or
+   LEAVING) subscription of the strategy, lowest ``pool_id`` first -- the SAME
+   key ``AllocateCapital`` takes for each (``PoolLockPort``'s own docstring
+   explains why that identity matters). A subscriber's opening is worked in
+   the subscriber's own pool, so the author's lock alone serialized nothing
+   against it (multi-user tasks.md C.9; ``subscriber_locks`` has the order and
+   the re-read under the row lock that closes the window between the read and
+   the locks).
 3. ``SELECT ... FOR UPDATE`` on the strategy row -- the SAME row lock
    ``UpdateStrategy``/``ReplaceAllowedPairs`` already take, taken SECOND
    now, and re-read fresh: everything decided on below (``enabled``,
@@ -25,7 +30,9 @@ tasks.md 2c.15 -- see "Lock order" below for why):
 6. Read exposure inside the advisory lock. Any open position, live
    reservation or in-flight execution attempt refuses with
    ``OpenPosition``, naming what was found.
-7. Write ``archived_at`` and commit -- releasing both locks.
+7. Write ``archived_at``, end every live subscription (owner decision 5) and
+   commit -- releasing every lock. The refusal in step 6 names who holds the
+   exposure: ``author``, or ``user`` and the first eight characters of the id.
 
 **Lock order: advisory lock, then row lock -- never the other way round.**
 A strategy's pool is immutable (``UpdateStrategy`` refuses moving it), so
@@ -73,6 +80,7 @@ follow, and both are closed:
 Either way, an archived strategy never ends up holding a position.
 """
 
+import logging
 from dataclasses import dataclass, replace
 from uuid import UUID
 
@@ -84,9 +92,13 @@ from strategy_manager.strategies.application.ports import (
     StrategyExposure,
     StrategyExposurePort,
     StrategyRepositoryPort,
+    StrategySubscribersPort,
 )
+from strategy_manager.strategies.application.subscriber_locks import SubscriberLocks
 from strategy_manager.strategies.application.update_strategy import UnknownStrategy
 from strategy_manager.strategies.domain.strategy import Strategy
+
+logger = logging.getLogger(__name__)
 
 
 class StillEnabled(DomainError):
@@ -129,12 +141,14 @@ class ArchiveStrategy:
         self,
         repository: StrategyRepositoryPort,
         pool_lock: PoolLockPort,
+        subscribers: StrategySubscribersPort,
         exposure: StrategyExposurePort,
         commit: CommitPort,
         clock: ClockPort,
     ) -> None:
         self._repository = repository
-        self._pool_lock = pool_lock
+        self._locks = SubscriberLocks(subscribers, pool_lock)
+        self._subscribers = subscribers
         self._exposure = exposure
         self._commit = commit
         self._clock = clock
@@ -156,11 +170,12 @@ class ArchiveStrategy:
             unlocked.policy.settlement_currency.value,
         )
 
-        # Step 2: the pool's advisory lock -- the SAME key AllocateCapital
-        # takes for this pool (PoolLockPort's own docstring) -- taken
-        # BEFORE the row lock, never after, to avoid the lock-order-
-        # inversion deadlock this module's docstring documents.
-        await self._pool_lock.acquire(unlocked.author_id, *pool)
+        # Step 2: the advisory lock of EVERY live subscriber's pool, lowest
+        # pool_id first -- the SAME key AllocateCapital takes for each of them
+        # (PoolLockPort's own docstring) -- taken BEFORE the row lock, never
+        # after, to avoid the lock-order-inversion deadlock this module's
+        # docstring documents.
+        locked = await self._locks.acquire(strategy_id)
 
         # Step 3: the row lock, second. Everything decided below is
         # re-read from HERE, never from the unlocked read above -- a
@@ -170,10 +185,24 @@ class ArchiveStrategy:
         if strategy is None:
             raise UnknownStrategy(f"no strategy registered under id {strategy_id}")
 
+        # The subscribers again, under the row lock: one who joined after
+        # step 2's read has a pool no lock covers (``SubscriberLocks``).
+        subscribers = await self._locks.confirm(strategy_id, locked, action="archive")
+
         if strategy.archived_at is not None:
-            # Idempotent -- release both locks via an empty commit and
-            # report the SAME archived_at rather than raising or rewriting
-            # it (design.md's sequence diagram: "archived already? -> 200").
+            # Idempotent -- release the locks via a commit and report the SAME
+            # archived_at rather than raising or rewriting it (design.md's
+            # sequence diagram: "archived already? -> 200"). A subscription an
+            # earlier archive left live (one written before it ended them all)
+            # is ended now, so a replay heals it.
+            leftover = await self._subscribers.end_all(strategy_id, self._clock.now())
+            if leftover:
+                logger.info(
+                    "strategy archive replayed, leftover subscriptions ended: "
+                    "id=%s subscriptions_ended=%d",
+                    strategy_id,
+                    leftover,
+                )
             await self._commit.commit()
             return ArchiveResult(strategy=strategy, already_archived=True)
 
@@ -185,16 +214,46 @@ class ArchiveStrategy:
 
         exposure = await self._exposure.exposure(strategy_id, pool)
         if not exposure.is_empty():
+            holders = _holder_names(
+                await self._subscribers.holders(strategy_id, subscribers), strategy.author_id
+            )
+            logger.warning(
+                "strategy archive refused, it still holds exposure: id=%s name=%r held_by=%s",
+                strategy_id,
+                strategy.name,
+                holders,
+            )
             raise OpenPosition(
                 f"strategy {strategy_id} ({strategy.name!r}) still holds exposure "
                 f"on {pool}: symbols={sorted(exposure.symbols)}, "
                 f"allocations={[str(a) for a in exposure.allocations]}, "
                 f"live_reservations={[str(r) for r in exposure.live_reservations]}, "
-                f"in_flight_attempts={[str(a) for a in exposure.in_flight_attempts]}",
+                f"in_flight_attempts={[str(a) for a in exposure.in_flight_attempts]}, "
+                f"held_by={holders}",
                 exposure,
             )
 
-        updated = replace(strategy, archived_at=self._clock.now())
+        now = self._clock.now()
+        updated = replace(strategy, archived_at=now)
         await self._repository.update(updated)
+        # Every subscriber's place in it ends with it (owner decision 5), in the
+        # same transaction: a crash leaves neither half.
+        ended = await self._subscribers.end_all(strategy_id, now)
         await self._commit.commit()
+        logger.info(
+            "strategy archived, subscriptions ended: id=%s subscriptions_ended=%d",
+            strategy_id,
+            ended,
+        )
         return ArchiveResult(strategy=updated, already_archived=False)
+
+
+def _holder_names(holders: list[UUID], author_id: UUID) -> list[str]:
+    """Who still holds exposure, for the refusal and its log: the author as
+    ``author``, anyone else by the first eight characters of their id and never by
+    e-mail. An empty list means exposure no live subscriber holds (an in-flight
+    attempt, or a subscription that has ended)."""
+    return [
+        "author" if holder == author_id else f"user {str(holder)[:8]}"
+        for holder in sorted(holders, key=str)
+    ]

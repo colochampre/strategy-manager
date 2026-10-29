@@ -35,6 +35,7 @@ from tests.allocation.application.test_allocate_capital import (
     _enabled_snapshot,
 )
 from tests.allocation.fakes import RecordingPoolStatus, RecordingSkipRecorder
+from tests.owner import OWNER_ID
 
 
 class _EventLock:
@@ -61,11 +62,13 @@ class _Rig:
     reservations: FakeReservationRepository
     recorder: RecordingSkipRecorder
 
-    def command(self, signal_id: UUID) -> AllocateCommand:
+    def command(self, signal_id: UUID, delivery_id: UUID | None = None) -> AllocateCommand:
         return AllocateCommand(
             signal_id=signal_id,
             strategy_id=self.strategy_id,
             requested=Money(amount=Decimal("200"), currency=Currency.USDT),
+            user_id=OWNER_ID,
+            delivery_id=delivery_id if delivery_id is not None else uuid4(),
         )
 
 
@@ -97,10 +100,10 @@ async def test_an_enabled_strategy_on_a_pool_disabled_in_the_lock_skips_and_rese
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     rig = _rig(disabled=True)
-    signal_id = uuid4()
+    signal_id, delivery_id = uuid4(), uuid4()
 
     with caplog.at_level("WARNING"):
-        result = await rig.use_case.allocate(rig.command(signal_id))
+        result = await rig.use_case.allocate(rig.command(signal_id, delivery_id))
 
     assert result.outcome is DecisionOutcome.SKIP
     assert result.skip_reason == "POOL_DISABLED"
@@ -116,7 +119,7 @@ async def test_an_enabled_strategy_on_a_pool_disabled_in_the_lock_skips_and_rese
     assert "no capital reserved" in warnings[0]
     assert "POOL_DISABLED" in warnings[0]
 
-    assert rig.recorder.calls == [(signal_id, "POOL_DISABLED", warnings[0])]
+    assert rig.recorder.calls == [(delivery_id, "POOL_DISABLED", warnings[0])]
     assert rig.pool_status.calls == [("pionex", "spot", "USDT")]
 
 

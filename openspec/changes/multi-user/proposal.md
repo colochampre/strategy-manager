@@ -72,7 +72,7 @@ They live in `owner-decisions.md`, numbered 1-12. In one line each:
 - Monetization, fees, and the legal review they need (decision 12; operator-panel decision 4).
 - More than one key per exchange per user (R1).
 - Per-user notifications. Telegram stays the admin's channel.
-- Private strategies (R7: every strategy is public).
+- ~~Private strategies (R7: every strategy is public).~~ Amended by decision 21: an author may make a strategy private, in PR D.
 - Deleting users or their data. Freeing a Cloudflare seat keeps the data (decision 2).
 - An app-owned login (decision 1).
 - COIN-M, Pionex execution, and a REVERSE that flips. These are unchanged from today.

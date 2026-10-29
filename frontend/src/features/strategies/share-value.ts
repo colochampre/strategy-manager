@@ -43,7 +43,7 @@ function hasTooManyDecimals(canonical: string): boolean {
 }
 
 /**
- * `strategy.allocation_percent` as the server wrote it, in canonical form, or `null` when the text is
+ * A subscription's `allocation_percent` as the server wrote it, in canonical form, or `null` when the text is
  * not a plain decimal (an exponent, a sign, an empty string): never a guess.
  */
 export function readStored(text: string): string | null {

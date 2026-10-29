@@ -1,9 +1,9 @@
 """A share of the pool has at most 18 decimal places, wherever the API takes one
 (owner decision 50; spec: admin-api; tasks.md 12f.9.17).
 
-Three inputs take a share: the ``share`` query of ``GET /api/strategies/{id}/share-preview``,
-``allocation_percent`` of the update (``PATCH``) and ``allocation_percent`` of the
-registration (``POST``). A value whose WRITTEN form has more than 18 decimal places is
+Two inputs take a share here: the ``share`` query of ``GET /api/strategies/{id}/share-preview``
+and ``allocation_percent`` of the registration (``POST``); the update (``PATCH``) refuses
+one outright since C.4b. A value whose WRITTEN form has more than 18 decimal places is
 refused with the application's 422 that echoes no input, and nothing is stored. The count
 is of the value as written: trailing zeros count (``1.5000000000000000000`` has 19) and
 ``1E+1`` has none.
@@ -27,12 +27,12 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from strategy_manager.main import create_app
 from strategy_manager.shared import db as shared_db
 from strategy_manager.strategies.infrastructure.pair_catalog_router import get_pair_catalog
-from tests.identity_auth import ADMIN_HEADERS, seed_admin, sign_in_as_admin
+from tests.identity_auth import ADMIN_HEADERS, act_as, sign_in_as_admin
 from tests.ledger.infrastructure.conftest import (  # noqa: F401
     pg_engine,
     pg_session_factory,
 )
-from tests.owner import seed_pool
+from tests.owner import OWNER_ID
 from tests.strategies.infrastructure.test_share_preview_router import _strategy, _synced
 
 pytestmark = pytest.mark.integration
@@ -67,13 +67,11 @@ def _signed_in(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture
 async def client(pg_session_factory: Factory) -> AsyncIterator[AsyncClient]:  # noqa: F811
-    """A registration's author is the signed-in admin, and a strategy is
-    registered on its author's pools (multi-user design AD8): the admin holds a
-    bybit pool of their own, beside the owner's that the previews read."""
-    async with pg_session_factory() as session:
-        await seed_pool(session, ("bybit", "usdt-m", "USDT"), user_id=await seed_admin(session))
-        await session.commit()
+    """The signed-in user is the fixtures' owner: a registration's author, the pool a
+    preview is sized from (tasks.md C.4b) and the pool a strategy is registered on
+    (multi-user design AD8) are all theirs. The admin's assertion opens the router."""
     app = create_app()
+    act_as(app, OWNER_ID)
 
     async def _override_get_session() -> AsyncIterator[AsyncSession]:
         async with pg_session_factory() as session:
@@ -205,10 +203,13 @@ async def test_the_preview_accepts_a_share_with_at_most_18_decimals(
 
 
 # --- the update's ``allocation_percent`` -------------------------------------------------------
+# The PATCH takes no share any more (C.4b): whatever it is worth, it is refused, and the
+# redacted 422 still echoes none of it. The 18-decimal bound now lives on the subscription's
+# share (``/api/subscriptions``).
 
 
-@pytest.mark.parametrize("value", REFUSED)
-async def test_the_update_refuses_a_share_with_more_than_18_decimals_and_stores_nothing(
+@pytest.mark.parametrize("value", REFUSED + [written for written, _ in ACCEPTED])
+async def test_the_update_refuses_every_share_without_echo_and_stores_nothing(
     client: AsyncClient,
     pg_session_factory: Factory,  # noqa: F811
     value: str,
@@ -219,23 +220,6 @@ async def test_the_update_refuses_a_share_with_more_than_18_decimals_and_stores_
 
     _assert_refused_without_echo(response, value)
     assert await _stored_share(pg_session_factory, strategy_id) == Decimal(30)
-
-
-@pytest.mark.parametrize(("value", "worth"), ACCEPTED)
-async def test_the_update_accepts_a_share_with_at_most_18_decimals(
-    client: AsyncClient,
-    pg_session_factory: Factory,  # noqa: F811
-    value: str,
-    worth: Decimal,
-) -> None:
-    strategy_id = await _strategy(pg_session_factory, share="30")
-
-    response = await _patch(client, strategy_id, value)
-
-    assert response.status_code == 200, response.text
-    assert Decimal(response.json()["allocation_percent"]) == worth
-    assert "e" not in response.json()["allocation_percent"].lower()
-    assert await _stored_share(pg_session_factory, strategy_id) == worth
 
 
 # --- the registration's ``allocation_percent`` ----------------------------------------------------
@@ -267,5 +251,6 @@ async def test_the_registration_accepts_a_share_with_at_most_18_decimals(
     response = await _register(client, strategy_id, value)
 
     assert response.status_code == 201, response.text
-    assert Decimal(response.json()["allocation_percent"]) == worth
+    assert "allocation_percent" not in response.json()
+    assert Decimal(response.json()["subscription"]["allocation_percent"]) == worth
     assert await _stored_share(pg_session_factory, strategy_id) == worth

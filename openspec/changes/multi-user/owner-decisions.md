@@ -125,4 +125,36 @@ These come from the owner's own words above. They are not asked again.
     - Masking in the panel hides only the user's own e-mail, which `/api/me` and the Access cookie carry to that same browser anyway. It guards against screenshots and screen sharing, not against the user.
     - Other users' e-mails are a different matter. A public strategy's author, for example, must never reach the client at all, so the backend sends a display name instead. That name arrives with the public strategies work (PR D). The header switches to it then.
 
+18. **A new subscriber joins per symbol: at that symbol's next opening, never in the middle of that symbol's open position (PR C planning, 2026-10-27).** The owner chose "Si, por par" over waiting until the whole strategy is flat.
+    - The question came from the code. The system keeps a strategy's position per (strategy, symbol) (`signals/infrastructure/repository.py:108`), but AD4 armed a subscription on "the last processed signal of the strategy", whatever its symbol. In a strategy that trades several pairs, the whole strategy may never be flat at once.
+    - Example: a user subscribes while the strategy holds BTC and is flat on ETH. They enter at ETH's next opening, and at BTC's only after BTC closes.
+    - This keeps decision 3's reason: every entry is at the strategy's own price.
+    - It replaces AD4's `armed_at`, which is not built.
+
+19. **Deleting a strategy takes its subscriptions with it (PR C, C.1, 2026-10-27).** The owner chose "Si" to the recommendation over letting subscriptions block the delete.
+    - The delete still requires a strategy that never traded: no signals, reservations, ledger entries or booking proposals. The subscriptions are not part of that.
+    - `fk_subscriptions_strategy` is `ON DELETE CASCADE`. The history check counts the subscriptions for the response body and the log line, and never blocks on them. Enablement events work the same way (decision 42).
+    - Why not block: from 0031 on, every strategy carries its author's subscription, so a blocking count would make every delete impossible.
+    - Once other users exist, their subscriptions to a strategy that never emitted a signal go with it too. They lose nothing, because nothing traded.
+    - The question came from `test_strategy_references_guard`, which refuses any new reference into `strategies` that the delete check does not count. `PositionTransition` has no scale-in: every consuming effect is an entry at the signal's price, either an opening from flat or the opening half of a reverse. So every consuming effect goes to every ACTIVE subscription, and every releasing effect goes only to the subscriptions that hold that symbol's open allocation.
+
+20. **Deleting a key is blocked by the user's ACTIVE subscriptions to ENABLED strategies on that market (PR C, C.10, 2026-10-28).** The owner chose "Solo las ACTIVE, como recomendas" over blocking on every subscription that is not ENDED.
+    - Until now the delete was blocked by the enabled strategies the user authors. A subscriber authors nothing, so that read would let them delete the key a subscription still needs.
+    - A disabled strategy fans out no signal, so its subscription needs no key. If the author enables it again, the subscriber's next opening is refused before any capital is reserved (`EXCHANGE_HAS_NO_KEY`), which is what happens to an author today.
+    - A LEAVING subscription holds an open position, and that position already blocks the delete through the ledger holdings.
+
+21. **An author may make a strategy private, chosen at creation and changeable afterwards; making it private keeps its current subscribers (2026-10-28, amends R7).** The owner asked for it ("Prefiero que se pueda cambiar luego de crearla") and chose "Los actuales siguen".
+    - The owner's use case: run a strategy privately until it has a history, then publish it with data to analyse.
+    - The public record is computed from the strategy's own signals (decision 15), never from a user's ledger, so the signals received while private are already the history when it turns public. That record always includes the private period, so going private never hides a bad run.
+    - Going private blocks new subscriptions only: a subscription to another author's private strategy is refused as not found (AD8). Current subscribers keep receiving its signals, and the fan-out does not read the visibility. A subscriber who leaves cannot come back while it stays private.
+    - A private strategy leaves the public list and its public page.
+    - Accepted risk: an author may run several private strategies and publish only the lucky one. Nothing prevents that; the public history is the only mitigation, as in decision 9.
+    - Deferred mitigation (owner, 2026-10-28): cap how many strategies a user may hold, by plan (for example free, pro, premium). It is decided later, once everything works, together with monetization (decision 12). For the cap to bite, it must also count archived and deleted strategies, or limit creations over time; otherwise an author retires the unlucky ones and creates new ones.
+    - Scheduled for PR D (authoring): the column, the creation choice, the change, and the subscribe refusal. It must be in place before PR F opens the public list.
+
+22. **An author cannot leave their own strategy (PR C, C.12, 2026-10-28).** The owner proposed it ("no me cierra que alguien cree una estrategia que no vaya a usar. Es un incentivo o ejemplo que da para otros usuarios") and confirmed "Dale, registrala y aplicala".
+    - `Leave` refuses the author with 409 `AUTHOR_CANNOT_LEAVE`, before any lock or write. The author's way out is to disable the strategy (it stops for everyone) or to archive it (it ends every subscription, C.9).
+    - The author's share may be small. The owner is fine with that, and described the practice it mirrors: a first bot runs with little real capital to confirm the backtest, and after one or two months it is published with that real history, as a percentage. Each copier then chooses their own capital, and leverage is each user's own (the system reads it from that user's account and never sets it).
+    - So the author's subscription only gets a share editor. Subscribe and Leave appear in the panel with PR F, the first PR where a user sees a strategy they did not write. The owner's idea for that view: where the author has the enable toggle, another user has the Subscribe / Subscribed button.
+
 11. **The existing data becomes the owner's (Q10, 2026-10-21; a default, stated rather than asked).** The owner becomes the first user and the admin, and owns today's strategies, keys, pools, ledger and signals. Nothing already recorded changes owner or meaning. The migration that adds the owner column fills it with the owner's user for every existing row. Like every migration, it is rehearsed on a throwaway copy first.

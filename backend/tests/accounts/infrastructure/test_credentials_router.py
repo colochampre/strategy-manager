@@ -110,7 +110,7 @@ from tests.ledger.infrastructure.conftest import (  # noqa: F401
     pg_engine,
     pg_session_factory,
 )
-from tests.owner import seed_other_user, seed_pool
+from tests.owner import ensure_author_subscription, seed_other_user, seed_pool
 
 WITHDRAWALS = "withdrawals_disabled_confirmed"
 FUTURES = "futures_enabled_confirmed"
@@ -1291,6 +1291,9 @@ async def test_delete_credentials_409_names_what_blocks_and_changes_nothing(
     holder_id = uuid4()
     await seed_strategy(factory, strategy_id=enabled_id, enabled=True, author_id=admin)
     await seed_strategy(factory, strategy_id=holder_id, enabled=False, author_id=admin)
+    async with factory() as session:
+        await ensure_author_subscription(session, enabled_id)
+        await session.commit()
     allocation = await seed_open_position(
         factory, strategy_id=holder_id, symbol="ETHUSDT", user_id=admin
     )
@@ -1454,6 +1457,9 @@ async def test_every_delete_answer_carries_no_store(
             admin = await seed_admin(session)
         strategy_id = uuid4()
         await seed_strategy(factory, strategy_id=strategy_id, enabled=True, author_id=admin)
+        async with factory() as session:
+            await ensure_author_subscription(session, strategy_id)
+            await session.commit()
         answers["409"] = await served.api.delete("/api/credentials/bybit", headers=ADMIN_HEADERS)
         await set_strategy_enabled(factory, strategy_id, False)
         answers["200"] = await served.api.delete("/api/credentials/bybit", headers=ADMIN_HEADERS)
