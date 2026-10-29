@@ -882,6 +882,104 @@ It needs an independent verifier before the PR.
    - The owner loaded every page of the panel. The strategy page shows their share at 30 %, as before: it is now read from and written to their subscription.
    - **Pending:** the first real signal after the deploy makes exactly one delivery.
 
-## PR D-G
+## PR D: per-strategy secret and authoring for any user
 
-Planned in `design.md`, "Delivery". Their tasks are written when the previous PR is merged, so each starts from what production actually is. PR D's 0033 also drops what PR C left unused: `strategies.allocation_percent`. The signals' `status`, `outcome_reason`, `outcome_detail` and `decided_at` stay, because they hold the strategy-level refusals (C.7).
+Design AD6, AD8, and decisions 21 and 23. Written 2026-10-29 from production at `0032` (main `214db9b`) and a read-only map of the code. Paths are relative to `backend/src/strategy_manager/`. Branch `feat/multi-user-authoring`.
+
+Every signed-in user can author strategies, scoped to them, and each strategy authenticates its webhook with its own secret, stored as a hash. A strategy can be private (decision 21). The column PR C left unused, `strategies.allocation_percent`, is dropped. Access still admits only the owner, and the panel's admin gate stays until PR G, so production does not change in practice except for the secret flow.
+
+**What the map found** (each is resolved in the tasks below):
+- **a.** Ingress authenticates before it reads the body, with one global secret (`signals/infrastructure/router.py:119-130`, `auth.py:101-118`, constant-time). The strategy is known only from the payload's `signal_type` (`router.py:158-163`), so AD6 needs the strategy row before the secret check. An unknown strategy answers 422 `UNKNOWN_STRATEGY` today.
+- **b.** The strategies router is admin-only at router level (`strategies/infrastructure/router.py:142-146`). `SqlAlchemyStrategyRepository` has no user-scoped read (`strategies/infrastructure/repository.py:49-120`). The pair catalogue is already scoped (`pair_catalog_router.py:91-100`, `read_available_pairs.py:37-40`) and only its admin guard changes.
+- **c.** The create dialog always sends `allocation_percent = "100"` (`frontend/src/features/strategies/NewStrategyDialog.tsx:15,113`). The share still reaches the author's subscription through `StrategyPolicy.allocation_percent` (`register_strategy.py:164`, `author_subscription_adapter.py:44`), and the preview falls back to the column (`router.py:615-617`, N4).
+- **d.** `GET /api/webhook-secret` (`signals/infrastructure/webhook_secret_router.py:55-65`) returns the global secret, and its test sweeps every `/api` route for it (`tests/signals/infrastructure/test_webhook_secret_router.py`).
+- **e.** `strategies.name` is unique across all users (409 near `router.py:517`). Decision 23 makes it unique per author.
+- **f.** The panel lets only admins in (`frontend/src/shared/auth/SignInGate.tsx:30`).
+
+**Stated rather than asked (2026-10-29; the owner may overturn any):**
+- **Ingress order:** source IP, then the body limit and JSON, then `signal_type`, then one read of the strategy by primary key, then the hash compare. An unknown strategy, a missing secret and a wrong secret all answer the same **401**, so an unauthenticated caller cannot probe which ids exist. `UNKNOWN_STRATEGY` goes away at ingress. An archived strategy is still accepted at ingress and refused in processing (operator-panel decision 11).
+- **Shown once:** the create response carries the secret, and a new regenerate route returns a fresh one. Regenerating an archived strategy's secret is refused with 409, like every other write on an archived strategy.
+- **Migrations:** PR D's 0033 holds the secret hash, the visibility, the per-author name unique and the column drop. PR E's mode columns move to 0034 (`design.md` "Migration plan" is updated with this).
+- **Visibility default:** today's 6 strategies become PRIVATE, and the create form defaults to PRIVATE. Nothing turns public without the author's choice. It only matters from PR F, which opens the list.
+- **The share at creation** travels in the command straight to the author's subscription, 100 by default as today. The create form keeps no share input; the share editor (C.12) changes it afterwards.
+- **Scope of reads:** every user, the admin included, lists and reads only the strategies they author. Seeing other authors' strategies is PR F's public list.
+- **Not in PR D:** the display name (decision 17) goes to PR F, the first place another user sees an author. The panel's admin gate opens in PR G, with Access. `Settings.webhook_secret` stays, because 0033 reads it in production; a later PR removes it with its startup invariant.
+
+**Deploy shape:** 0033 drops a column the running code selects, so both services stop for the migration (unlike PR C, where the API stayed up). A signal posted in that window is lost, because TradingView does not retry, so the owner runs it away from a 4h candle close.
+
+**Risk:**
+- item 1: 0033 drops a column, rewrites a unique and backfills hashes;
+- item 2: the webhook's authentication changes, and the strategy routes open from admin-only to scoped;
+- item 3: `GET /api/webhook-secret` is removed, and the create response gains the secret.
+
+It needs an independent verifier before the PR.
+
+### Backend
+
+- [ ] D.1 Migration 0033 (AD6, decisions 21 and 23).
+  - `strategies.webhook_secret_hash text NOT NULL`: the SHA-256 hex of the current `Settings.webhook_secret` for every existing row, so today's TradingView alerts keep working unchanged. It refuses, naming nothing secret, when strategies exist and the setting is empty.
+  - `strategies.visibility text NOT NULL` with CHECK `PUBLIC | PRIVATE`; existing rows `PRIVATE`.
+  - The global unique on `strategies.name` is replaced by `UNIQUE (author_id, name)`. Find the old constraint's real name in the schema; do not guess it.
+  - `strategies.allocation_percent` and its CHECK are dropped.
+  - Downgrade: refuses unless exactly one user exists (as 0031); restores `allocation_percent` from each strategy's author subscription (the latest one), `NOT NULL` again; restores the global name unique; drops the two new columns.
+  - Tests on real PostgreSQL through `migrated_database(name, "0032")`: the backfilled hash equals the setting's, the empty-setting refusal, visibility's CHECK and default, two authors may share a name and one author may not repeat one, the column gone, the downgrade and the upgrade again.
+  - The ORM mirrors it: `StrategyRow` loses `allocation_percent` and gains both columns.
+- [ ] D.2 The webhook authenticates per strategy (AD6, map a).
+  - A port reads one strategy's `webhook_secret_hash` by primary key. Ingress runs in the stated order and compares `sha256(secret)` with `hmac.compare_digest`.
+  - `SourceIpAndSecretAuth` splits into the source check, which stays global and first, and the per-strategy secret check.
+  - One 401 for unknown strategy, missing secret and wrong secret, with the same body. Tests: each of the three; another strategy's secret is refused (the reason AD6 exists); the body limit and the IP refusal still answer as today; an archived strategy's correct secret is accepted and refused in processing.
+  - The webhook still does no write before authentication, and no read but the one strategy row.
+- [ ] D.3 Issue and regenerate the secret (AD6).
+  - `RegisterStrategy` generates 32 random bytes (`secrets.token_urlsafe(32)`), stores only the hash, and the create response carries the secret once.
+  - `POST /api/strategies/{id}/webhook-secret` (author only, AD8 404 otherwise; 409 when archived) replaces the hash and returns the new secret once. The old secret is refused from then on.
+  - `GET /api/webhook-secret` and its router are removed. The sweep in `test_webhook_secret_router.py` becomes: no `/api` response body other than these two contains a strategy's secret, and none contains a `webhook_secret_hash`.
+  - No log line carries a secret or a hash.
+- [ ] D.4 Authoring for any signed-in user (AD8, decision 23, map b and c).
+  - The strategies router and the pair-catalogue router take `current_user` instead of `require_admin`.
+  - The repository gains author-scoped reads, and every route reads through them: another user's strategy answers 404 on `GET /{id}`, `/events`, `/share-preview`, `PUT /allowed-pairs`, `PATCH`, `archive`, `DELETE` and the regenerate route, each with its cross-user test.
+  - `GET /strategies` lists the user's own strategies.
+  - A repeated name answers 409 only within one author; the refusal says nothing about other users' strategies.
+  - The share: `RegisterCommand` carries it to the author's subscription without `StrategyPolicy.allocation_percent`; the field leaves the domain policy and the adapters. The preview's fallback, for a user with no subscription, is 100, the create form's default (N4).
+  - Every test that relied on the admin guard still holds for a non-admin author.
+- [ ] D.5 Private strategies (decision 21).
+  - The create request takes `visibility` (default `PRIVATE`); `PATCH /{id}` changes it, author only.
+  - `Subscribe` refuses another author's private strategy as `StrategyNotFound`, 404, the same answer as a strategy that does not exist (`subscriptions/application/subscribe.py:44-48`). The author's own private strategy is not refused.
+  - Making a strategy private keeps its current subscribers, and the fan-out never reads visibility. A test pins that a private strategy's existing subscription still gets its delivery.
+
+### Frontend
+
+- [ ] D.6 The panel's secret flow and visibility (EN/ES).
+  - The create dialog offers the visibility choice (default private) and, after creating, shows the webhook URL with its secret once, with a copy button and a warning that it will not be shown again.
+  - The strategy header's webhook message shows the URL with a placeholder, and a regenerate action with a confirmation that the old secret stops working. "Show secret" and `shared/api/webhook-secret.ts` go away.
+  - The strategy page shows and changes the visibility.
+  - The name conflict message no longer implies the name is taken system-wide.
+
+### Rehearsal and deploy (owner-run)
+
+- [ ] D.7 Before the deploy: a fresh backup, then rehearse 0033 on a throwaway restore, with a downgrade to 0032 and a second upgrade.
+  - Counts and the ledger's `(id, xmin)` unchanged.
+  - Every strategy has a hash equal to `sha256` of the current setting (compared on the VPS, printing only `ok`), and is `PRIVATE`.
+  - The name unique is per author; `allocation_percent` gone; the downgrade restores each share from the author's subscription.
+- [ ] D.8 Deploy:
+  1. pull as `strategy`;
+  2. away from a 4h candle close, stop both services;
+  3. `alembic upgrade head`;
+  4. start both services;
+  5. pps.6 for the panel.
+  - Check:
+    - a POST with no secret and one with a wrong secret both answer 401;
+    - the panel and every page load, and the strategies show as private;
+    - no new WARNING or ERROR in either service;
+    - the first real signal after the deploy authenticates with the alert's unchanged URL and makes exactly one delivery.
+
+### Delivery
+
+- [ ] D.D.1 Gate (backend and frontend), and an independent verifier over the whole PR.
+- [ ] D.D.2 Push and open the PR (on the owner's word).
+- [ ] D.D.3 Merge (owner), with a merge commit.
+- [ ] D.D.4 Deploy (D.7, D.8).
+- [ ] D.D.5 Delivery log row and "Production now".
+
+## PR E-G
+
+Planned in `design.md`, "Delivery". Their tasks are written when the previous PR is merged, so each starts from what production actually is. PR E's mode columns take migration 0034, because PR D's 0033 holds the secret hash, the visibility and the drop of `strategies.allocation_percent`. The signals' `status`, `outcome_reason`, `outcome_detail` and `decided_at` stay, because they hold the strategy-level refusals (C.7). Advisory N1 (Leave with a queued opening) must be closed before PR F.

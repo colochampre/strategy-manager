@@ -157,4 +157,10 @@ These come from the owner's own words above. They are not asked again.
     - The author's share may be small. The owner is fine with that, and described the practice it mirrors: a first bot runs with little real capital to confirm the backtest, and after one or two months it is published with that real history, as a percentage. Each copier then chooses their own capital, and leverage is each user's own (the system reads it from that user's account and never sets it).
     - So the author's subscription only gets a share editor. Subscribe and Leave appear in the panel with PR F, the first PR where a user sees a strategy they did not write. The owner's idea for that view: where the author has the enable toggle, another user has the Subscribe / Subscribed button.
 
+23. **A strategy's name is unique per author, not across the system (PR D planning, 2026-10-29).** The owner chose "Si, me parece bien" to the recommendation.
+    - Today `strategies.name` is unique across every user, and a taken name answers 409.
+    - With many authors, that lets one user take a name from everyone else. With private strategies (decision 21) it also leaks: the 409 tells another user that a private strategy with that name exists.
+    - So one author cannot repeat their own name, and two authors may share one. In the public list (PR F) the author's display name tells them apart.
+    - Production holds one author, so the new unique is satisfied by today's rows.
+
 11. **The existing data becomes the owner's (Q10, 2026-10-21; a default, stated rather than asked).** The owner becomes the first user and the admin, and owns today's strategies, keys, pools, ledger and signals. Nothing already recorded changes owner or meaning. The migration that adds the owner column fills it with the owner's user for every existing row. Like every migration, it is rehearsed on a throwaway copy first.
