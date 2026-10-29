@@ -19,6 +19,7 @@ calls it after its truncate: a test that truncated ``users`` itself (the
 identity tests do) leaves no gap behind.
 """
 
+import hashlib
 from datetime import datetime
 from decimal import Decimal
 from uuid import UUID, uuid4
@@ -31,6 +32,12 @@ from strategy_manager.shared.domain.money import Money
 
 OWNER_ID = UUID("0a1b2c3d-0000-4000-8000-00000000a0a0")
 OWNER_EMAIL = "fixture-owner@example.com"
+
+
+def secret_hash(secret: str) -> str:
+    """What ``strategies.webhook_secret_hash`` holds for ``secret`` (migration
+    0033, multi-user design AD6): the SHA-256 hex of the secret's UTF-8 bytes."""
+    return hashlib.sha256(secret.encode()).hexdigest()
 
 
 async def seed_user(

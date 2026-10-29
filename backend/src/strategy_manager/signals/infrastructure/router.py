@@ -2,9 +2,14 @@
 
 Persistence and enqueue are the only side effects; no trade is ever executed
 within this request/response cycle (spec: signal-ingress § Fast Enqueue-Only
-Response). TradingView cannot sign its requests, so the shared secret travels
+Response). TradingView cannot sign its requests, so the strategy's secret travels
 as a query parameter on the configured webhook URL (the alert body itself is
 fixed — see design.md § "Alert Contract and Signal Routing").
+
+The order is part of the contract (multi-user design AD6): the source address,
+then the body limit and the JSON, then the alert's ``signal_type``, then ONE read
+of the strategy it names, then the secret against that strategy's stored hash,
+and only then the rest of the alert.
 
 The secret stays in the URL rather than moving into the body because the body
 is persisted verbatim into ``signals.raw_payload``; ``access_log.py`` carries
@@ -41,10 +46,14 @@ from strategy_manager.signals.domain.alert import (
 )
 from strategy_manager.signals.infrastructure.auth import (
     CLOUDFLARE_CLIENT_IP_HEADER,
-    SourceIpAndSecretAuth,
+    SourceIpAuth,
     resolve_source_ip,
+    secret_matches_hash,
 )
 from strategy_manager.signals.infrastructure.repository import SqlAlchemySignalRepository
+from strategy_manager.signals.infrastructure.strategy_secret_reader import (
+    SqlAlchemyStrategySecretReader,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -106,6 +115,17 @@ async def _read_bounded_body(request: Request) -> bytes:
     return b"".join(chunks)
 
 
+def _parse_alert(body: object) -> TradingViewAlert:
+    try:
+        return TradingViewAlert.from_payload(body)
+    except AlertParsingError as exc:
+        # TradingView shows nobody the response, so the refusal must leave a
+        # trace here. Only a field name and a fixed reason are logged, never the
+        # payload, a value or the secret.
+        logger.warning("webhook alert refused: %s", exc.log_text)
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
 class WebhookResponse(BaseModel):
     signal_id: UUID
     accepted: bool
@@ -124,15 +144,14 @@ async def receive_tradingview_webhook(
         forwarded_ip=request.headers.get(CLOUDFLARE_CLIENT_IP_HEADER),
         behind_cloudflare_tunnel=settings.behind_cloudflare_tunnel,
     )
-    auth = SourceIpAndSecretAuth.from_settings(settings)
-    if not auth.authenticate(source_ip, secret):
+    if not SourceIpAuth.from_settings(settings).allows(source_ip):
         raise HTTPException(status_code=401, detail="unauthorized")
 
     try:
         raw_body = await _read_bounded_body(request)
     except BodyTooLargeError as exc:
-        # Refused after authentication and before any parsing; nothing of the body,
-        # and no length the sender declared, is logged or echoed.
+        # Refused after the address check and before any parsing; nothing of the
+        # body, and no length the sender declared, is logged or echoed.
         logger.warning("webhook alert refused: %s", BODY_TOO_LARGE_REASON)
         raise HTTPException(status_code=413, detail=BODY_TOO_LARGE_DETAIL) from exc
 
@@ -151,20 +170,32 @@ async def receive_tradingview_webhook(
         refusal = body_nested_too_deeply()
         logger.warning("webhook alert refused: %s", refusal.log_text)
         raise HTTPException(status_code=422, detail=str(refusal)) from exc
-    try:
-        alert = TradingViewAlert.from_payload(body)
-    except AlertParsingError as exc:
-        # TradingView shows nobody the response, so the refusal must leave a
-        # trace here. Only a field name and a fixed reason are logged, never the
-        # payload, a value or the secret.
-        logger.warning("webhook alert refused: %s", exc.log_text)
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
+    # Only ``signal_type`` is read before the secret: TradingView's addresses are
+    # shared by every TradingView user, so the address check proves nothing, and
+    # the rest of the alert is judged once its strategy's secret has matched.
+    signal_type = body.get("signal_type") if isinstance(body, dict) else None
     try:
-        strategy_id = UUID(alert.signal_type)
-    except ValueError as exc:
+        strategy_id = UUID(signal_type) if isinstance(signal_type, str) else None
+    except ValueError:
+        strategy_id = None
+    if strategy_id is None:
+        # An alert that names no strategy has nothing to authenticate against,
+        # so it is refused for its shape when the parse names a fault, and for
+        # its ``signal_type`` otherwise.
+        _parse_alert(body)
         logger.warning("webhook alert refused: signal_type is not a valid UUID")
-        raise HTTPException(status_code=422, detail="signal_type is not a valid UUID") from exc
+        raise HTTPException(status_code=422, detail="signal_type is not a valid UUID")
+
+    # The one read before anything is stored: the strategy's own secret hash. An
+    # unknown strategy, a strategy with no hash, a missing secret and a wrong one
+    # answer the same 401, so a caller who is not authenticated cannot learn
+    # which ids exist. Nothing is logged here: it would carry the id of a
+    # stranger's request, and the secret and the hash never belong in a log.
+    stored_hash = await SqlAlchemyStrategySecretReader(session).webhook_secret_hash(strategy_id)
+    if not secret_matches_hash(secret, stored_hash):
+        raise HTTPException(status_code=401, detail="unauthorized")
+    alert = _parse_alert(body)
 
     command = IngestCommand(
         strategy_id=strategy_id,
@@ -189,7 +220,9 @@ async def receive_tradingview_webhook(
         logger.warning("webhook alert refused: idempotency key is missing")
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except UnknownSignalStrategy as exc:
-        # The failed INSERT left the transaction aborted; nothing was stored.
+        # Authentication found the strategy, so this is only the race where it was
+        # deleted between that read and this INSERT. The failed INSERT left the
+        # transaction aborted; nothing was stored.
         await session.rollback()
         raise HTTPException(
             status_code=422,

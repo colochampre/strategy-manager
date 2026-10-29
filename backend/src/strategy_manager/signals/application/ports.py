@@ -46,6 +46,20 @@ class UnknownSignalStrategy(DomainError):
         self.strategy_id = strategy_id
 
 
+class StrategySecretReaderPort(Protocol):
+    """Reads what authenticates a webhook alert for one strategy (multi-user
+    design AD6; tasks.md D.2)."""
+
+    async def webhook_secret_hash(self, strategy_id: UUID) -> str | None:
+        """The SHA-256 hex of the strategy's webhook secret, by primary key.
+
+        ``None`` both when no strategy has this id and when the strategy holds no
+        hash. The two are the same answer on purpose: the caller must not be able
+        to tell them apart, and neither can ever authenticate.
+        """
+        ...
+
+
 class SignalRepositoryPort(Protocol):
     """Idempotent persistence: ``ON CONFLICT (strategy_id, idempotency_key)
     DO NOTHING`` semantics, resolved to the existing row on conflict."""

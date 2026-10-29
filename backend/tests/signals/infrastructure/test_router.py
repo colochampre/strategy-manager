@@ -26,6 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from strategy_manager.main import create_app
 from strategy_manager.shared.config import get_settings
 from strategy_manager.shared.infrastructure.models import JobRow
+from tests.signals.infrastructure.conftest import seed_strategy
 
 pytestmark = pytest.mark.integration
 
@@ -48,6 +49,17 @@ def _configure_webhook_secret() -> AsyncIterator[None]:
     get_settings().webhook_secret = SECRET
     yield
     get_settings().webhook_secret = ""
+
+
+@pytest.fixture(autouse=True)
+async def _registered_strategy(pg_session_factory: async_sessionmaker[AsyncSession]) -> None:
+    """The strategy VALID_PAYLOAD names, with SECRET as its own secret: ingress
+    reads it to authenticate (tasks.md D.2)."""
+    await seed_strategy(
+        pg_session_factory,
+        strategy_id=UUID(str(VALID_PAYLOAD["signal_type"])),
+        webhook_secret=SECRET,
+    )
 
 
 @pytest.fixture

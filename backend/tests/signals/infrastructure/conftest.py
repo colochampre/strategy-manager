@@ -34,7 +34,7 @@ from strategy_manager.shared.db import Base
 from strategy_manager.shared.infrastructure.models import JobRow  # noqa: F401  (registers table)
 from strategy_manager.signals.infrastructure.models import SignalRow  # noqa: F401
 from strategy_manager.strategies.infrastructure.models import StrategyRow
-from tests.owner import OWNER_ID, attempt_user_id, seed_owner, seed_reservation_row
+from tests.owner import OWNER_ID, attempt_user_id, secret_hash, seed_owner, seed_reservation_row
 from tests.pg_schema import rebuild_schema_once
 
 TEST_DB_NAME = "strategy_manager_test"
@@ -140,6 +140,9 @@ async def seed_strategy(
     # ``_refuse_unlisted_pair``) refuses every one of its opening signals.
     allowed_pairs: frozenset[str] | None = None,
     author_id: UUID = OWNER_ID,
+    # The secret an alert must carry to be accepted (tasks.md D.2); ``None``
+    # stores no hash, and then no secret authenticates.
+    webhook_secret: str | None = None,
 ) -> None:
     async with session_factory() as session:
         if author_id == OWNER_ID:
@@ -157,6 +160,9 @@ async def seed_strategy(
                 enabled=enabled,
                 fill_mode=fill_mode,
                 allowed_pairs=sorted(allowed_pairs) if allowed_pairs else [],
+                webhook_secret_hash=(
+                    None if webhook_secret is None else secret_hash(webhook_secret)
+                ),
             )
         )
         await session.commit()

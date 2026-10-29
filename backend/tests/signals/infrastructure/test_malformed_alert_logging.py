@@ -37,7 +37,7 @@ from strategy_manager.main import create_app
 from strategy_manager.shared import db as shared_db
 from strategy_manager.shared.config import get_settings
 from strategy_manager.signals.infrastructure import router as webhook_router
-from tests.owner import OWNER_ID, seed_owner
+from tests.owner import OWNER_ID, secret_hash, seed_owner
 from tests.pg_head_schema import migrated_head_database
 
 pytestmark = pytest.mark.integration
@@ -173,10 +173,16 @@ async def strategy_id(engine: AsyncEngine) -> UUID:
         await conn.execute(
             text(
                 "INSERT INTO strategies (id, name, exchange, venue, settlement_currency, "
-                "enabled, fill_mode, allowed_pairs, author_id) VALUES (:id, :name, 'bybit', "
-                "'usdt-m', 'USDT', true, 'PARTIAL', ARRAY['STXUSDT'], :author)"
+                "enabled, fill_mode, allowed_pairs, author_id, webhook_secret_hash) "
+                "VALUES (:id, :name, 'bybit', 'usdt-m', 'USDT', true, 'PARTIAL', "
+                "ARRAY['STXUSDT'], :author, :hash)"
             ),
-            {"id": registered, "name": f"strategy-{registered}", "author": OWNER_ID},
+            {
+                "id": registered,
+                "name": f"strategy-{registered}",
+                "author": OWNER_ID,
+                "hash": secret_hash(SECRET),
+            },
         )
     return registered
 
@@ -271,17 +277,17 @@ async def test_a_blank_idempotency_key_is_422_and_leaves_exactly_one_warning(
     assert await _count(engine, "signals") == 0
 
 
-async def test_an_unknown_strategy_leaves_exactly_one_warning(
+async def test_an_unknown_strategy_is_401_and_writes_no_line_at_all(
     client: AsyncClient, caplog: pytest.LogCaptureFixture
 ) -> None:
+    """It is no longer a 422 with a warning (tasks.md D.2): to a caller who is not
+    authenticated, an unknown strategy is indistinguishable from a wrong secret."""
     with caplog.at_level(logging.DEBUG):
         response = await _post(client, _payload(uuid4()))
 
-    assert response.status_code == 422
-    loud = _loud(caplog)
-    assert len(loud) == 1
-    assert loud[0].levelno == logging.WARNING
-    assert loud[0].getMessage().startswith(PREFIX + "no strategy is registered")
+    assert response.status_code == 401
+    assert [r for r in caplog.records if r.name == ROUTER_LOGGER] == []
+    assert _loud(caplog) == []
 
 
 async def test_an_accepted_alert_and_a_duplicate_write_no_warning(

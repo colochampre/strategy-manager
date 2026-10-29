@@ -1,5 +1,9 @@
 """The webhook refuses an alert whose strategy is not registered.
 
+Since tasks.md D.2 that refusal is the 401 of every authentication failure; the
+422 ``UNKNOWN_STRATEGY`` survives only for a strategy deleted after its secret was
+checked.
+
 Runs on a database migrated to ``head`` with Alembic, not on the ORM-built test
 schema: ``fk_signals_strategy`` exists ONLY in the migrations
 (``0003_strategies_pools.py``), and the ORM column carries no ``ForeignKey``. On
@@ -28,7 +32,10 @@ from sqlalchemy.ext.asyncio import (
 from strategy_manager.main import create_app
 from strategy_manager.shared import db as shared_db
 from strategy_manager.shared.config import get_settings
-from tests.owner import OWNER_ID, seed_owner
+from strategy_manager.signals.infrastructure.strategy_secret_reader import (
+    SqlAlchemyStrategySecretReader,
+)
+from tests.owner import OWNER_ID, secret_hash, seed_owner
 from tests.pg_head_schema import migrated_head_database
 
 pytestmark = pytest.mark.integration
@@ -99,14 +106,16 @@ async def _register(engine: AsyncEngine, strategy_id: UUID, *, allowed: str = "S
         await conn.execute(
             text(
                 "INSERT INTO strategies (id, name, exchange, venue, settlement_currency, "
-                "enabled, fill_mode, allowed_pairs, author_id) VALUES (:id, :name, 'bybit', "
-                "'usdt-m', 'USDT', true, 'PARTIAL', ARRAY[:pair], :author)"
+                "enabled, fill_mode, allowed_pairs, author_id, webhook_secret_hash) "
+                "VALUES (:id, :name, 'bybit', 'usdt-m', 'USDT', true, 'PARTIAL', "
+                "ARRAY[:pair], :author, :hash)"
             ),
             {
                 "id": strategy_id,
                 "name": f"strategy-{strategy_id}",
                 "pair": allowed,
                 "author": OWNER_ID,
+                "hash": secret_hash(SECRET),
             },
         )
 
@@ -116,9 +125,33 @@ async def _count(engine: AsyncEngine, table: str) -> int:
         return int((await conn.execute(text(f"SELECT count(*) FROM {table}"))).scalar_one())
 
 
-async def test_an_alert_for_an_unregistered_strategy_is_422_unknown_strategy_and_persists_nothing(
+async def test_an_alert_for_an_unregistered_strategy_is_401_not_422_and_persists_nothing(
     client: AsyncClient, engine: AsyncEngine
 ) -> None:
+    """``UNKNOWN_STRATEGY`` no longer leaves ingress (tasks.md D.2): the strategy
+    is read to authenticate, and an unknown one answers the 401 of a wrong secret,
+    so an unauthenticated caller cannot probe which ids exist."""
+    response = await client.post(
+        "/webhook/tradingview", params={"secret": SECRET}, json=_payload(uuid4())
+    )
+
+    assert (response.status_code, response.json()) == (401, {"detail": "unauthorized"})
+    assert await _count(engine, "signals") == 0
+    assert await _count(engine, "jobs") == 0
+
+
+async def test_a_strategy_deleted_between_the_secret_check_and_the_insert_is_still_422(
+    client: AsyncClient, engine: AsyncEngine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The one way an AUTHENTICATED alert meets the foreign key: the strategy was
+    deleted after its hash was read. The reader is made to answer for a strategy
+    that is not there, which is exactly what that interleaving looks like."""
+
+    async def _stale_hash(self: object, strategy_id: UUID) -> str:
+        return secret_hash(SECRET)
+
+    monkeypatch.setattr(SqlAlchemyStrategySecretReader, "webhook_secret_hash", _stale_hash)
+
     response = await client.post(
         "/webhook/tradingview", params={"secret": SECRET}, json=_payload(uuid4())
     )
@@ -137,7 +170,7 @@ async def test_the_same_alert_replayed_is_refused_again_and_still_persists_nothi
     first = await client.post("/webhook/tradingview", params={"secret": SECRET}, json=payload)
     second = await client.post("/webhook/tradingview", params={"secret": SECRET}, json=payload)
 
-    assert (first.status_code, second.status_code) == (422, 422)
+    assert (first.status_code, second.status_code) == (401, 401)
     assert second.json() == first.json()
     assert await _count(engine, "signals") == 0
     assert await _count(engine, "jobs") == 0
@@ -156,7 +189,7 @@ async def test_a_valid_alert_after_a_refused_one_is_accepted(
         "/webhook/tradingview", params={"secret": SECRET}, json=_payload(registered)
     )
 
-    assert refused.status_code == 422
+    assert refused.status_code == 401
     assert accepted.status_code == 200
     assert await _count(engine, "signals") == 1
     assert await _count(engine, "jobs") == 1
@@ -185,7 +218,7 @@ async def test_an_alert_for_a_registered_strategy_is_still_accepted_and_enqueues
     assert await _count(engine, "jobs") == 1
 
 
-async def test_the_refusal_logs_one_warning_and_no_error(
+async def test_the_refusal_logs_nothing_and_never_the_strategy_id_or_the_secret(
     client: AsyncClient, caplog: pytest.LogCaptureFixture
 ) -> None:
     strategy_id = uuid4()
@@ -195,9 +228,8 @@ async def test_the_refusal_logs_one_warning_and_no_error(
             "/webhook/tradingview", params={"secret": SECRET}, json=_payload(strategy_id)
         )
 
-    assert response.status_code == 422
-    loud = [r for r in caplog.records if r.levelno >= logging.WARNING]
-    assert [r.levelno for r in loud] == [logging.WARNING]
-    assert str(strategy_id) in loud[0].getMessage()
-    assert loud[0].exc_info is None
-    assert SECRET not in loud[0].getMessage()
+    assert response.status_code == 401
+    assert [r for r in caplog.records if r.levelno >= logging.WARNING] == []
+    everything = "\n".join(r.getMessage() for r in caplog.records)
+    assert SECRET not in everything
+    assert secret_hash(SECRET) not in everything

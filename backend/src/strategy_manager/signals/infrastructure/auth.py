@@ -1,4 +1,4 @@
-"""Webhook authentication: source-IP allowlist AND shared secret.
+"""Webhook authentication: source-IP allowlist AND the strategy's own secret.
 
 TradingView cannot sign its requests — it controls the URL and the alert body
 and nothing else, with no headers of its own (re-verified against TradingView's
@@ -10,6 +10,13 @@ a query string, which ends up in logs and browser history. The address alone
 would trust anyone who can reach the port from the right network. Requiring
 both means a leaked secret is useless from the wrong address and a spoofed
 address is useless without the secret.
+
+The two halves are separate because they need different things (multi-user
+design AD6). The address is global and is judged first, before any of the body
+is read. The secret is per strategy: which strategy an alert is for is known
+only from its body, so the router reads the one strategy's stored hash and asks
+``secret_matches_hash``. A secret that opened every strategy would let anyone who
+held one post for all of them.
 
 The allowlist can be widened by configuration (``EXTRA_WEBHOOK_SOURCE_IPS``)
 because otherwise the ingress path cannot be rehearsed at all — the alert has
@@ -28,6 +35,7 @@ autodetection: a trusted header that switches itself on switches on precisely
 for the requests that did not come through the tunnel.
 """
 
+import hashlib
 import hmac
 
 from strategy_manager.shared.config import TRADINGVIEW_SOURCE_IPS, Settings
@@ -73,19 +81,14 @@ def resolve_source_ip(
     return candidate
 
 
-class SourceIpAndSecretAuth:
-    """Authenticates a webhook request by BOTH source IP AND shared secret."""
+class SourceIpAuth:
+    """The source-address half of webhook authentication: global, and first."""
 
-    def __init__(
-        self,
-        expected_secret: str,
-        allowed_ips: frozenset[str] = TRADINGVIEW_SOURCE_IPS,
-    ) -> None:
-        self._expected_secret = expected_secret
+    def __init__(self, allowed_ips: frozenset[str] = TRADINGVIEW_SOURCE_IPS) -> None:
         self._allowed_ips = allowed_ips
 
     @classmethod
-    def from_settings(cls, settings: Settings) -> "SourceIpAndSecretAuth":
+    def from_settings(cls, settings: Settings) -> "SourceIpAuth":
         """TradingView's four addresses, plus whatever the deployment adds.
 
         A union rather than a replacement: no configuration can stop
@@ -93,26 +96,24 @@ class SourceIpAndSecretAuth:
         this endpoint exists for.
         """
         return cls(
-            expected_secret=settings.webhook_secret,
-            allowed_ips=TRADINGVIEW_SOURCE_IPS
-            | frozenset(settings.extra_webhook_source_ips),
+            allowed_ips=TRADINGVIEW_SOURCE_IPS | frozenset(settings.extra_webhook_source_ips)
         )
 
-    def authenticate(self, source_ip: str | None, provided_secret: str | None) -> bool:
-        if not self._expected_secret:
-            # An empty configured secret would make comparison vacuous.
-            # Startup invariant 3 (``webhook_secret_invariant``, wired into
-            # main.py's lifespan) refuses to start a deployment configured this
-            # way; fail closed here regardless, because this class is also
-            # constructed directly and must never authenticate on its own.
-            return False
-        if source_ip not in self._allowed_ips:
-            return False
-        if provided_secret is None:
-            return False
-        # Constant-time. The margin an attacker could measure across a network
-        # is small, but a variable-time comparison of a secret is not a thing
-        # to knowingly leave in place.
-        return hmac.compare_digest(
-            provided_secret.encode("utf-8"), self._expected_secret.encode("utf-8")
-        )
+    def allows(self, source_ip: str | None) -> bool:
+        return source_ip in self._allowed_ips
+
+
+def secret_matches_hash(provided_secret: str | None, stored_hash: str | None) -> bool:
+    """Whether ``provided_secret`` is the secret whose SHA-256 hex is ``stored_hash``.
+
+    The secret half of webhook authentication (multi-user design AD6): each
+    strategy stores only the hash of its own secret. A missing secret, an empty
+    one and a strategy with no stored hash all fail closed.
+    """
+    if not provided_secret or not stored_hash:
+        return False
+    digest = hashlib.sha256(provided_secret.encode("utf-8")).hexdigest()
+    # Constant-time. The margin an attacker could measure across a network
+    # is small, but a variable-time comparison of a secret is not a thing
+    # to knowingly leave in place.
+    return hmac.compare_digest(digest.encode("ascii"), stored_hash.encode("utf-8"))
