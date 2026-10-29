@@ -847,7 +847,7 @@ It needs an independent verifier before the PR.
 ### Delivery
 
 - [x] C.D.1 Gate (backend and frontend), and an independent verifier over the whole PR. Backend after `6adb011`: ruff 0, mypy 0, pytest exit 0 with no failing test. Frontend after `ed2c724`, the last frontend change: lint 0, 102 files, 2,937 tests passed. Verifier: the C.V block, with the B1, B1a and B1b rechecks all closed.
-- [ ] C.D.2 Push and open the PR (on the owner's word).
+- [x] C.D.2 Push and open the PR (on the owner's word). PR #88, opened 2026-10-29 from `54bdb2a` (27 commits over `origin/main` `7f67fc3`).
 - [ ] C.D.3 Merge (owner), with a merge commit.
 - [ ] C.D.4 Deploy (C.13, C.14).
 - [ ] C.D.5 Delivery log row and "Production now".
