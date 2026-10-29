@@ -817,6 +817,20 @@ It needs an independent verifier before the PR.
   - The ledger's `(id, xmin)` unchanged.
   - Downgrade to `0030`, then upgrade again.
   - Every query in the script is run on a local throwaway database at `head` before it is handed over.
+  - **Script ready (2026-10-29), `rehearse_0032.sh`, kept in the session scratchpad like the earlier rehearsals.** It needs the merged code on the VPS (it stops with "pull first" otherwise).
+    - Preconditions: production at `0030`, exactly one user, both migration files in the checkout, and exactly one author pool per strategy for its market (0031 refuses otherwise). It also lists the live jobs.
+    - Steps: backup `/root/sm_pre0031_<UTC>.dump`, restore into `sm_rehearsal_0032`, counts equal to production, `upgrade head`, the head checks, `downgrade 0030`, `upgrade head` again with the same checks, then drop the copy.
+    - Head checks:
+      - counts and the ledger's `(id, xmin)` unchanged;
+      - one author subscription per strategy, at its share, `ACTIVE` unless archived (then `ENDED` at `archived_at`), in a pool of its market;
+      - exactly one delivery per signal, with the signal's outcome and `received_at`, for the author's subscription;
+      - every reservation and every attempt with its delivery;
+      - the new constraints, the live unique index, and the pool-market trigger;
+      - the `reservations (signal_id)` unique gone, and `strategies.allocation_percent` nullable.
+    - Downgrade checks: the counts, the ledger, every strategy's share restored and `NOT NULL` again, the new tables gone, and the `signal_id` unique back.
+    - It prints, without stopping, the deliveries by status and how many `ACCEPTED` deliveries open a position. Those never run, and since `e1314bc` they make no close holder.
+    - `jobs` is left out of the count comparison: the live worker enqueues periodic jobs between the dump and the count.
+    - **Local run:** a copy of the dev database (4 strategies, 1 archived, 4 signals, 2 reservations, 4 attempts, 6 ledger rows), brought to `0030` with one user, ran the whole script with `REHEARSAL_LOCAL=1`, exit 0. The first local run caught a `GROUP BY` that PostgreSQL refuses. The dev database stayed at `0028`, and the throwaway databases and dumps were removed.
 - [ ] C.14 Deploy:
   1. pull as `strategy`;
   2. stop `strategy-worker`;
@@ -832,7 +846,7 @@ It needs an independent verifier before the PR.
 
 ### Delivery
 
-- [ ] C.D.1 Gate (backend and frontend), and an independent verifier over the whole PR.
+- [x] C.D.1 Gate (backend and frontend), and an independent verifier over the whole PR. Backend after `6adb011`: ruff 0, mypy 0, pytest exit 0 with no failing test. Frontend after `ed2c724`, the last frontend change: lint 0, 102 files, 2,937 tests passed. Verifier: the C.V block, with the B1, B1a and B1b rechecks all closed.
 - [ ] C.D.2 Push and open the PR (on the owner's word).
 - [ ] C.D.3 Merge (owner), with a merge commit.
 - [ ] C.D.4 Deploy (C.13, C.14).
