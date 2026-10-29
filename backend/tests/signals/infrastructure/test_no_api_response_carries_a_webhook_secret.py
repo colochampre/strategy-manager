@@ -1,23 +1,25 @@
-"""API tests for ``GET /api/webhook-secret`` (owner decision 23; tasks.md 7.3).
+"""No ``/api`` response carries a strategy's webhook secret, except the two that
+issue one (multi-user design AD6; tasks.md D.3).
 
-The webhook secret is the one value in this system that an unauthenticated
-request could turn into a forged signal, so the endpoint that returns it is
-tested from four sides:
+A strategy's webhook secret is the one value that lets a stranger post a signal for
+it, and the database keeps only its SHA-256. It is shown exactly twice: in the
+answer to ``POST /api/strategies`` and in the answer to
+``POST /api/strategies/{id}/webhook-secret``. This walks the application's own
+route table, so a route added next month is covered without anyone remembering to
+list it, and asks every route, of any method, that:
 
-- it requires the same signed-in admin as every other ``/api`` route;
-- it answers ``Cache-Control: no-store``;
-- NO OTHER ``/api`` route, of any method, ever puts the value in a body or a
-  header. The routes are read from the application's own route table, so a route
-  added next month is covered without anyone remembering to list it;
-- nothing in any log record, at any level, carries it, including the access log
-  of a REAL uvicorn server started with uvicorn's own logging configuration.
+- no body or header contains the strategy's secret, the stored hash, or the global
+  ``Settings.webhook_secret`` (which stays until a later PR removes it);
+- no body contains the name ``webhook_secret_hash``;
+- no body but those two contains the name ``webhook_secret`` either.
 
-The secret rides in the response BODY, not the URL, so the URL redaction filter
-in ``shared/infrastructure/access_log.py`` is not what protects it here: what
-protects it is that nothing ever logs a value it holds.
+The ``GET /api/webhook-secret`` route that used to return the global secret is
+gone; the table test below pins that it stays gone.
+
+This module also keeps the logging helpers that ``test_credentials_logging.py``
+shares.
 """
 
-import asyncio
 import contextlib
 import logging
 from collections.abc import AsyncIterator, Iterator
@@ -27,7 +29,6 @@ from typing import Annotated, Any
 from uuid import UUID, uuid4
 
 import pytest
-import uvicorn
 from fastapi import Depends
 from fastapi.routing import iter_route_contexts
 from httpx import ASGITransport, AsyncClient
@@ -45,12 +46,9 @@ from strategy_manager.accounts.infrastructure.capital_pool_writer import (
 )
 from strategy_manager.accounts.infrastructure.credential_vault import SqlAlchemyCredentialVault
 from strategy_manager.accounts.infrastructure.credentials_router import get_save_credential
-from strategy_manager.identity.infrastructure.dependencies import UNAUTHORIZED_DETAIL
 from strategy_manager.main import create_app
 from strategy_manager.shared import db as shared_db
 from strategy_manager.shared.config import get_settings
-from strategy_manager.shared.infrastructure.alert_log_bridge import AlertLogBridge
-from strategy_manager.shared.infrastructure.clock import SystemClock
 from strategy_manager.shared.infrastructure.crypto import MASTER_KEY_BYTES, EnvelopeCipher
 from strategy_manager.strategies.infrastructure.pair_catalog_router import get_pair_catalog
 from tests.accounts.fakes import (
@@ -62,84 +60,32 @@ from tests.accounts.fakes import (
 )
 from tests.accounts.infrastructure.test_pools_router import _reserve, _snapshot
 from tests.accounts.pool_seed import clear_discrepancies, seed_discrepancy
-from tests.identity_auth import (
-    ADMIN_HEADERS,
-    FORGED_HEADERS,
-    seed_admin,
-    sign_in_as_admin,
-)
+from tests.identity_auth import ADMIN_HEADERS, seed_admin, sign_in_as_admin
 from tests.ledger.infrastructure.conftest import (  # noqa: F401
     pg_engine,
     pg_session_factory,
     seed_strategy,
 )
-from tests.owner import seed_pool, seed_snapshot
+from tests.owner import secret_hash, seed_pool, seed_snapshot
 from tests.performance.infrastructure.test_performance_router import _trade
 
-SECRET = "wh-s3cret-7d41c9e2-must-never-leak"
-SECRET_PATH = "/api/webhook-secret"
+#: The global setting, still present until a later PR removes it.
+GLOBAL_SECRET = "wh-s3cret-7d41c9e2-must-never-leak"
+#: The seeded strategy's own secret, of which only the hash is stored.
+STRATEGY_SECRET = "strategy-s3cret-91ab-must-never-leak"
+STORED_HASH = secret_hash(STRATEGY_SECRET)
+REMOVED_PATH = "/api/webhook-secret"
+CREATE = ("POST", "/api/strategies")
+REGENERATE = ("POST", "/api/strategies/{strategy_id}/webhook-secret")
+#: The only two routes whose answer carries a (new) secret.
+ISSUING = {CREATE, REGENERATE}
 
 
 @pytest.fixture(autouse=True)
 def _configure_secrets(monkeypatch: pytest.MonkeyPatch) -> None:
     sign_in_as_admin(monkeypatch)
-    monkeypatch.setattr(get_settings(), "webhook_secret", SECRET)
+    monkeypatch.setattr(get_settings(), "webhook_secret", GLOBAL_SECRET)
 
-
-@pytest.fixture
-async def client() -> AsyncIterator[AsyncClient]:
-    """No database: this route reads the setting and nothing else."""
-    async with AsyncClient(
-        transport=ASGITransport(app=create_app()), base_url="http://test"
-    ) as api:
-        yield api
-
-
-# --- the endpoint itself ----------------------------------------------------------
-
-
-async def test_get_webhook_secret_requires_a_signed_in_admin(client: AsyncClient) -> None:
-    missing = await client.get(SECRET_PATH)
-    wrong = await client.get(SECRET_PATH, headers=FORGED_HEADERS)
-
-    assert [missing.status_code, wrong.status_code] == [401, 401]
-    for refusal in (missing, wrong):
-        assert refusal.json() == {"detail": UNAUTHORIZED_DETAIL}
-        assert SECRET not in refusal.text
-
-    granted = await client.get(SECRET_PATH, headers=ADMIN_HEADERS)
-    assert granted.status_code == 200
-
-
-async def test_get_webhook_secret_returns_cache_control_no_store(client: AsyncClient) -> None:
-    response = await client.get(SECRET_PATH, headers=ADMIN_HEADERS)
-
-    assert response.status_code == 200
-    assert response.headers.get("cache-control") == "no-store"
-    assert response.json() == {"secret": SECRET}
-
-
-async def test_an_unconfigured_secret_is_refused_never_returned_as_an_empty_value(
-    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(get_settings(), "webhook_secret", "")
-
-    response = await client.get(SECRET_PATH, headers=ADMIN_HEADERS)
-
-    assert response.status_code == 503
-    assert "secret" not in response.json()
-    assert response.json() == {"detail": "the webhook secret is not configured"}
-    assert response.headers.get("cache-control") == "no-store"
-
-
-async def test_the_dedicated_endpoint_is_not_a_method_other_than_get(client: AsyncClient) -> None:
-    for method in ("POST", "PUT", "PATCH", "DELETE"):
-        response = await client.request(method, SECRET_PATH, headers=ADMIN_HEADERS)
-        assert response.status_code == 405, method
-        assert SECRET not in response.text
-
-
-# --- no other route carries it ------------------------------------------------------
 
 _SAMPLE_PATH_PARAMS = {
     "exchange": "bybit",
@@ -156,6 +102,8 @@ class _SweepPairCatalog:
 
     async def available_pairs(self, pool: tuple[str, str, str]) -> frozenset[str]:
         return frozenset({"STXUSDT", "ETHUSDT", "SOLUSDT"})
+
+
 _BODIES: dict[tuple[str, str], dict[str, Any]] = {
     ("PUT", "/api/strategies/{strategy_id}/allowed-pairs"): {"pairs": ["ETHUSDT", "SOLUSDT"]},
     ("PATCH", "/api/strategies/{strategy_id}"): {"name": "renamed", "enabled": False},
@@ -174,12 +122,14 @@ _NO_BODY = {
     ("DELETE", "/api/credentials/{exchange}"),
     ("DELETE", "/api/strategies/{strategy_id}"),
     ("POST", "/api/strategies/{strategy_id}/archive"),
+    REGENERATE,
     ("POST", "/api/subscriptions/{subscription_id}/leave"),
 }
 
+
 def _other_api_routes() -> list[tuple[str, str]]:
-    """Every ``(METHOD, path template)`` under ``/api`` except the secret's own,
-    taken from the application's route table.
+    """Every ``(METHOD, path template)`` under ``/api``, taken from the
+    application's route table.
 
     ``iter_route_contexts`` resolves routers that were included lazily, so the
     prefix each one was mounted under is part of the path returned.
@@ -189,40 +139,43 @@ def _other_api_routes() -> list[tuple[str, str]]:
         for route in iter_route_contexts(create_app().routes)
         if route.path is not None and route.path.startswith("/api") and route.methods
         for method in route.methods - {"HEAD", "OPTIONS"}
-        if route.path != SECRET_PATH
     }
     return sorted(routes)
 
 
-OTHER_API_ROUTES = _other_api_routes()
+API_ROUTES = _other_api_routes()
 
 
 def test_the_route_table_walk_finds_the_routes_it_is_meant_to_cover() -> None:
     """A walk that silently found nothing would turn the parametrized test below
     into a vacuous pass."""
-    assert ("GET", "/api/strategies") in OTHER_API_ROUTES
-    assert ("GET", "/api/pools") in OTHER_API_ROUTES
-    assert ("GET", "/api/performance/strategies/{strategy_id}") in OTHER_API_ROUTES
+    assert ("GET", "/api/strategies") in API_ROUTES
+    assert ("GET", "/api/pools") in API_ROUTES
+    assert ("GET", "/api/performance/strategies/{strategy_id}") in API_ROUTES
     assert (
         "GET",
         "/api/performance/strategies/{strategy_id}/trades/{allocation_id}/fills",
-    ) in OTHER_API_ROUTES
+    ) in API_ROUTES
     # The confirmed-discrepancies read joins the sweep; the three booking
     # routes left it (owner decision 66 Q1, cd.1.33).
-    assert ("GET", "/api/reconciliation/confirmed") in OTHER_API_ROUTES
-    assert ("GET", "/api/reconciliation/discrepancies") in OTHER_API_ROUTES
-    assert not [route for route in OTHER_API_ROUTES if "/reconciliation/bookings" in route[1]]
-    assert ("GET", "/api/webhook-origin") in OTHER_API_ROUTES
-    assert ("GET", "/api/strategies/{strategy_id}/share-preview") in OTHER_API_ROUTES
-    assert ("GET", SECRET_PATH) not in OTHER_API_ROUTES
+    assert ("GET", "/api/reconciliation/confirmed") in API_ROUTES
+    assert ("GET", "/api/reconciliation/discrepancies") in API_ROUTES
+    assert not [route for route in API_ROUTES if "/reconciliation/bookings" in route[1]]
+    assert ("GET", "/api/webhook-origin") in API_ROUTES
+    assert ("GET", "/api/strategies/{strategy_id}/share-preview") in API_ROUTES
+    # The two routes that issue a secret are walked, and the one that used to
+    # reveal the global secret is gone for every method.
+    assert CREATE in API_ROUTES
+    assert REGENERATE in API_ROUTES
+    assert not [route for route in API_ROUTES if route[1] == REMOVED_PATH]
     # The walk agrees with the schema the application publishes for itself.
     published = {
         (method.upper(), path)
         for path, operations in create_app().openapi()["paths"].items()
-        if path.startswith("/api") and path != SECRET_PATH
+        if path.startswith("/api")
         for method in operations
     }
-    assert published <= set(OTHER_API_ROUTES)
+    assert published <= set(API_ROUTES)
 
 
 def _concrete_path(
@@ -251,20 +204,28 @@ def _concrete_path(
 
 @pytest.mark.integration
 @pytest.mark.parametrize(
-    ("method", "template"), OTHER_API_ROUTES, ids=[f"{m} {p}" for m, p in OTHER_API_ROUTES]
+    ("method", "template"), API_ROUTES, ids=[f"{m} {p}" for m, p in API_ROUTES]
 )
-async def test_no_other_api_response_body_contains_the_configured_secret_value(
+async def test_no_api_response_carries_a_secret_or_a_hash_except_the_two_that_issue_one(
     method: str,
     template: str,
     pg_session_factory: async_sessionmaker[AsyncSession],  # noqa: F811
 ) -> None:
     factory = pg_session_factory
     strategy_id = uuid4()
-    await seed_strategy(factory, strategy_id=strategy_id)
-    # The pool routes answer the signed-in admin's pools, and the share preview
-    # reads the strategy author's (AD8): both users hold a synced Bybit pool.
+    # The strategy is the signed-in admin's own, so the regenerate route reaches its
+    # real 200 and not the 404 a stranger's strategy answers.
     async with factory() as session:
         admin = await seed_admin(session)
+        await session.commit()
+    await seed_strategy(factory, strategy_id=strategy_id, author_id=admin)
+    async with factory() as session:
+        await session.execute(
+            text("UPDATE strategies SET webhook_secret_hash = :hash WHERE id = :id"),
+            {"hash": STORED_HASH, "id": strategy_id},
+        )
+        # The pool routes answer the signed-in admin's pools, and the share preview
+        # reads the strategy author's (AD8): both users hold a synced Bybit pool.
         await seed_pool(session, ("bybit", "usdt-m", "USDT"), user_id=admin)
         await seed_snapshot(
             session,
@@ -350,7 +311,7 @@ async def test_no_other_api_response_body_contains_the_configured_secret_value(
     app.dependency_overrides[shared_db.get_session] = _override_get_session
 
     body = _BODIES.get((method, template))
-    if body is None and method == "POST" and template == "/api/strategies":
+    if body is None and (method, template) == CREATE:
         body = {
             "id": str(uuid4()),
             "name": "registered-by-the-secret-sweep",
@@ -413,14 +374,30 @@ async def test_no_other_api_response_body_contains_the_configured_secret_value(
         stored = [entry for entry in response.json() if entry["status"] == "STORED"]
         assert [entry["last4"] for entry in stored] == ["9876"]
 
-    assert SECRET not in response.text, f"{method} {template} put the secret in its body"
-    for name, value in response.headers.items():
-        assert SECRET not in name and SECRET not in value, (
-            f"{method} {template} put the secret in the {name} header"
+    # Never a value already held, on any route.
+    forbidden = (GLOBAL_SECRET, STRATEGY_SECRET, STORED_HASH, "webhook_secret_hash")
+    for value in forbidden:
+        assert value not in response.text, f"{method} {template} put {value[:8]}... in its body"
+        for name, header in response.headers.items():
+            assert value not in name and value not in header, (
+                f"{method} {template} put {value[:8]}... in the {name} header"
+            )
+
+    if (method, template) in ISSUING:
+        # The issuing routes carry a NEW secret under its own name, once, and not
+        # its hash. The create and the regenerate really ran, or the sweep would
+        # inspect a refusal instead of an issuing answer.
+        assert response.status_code in {200, 201}, f"{method} {template} issued nothing"
+        issued = response.json()["webhook_secret"]
+        assert issued not in {GLOBAL_SECRET, STRATEGY_SECRET}
+        assert secret_hash(issued) not in response.text
+    else:
+        assert "webhook_secret" not in response.text, (
+            f"{method} {template} is not an issuing route but names a webhook secret"
         )
 
 
-# --- no log record carries it -----------------------------------------------------------
+# --- helpers shared with the logging tests ----------------------------------------------
 
 
 class _Capture(logging.Handler):
@@ -434,19 +411,6 @@ class _Capture(logging.Handler):
         # Keyed by identity: a record reaches this handler once per logger it
         # was attached to, and counting it twice would prove nothing.
         self.records[id(record)] = record
-
-
-CANARY = "sweep-canary-5b1e"
-
-
-class _SpyAlerter:
-    """Stands in for Telegram: keeps what would have been sent, sends nothing."""
-
-    def __init__(self) -> None:
-        self.sent: list[tuple[str, str]] = []
-
-    async def send(self, title: str, body: str) -> None:
-        self.sent.append((title, body))
 
 
 def _everything_a_record_says(record: logging.LogRecord) -> str:
@@ -488,84 +452,3 @@ def _logging_restored() -> Iterator[None]:
             lg.setLevel(level)
             lg.propagate = propagate
             lg.disabled = disabled
-
-
-async def test_access_log_never_records_the_secret_value(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    """A real uvicorn server, started with uvicorn's own logging configuration
-    and serving the module-level ``app`` that ``uvicorn strategy_manager.main:app``
-    serves, receives a real request for the secret over a real socket."""
-    capture = _Capture()
-    alerter = _SpyAlerter()
-    with _logging_restored():
-        config = uvicorn.Config(
-            "strategy_manager.main:app",
-            host="127.0.0.1",
-            port=0,
-            lifespan="off",
-            log_level="debug",
-            access_log=True,
-        )
-        # Built AFTER the config: uvicorn's ``dictConfig`` closes every handler that
-        # already exists, and a closed bridge drops every record.
-        bridge = AlertLogBridge(
-            alerter,
-            clock=SystemClock(),
-            throttle_window_seconds=900.0,
-            deployment="secret-sweep",
-        )
-        await bridge.start()
-        # Hook every logger that exists once uvicorn has configured logging, and
-        # the root, whose level is opened so nothing is dropped for being quiet.
-        logging.root.setLevel(logging.DEBUG)
-        logging.root.addHandler(capture)
-        # The same place ``operator_alerts`` puts it in production (the lifespan is
-        # off here, and the real one would build a Telegram alerter).
-        logging.root.addHandler(bridge)
-        for lg in _all_loggers():
-            lg.addHandler(capture)
-
-        server = uvicorn.Server(config)
-        serving = asyncio.create_task(server.serve())
-        try:
-            for _ in range(200):
-                if server.started:
-                    break
-                await asyncio.sleep(0.05)
-            assert server.started, "the uvicorn server did not start"
-            port = server.servers[0].sockets[0].getsockname()[1]
-
-            async with AsyncClient(base_url=f"http://127.0.0.1:{port}") as api:
-                response = await api.get(SECRET_PATH, headers=ADMIN_HEADERS)
-            # A canary ERROR proves the bridge is live on the root logger: a bridge
-            # that never saw a record would make "no secret in it" prove nothing.
-            logging.getLogger("strategy_manager.sweep_canary").error("canary %s", CANARY)
-            await bridge.drain()
-        finally:
-            server.should_exit = True
-            await serving
-            await bridge.aclose()
-
-    assert response.status_code == 200
-    assert response.json() == {"secret": SECRET}
-
-    records = list(capture.records.values())
-    access_lines = [
-        r.getMessage()
-        for r in records
-        if r.name == "uvicorn.access" and "webhook-secret" in r.getMessage()
-    ]
-    assert access_lines, "the request never reached the access log, so nothing was proven"
-
-    leaked = [(r.name, r.levelname) for r in records if SECRET in _everything_a_record_says(r)]
-    assert leaked == [], f"the secret reached log records from: {leaked}"
-
-    # What the bridge would have sent to Telegram: the canary got through, and
-    # nothing it carried is the secret.
-    assert any(CANARY in body for _, body in alerter.sent), "the bridge never saw the canary"
-    assert all(SECRET not in title and SECRET not in body for title, body in alerter.sent)
-
-    streams = capsys.readouterr()
-    assert SECRET not in streams.out
-    assert SECRET not in streams.err

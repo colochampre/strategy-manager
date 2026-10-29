@@ -162,7 +162,7 @@ async def test_a_non_get_request_is_not_touched_by_the_catch_all(
         assert response.status_code == 404, (method, path)
         assert not _is_index(response), (method, path)
 
-    wrong_method = await client.delete("/api/webhook-secret", headers=ADMIN_HEADERS)
+    wrong_method = await client.delete("/api/webhook-origin", headers=ADMIN_HEADERS)
     assert wrong_method.status_code == 405
     assert not _is_index(wrong_method)
 
@@ -173,13 +173,13 @@ async def test_existing_routes_still_answer_and_are_not_shadowed_by_the_catch_al
     """Behavioural proof that the catch-all is registered last: a handler
     registered before it must still be the one that answers."""
     health = await client.get("/health")
-    secret = await client.get("/api/webhook-secret", headers=ADMIN_HEADERS)
-    unauthenticated = await client.get("/api/webhook-secret")
+    origin = await client.get("/api/webhook-origin", headers=ADMIN_HEADERS)
+    unauthenticated = await client.get("/api/webhook-origin")
 
     assert health.status_code == 200
     assert health.json() == {"status": "ok", "dry_run": get_settings().dry_run}
-    assert secret.status_code == 200
-    assert secret.json() == {"secret": WEBHOOK_SECRET}
+    assert origin.status_code == 200
+    assert set(origin.json()) == {"origin"}
     assert unauthenticated.status_code == 401
     assert not _is_index(unauthenticated)
 

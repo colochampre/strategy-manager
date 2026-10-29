@@ -70,6 +70,9 @@ from strategy_manager.strategies.application.delete_strategy import (
     StrategyHasHistory,
 )
 from strategy_manager.strategies.application.ports import PairCatalogPort
+from strategy_manager.strategies.application.regenerate_webhook_secret import (
+    RegenerateWebhookSecret,
+)
 from strategy_manager.strategies.application.register_strategy import (
     PoolNotAvailable,
     RegisterCommand,
@@ -205,6 +208,23 @@ class StrategyView(BaseModel):
             uptime=UptimeView.of(uptime_value),
             subscription=None if subscription is None else SubscriptionView.of(subscription),
         )
+
+
+class RegisteredStrategyView(StrategyView):
+    """The create response: the strategy and its webhook secret, shown ONCE. Only the
+    hash is stored, so no read returns it again; a lost secret is regenerated."""
+
+    webhook_secret: str
+
+
+class WebhookSecretView(BaseModel):
+    """The regenerate response: the new secret, shown once."""
+
+    webhook_secret: str
+
+
+# Neither answer may be kept by the browser or an intermediary: each carries a secret.
+_NO_STORE = {"Cache-Control": "no-store"}
 
 
 async def _view(
@@ -476,17 +496,20 @@ def get_delete_strategy(session: SessionDep) -> DeleteStrategy:
     )
 
 
-@router.post("", response_model=StrategyView, status_code=201)
+@router.post("", response_model=RegisteredStrategyView, status_code=201)
 async def register_strategy(
     body: RegisterRequest,
     session: SessionDep,
     user: CurrentUserDep,
     use_case: Annotated[RegisterStrategy, Depends(get_register_strategy)],
-) -> StrategyView:
+    response: Response,
+) -> RegisteredStrategyView:
     """The signed-in ``User`` is the author (multi-user design AD2). The router
-    stays admin-only (owner decision 16), so the author is the admin."""
+    stays admin-only (owner decision 16), so the author is the admin.
+
+    The answer carries the strategy's webhook secret, the one time it is shown (AD6)."""
     try:
-        strategy = await use_case.register(
+        registration = await use_case.register(
             RegisterCommand(
                 strategy_id=body.id,
                 name=body.name,
@@ -521,7 +544,36 @@ async def register_strategy(
 
     # A just-created strategy has zero events by construction (creation
     # writes no event, F8) -- no query needed for its uptime.
-    return await _view(session, user, strategy, [])
+    view = await _view(session, user, registration.strategy, [])
+    response.headers.update(_NO_STORE)
+    return RegisteredStrategyView(
+        **view.model_dump(), webhook_secret=registration.webhook_secret
+    )
+
+
+@router.post("/{strategy_id}/webhook-secret", response_model=WebhookSecretView)
+async def regenerate_webhook_secret(
+    strategy_id: UUID,
+    session: SessionDep,
+    user: CurrentUserDep,
+    response: Response,
+) -> WebhookSecretView:
+    """Replaces the strategy's secret and returns the new one, once. Only its author
+    may (another user's strategy is a 404, AD8); an archived strategy is a 409. The
+    old secret is refused at the webhook from the commit on."""
+    use_case = RegenerateWebhookSecret(
+        repository=SqlAlchemyStrategyRepository(session), commit=session
+    )
+    try:
+        secret = await use_case.regenerate(strategy_id, user.id)
+    except UnknownStrategy as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except StrategyArchived as exc:
+        raise HTTPException(
+            status_code=409, detail={"error": "STRATEGY_ARCHIVED", "message": str(exc)}
+        ) from exc
+    response.headers.update(_NO_STORE)
+    return WebhookSecretView(webhook_secret=secret)
 
 
 @router.get("", response_model=list[StrategyView])

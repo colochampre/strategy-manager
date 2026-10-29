@@ -15,8 +15,7 @@ panel cannot work its full URL out of ``window.location``. This route tells it.
 - **The body never carries the webhook secret.** The route reads one setting,
   ``webhook_public_origin``, through the pure ``parse_webhook_origin``.
 - **A malformed value never fails the request.** It is served as ``null``.
-- No use case and no port: the route reads a setting through a pure function, as
-  ``webhook_secret_router`` reads its own.
+- No use case and no port: the route reads a setting through a pure function.
 """
 
 from typing import Annotated

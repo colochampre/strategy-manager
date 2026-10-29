@@ -25,7 +25,7 @@ cleanly, accept every signal, and size none of them.
 """
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import Decimal
 from uuid import UUID
 
@@ -53,6 +53,10 @@ from strategy_manager.strategies.domain.strategy import (
     AllocationPolicy,
     FillMode,
     Strategy,
+)
+from strategy_manager.strategies.domain.webhook_secret import (
+    hash_webhook_secret,
+    new_webhook_secret,
 )
 
 logger = logging.getLogger(__name__)
@@ -98,6 +102,15 @@ class RegisterCommand:
     author_id: UUID
 
 
+@dataclass(frozen=True, slots=True)
+class Registration:
+    """A registered strategy and its webhook secret, which exists in plain text only
+    here: the caller shows it once and the database keeps its hash. ``repr`` hides it."""
+
+    strategy: Strategy
+    webhook_secret: str = field(repr=False)
+
+
 class RegisterStrategy:
     """Registers a strategy against the pool it will draw capital from.
 
@@ -127,7 +140,7 @@ class RegisterStrategy:
         self._clock = clock
         self._author_subscriptions = author_subscriptions
 
-    async def register(self, command: RegisterCommand) -> Strategy:
+    async def register(self, command: RegisterCommand) -> Registration:
         existing = await self._repository.get_by_id(command.strategy_id)
         if existing is not None:
             raise StrategyAlreadyRegistered(
@@ -171,7 +184,10 @@ class RegisterStrategy:
             enabled=False,
         )
 
-        await self._repository.insert(strategy)
+        # Only the hash is stored; the plain secret leaves in the return value,
+        # once, and is never logged (tasks.md D.3).
+        webhook_secret = new_webhook_secret()
+        await self._repository.insert(strategy, hash_webhook_secret(webhook_secret))
         # A subscription is the only way to trade a strategy, its author included
         # (C.4b). Written before the one commit, so a pool that vanished since
         # the check above leaves neither row.
@@ -183,7 +199,7 @@ class RegisterStrategy:
             )
 
         await self._commit.commit()
-        return strategy
+        return Registration(strategy=strategy, webhook_secret=webhook_secret)
 
     async def _assert_pairs_listed(
         self, command: RegisterCommand, pairs: frozenset[str]

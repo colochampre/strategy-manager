@@ -140,9 +140,9 @@ async def seed_strategy(
     # ``_refuse_unlisted_pair``) refuses every one of its opening signals.
     allowed_pairs: frozenset[str] | None = None,
     author_id: UUID = OWNER_ID,
-    # The secret an alert must carry to be accepted (tasks.md D.2); ``None``
-    # stores no hash, and then no secret authenticates.
-    webhook_secret: str | None = None,
+    # The secret an alert must carry to be accepted (tasks.md D.2). Every strategy
+    # has a hash: the column is NOT NULL (D.3).
+    webhook_secret: str = "fixture-secret",
 ) -> None:
     async with session_factory() as session:
         if author_id == OWNER_ID:
@@ -160,9 +160,7 @@ async def seed_strategy(
                 enabled=enabled,
                 fill_mode=fill_mode,
                 allowed_pairs=sorted(allowed_pairs) if allowed_pairs else [],
-                webhook_secret_hash=(
-                    None if webhook_secret is None else secret_hash(webhook_secret)
-                ),
+                webhook_secret_hash=secret_hash(webhook_secret),
             )
         )
         await session.commit()

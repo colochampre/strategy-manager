@@ -39,7 +39,7 @@ from tests.accounts.fakes import (
     TickingClock,
 )
 from tests.identity_auth import ADMIN_HEADERS, sign_in_as_admin, without_a_database
-from tests.signals.infrastructure.test_webhook_secret_router import (
+from tests.signals.infrastructure.test_no_api_response_carries_a_webhook_secret import (
     _all_loggers,
     _Capture,
     _everything_a_record_says,

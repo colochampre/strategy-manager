@@ -122,7 +122,7 @@ async def outsider(engine: AsyncEngine) -> AsyncIterator[AsyncClient]:
 async def _register(
     engine: AsyncEngine,
     *,
-    secret: str | None,
+    secret: str,
     archived: bool = False,
 ) -> UUID:
     strategy_id = uuid4()
@@ -139,7 +139,7 @@ async def _register(
                 "id": strategy_id,
                 "name": f"strategy-{strategy_id}",
                 "author": OWNER_ID,
-                "hash": None if secret is None else secret_hash(secret),
+                "hash": secret_hash(secret),
                 "enabled": not archived,
                 "archived": archived,
             },
@@ -239,31 +239,16 @@ async def test_a_wrong_secret_is_401(client: AsyncClient, engine: AsyncEngine) -
     await _assert_nothing_stored(engine)
 
 
-async def test_a_strategy_with_no_hash_accepts_no_secret(
+async def test_the_three_refusals_are_indistinguishable_to_the_caller(
     client: AsyncClient, engine: AsyncEngine
 ) -> None:
-    strategy_id = await _register(engine, secret=None)
-
-    responses = [
-        await _post(client, strategy_id, secret)
-        for secret in (None, "", GLOBAL_SECRET, SECRET_A)
-    ]
-
-    assert [(r.status_code, r.json()) for r in responses] == [(401, UNAUTHORIZED)] * 4
-    await _assert_nothing_stored(engine)
-
-
-async def test_the_four_refusals_are_indistinguishable_to_the_caller(
-    client: AsyncClient, engine: AsyncEngine
-) -> None:
+    # A strategy with no stored hash no longer exists: the column is NOT NULL (D.3).
     registered = await _register(engine, secret=SECRET_A)
-    unhashed = await _register(engine, secret=None)
 
     refusals = [
         await _post(client, uuid4(), SECRET_A),  # unknown strategy
         await _post(client, registered, None),  # missing secret
         await _post(client, registered, SECRET_B),  # wrong secret
-        await _post(client, unhashed, SECRET_A),  # no hash stored
     ]
 
     assert {r.status_code for r in refusals} == {401}

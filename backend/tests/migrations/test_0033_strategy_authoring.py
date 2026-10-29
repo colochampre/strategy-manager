@@ -2,7 +2,7 @@
 (multi-user design AD6, decisions 21 and 23; tasks.md D.1).
 
 * ``webhook_secret_hash`` is the SHA-256 hex of the setting's secret for every
-  existing strategy, so today's alerts keep working. It is nullable here.
+  existing strategy, so today's alerts keep working. It is NOT NULL (D.3).
 * ``visibility`` is ``PRIVATE`` for every existing strategy.
 * ``strategies.name`` is unique per author, not across users.
 * ``strategies.allocation_percent`` and its CHECK are gone: the share lives on
@@ -226,11 +226,19 @@ async def conn(seeded: Seeded) -> AsyncIterator[AsyncConnection]:
 
 
 async def _insert_strategy(
-    conn: AsyncConnection, author: UUID, name: str, *, visibility: str | None = None
+    conn: AsyncConnection,
+    author: UUID,
+    name: str,
+    *,
+    visibility: str | None = None,
+    with_hash: bool = True,
 ) -> None:
     columns = "id, author_id, name, exchange, venue, settlement_currency, fill_mode"
     values = ":id, :author, :name, 'binance', 'usdt-m', 'USDT', 'PARTIAL'"
     params: dict[str, Any] = {"id": uuid4(), "author": author, "name": name}
+    if with_hash:
+        columns += ", webhook_secret_hash"
+        values += ", 'fixture'"
     if visibility is not None:
         columns += ", visibility"
         values += ", :visibility"
@@ -254,14 +262,23 @@ def test_the_secret_itself_is_stored_nowhere(seeded: Seeded) -> None:
     assert _SECRET not in row
 
 
-def test_the_hash_column_is_nullable(seeded: Seeded) -> None:
+def test_the_hash_column_is_not_null(seeded: Seeded) -> None:
     nullable = _scalar(
         seeded.url,
         "SELECT is_nullable FROM information_schema.columns "
         "WHERE table_name = 'strategies' AND column_name = 'webhook_secret_hash'",
     )
 
-    assert nullable == "YES"
+    assert nullable == "NO"
+
+
+async def test_a_strategy_without_a_hash_is_refused(conn: AsyncConnection, seeded: Seeded) -> None:
+    with pytest.raises(IntegrityError) as caught:
+        await _insert_strategy(conn, seeded.owner, "unsecured", with_hash=False)
+
+    cause = caught.value.orig.__cause__  # type: ignore[union-attr]
+    assert getattr(cause, "sqlstate", None) == "23502"
+    assert getattr(cause, "column_name", None) == "webhook_secret_hash"
 
 
 def test_existing_strategies_are_private(seeded: Seeded) -> None:

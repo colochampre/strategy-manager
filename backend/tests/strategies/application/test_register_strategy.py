@@ -1,5 +1,6 @@
 """Registering a strategy: the id comes from the alert, and it starts off."""
 
+import hashlib
 import logging
 from dataclasses import replace
 from datetime import UTC, datetime
@@ -40,6 +41,7 @@ AUTHOR_ID = UUID("5f0c1d2e-0000-4000-8000-0000000000b1")
 class FakeRepository:
     def __init__(self, existing: Strategy | None = None) -> None:
         self.inserted: list[Strategy] = []
+        self.hashes: dict[UUID, str] = {}
         self._existing = existing
 
     async def get_by_id(self, strategy_id: UUID) -> Strategy | None:
@@ -50,8 +52,9 @@ class FakeRepository:
     async def get_by_id_for_update(self, strategy_id: UUID) -> Strategy | None:
         return await self.get_by_id(strategy_id)
 
-    async def insert(self, strategy: Strategy) -> None:
+    async def insert(self, strategy: Strategy, webhook_secret_hash: str) -> None:
         self.inserted.append(strategy)
+        self.hashes[strategy.id] = webhook_secret_hash
         self._existing = strategy
 
     async def list_all(self) -> list[Strategy]:  # pragma: no cover - unused here
@@ -187,7 +190,7 @@ async def test_the_id_is_the_one_supplied_and_never_generated() -> None:
     invented here would match no alert that will ever arrive."""
     use_case, repository, _, _, _ = _build()
 
-    strategy = await use_case.register(_command())
+    strategy = (await use_case.register(_command())).strategy
 
     assert strategy.id == SIGNAL_TYPE
     assert repository.inserted[0].id == SIGNAL_TYPE
@@ -199,7 +202,7 @@ async def test_a_newly_registered_strategy_is_disabled() -> None:
     separate acts and this one cannot perform the other."""
     use_case, repository, _, _, _ = _build()
 
-    strategy = await use_case.register(_command())
+    strategy = (await use_case.register(_command())).strategy
 
     assert strategy.enabled is False
     assert repository.inserted[0].enabled is False
@@ -301,7 +304,7 @@ async def test_the_author_is_subscribed_to_the_strategy_before_the_one_commit() 
     spies: list[SpyAuthorSubscriptions] = []
     use_case, repository, commit, _, _ = _build(subscriptions=spies)
 
-    strategy = await use_case.register(_command(allocation_percent=Decimal("25")))
+    strategy = (await use_case.register(_command(allocation_percent=Decimal("25")))).strategy
 
     [spy] = spies
     assert [(called, before) for called, before in spy.calls] == [(strategy, 0)]
@@ -383,7 +386,7 @@ async def test_creating_with_empty_allowed_pairs_is_refused() -> None:
 async def test_creating_with_at_least_one_pair_succeeds() -> None:
     use_case, repository, _, _, _ = _build()
 
-    strategy = await use_case.register(_command(allowed_pairs=["ETHUSDT"]))
+    strategy = (await use_case.register(_command(allowed_pairs=["ETHUSDT"]))).strategy
 
     assert strategy.allowed_pairs.sorted() == ["ETHUSDT"]
     assert repository.inserted[0].allowed_pairs.sorted() == ["ETHUSDT"]
@@ -402,7 +405,7 @@ async def test_creation_writes_no_event_and_first_enable_writes_the_first_one() 
     the first event" scenario)."""
     register_use_case, repository, register_commit, log, clock = _build()
 
-    strategy = await register_use_case.register(_command())
+    strategy = (await register_use_case.register(_command())).strategy
 
     assert log.calls == []  # creation (always disabled) writes no event
 
@@ -452,7 +455,7 @@ async def test_a_listed_symbol_in_another_spelling_is_accepted() -> None:
     catalog = FakeCatalog(frozenset({"STXUSDT"}))
     use_case, repository, _, _, _ = _build(catalog=catalog)
 
-    strategy = await use_case.register(_command(allowed_pairs=["STXUSDT.P"]))
+    strategy = (await use_case.register(_command(allowed_pairs=["STXUSDT.P"]))).strategy
 
     assert strategy.allowed_pairs.sorted() == ["STXUSDT"]
     assert repository.inserted[0].allowed_pairs.sorted() == ["STXUSDT"]
@@ -556,3 +559,37 @@ async def test_the_catalogue_is_asked_for_the_commands_own_pool() -> None:
     await use_case.register(command)
 
     assert catalog.asked == [("bybit", "usdt-m", "USDT")]
+
+
+# --------------------------------------------------------------------------
+# D.3 -- the strategy's own webhook secret (multi-user design AD6)
+# --------------------------------------------------------------------------
+
+
+async def test_registering_returns_a_secret_and_stores_only_its_hash() -> None:
+    use_case, repository, _, _, _ = _build()
+
+    registration = await use_case.register(_command())
+
+    assert len(registration.webhook_secret) >= 43  # token_urlsafe(32)
+    assert repository.hashes == {
+        SIGNAL_TYPE: hashlib.sha256(registration.webhook_secret.encode()).hexdigest()
+    }
+    assert registration.webhook_secret not in repository.hashes.values()
+
+
+async def test_two_registrations_get_different_secrets() -> None:
+    use_case, _, _, _, _ = _build()
+
+    first = await use_case.register(_command())
+    second = await use_case.register(_command(strategy_id=uuid4(), name="SOL 4h"))
+
+    assert first.webhook_secret != second.webhook_secret
+
+
+async def test_the_registration_does_not_print_its_secret() -> None:
+    use_case, _, _, _, _ = _build()
+
+    registration = await use_case.register(_command())
+
+    assert registration.webhook_secret not in repr(registration)

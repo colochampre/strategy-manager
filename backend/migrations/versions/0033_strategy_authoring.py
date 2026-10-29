@@ -6,8 +6,9 @@ secret. Every existing strategy gets the hash of the current
 ``Settings.webhook_secret``, so the alerts TradingView already sends keep
 working unchanged. The hash is computed here in Python: the secret never enters
 SQL text, and no message names it. With strategies and no secret configured it
-refuses before anything is written. The column stays nullable until the
-registration writes it (D.3 adds the ``NOT NULL`` to this migration).
+refuses before anything is written. The column is ``NOT NULL`` once the backfill
+has run: a strategy without a secret hash could never authenticate a signal, and
+the registration writes one for every new strategy (D.3).
 
 **Visibility.** ``strategies.visibility`` is ``PUBLIC`` or ``PRIVATE``; every
 existing strategy is ``PRIVATE``, so nothing turns public without its author's
@@ -90,6 +91,9 @@ def upgrade() -> None:
             sa.text(f"UPDATE {_TABLE} SET webhook_secret_hash = :hash"),
             {"hash": hashlib.sha256(secret.encode("utf-8")).hexdigest()},
         )
+    # Every row has a hash now: the backfill above, or no rows at all (the refusal
+    # above leaves no strategy without a secret to hash). A strategy must have one.
+    op.alter_column(_TABLE, "webhook_secret_hash", nullable=False)
 
     op.add_column(
         _TABLE, sa.Column("visibility", sa.Text(), nullable=False, server_default="PRIVATE")

@@ -28,7 +28,7 @@ class SqlAlchemyStrategyRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def insert(self, strategy: Strategy) -> None:
+    async def insert(self, strategy: Strategy, webhook_secret_hash: str) -> None:
         self._session.add(
             StrategyRow(
                 id=strategy.id,
@@ -39,9 +39,20 @@ class SqlAlchemyStrategyRepository:
                 author_id=strategy.author_id,
                 enabled=strategy.enabled,
                 fill_mode=strategy.policy.fill_mode.value,
+                webhook_secret_hash=webhook_secret_hash,
                 allowed_pairs=strategy.allowed_pairs.sorted(),
             )
         )
+        await self._session.flush()
+
+    async def replace_webhook_secret_hash(
+        self, strategy_id: UUID, webhook_secret_hash: str
+    ) -> None:
+        row = await self._session.get(StrategyRow, strategy_id)
+        if row is None:
+            raise LookupError(f"no strategy row under id {strategy_id}")
+        row.webhook_secret_hash = webhook_secret_hash
+        row.updated_at = datetime.now(UTC)
         await self._session.flush()
 
     async def get_by_id(self, strategy_id: UUID) -> Strategy | None:

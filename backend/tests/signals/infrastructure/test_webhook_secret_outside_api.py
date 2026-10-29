@@ -1,6 +1,6 @@
 """The two routes outside the ``/api`` sweep never answer the webhook secret.
 
-``test_webhook_secret_router.py`` sweeps every ``/api`` route. ``/health`` and
+``test_no_api_response_carries_a_webhook_secret.py`` sweeps every ``/api`` route. ``/health`` and
 ``POST /webhook/tradingview`` are mounted elsewhere, so the sweep never asked
 them; until now only a reading of their code said they keep the value out (S2).
 

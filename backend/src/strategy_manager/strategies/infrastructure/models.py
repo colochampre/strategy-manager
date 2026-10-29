@@ -66,9 +66,9 @@ class StrategyRow(Base):
         Boolean, nullable=False, server_default=text("false")
     )
     fill_mode: Mapped[str] = mapped_column(Text, nullable=False)
-    # SHA-256 hex of the strategy's webhook secret (migration 0033). Nullable
-    # until the registration writes it (tasks.md D.3).
-    webhook_secret_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # SHA-256 hex of the strategy's webhook secret (migration 0033). The domain
+    # ``Strategy`` never carries it: only the repository's insert and replace touch it.
+    webhook_secret_hash: Mapped[str] = mapped_column(Text, nullable=False)
     visibility: Mapped[str] = mapped_column(
         Text, nullable=False, server_default=text("'PRIVATE'")
     )

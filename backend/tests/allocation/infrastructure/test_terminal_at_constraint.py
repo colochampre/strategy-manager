@@ -104,8 +104,9 @@ async def _seed_active_reservation(conn: AsyncConnection) -> str:
     await conn.execute(
         text(
             "INSERT INTO strategies "
-            "(id, name, exchange, venue, settlement_currency, enabled, fill_mode, author_id) "
-            "VALUES (:id, :name, 'pionex', 'spot', 'USDT', true, 'PARTIAL', :author)"
+            "(id, name, exchange, venue, settlement_currency, enabled, fill_mode, author_id, "
+            "webhook_secret_hash) "
+            "VALUES (:id, :name, 'pionex', 'spot', 'USDT', true, 'PARTIAL', :author, 'fixture')"
         ),
         {"id": strategy_id, "name": f"s-{strategy_id}", "author": author},
     )

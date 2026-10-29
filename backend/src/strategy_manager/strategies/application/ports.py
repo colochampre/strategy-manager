@@ -33,7 +33,18 @@ class StrategyRepositoryPort(Protocol):
     from signal_type")."""
 
     async def get_by_id(self, strategy_id: UUID) -> Strategy | None: ...
-    async def insert(self, strategy: Strategy) -> None: ...
+    async def insert(self, strategy: Strategy, webhook_secret_hash: str) -> None:
+        """Stores the strategy with the SHA-256 hex of its webhook secret. The hash
+        is an argument and not a field of ``Strategy`` on purpose: no read of a
+        strategy ever carries it, so no view built from one can leak it."""
+        ...
+
+    async def replace_webhook_secret_hash(
+        self, strategy_id: UUID, webhook_secret_hash: str
+    ) -> None:
+        """Replaces the stored hash, flushed and not committed. The caller holds the
+        row lock (``get_by_id_for_update``). Raises ``LookupError`` for no such row."""
+        ...
 
     async def list_all(self, include_archived: bool = False) -> list[Strategy]:
         """Ordered by name. Excludes archived strategies unless

@@ -49,7 +49,7 @@ from strategy_manager.strategies.infrastructure.enablement_log import (
 from strategy_manager.strategies.infrastructure.history_adapter import StrategyHistoryAdapter
 from strategy_manager.strategies.infrastructure.models import StrategyRow
 from strategy_manager.subscriptions.infrastructure.models import SubscriptionRow
-from tests.owner import OWNER_ID, ensure_delivery, ensure_pool
+from tests.owner import OWNER_ID, ensure_delivery, ensure_pool, secret_hash
 
 pytestmark = pytest.mark.integration
 
@@ -80,8 +80,10 @@ async def _host_strategy(session: AsyncSession) -> UUID:
     await session.execute(
         text(
             "INSERT INTO strategies "
-            "(id, name, exchange, venue, settlement_currency, enabled, fill_mode, author_id) "
-            "VALUES (:id, :name, :exchange, :venue, :currency, false, 'PARTIAL', :author)"
+            "(id, name, exchange, venue, settlement_currency, enabled, fill_mode, author_id, "
+            "webhook_secret_hash) "
+            "VALUES (:id, :name, :exchange, :venue, :currency, false, 'PARTIAL', :author, "
+            "'fixture')"
         ),
         {
             "id": host,
@@ -136,6 +138,7 @@ async def _strategy(factory: Factory) -> UUID:
             venue=venue,
             settlement_currency=currency,
             author_id=OWNER_ID,
+            webhook_secret_hash=secret_hash("fixture-secret"),
             enabled=False,
             fill_mode="PARTIAL",
             allowed_pairs=["STXUSDT"],

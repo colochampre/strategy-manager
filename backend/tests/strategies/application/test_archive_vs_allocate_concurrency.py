@@ -78,7 +78,7 @@ from strategy_manager.strategies.infrastructure.models import StrategyRow
 from strategy_manager.strategies.infrastructure.pool_lock_adapter import PoolLockAdapter
 from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStrategyRepository
 from tests.allocation.fakes import AlwaysEnabledPool, RecordingSkipRecorder
-from tests.owner import OWNER_ID, allocate_command, ensure_author_subscription
+from tests.owner import OWNER_ID, allocate_command, ensure_author_subscription, secret_hash
 from tests.strategies.wiring import real_subscribers
 
 pytestmark = pytest.mark.integration
@@ -201,6 +201,7 @@ async def _seed_strategy(
                 venue=POOL[1],
                 settlement_currency=POOL[2],
                 author_id=OWNER_ID,
+                webhook_secret_hash=secret_hash("fixture-secret"),
                 enabled=True,
                 fill_mode="PARTIAL",
             )
