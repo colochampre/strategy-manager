@@ -3,7 +3,7 @@
 from uuid import UUID, uuid4
 
 from strategy_manager.shared.application.ports import ClockPort
-from strategy_manager.strategies.domain.strategy import AllocationPercent
+from strategy_manager.strategies.domain.strategy import AllocationPercent, Visibility
 from strategy_manager.subscriptions.application.errors import (
     AlreadySubscribed,
     NoPoolForMarket,
@@ -42,7 +42,11 @@ class Subscribe:
         also what the repository raises when a concurrent request wins the race
         the ``has_live`` read cannot close."""
         strategy = await self._strategies.find(strategy_id)
-        if strategy is None:
+        # Another author's private strategy is answered exactly as one that does not
+        # exist (decision 21): the same error, so the answer does not tell them apart.
+        if strategy is None or (
+            strategy.visibility is Visibility.PRIVATE and strategy.author_id != user_id
+        ):
             raise StrategyNotFound(f"no strategy registered under id {strategy_id}")
         if strategy.archived:
             raise StrategyArchived(f"strategy {strategy_id} is archived")

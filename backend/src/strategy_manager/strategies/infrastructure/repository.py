@@ -15,6 +15,7 @@ from strategy_manager.strategies.domain.strategy import (
     AllocationPolicy,
     FillMode,
     Strategy,
+    Visibility,
 )
 from strategy_manager.strategies.infrastructure.models import StrategyRow
 
@@ -41,6 +42,7 @@ class SqlAlchemyStrategyRepository:
                 settlement_currency=strategy.policy.settlement_currency.value,
                 author_id=strategy.author_id,
                 enabled=strategy.enabled,
+                visibility=strategy.visibility.value,
                 fill_mode=strategy.policy.fill_mode.value,
                 webhook_secret_hash=webhook_secret_hash,
                 allowed_pairs=strategy.allowed_pairs.sorted(),
@@ -118,6 +120,7 @@ class SqlAlchemyStrategyRepository:
 
         row.name = strategy.name
         row.enabled = strategy.enabled
+        row.visibility = strategy.visibility.value
         row.fill_mode = strategy.policy.fill_mode.value
         row.allowed_pairs = strategy.allowed_pairs.sorted()
         # Archive is terminal (design.md § 8): every OTHER caller of
@@ -225,6 +228,7 @@ def _to_domain(row: StrategyRow) -> Strategy:
         ),
         author_id=row.author_id,
         enabled=row.enabled,
+        visibility=Visibility(row.visibility),
         allowed_pairs=AllowedPairs(frozenset(row.allowed_pairs)),
         archived_at=row.archived_at,
         created_at=row.created_at,

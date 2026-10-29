@@ -33,6 +33,7 @@ from strategy_manager.signals.infrastructure.outcome_repository import (
 )
 from strategy_manager.signals.infrastructure.repository import SqlAlchemySignalRepository
 from strategy_manager.strategies.application.policy_adapter import StrategyPolicyAdapter
+from strategy_manager.strategies.infrastructure.models import StrategyRow
 from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStrategyRepository
 from tests.signals.infrastructure.conftest import (  # noqa: F401
     pg_engine,
@@ -210,6 +211,34 @@ async def test_a_delivery_that_already_exists_still_gets_its_one_job(
 
 
 # -- eligibility -----------------------------------------------------------
+
+
+async def test_a_private_strategys_existing_subscriber_still_gets_the_delivery(
+    pg_session_factory: Factory,  # noqa: F811
+) -> None:
+    """Making a strategy private stops NEW subscribers (``Subscribe``); it never
+    reaches the fan-out, which reads subscriptions and not visibility (decision 21)."""
+    strategy_id = await seeds.strategy(pg_session_factory, visibility="PRIVATE")
+    subscriber, subscription = await _subscriber(pg_session_factory, strategy_id)
+    assert subscriber != (await _author_of(pg_session_factory, strategy_id))
+    signal_id = await _opening(pg_session_factory, strategy_id)
+
+    await _fan_out(pg_session_factory, signal_id)
+
+    delivered = await _delivered_to(pg_session_factory, signal_id)
+    jobs = await _delivery_jobs(pg_session_factory)
+    assert set(delivered) == {subscription}
+    assert {_halves(jobs, delivery_id) for delivery_id in delivered.values()} == {"open"}
+
+
+async def _author_of(factory: Factory, strategy_id: UUID) -> UUID:
+    async with factory() as session:
+        author = (
+            await session.execute(
+                select(StrategyRow.author_id).where(StrategyRow.id == strategy_id)
+            )
+        ).scalar_one()
+    return UUID(str(author))
 
 
 async def test_an_opening_reaches_every_active_subscription_and_no_other(

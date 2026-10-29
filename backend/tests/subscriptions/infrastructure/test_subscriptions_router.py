@@ -115,6 +115,67 @@ async def test_an_unknown_strategy_is_a_404_and_writes_nothing(
     assert await seeds.rows(pg_session_factory) == []
 
 
+async def test_another_authors_private_strategy_answers_as_one_that_does_not_exist(
+    pg_session_factory: Factory,  # noqa: F811
+    client_for: ClientFor,
+) -> None:
+    private_id = await seeds.strategy(pg_session_factory, visibility="PRIVATE")
+    missing_id = uuid4()
+    user_id, _ = await seeds.user(pg_session_factory)
+
+    refused = await client_for(user_id).post(
+        "/api/subscriptions",
+        json={"strategy_id": str(private_id), "allocation_percent": "30"},
+    )
+    absent = await client_for(user_id).post(
+        "/api/subscriptions",
+        json={"strategy_id": str(missing_id), "allocation_percent": "30"},
+    )
+
+    assert (refused.status_code, absent.status_code) == (404, 404)
+    # The same body, id aside: nothing tells a private strategy from a missing one.
+    assert refused.json()["detail"].replace(str(private_id), "<id>") == absent.json()[
+        "detail"
+    ].replace(str(missing_id), "<id>")
+    assert await seeds.rows(pg_session_factory) == []
+
+
+async def test_an_author_subscribes_to_their_own_private_strategy(
+    pg_session_factory: Factory,  # noqa: F811
+    client_for: ClientFor,
+) -> None:
+    author_id, pool_id = await seeds.user(pg_session_factory)
+    strategy_id = await seeds.strategy(
+        pg_session_factory, visibility="PRIVATE", author_id=author_id
+    )
+
+    response = await client_for(author_id).post(
+        "/api/subscriptions",
+        json={"strategy_id": str(strategy_id), "allocation_percent": "30"},
+    )
+
+    assert response.status_code == 201, response.text
+    assert response.json()["pool_id"] == pool_id
+
+
+async def test_another_authors_public_strategy_can_be_subscribed_to(
+    pg_session_factory: Factory,  # noqa: F811
+    client_for: ClientFor,
+) -> None:
+    author_id, _ = await seeds.user(pg_session_factory)
+    strategy_id = await seeds.strategy(
+        pg_session_factory, visibility="PUBLIC", author_id=author_id
+    )
+    user_id, _ = await seeds.user(pg_session_factory)
+
+    response = await client_for(user_id).post(
+        "/api/subscriptions",
+        json={"strategy_id": str(strategy_id), "allocation_percent": "30"},
+    )
+
+    assert response.status_code == 201, response.text
+
+
 async def test_an_archived_strategy_is_a_409_and_writes_nothing(
     pg_session_factory: Factory,  # noqa: F811
     client_for: ClientFor,

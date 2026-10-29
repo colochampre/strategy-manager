@@ -42,7 +42,7 @@ from strategy_manager.strategies.application.ports import (
     EnablementLogPort,
     StrategyRepositoryPort,
 )
-from strategy_manager.strategies.domain.strategy import FillMode, Strategy
+from strategy_manager.strategies.domain.strategy import FillMode, Strategy, Visibility
 
 
 class UnknownStrategy(DomainError):
@@ -68,6 +68,7 @@ class UpdateCommand:
     name: str | None = None
     fill_mode: FillMode | None = None
     enabled: bool | None = None
+    visibility: Visibility | None = None
 
 
 class UpdateStrategy:
@@ -116,6 +117,9 @@ class UpdateStrategy:
             name=strategy.name if command.name is None else command.name,
             policy=policy,
             enabled=strategy.enabled if command.enabled is None else command.enabled,
+            visibility=(
+                strategy.visibility if command.visibility is None else command.visibility
+            ),
         )
 
         await self._repository.update(updated)

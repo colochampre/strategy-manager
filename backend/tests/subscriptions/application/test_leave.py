@@ -12,7 +12,7 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from strategy_manager.strategies.domain.strategy import AllocationPercent
+from strategy_manager.strategies.domain.strategy import AllocationPercent, Visibility
 from strategy_manager.subscriptions.application.errors import (
     AuthorCannotLeave,
     SubscriptionNotFound,
@@ -57,7 +57,11 @@ class _Strategies:
 
     async def find(self, strategy_id: UUID) -> StrategyMarket | None:
         return StrategyMarket(
-            id=self._strategy_id, market=_MARKET, archived=False, author_id=self._author_id
+            id=self._strategy_id,
+            market=_MARKET,
+            archived=False,
+            author_id=self._author_id,
+            visibility=Visibility.PRIVATE,
         )
 
 

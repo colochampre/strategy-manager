@@ -142,6 +142,7 @@ async def _post_create(
     *,
     name: str | None = None,
     strategy_id: UUID | None = None,
+    visibility: str | None = None,
 ) -> Response:
     strategy_id = strategy_id or uuid4()
     body: dict[str, Any] = {
@@ -153,6 +154,8 @@ async def _post_create(
         "fill_mode": "PARTIAL",
         "allowed_pairs": ["ETHUSDT"],
     }
+    if visibility is not None:
+        body["visibility"] = visibility
     return await world.client.post("/strategies", json=body, headers=headers)
 
 

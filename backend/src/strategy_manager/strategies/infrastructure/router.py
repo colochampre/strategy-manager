@@ -98,7 +98,7 @@ from strategy_manager.strategies.domain.pair_catalog import (
     PairsChangedConcurrently,
     UnknownPairs,
 )
-from strategy_manager.strategies.domain.strategy import FillMode, Strategy
+from strategy_manager.strategies.domain.strategy import FillMode, Strategy, Visibility
 from strategy_manager.strategies.infrastructure.author_subscription_adapter import (
     SqlAlchemyAuthorSubscription,
 )
@@ -190,6 +190,7 @@ class StrategyView(BaseModel):
     settlement_currency: Currency
     fill_mode: FillMode
     enabled: bool
+    visibility: Visibility
     archived_at: datetime | None
     allowed_pairs: list[str]
     uptime: UptimeView
@@ -209,6 +210,7 @@ class StrategyView(BaseModel):
             settlement_currency=strategy.policy.settlement_currency,
             fill_mode=strategy.policy.fill_mode,
             enabled=strategy.enabled,
+            visibility=strategy.visibility,
             archived_at=strategy.archived_at,
             allowed_pairs=strategy.allowed_pairs.sorted(),
             uptime=UptimeView.of(uptime_value),
@@ -273,6 +275,8 @@ class RegisterRequest(BaseModel):
     fill_mode: FillMode
     allocation_percent: Share = Decimal("100")
     allowed_pairs: list[str] = Field(min_length=1)
+    # Nothing turns public without the author's choice (decision 21).
+    visibility: Visibility = Visibility.PRIVATE
 
 
 class UpdateRequest(BaseModel):
@@ -285,6 +289,7 @@ class UpdateRequest(BaseModel):
     name: str | None = Field(default=None, min_length=1)
     fill_mode: FillMode | None = None
     enabled: bool | None = None
+    visibility: Visibility | None = None
     # The share is each subscriber's now (``PATCH /api/subscriptions/{id}``). A body
     # that still carries one is refused, whatever its value, rather than accepted
     # and ignored: the validator below fires for any value present, ``null``
@@ -532,6 +537,7 @@ async def register_strategy(
                 allocation_percent=body.allocation_percent,
                 allowed_pairs=body.allowed_pairs,
                 author_id=user.id,
+                visibility=body.visibility,
             )
         )
     except StrategyAlreadyRegistered as exc:
@@ -740,6 +746,7 @@ async def update_strategy(
                 name=body.name,
                 fill_mode=body.fill_mode,
                 enabled=body.enabled,
+                visibility=body.visibility,
             )
         )
     except UnknownStrategy as exc:

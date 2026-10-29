@@ -53,6 +53,7 @@ from strategy_manager.strategies.domain.strategy import (
     AllocationPolicy,
     FillMode,
     Strategy,
+    Visibility,
 )
 from strategy_manager.strategies.domain.webhook_secret import (
     hash_webhook_secret,
@@ -99,6 +100,7 @@ class RegisterCommand:
     allocation_percent: Decimal
     allowed_pairs: list[str]
     author_id: UUID
+    visibility: Visibility = Visibility.PRIVATE
 
 
 @dataclass(frozen=True, slots=True)
@@ -181,6 +183,7 @@ class RegisterStrategy:
                 fill_mode=command.fill_mode,
             ),
             author_id=command.author_id,
+            visibility=command.visibility,
             allowed_pairs=allowed_pairs,
             # Registered, not armed. Enabling is a separate, deliberate call.
             enabled=False,

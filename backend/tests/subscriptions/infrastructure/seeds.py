@@ -27,16 +27,34 @@ Factory = async_sessionmaker[AsyncSession]
 MARKET = ("bybit", "usdt-m", "USDT")
 
 
-async def strategy(factory: Factory, *, archived: bool = False) -> UUID:
+async def strategy(
+    factory: Factory,
+    *,
+    archived: bool = False,
+    visibility: str = "PUBLIC",
+    author_id: UUID | None = None,
+) -> UUID:
+    """A strategy of ``author_id`` (the owner by default). PUBLIC unless told
+    otherwise, so a subscriber who is not its author may take a place in it; the
+    column's own default is PRIVATE."""
     strategy_id = uuid4()
-    await seed_strategy(factory, strategy_id=strategy_id, enabled=not archived)
-    if archived:
-        async with factory() as session:
+    if author_id is None:
+        await seed_strategy(factory, strategy_id=strategy_id, enabled=not archived)
+    else:
+        await seed_strategy(
+            factory, strategy_id=strategy_id, enabled=not archived, author_id=author_id
+        )
+    async with factory() as session:
+        await session.execute(
+            text("UPDATE strategies SET visibility = :visibility WHERE id = :id"),
+            {"id": strategy_id, "visibility": visibility},
+        )
+        if archived:
             await session.execute(
                 text("UPDATE strategies SET archived_at = now() WHERE id = :id"),
                 {"id": strategy_id},
             )
-            await session.commit()
+        await session.commit()
     return strategy_id
 
 

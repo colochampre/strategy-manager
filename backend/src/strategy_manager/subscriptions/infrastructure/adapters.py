@@ -16,6 +16,7 @@ from strategy_manager.allocation.infrastructure.models import ReservationRow
 from strategy_manager.execution.domain.market_symbol import market_key
 from strategy_manager.ledger.application.read_symbol_holdings import ReadSymbolHoldings
 from strategy_manager.ledger.infrastructure.repository import SqlAlchemyLedgerRepository
+from strategy_manager.strategies.domain.strategy import Visibility
 from strategy_manager.strategies.infrastructure.models import StrategyRow
 from strategy_manager.subscriptions.application.ports import Market, StrategyMarket
 
@@ -37,6 +38,7 @@ class SqlAlchemyStrategyLookup:
             market=(row.exchange, row.venue, row.settlement_currency),
             archived=row.archived_at is not None,
             author_id=row.author_id,
+            visibility=Visibility(row.visibility),
         )
 
 

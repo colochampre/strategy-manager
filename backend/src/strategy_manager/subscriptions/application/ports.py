@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Protocol
 from uuid import UUID
 
+from strategy_manager.strategies.domain.strategy import Visibility
 from strategy_manager.subscriptions.domain.subscription import Subscription
 
 #: ``(exchange, venue, settlement_currency)``: one pool of one user.
@@ -14,12 +15,14 @@ Market = tuple[str, str, str]
 @dataclass(frozen=True, slots=True)
 class StrategyMarket:
     """What subscribing and leaving need to know about a strategy: where it trades,
-    whether it still takes subscribers, and who wrote it (an author cannot leave)."""
+    whether it still takes subscribers, who wrote it (an author cannot leave) and
+    whether it is private (only its author may subscribe, decision 21)."""
 
     id: UUID
     market: Market
     archived: bool
     author_id: UUID
+    visibility: Visibility
 
 
 class SubscriptionRepositoryPort(Protocol):
