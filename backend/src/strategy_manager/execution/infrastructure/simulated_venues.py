@@ -3,7 +3,7 @@
 One set per user, because a venue is one account's view of the market: two users
 in simulation on one symbol must keep separate nets, exactly as two accounts
 would. The book behind a user's fakes is seeded from that user's rehearsal fills
-only (``net_positions_by_symbol(..., rehearsal_only=True)``), so a real position
+only (``net_positions_by_symbol(..., mode=Mode.SIMULATION)``), so a real position
 of theirs never appears in it.
 
 Process-lifetime, and made the first time a user needs one. A fake keeps its

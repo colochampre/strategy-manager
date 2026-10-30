@@ -54,6 +54,14 @@ class VaultTradeCapabilityAdapter:
             return TradeCapability.NO_KEY
         return TradeCapability.TRADE_CAPABLE if trade_capable else TradeCapability.READ_ONLY
 
+    async def trade_capable_keys(self) -> frozenset[tuple[UUID, str]]:
+        """Every ``(user, exchange)`` whose active key can trade, for the startup
+        guard's whole-database sweep: it reads no secret."""
+        rows = await self._session.execute(
+            select(_ROW.user_id, _ROW.exchange).where(_ROW.is_active, _ROW.trade_capable)
+        )
+        return frozenset((row.user_id, row.exchange) for row in rows)
+
     async def holds_trade_capable_key(self, user_id: UUID) -> bool:
         """On any exchange: what going live asks (decision 6). The opening asks
         ``capability`` for its own exchange, in the lock."""

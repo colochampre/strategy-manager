@@ -73,7 +73,7 @@ from strategy_manager.allocation.infrastructure.lock_key_invariant import (
     PoolLockKeyCollisionError,
     assert_pool_lock_keys_distinct,
 )
-from strategy_manager.main import assert_dry_run_matches_ledger, build_worker_runner
+from strategy_manager.main import assert_modes_match_ledger, build_worker_runner
 from strategy_manager.shared.application.job import JobKind
 from strategy_manager.shared.application.watchdog import AlertChannelPort
 from strategy_manager.shared.config import Settings, get_settings
@@ -161,22 +161,26 @@ async def _run_worker(settings: Settings, alert_channel: AlertChannelPort | None
             )
 
     logger.info(
-        "worker starting: %d enabled pools, dry_run=%s", len(pools), settings.dry_run
+        "worker starting: %d enabled pools, DRY_RUN brake %s (each opening decides "
+        "its own mode)",
+        len(pools),
+        "on" if settings.dry_run else "off",
     )
 
-    # Decision 28. DRY_RUN is configuration, and flipping it with a position
-    # still open sends that position's close to the other exchange: a live
-    # position closed against the fake one is booked flat while it stays open
-    # at the venue. So a mismatch REFUSES to start (unlike decision 20's
-    # degraded start), through the same exception every other startup
-    # invariant here uses. It runs inside ``operator_alerts`` -- see ``run`` --
-    # so the ERROR it logs first reaches Telegram before the process exits.
+    # Decision 28 and AD7. A close and a settle follow the mode their reservation
+    # recorded, so a record that disagrees with its fills sends them to the other
+    # exchange: a live position closed against the fake one is booked flat while
+    # it stays open at the venue. And a real position whose user holds no key
+    # cannot close at all. Either REFUSES to start (unlike decision 20's degraded
+    # start), through the same exception every other startup invariant here
+    # uses. It runs inside ``operator_alerts`` -- see ``run`` -- so the ERROR it
+    # logs first reaches Telegram before the process exits.
     #
     # That guard raises ``StartupRefused`` itself (it is startup-only and has
     # already logged its ERROR); the wrapper only keeps it from being logged
     # twice.
     with _startup_refusal():
-        await assert_dry_run_matches_ledger(dry_run=settings.dry_run)
+        await assert_modes_match_ledger()
 
     # A master key that is well-formed but WRONG only fails when a credential
     # is actually opened — per job, inside a handler, as DecryptionFailed.
@@ -212,7 +216,7 @@ async def _run_worker(settings: Settings, alert_channel: AlertChannelPort | None
         users = sorted({user_id for user_id, _ in active}, key=str)
         with _startup_refusal():
             opened = await _assert_sealed_credentials_open(vault, users)
-    _log_vault_self_test(opened, dry_run=settings.dry_run)
+    _log_vault_self_test(opened)
 
     # Which CONFIGURED pairs have no active key AT ALL — DEGRADED
     # (decision 20), never a startup refusal (see ``_assert_keys_present``'s
@@ -278,16 +282,16 @@ async def _seed_recurring_chains(settings: Settings) -> list[JobKind]:
         ).seed()
 
 
-def _log_vault_self_test(opened: Sequence[UserExchange], *, dry_run: bool) -> None:
+def _log_vault_self_test(opened: Sequence[UserExchange]) -> None:
     """An EMPTY vault is not a failure. A fresh deployment has sealed nothing
     yet, and the sealing scripts need this database and this configuration to
     run at all — refusing here would make the first boot impossible.
 
-    The empty case names the job that will actually suffer. Under DRY_RUN that
-    is ``balance.sync``, which reads real balances and so needs a real
-    credential; without one the deployment stops learning its own capital while
-    looking alive. Live, the first cost arrives earlier still: capital is
-    reserved and the order cannot be placed.
+    The empty case names what will actually suffer, for both modes, since both run
+    in this process. ``balance.sync`` reads real balances and so needs a real
+    credential in simulation too; without one the deployment stops learning its own
+    capital while looking alive. A live opening is refused, before any capital is
+    reserved.
     """
     if opened:
         logger.info(
@@ -295,17 +299,12 @@ def _log_vault_self_test(opened: Sequence[UserExchange], *, dry_run: bool) -> No
             len(opened),
             ", ".join(f"{exchange} of user {str(user_id)[:8]}" for user_id, exchange in opened),
         )
-    elif dry_run:
-        logger.warning(
-            "vault self-test: no credentials are sealed yet, so nothing was "
-            "checked. DRY_RUN fakes orders, not balances: balance.sync will "
-            "keep failing until one is stored."
-        )
     else:
         logger.warning(
             "vault self-test: no credentials are sealed yet, so nothing was "
-            "checked. Live trading will reserve capital and then fail to place "
-            "orders until one is stored."
+            "checked. Until one is stored balance.sync keeps failing, in "
+            "simulation too because only orders are faked, and a live opening "
+            "is refused."
         )
 
 

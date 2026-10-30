@@ -12,6 +12,7 @@ A symbol is spelled differently on each side of the boundary (rule R7): the
 ledger's fills as ``STXUSDT.P``, the discrepancy row as ``STXUSDT``.
 """
 
+from dataclasses import replace
 from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import UUID, uuid4
@@ -26,26 +27,27 @@ from strategy_manager.performance.domain.open_position import (
     origin_of,
     venue_disagreement_for,
 )
+from strategy_manager.shared.domain.mode import Mode
 from tests.performance.open_state_cases import open_element
 
 # --- origin_of -----------------------------------------------------------------
 
 
 @pytest.mark.parametrize(
-    ("rehearsal", "live", "dry_run", "expected"),
+    ("rehearsal", "live", "recorded", "expected"),
     [
-        (True, True, True, Origin.MIXED),
-        (True, True, False, Origin.MIXED),
-        (True, False, False, Origin.REHEARSAL),
-        (False, True, True, Origin.LIVE),
+        (True, True, Mode.SIMULATION, Origin.MIXED),
+        (True, True, Mode.LIVE, Origin.MIXED),
+        (True, False, Mode.LIVE, Origin.REHEARSAL),
+        (False, True, Mode.SIMULATION, Origin.LIVE),
     ],
-    ids=["both-seen-by-dry-run", "both-seen-by-live", "rehearsal-only", "live-only"],
+    ids=["both-recorded-simulation", "both-recorded-live", "rehearsal-only", "live-only"],
 )
 def test_the_origin_is_the_one_the_guard_reports_for_the_same_flags(
-    rehearsal: bool, live: bool, dry_run: bool, expected: Origin
+    rehearsal: bool, live: bool, recorded: Mode, expected: Origin
 ) -> None:
-    element = open_element(rehearsal=rehearsal, live=live)
-    (mismatch,) = find_mismatches(dry_run=dry_run, open_allocations=[element], in_flight=[])
+    element = replace(open_element(rehearsal=rehearsal, live=live), mode=recorded)
+    (mismatch,) = find_mismatches(open_allocations=[element], in_flight=[])
 
     assert mismatch.origin is expected  # the guard's own answer, as a premise
     assert origin_of(element) is mismatch.origin

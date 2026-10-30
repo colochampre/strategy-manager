@@ -2,14 +2,15 @@
 
 The route's one promise: it answers exactly one row per element of the mode
 guard's own reader, so an empty answer means the guard's two inputs were empty.
-For every case of a table and for BOTH values of ``DRY_RUN``, the SAME reader
-instance is given to ``find_mismatches`` and to ``ReadOpenPositions``:
+For every case of a table, with every element recorded in EACH mode, the SAME
+reader instance is given to ``find_mismatches`` and to ``ReadOpenPositions``:
 
 * every mismatch's identifier is the id of a row of the answer; and
 * when the answer is empty, ``assert_mode_matches_ledger`` does not raise.
 """
 
 from collections.abc import Callable
+from dataclasses import replace
 from itertools import combinations
 from uuid import UUID
 
@@ -24,9 +25,15 @@ from strategy_manager.execution.domain.mode_origin import (
     find_mismatches,
 )
 from strategy_manager.performance.application.read_open_positions import ReadOpenPositions
+from strategy_manager.shared.domain.mode import Mode
 from strategy_manager.shared.domain.startup_refusal import StartupRefused
 from tests.owner import OWNER_ID
-from tests.performance.fakes import FakeDisagreementSource, FakeFactsSource, FakeOpenStateReader
+from tests.performance.fakes import (
+    FakeDisagreementSource,
+    FakeFactsSource,
+    FakeOpenStateReader,
+    NoTradeCapableKeys,
+)
 from tests.performance.open_state_cases import in_flight_element, open_element
 
 Element = OpenAllocationOrigin | InFlightAttemptOrigin
@@ -49,11 +56,11 @@ CASES: dict[str, tuple[str, ...]] = {
 }
 
 
-def _reader(kinds: tuple[str, ...]) -> FakeOpenStateReader:
+def _reader(kinds: tuple[str, ...], recorded: Mode = Mode.LIVE) -> FakeOpenStateReader:
     opened: list[OpenAllocationOrigin] = []
     in_flight: list[InFlightAttemptOrigin] = []
     for kind in kinds:
-        element = KINDS[kind]()
+        element = replace(KINDS[kind](), mode=recorded)
         if isinstance(element, OpenAllocationOrigin):
             opened.append(element)
         else:
@@ -65,12 +72,12 @@ def _use_case(reader: FakeOpenStateReader) -> ReadOpenPositions:
     return ReadOpenPositions(reader, FakeFactsSource(), FakeDisagreementSource())
 
 
-@pytest.mark.parametrize("dry_run", [True, False], ids=["DRY_RUN=true", "DRY_RUN=false"])
+@pytest.mark.parametrize("recorded", list(Mode), ids=[mode.value for mode in Mode])
 @pytest.mark.parametrize("case", list(CASES), ids=list(CASES))
 async def test_every_mismatch_the_guard_would_refuse_on_is_a_row_of_the_answer(
-    case: str, dry_run: bool
+    case: str, recorded: Mode
 ) -> None:
-    reader = _reader(CASES[case])
+    reader = _reader(CASES[case], recorded)
 
     answer = await _use_case(reader).read(OWNER_ID)
 
@@ -78,23 +85,22 @@ async def test_every_mismatch_the_guard_would_refuse_on_is_a_row_of_the_answer(
         o.attempt_id for o in answer.orders
     }
     mismatches = find_mismatches(
-        dry_run=dry_run,
         open_allocations=await reader.open_allocations(),
         in_flight=await reader.in_flight_attempts(),
     )
     missing = [m for m in mismatches if m.identifier not in ids]
     assert not missing, (
         f"the guard refuses on {[str(m.identifier) for m in missing]} "
-        f"(case {case!r}, DRY_RUN={dry_run}) and the answer holds {sorted(map(str, ids))}"
+        f"(case {case!r}, recorded {recorded}) and the answer holds {sorted(map(str, ids))}"
     )
 
 
-@pytest.mark.parametrize("dry_run", [True, False], ids=["DRY_RUN=true", "DRY_RUN=false"])
+@pytest.mark.parametrize("recorded", list(Mode), ids=[mode.value for mode in Mode])
 @pytest.mark.parametrize("case", list(CASES), ids=list(CASES))
 async def test_an_empty_answer_is_a_state_the_guard_accepts_in_both_modes(
-    case: str, dry_run: bool
+    case: str, recorded: Mode
 ) -> None:
-    reader = _reader(CASES[case])
+    reader = _reader(CASES[case], recorded)
 
     answer = await _use_case(reader).read(OWNER_ID)
 
@@ -102,11 +108,11 @@ async def test_an_empty_answer_is_a_state_the_guard_accepts_in_both_modes(
         # The guard raises StartupRefused when it would refuse: the assertion is
         # that it does not.
         try:
-            await assert_mode_matches_ledger(dry_run=dry_run, reader=reader)
+            await assert_mode_matches_ledger(reader=reader, keys=NoTradeCapableKeys())
         except StartupRefused as refusal:
             raise AssertionError(
                 f"the answer is empty (case {case!r}) but the guard refuses to start "
-                f"with DRY_RUN={dry_run}: {refusal}"
+                f"with everything recorded {recorded}: {refusal}"
             ) from refusal
     else:
         assert case != "nothing", "an empty ledger must be answered empty"

@@ -1,6 +1,6 @@
 """``SqlAlchemyModeOriginReader``: implements
-``execution.application.ports.ModeOriginReaderPort`` for the ``DRY_RUN`` mode
-guard (owner decision 28).
+``execution.application.ports.ModeOriginReaderPort`` for the startup mode guard
+(owner decision 28).
 
 Two reads. Neither filters on a pool, and in particular neither joins
 ``capital_pools.enabled``: a position stays open at a venue whether or not
@@ -18,7 +18,8 @@ the domain's call (``fold_open_allocations``), because the base-fee rule needs
 the base currency of a symbol and that is Python (``base_currency_of``), not a
 column. The aggregate is grouped by side, fee currency and the ORIGIN of the
 fill, which is all the fold needs and keeps the row count near the number of
-allocations rather than the number of fills.
+allocations rather than the number of fills. The owner and the recorded mode
+come from the allocation's reservation, which every ledger row references.
 
 The origin is a PREFIX test on ``exchange_fill_id``. ``REHEARSAL_FILL_ID_PREFIX``
 is the same constant the fake exchange mints with and the performance reads
@@ -30,8 +31,7 @@ rehearsal.
 (``FILLED``, ``FAILED`` and ``ABORTED_EXPIRED`` are all final). Its origin is
 the order id the exchange returned: the fake mints ``fake-order-...``, and no
 venue does. A ``SUBMITTED`` attempt whose ``exchange_order_id`` is still NULL
-is skipped, because nothing in that row says which mode wrote it; see the
-guard's design note for the gap.
+is skipped, because nothing has come back to compare the recorded mode with.
 """
 
 from collections.abc import Sequence
@@ -52,6 +52,7 @@ from strategy_manager.execution.domain.mode_origin import (
 )
 from strategy_manager.execution.infrastructure.models import ExecutionAttemptRow
 from strategy_manager.ledger.infrastructure.models import LedgerEntryRow
+from strategy_manager.shared.domain.mode import Mode
 from strategy_manager.strategies.infrastructure.models import StrategyRow
 
 
@@ -82,6 +83,8 @@ class SqlAlchemyModeOriginReader:
         result = await self._session.execute(
             select(
                 LedgerEntryRow.allocation_id,
+                ReservationRow.user_id,
+                ReservationRow.mode,
                 StrategyRow.name,
                 LedgerEntryRow.exchange,
                 LedgerEntryRow.venue,
@@ -94,9 +97,12 @@ class SqlAlchemyModeOriginReader:
                 func.sum(LedgerEntryRow.fee),
             )
             .join(StrategyRow, StrategyRow.id == LedgerEntryRow.strategy_id)
+            .join(ReservationRow, ReservationRow.id == LedgerEntryRow.allocation_id)
             .where(*_ledger_scope(user_id))
             .group_by(
                 LedgerEntryRow.allocation_id,
+                ReservationRow.user_id,
+                ReservationRow.mode,
                 StrategyRow.name,
                 LedgerEntryRow.exchange,
                 LedgerEntryRow.venue,
@@ -112,6 +118,8 @@ class SqlAlchemyModeOriginReader:
             [
                 LedgerGroup(
                     allocation_id=allocation_id,
+                    user_id=owner,
+                    mode=Mode(mode),
                     strategy_name=name,
                     exchange=exchange,
                     venue=venue,
@@ -125,6 +133,8 @@ class SqlAlchemyModeOriginReader:
                 )
                 for (
                     allocation_id,
+                    owner,
+                    mode,
                     name,
                     exchange,
                     venue,
@@ -145,6 +155,7 @@ class SqlAlchemyModeOriginReader:
         result = await self._session.execute(
             select(
                 ExecutionAttemptRow.id,
+                ReservationRow.mode,
                 StrategyRow.name,
                 ExecutionAttemptRow.exchange,
                 ExecutionAttemptRow.venue,
@@ -174,6 +185,7 @@ class SqlAlchemyModeOriginReader:
         return [
             InFlightAttemptOrigin(
                 attempt_id=attempt_id,
+                mode=Mode(mode),
                 strategy_name=name,
                 exchange=exchange,
                 venue=venue,
@@ -183,6 +195,7 @@ class SqlAlchemyModeOriginReader:
             )
             for (
                 attempt_id,
+                mode,
                 name,
                 exchange,
                 venue,

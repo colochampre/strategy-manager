@@ -19,7 +19,7 @@ are replaced; the checks under test are the production ones. No credential
 import asyncio
 import base64
 import logging
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Collection, Sequence
 from decimal import Decimal
 from typing import Any
 from uuid import UUID
@@ -46,6 +46,7 @@ from strategy_manager.execution.domain.mode_origin import (
 )
 from strategy_manager.shared.config import Settings
 from strategy_manager.shared.domain.errors import InvariantViolation
+from strategy_manager.shared.domain.mode import Mode
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 from strategy_manager.shared.infrastructure import alerting
 from strategy_manager.shared.infrastructure.crypto import DecryptionFailed
@@ -187,7 +188,7 @@ def startup(monkeypatch: pytest.MonkeyPatch, alerter: RecordingAlerter) -> Setti
     monkeypatch.setattr(worker, "SqlAlchemyCredentialVault", FakeVault)
     monkeypatch.setattr(worker, "read_key_coverage", _owner_holds_the_bybit_key)
     monkeypatch.setattr(worker, "assert_pool_lock_keys_distinct", _no_op)
-    monkeypatch.setattr(worker, "assert_dry_run_matches_ledger", _no_op)
+    monkeypatch.setattr(worker, "assert_modes_match_ledger", _no_op)
     monkeypatch.setattr(worker, "build_worker_runner", lambda *a, **k: FakeRunner())
     monkeypatch.setattr(worker, "_seed_recurring_chains", _no_seeds)
     monkeypatch.setattr(worker, "_install_signal_handlers", lambda: asyncio.Event())
@@ -238,14 +239,16 @@ def _break_master_key(monkeypatch: pytest.MonkeyPatch, settings: Settings) -> No
 
 
 def _break_mode_guard(monkeypatch: pytest.MonkeyPatch, settings: Settings) -> None:
-    """The REAL use case, over a reader that reports an open rehearsal
-    position, so its own ERROR is the one under test."""
+    """The REAL use case, over a reader that reports a rehearsal position under
+    a reservation recorded live, so its own ERROR is the one under test."""
 
     class Reader:
         async def open_allocations(self) -> Sequence[OpenAllocationOrigin]:
             return [
                 OpenAllocationOrigin(
                     allocation_id=UUID("aaaaaaaa-1111-2222-3333-444444444444"),
+                    user_id=OWNER_ID,
+                    mode=Mode.LIVE,
                     strategy_name="Alpha",
                     exchange="bybit",
                     venue="usdt-m",
@@ -259,11 +262,14 @@ def _break_mode_guard(monkeypatch: pytest.MonkeyPatch, settings: Settings) -> No
         async def in_flight_attempts(self) -> Sequence[InFlightAttemptOrigin]:
             return []
 
-    async def guard(*, dry_run: bool) -> None:
-        await assert_mode_matches_ledger(dry_run=dry_run, reader=Reader())
+    class Keys:
+        async def trade_capable_keys(self) -> Collection[tuple[UUID, str]]:
+            return [(OWNER_ID, "bybit")]
 
-    monkeypatch.setattr(settings, "dry_run", False)
-    monkeypatch.setattr(worker, "assert_dry_run_matches_ledger", guard)
+    async def guard() -> None:
+        await assert_mode_matches_ledger(reader=Reader(), keys=Keys())
+
+    monkeypatch.setattr(worker, "assert_modes_match_ledger", guard)
 
 
 def _break_dry_run_safe(monkeypatch: pytest.MonkeyPatch, settings: Settings) -> None:
@@ -357,7 +363,7 @@ def test_the_mode_guard_keeps_its_own_error_text(
         _outcome()
 
     (error,) = _errors(caplog)
-    for expected in ("Alpha", "bybit/usdt-m/USDT", "SOLUSDT.P", "then flip"):
+    for expected in ("Alpha", "bybit/usdt-m/USDT", "SOLUSDT.P", "by hand"):
         assert expected in error
     assert expected in alerter.sent[0][1]
 

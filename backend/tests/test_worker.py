@@ -176,7 +176,7 @@ def test_the_http_client_does_not_log_every_signed_request() -> None:
 
 def test_an_opened_vault_is_reported_at_info(caplog: pytest.LogCaptureFixture) -> None:
     with caplog.at_level(logging.INFO, logger="strategy_manager.worker"):
-        _log_vault_self_test([(OWNER_ID, "bybit"), (OTHER_ID, "binance")], dry_run=False)
+        _log_vault_self_test([(OWNER_ID, "bybit"), (OTHER_ID, "binance")])
 
     record = caplog.records[-1]
     assert record.levelno == logging.INFO
@@ -188,24 +188,27 @@ def test_an_empty_vault_warns_rather_than_refusing(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     with caplog.at_level(logging.INFO, logger="strategy_manager.worker"):
-        _log_vault_self_test([], dry_run=False)
+        _log_vault_self_test([])
 
     assert caplog.records[-1].levelno == logging.WARNING
 
 
-def test_an_empty_vault_under_dry_run_names_balance_sync(
+def test_an_empty_vault_names_what_fails_for_either_mode(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """The self-test now runs under DRY_RUN too, because balance.sync opens
-    the stored credential there as well — only ORDERS are faked. An operator
-    rehearsing with an empty vault must be told which job will fail, not that
-    the vault goes unread."""
+    """Both modes run in one process (AD7, tasks.md E.6), so the warning cannot
+    speak for one of them. balance.sync opens the stored credential in simulation
+    as well, since only ORDERS are faked, and a live opening has no key to run on.
+    An operator with an empty vault must be told what will fail, not that the vault
+    goes unread."""
     with caplog.at_level(logging.INFO, logger="strategy_manager.worker"):
-        _log_vault_self_test([], dry_run=True)
+        _log_vault_self_test([])
 
     message = caplog.records[-1].getMessage()
     assert caplog.records[-1].levelno == logging.WARNING
     assert "balance.sync" in message
+    assert "live opening is refused" in message
+    assert "DRY_RUN" not in message
 
 
 async def test_an_empty_vault_is_not_a_failure() -> None:

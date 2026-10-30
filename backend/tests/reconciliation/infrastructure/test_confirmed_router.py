@@ -42,7 +42,7 @@ from strategy_manager.reconciliation.infrastructure.router import (
 )
 from strategy_manager.shared import db as shared_db
 from strategy_manager.shared.config import get_settings
-from tests.identity_auth import ADMIN_HEADERS, sign_in_as_admin
+from tests.identity_auth import ADMIN_HEADERS, act_as, sign_in_as_admin
 from tests.owner import OWNER_EMAIL, OWNER_ID, ensure_pool, seed_other_user
 from tests.reconciliation.infrastructure.conftest import (
     seed_reservation,
@@ -123,8 +123,35 @@ async def client(
             yield session
 
     app.dependency_overrides[shared_db.get_session] = _session
+    # The signed-in user is the fixtures' owner, resolved without the write of a
+    # first visit: what this file proves about writes is the route's own.
+    act_as(app, OWNER_ID)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as api:
         yield api
+
+
+async def _set_owner_mode(factory: async_sessionmaker[AsyncSession], mode: str) -> str:
+    """Returns the mode it replaced. ``users`` outlives the fixtures' truncates."""
+    async with factory() as session:
+        previous = (
+            await session.execute(
+                text("SELECT mode FROM users WHERE id = :id"), {"id": OWNER_ID}
+            )
+        ).scalar_one()
+        await session.execute(
+            text("UPDATE users SET mode = :mode WHERE id = :id"), {"mode": mode, "id": OWNER_ID}
+        )
+        await session.commit()
+    return str(previous)
+
+
+@pytest.fixture(autouse=True)
+async def _owner_is_live(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+) -> AsyncIterator[None]:
+    previous = await _set_owner_mode(pg_session_factory, "LIVE")
+    yield
+    await _set_owner_mode(pg_session_factory, previous)
 
 
 async def _discrepancy(
@@ -383,6 +410,29 @@ async def test_dry_run_is_the_setting_and_the_lists_are_what_the_database_holds(
     assert body["needs_owner_count"] == 1
 
 
+async def test_dry_run_reads_true_for_a_user_the_scan_skips(
+    client: AsyncClient, pg_session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """The brake is off, and this user is in simulation with nothing real, so nothing
+    is compared for them (AD7, tasks.md E.6)."""
+    await _set_owner_mode(pg_session_factory, "SIMULATION")
+
+    body = (await client.get("/reconciliation/confirmed", headers=ADMIN_HEADERS)).json()
+
+    assert body["dry_run"] is True
+
+
+async def test_dry_run_reads_false_for_a_simulated_user_the_scan_still_reads(
+    client: AsyncClient, pg_session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    await _set_owner_mode(pg_session_factory, "SIMULATION")
+    await _discrepancy(pg_session_factory, symbol="FFGUSDT")
+
+    body = (await client.get("/reconciliation/confirmed", headers=ADMIN_HEADERS)).json()
+
+    assert body["dry_run"] is False
+
+
 async def test_a_resolved_or_observed_discrepancy_is_in_no_list(
     client: AsyncClient, pg_session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
@@ -450,8 +500,9 @@ async def test_the_statement_count_is_the_same_for_one_and_for_twenty_open_discr
 
     assert len(body_one["booked"]) == 1
     assert len(body_twenty["needs_owner"]) == 19
-    # The fourth is the users' e-mails (B.8), one query for every item.
-    assert one == twenty == 4
+    # The fourth is the users' e-mails (B.8), one query for every item, and the
+    # fifth whether a live user is scanned (E.6).
+    assert one == twenty == 5
 
 
 _TABLES = text(

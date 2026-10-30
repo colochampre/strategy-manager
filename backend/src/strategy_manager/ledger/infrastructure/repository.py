@@ -17,6 +17,7 @@ from strategy_manager.execution.domain.market_symbol import base_currency_of, ma
 from strategy_manager.ledger.domain.ledger_entry import LedgerEntry
 from strategy_manager.ledger.infrastructure.models import LedgerEntryRow
 from strategy_manager.reconciliation.domain.positions import LedgerPosition, OpenAllocation
+from strategy_manager.shared.domain.mode import Mode
 from strategy_manager.signals.domain.holding import HeldAllocation
 
 
@@ -100,14 +101,16 @@ class SqlAlchemyLedgerRepository:
         venue: str,
         settlement_currency: str,
         *,
-        rehearsal_only: bool = False,
+        mode: Mode,
     ) -> list[LedgerPosition]:
         """Implements ``LedgerSymbolPositionReaderPort``.
 
-        ``rehearsal_only`` narrows the read to simulated fills, for a user's
-        simulated book (``SimulatedVenues``): a real position is not on the
-        simulated venue. By prefix, the same definition as every other reader of
-        ``REHEARSAL_FILL_ID_PREFIX``.
+        ``mode`` says which book is read, because neither holds the other's
+        positions: ``SIMULATION`` is the simulated fills, for a user's simulated
+        book (``SimulatedVenues``), and ``LIVE`` the real ones, for the scan that
+        compares them with the venue. By prefix, the same definition as every
+        other reader of ``REHEARSAL_FILL_ID_PREFIX``, so an allocation holding
+        both counts here by what each fill was.
 
         One aggregate over the WHOLE pool's rows of ``user_id`` (a market is
         one pool PER USER; multi-user AD8), grouped by symbol and
@@ -143,11 +146,10 @@ class SqlAlchemyLedgerRepository:
             else_=0,
         )
         net_base = func.sum(signed_quantity - settlement_fee)
-        origin = (
-            (LedgerEntryRow.exchange_fill_id.startswith(REHEARSAL_FILL_ID_PREFIX, autoescape=True),)
-            if rehearsal_only
-            else ()
+        rehearsal = LedgerEntryRow.exchange_fill_id.startswith(
+            REHEARSAL_FILL_ID_PREFIX, autoescape=True
         )
+        origin = rehearsal if mode is Mode.SIMULATION else ~rehearsal
 
         result = await self._session.execute(
             select(LedgerEntryRow.symbol, LedgerEntryRow.allocation_id, net_base)
@@ -156,7 +158,7 @@ class SqlAlchemyLedgerRepository:
                 LedgerEntryRow.exchange == exchange,
                 LedgerEntryRow.venue == venue,
                 LedgerEntryRow.settlement_currency == settlement_currency,
-                *origin,
+                origin,
             )
             .group_by(LedgerEntryRow.symbol, LedgerEntryRow.allocation_id)
             .having(net_base != 0)

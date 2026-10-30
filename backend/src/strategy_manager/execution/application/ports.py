@@ -6,7 +6,7 @@ the adapter — ``FillRecorderPort``/``FillRecord`` are implemented by
 implemented against the ``reservations`` table ``allocation`` already owns.
 """
 
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
@@ -448,7 +448,8 @@ class SettleOutcomeRecorderPort(Protocol):
 
 class ModeOriginReaderPort(Protocol):
     """What the ledger and the attempt table hold, seen by ORIGIN (rehearsal
-    or live), for the ``DRY_RUN`` mode guard (owner decision 28).
+    or live) beside the recorded mode, for the startup mode guard (owner
+    decision 28).
 
     Every pool is covered, enabled or not: a position stays open at a venue
     whether or not anyone still trades the pool it sits in.
@@ -463,4 +464,13 @@ class ModeOriginReaderPort(Protocol):
         """Attempts still waiting for ``execution.settle`` whose order the
         exchange already accepted. An attempt with no ``exchange_order_id``
         yet is not returned: its origin is not recorded anywhere."""
+        ...
+
+
+class TradeCapableKeysPort(Protocol):
+    """Who can place an order where, for the startup guard's refusal of a real
+    position nothing can close (multi-user design AD7)."""
+
+    async def trade_capable_keys(self) -> Collection[tuple[UUID, str]]:
+        """Every ``(user, exchange)`` whose active key can trade."""
         ...

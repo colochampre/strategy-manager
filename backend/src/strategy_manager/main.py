@@ -183,6 +183,9 @@ from strategy_manager.reconciliation.infrastructure.in_flight_close_adapter impo
 from strategy_manager.reconciliation.infrastructure.lazy_venue_position_reader import (
     LazyVenuePositionReader,
 )
+from strategy_manager.reconciliation.infrastructure.reconciled_users import (
+    SqlAlchemyReconciledUsers,
+)
 from strategy_manager.reconciliation.infrastructure.repository import (
     SqlAlchemyDiscrepancyRepository,
 )
@@ -208,7 +211,7 @@ from strategy_manager.shared.application.watchdog import AlertChannelPort, Watch
 from strategy_manager.shared.application.watchdog_handler import WatchdogHandler
 from strategy_manager.shared.config import Settings, get_settings
 from strategy_manager.shared.db import engine, session_factory
-from strategy_manager.shared.domain.mode import Mode, effective_mode
+from strategy_manager.shared.domain.mode import Mode
 from strategy_manager.shared.domain.money import Currency
 from strategy_manager.shared.infrastructure.access_log import (
     install_access_log_redaction,
@@ -394,7 +397,7 @@ def log_simulated_exchange_startup(fakes: Mapping[str, FakeExchangeAdapter]) -> 
             )
     if alert_priced:
         logger.info(
-            "dry run: the simulated exchange prices each fill at its alert's price "
+            "the simulated exchange prices each fill at its alert's price "
             "and charges the venue's taker fee in USDT (%s)",
             ", ".join(
                 f"{name}={format(fake.fee_rate.normalize(), 'f')}"
@@ -904,12 +907,17 @@ def _holds_pool(
 def _reconciliation_markets_per_user(
     by_key: Mapping[tuple[UUID, tuple[str, str, str]], PoolConfig],
     active: frozenset[UserExchange],
+    reconciled: frozenset[UUID],
     *,
     warn: bool,
 ) -> dict[UUID, list[tuple[str, str, str]]]:
     """Each user's markets that reconciliation can read, with THAT user's key
     (multi-user design AD10, tasks.md B.8): the enabled pools of a user on an
     exchange where the user also holds an active key.
+
+    Only ``reconciled`` users (``SqlAlchemyReconciledUsers``): anyone else is in
+    simulation with nothing real, so there is nothing to compare and a missing key
+    is no reason to warn about them.
 
     A venue's net position is an account's, so the same market held by two
     users is two reads, each with its owner's key. A user with a pool but no
@@ -923,6 +931,8 @@ def _reconciliation_markets_per_user(
     for user_id, market in sorted(by_key, key=lambda key: (str(key[0]), key[1])):
         exchange = market[0]
         if exchange not in (BYBIT_EXCHANGE, BINANCE_EXCHANGE):
+            continue
+        if user_id not in reconciled:
             continue
         if (user_id, exchange) not in active:
             unkeyed.add((user_id, exchange))
@@ -1067,13 +1077,14 @@ async def _user_fill_readers(
     return readers
 
 
-async def assert_dry_run_matches_ledger(
+async def assert_modes_match_ledger(
     *,
-    dry_run: bool,
     session_factory_override: async_sessionmaker[AsyncSession] | None = None,
 ) -> None:
-    """Owner decision 28: refuse to start when ``DRY_RUN`` does not match the
-    origin of an open position or an unsettled order in the ledger.
+    """Owner decision 28 and AD7: refuse to start when an open position or an
+    unsettled order disagrees with the mode its reservation recorded, or when a
+    real position's user holds no key that can close it. ``DRY_RUN`` has no say:
+    a real position under the brake is a valid state (decision 14).
 
     Async, so it cannot live inside ``build_worker_runner``: the ledger read
     needs the event loop, and that function is synchronous and is also built by
@@ -1087,7 +1098,8 @@ async def assert_dry_run_matches_ledger(
     factory = session_factory_override or session_factory
     async with factory() as session:
         await assert_mode_matches_ledger(
-            dry_run=dry_run, reader=SqlAlchemyModeOriginReader(session)
+            reader=SqlAlchemyModeOriginReader(session),
+            keys=VaultTradeCapabilityAdapter(session),
         )
 
 
@@ -1161,11 +1173,6 @@ def build_worker_runner(
     for adapter in registered:
         assert_dry_run_safe(dry_run=settings.dry_run, exchange=adapter)
 
-    # No job runs in this: each opening decides its own and everything after
-    # follows the reservation. Only the startup warning below still reads it,
-    # until tasks.md E.6 stops it saying one mode for the whole process.
-    job_mode = effective_mode(brake=settings.dry_run, user_mode=Mode.LIVE)
-
     # Its ledger reader opens a short-lived session per call rather than sharing
     # one job's: each pool of each user is seeded at most once over the life of
     # this process.
@@ -1174,7 +1181,7 @@ def build_worker_runner(
     ) -> list[tuple[str, Decimal]]:
         async with factory() as seed_session:
             positions = await SqlAlchemyLedgerRepository(seed_session).net_positions_by_symbol(
-                user_id, *pool, rehearsal_only=True
+                user_id, *pool, mode=Mode.SIMULATION
             )
             return [(position.symbol, position.net_base) for position in positions]
 
@@ -1223,7 +1230,7 @@ def build_worker_runner(
     ):
         logger.warning(
             "no simulated taker fee rate is defined for '%s': it has no simulated "
-            "exchange in a dry run, so its signals are refused as untradable",
+            "exchange, so a user in simulation has its signals refused as untradable",
             unrated,
         )
     log_simulated_exchange_startup(fakes_by_exchange)
@@ -1240,10 +1247,11 @@ def build_worker_runner(
     # adapter does not serve it -- noise that trains an operator to ignore the
     # one warning that matters.
     #
-    # The two branches ask the same question of genuinely different KINDS of
-    # thing, which is why the answer is computed per branch rather than through
-    # one tuple of adapters. A dry run's fakes are INSTANCES: ``exchange`` is
-    # per instance there, so one fake stands in for each configured exchange.
+    # Both sides run in this process, so each is asked. They answer the same
+    # question of genuinely different KINDS of thing, which is why the answer is
+    # computed per side rather than through one tuple of adapters. The fakes are
+    # INSTANCES: ``exchange`` is per instance there, so one fake stands in for
+    # each configured exchange.
     # The live adapters are CLASSES, because a live one cannot exist at startup
     # -- it needs a decrypted credential and an open socket, and neither belongs
     # here. Both kinds carry ``exchange`` and ``venues``, which is everything
@@ -1261,20 +1269,18 @@ def build_worker_runner(
             for venue in adapter.venues
         ),
     }
-    tradable_pools = tradable_by_mode[job_mode]
-    unserved = unserved_pools(served=tradable_pools, pools=pools)
-    if unserved:
-        logger.warning(
-            describe_unserved(
-                served=tradable_pools,
-                by=(
-                    FakeExchangeAdapter.__name__
-                    if job_mode is Mode.SIMULATION
-                    else " + ".join(adapter.__name__ for adapter in registered)
-                ),
-                unserved=unserved,
+    served_by = {
+        Mode.SIMULATION: f"The simulated side ({FakeExchangeAdapter.__name__})",
+        Mode.LIVE: (
+            f"The live side ({' + '.join(adapter.__name__ for adapter in registered)})"
+        ),
+    }
+    for mode, served in tradable_by_mode.items():
+        unserved = unserved_pools(served=served, pools=pools)
+        if unserved:
+            logger.warning(
+                describe_unserved(served=served, by=served_by[mode], unserved=unserved)
             )
-        )
 
     # Built once at startup so a missing or malformed MASTER_ENCRYPTION_KEY
     # fails here rather than on the first job that needs a credential.
@@ -1914,8 +1920,11 @@ def build_worker_runner(
                 _track_degraded_exchanges(
                     _degraded, configured=coverage.configured, active=active
                 )
+                reconciled = await SqlAlchemyReconciledUsers(session).among(
+                    {owner for owner, _ in pool_set.by_key}
+                )
                 markets_by_user = _reconciliation_markets_per_user(
-                    pool_set.by_key, active, warn=True
+                    pool_set.by_key, active, reconciled, warn=True
                 )
 
             async with AsyncExitStack() as clients:
@@ -2001,10 +2010,13 @@ def build_worker_runner(
                 _track_degraded_exchanges(
                     _degraded, configured=coverage.configured, active=active
                 )
+                reconciled = await SqlAlchemyReconciledUsers(session).among(
+                    {owner for owner, _ in pool_set.by_key}
+                )
                 # The scan already warns about a user without a key; here the
                 # stand-in reader reports it per discrepancy.
                 markets_by_user = _reconciliation_markets_per_user(
-                    pool_set.by_key, active, warn=False
+                    pool_set.by_key, active, reconciled, warn=False
                 )
 
             async with AsyncExitStack() as clients:

@@ -11,9 +11,11 @@ feeds it.
 
 Asserted for every state: the answer's allocation ids EQUAL the reader's (as a
 list, so a duplicated row is as visible as a dropped one) and so do its attempt
-ids; every mismatch for either value of ``DRY_RUN`` is a row of the answer; and
-an empty answer is a state the guard accepts in both modes.
+ids; every mismatch, with everything recorded in either mode, is a row of the
+answer; and an empty answer is a state the guard accepts in both modes.
 """
+
+from dataclasses import replace
 
 import pytest
 
@@ -22,9 +24,15 @@ from strategy_manager.execution.application.assert_mode_matches_ledger import (
 )
 from strategy_manager.execution.domain.mode_origin import find_mismatches, fold_open_allocations
 from strategy_manager.performance.application.read_open_positions import ReadOpenPositions
+from strategy_manager.shared.domain.mode import Mode
 from strategy_manager.shared.domain.startup_refusal import StartupRefused
 from tests.owner import OWNER_ID
-from tests.performance.fakes import FakeDisagreementSource, FakeFactsSource, FakeOpenStateReader
+from tests.performance.fakes import (
+    FakeDisagreementSource,
+    FakeFactsSource,
+    FakeOpenStateReader,
+    NoTradeCapableKeys,
+)
 from tests.performance.generated_ledger import GeneratedState, generate_states
 
 STATES = generate_states()
@@ -69,12 +77,16 @@ async def test_the_answer_holds_the_readers_elements_one_for_one(state: Generate
     ], f"state {state.index}: the answer's attempt ids are not the reader's"
 
 
-@pytest.mark.parametrize("dry_run", [True, False], ids=["DRY_RUN=true", "DRY_RUN=false"])
+@pytest.mark.parametrize("recorded", list(Mode), ids=[mode.value for mode in Mode])
 @pytest.mark.parametrize("state", STATES, ids=[f"state-{s.index}" for s in STATES])
 async def test_nothing_the_guard_refuses_on_is_missing_and_an_empty_answer_is_accepted(
-    state: GeneratedState, dry_run: bool
+    state: GeneratedState, recorded: Mode
 ) -> None:
-    reader = FakeOpenStateReader(fold_open_allocations(state.ledger_groups()), state.in_flight)
+    opened = fold_open_allocations(state.ledger_groups())
+    reader = FakeOpenStateReader(
+        [replace(element, mode=recorded) for element in opened],
+        [replace(element, mode=recorded) for element in state.in_flight],
+    )
 
     answer = await ReadOpenPositions(reader, FakeFactsSource(), FakeDisagreementSource()).read(
         OWNER_ID
@@ -82,7 +94,6 @@ async def test_nothing_the_guard_refuses_on_is_missing_and_an_empty_answer_is_ac
 
     ids = {p.allocation_id for p in answer.positions} | {o.attempt_id for o in answer.orders}
     mismatches = find_mismatches(
-        dry_run=dry_run,
         open_allocations=await reader.open_allocations(),
         in_flight=await reader.in_flight_attempts(),
     )
@@ -91,7 +102,7 @@ async def test_nothing_the_guard_refuses_on_is_missing_and_an_empty_answer_is_ac
 
     if not answer.positions and not answer.orders:
         try:
-            await assert_mode_matches_ledger(dry_run=dry_run, reader=reader)
+            await assert_mode_matches_ledger(reader=reader, keys=NoTradeCapableKeys())
         except StartupRefused as refusal:
             raise AssertionError(
                 f"state {state.index}: the answer is empty but the guard refuses: {refusal}"

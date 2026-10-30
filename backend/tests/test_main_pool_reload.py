@@ -308,7 +308,7 @@ def test_dry_run_fakes_cover_both_bybit_and_binance_unconditionally() -> None:
     yield for it."""
     source = inspect.getsource(main.build_worker_runner)
     body = source[source.index("fakes_by_exchange = {") :]
-    body = body[: body.index("tradable_pools")]
+    body = body[: body.index("simulated_venues = SimulatedVenues(")]
 
     assert "BYBIT_EXCHANGE" in body
     assert "BINANCE_EXCHANGE" in body

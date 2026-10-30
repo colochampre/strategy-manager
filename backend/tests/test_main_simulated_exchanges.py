@@ -91,6 +91,7 @@ def test_a_dry_run_worker_logs_one_info_naming_each_exchange_and_its_taker_rate(
     assert "prices each fill at its alert's price" in text
     assert "bybit=0.00055" in text
     assert "binance=0.0005" in text
+    assert "dry run" not in text.lower()
 
 
 def test_a_dry_run_worker_logs_the_rates_it_actually_built_the_exchanges_with(
@@ -154,13 +155,31 @@ def test_an_exchange_with_a_pool_and_no_rate_has_no_simulated_exchange_and_two_w
     assert sorted(fake.exchange for fake in built) == ["binance", "bybit"]
     warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
     unserved = [w for w in warnings if "enabled capital pools exist on" in w]
-    assert len(unserved) == 1
-    assert "pionex/spot" in unserved[0]
+    assert len(unserved) == 2
+    assert all("pionex/spot" in w for w in unserved)
+    assert {w.split(" (")[0] for w in unserved} == {"The simulated side", "The live side"}
     reasons = [w for w in warnings if "no simulated taker fee rate is defined for 'pionex'" in w]
     assert len(reasons) == 1
+    assert "dry run" not in reasons[0].lower()
     # Pionex is not named by the startup INFO: it has no simulated exchange.
     [info] = _simulated_lines(caplog, logging.INFO)
     assert "pionex" not in info.getMessage()
+
+
+@pytest.mark.parametrize("dry_run", [True, False], ids=["brake-on", "brake-off"])
+def test_each_side_warns_about_the_pools_it_does_not_serve_whatever_the_brake(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, dry_run: bool
+) -> None:
+    """Both sides run in one process (AD7, tasks.md E.6): a spot pool on Bybit
+    trades in simulation and is refused live, and the warning says which."""
+    caplog.set_level(logging.INFO, logger=MAIN_LOGGER)
+
+    _build_worker(monkeypatch, [_pool(Exchange.BYBIT, Venue.SPOT)], dry_run=dry_run)
+
+    warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    [unserved] = [w for w in warnings if "enabled capital pools exist on" in w]
+    assert "bybit/spot" in unserved
+    assert unserved.startswith("The live side (")
 
 
 def test_bybit_and_binance_have_a_simulated_exchange_even_when_no_pool_names_them(

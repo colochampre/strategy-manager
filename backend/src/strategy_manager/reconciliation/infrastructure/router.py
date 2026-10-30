@@ -48,7 +48,8 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from strategy_manager.identity.infrastructure.dependencies import require_admin
+from strategy_manager.identity.domain.user import User
+from strategy_manager.identity.infrastructure.dependencies import current_user, require_admin
 from strategy_manager.identity.infrastructure.models import UserRow
 from strategy_manager.reconciliation.application.market_key import market_key
 from strategy_manager.reconciliation.application.ports import DiscrepancyRecord
@@ -63,6 +64,9 @@ from strategy_manager.reconciliation.domain.discrepancy import (
 )
 from strategy_manager.reconciliation.infrastructure.booking_proposal_repository import (
     SqlAlchemyBookingProposalRepository,
+)
+from strategy_manager.reconciliation.infrastructure.reconciled_users import (
+    SqlAlchemyReconciledUsers,
 )
 from strategy_manager.reconciliation.infrastructure.repository import (
     SqlAlchemyDiscrepancyRepository,
@@ -278,19 +282,23 @@ def _discrepancy_body(item: ConfirmedDiscrepancy, user_email: str) -> ConfirmedD
 
 @router.get("/confirmed", response_model=ConfirmedBody)
 async def read_confirmed(
-    session: SessionDep, settings: Annotated[Settings, Depends(get_settings)]
+    session: SessionDep,
+    settings: Annotated[Settings, Depends(get_settings)],
+    user: Annotated[User, Depends(current_user)],
 ) -> ConfirmedBody:
     """Read-only, whole-system, no parameter (owner decision 66 Q6). Serves
-    what the database holds with ``dry_run`` beside it (note N3); the panel
-    decides what to draw under ``DRY_RUN``."""
+    what the database holds with ``dry_run`` beside it (note N3), which is true
+    under the brake and for a user the scan skips (AD7, tasks.md E.6): nothing is
+    being compared for either. The panel decides what to draw then."""
 
+    dry_run = settings.dry_run or not await SqlAlchemyReconciledUsers(session).includes(user.id)
     reading = await ReadConfirmed(
         discrepancies=SqlAlchemyDiscrepancyRepository(session),
         proposals=SqlAlchemyBookingProposalRepository(session),
         names=StrategyNameAdapter(session),
         clock=SystemClock(),
         grace_seconds=settings.reconciliation_auto_booking_grace_seconds,
-        dry_run=settings.dry_run,
+        dry_run=dry_run,
     ).read()
     emails = await _user_emails(
         session, {i.user_id for i in (*reading.needs_owner, *reading.being_booked)}

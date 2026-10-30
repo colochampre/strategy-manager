@@ -219,6 +219,7 @@ async def seed_reservation(
     status: str = "SUBMITTED",
     expires_at: datetime | None = None,
     user_id: UUID = OWNER_ID,
+    mode: str = "LIVE",
 ) -> None:
     """``user_id``'s reservation, in that user's pool on the market (seeded
     when missing; migration ``0030``)."""
@@ -236,6 +237,7 @@ async def seed_reservation(
             status=status,
             expires_at=resolved_expires_at,
             user_id=user_id,
+            mode=mode,
         )
         await session.commit()
 
