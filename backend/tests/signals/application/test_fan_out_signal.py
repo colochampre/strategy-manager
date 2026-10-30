@@ -39,7 +39,6 @@ class _Policy:
             exchange="bybit",
             venue="usdt-m",
             settlement_currency="USDT",
-            allocation_percent=Decimal("30"),
             author_id=uuid4(),
         )
 

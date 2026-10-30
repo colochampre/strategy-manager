@@ -25,7 +25,7 @@ cleanly, accept every signal, and size none of them.
 """
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import Decimal
 from uuid import UUID
 
@@ -53,6 +53,11 @@ from strategy_manager.strategies.domain.strategy import (
     AllocationPolicy,
     FillMode,
     Strategy,
+    Visibility,
+)
+from strategy_manager.strategies.domain.webhook_secret import (
+    hash_webhook_secret,
+    new_webhook_secret,
 )
 
 logger = logging.getLogger(__name__)
@@ -83,8 +88,7 @@ class RegisterCommand:
     genuinely available, which is where competing for free capital happens.
 
     ``author_id`` is the signed-in ``User`` registering it (multi-user design
-    AD2). Strategies stay admin-only (owner decision 16), so today the author
-    is always the admin.
+    AD2): whoever is signed in, the admin or not (AD8).
     """
 
     strategy_id: UUID
@@ -96,6 +100,16 @@ class RegisterCommand:
     allocation_percent: Decimal
     allowed_pairs: list[str]
     author_id: UUID
+    visibility: Visibility = Visibility.PRIVATE
+
+
+@dataclass(frozen=True, slots=True)
+class Registration:
+    """A registered strategy and its webhook secret, which exists in plain text only
+    here: the caller shows it once and the database keeps its hash. ``repr`` hides it."""
+
+    strategy: Strategy
+    webhook_secret: str = field(repr=False)
 
 
 class RegisterStrategy:
@@ -127,12 +141,15 @@ class RegisterStrategy:
         self._clock = clock
         self._author_subscriptions = author_subscriptions
 
-    async def register(self, command: RegisterCommand) -> Strategy:
+    async def register(self, command: RegisterCommand) -> Registration:
         existing = await self._repository.get_by_id(command.strategy_id)
         if existing is not None:
+            # The id is global but the strategy may be another user's: its name is
+            # theirs to share, so it is named only to its own author.
+            named = f" ({existing.name!r})" if existing.author_id == command.author_id else ""
             raise StrategyAlreadyRegistered(
-                f"a strategy is already registered under id {command.strategy_id} "
-                f"({existing.name!r}). That id comes from the alert's signalType, "
+                f"a strategy is already registered under id {command.strategy_id}"
+                f"{named}. That id comes from the alert's signalType, "
                 "so two strategies sharing one means an alert is misconfigured."
             )
 
@@ -153,6 +170,9 @@ class RegisterStrategy:
 
         await self._assert_pairs_listed(command, allowed_pairs.pairs)
 
+        # Validated here, before anything is written: the share goes to the
+        # author's subscription, not to the strategy.
+        share = AllocationPercent(command.allocation_percent)
         strategy = Strategy(
             id=command.strategy_id,
             name=command.name,
@@ -161,19 +181,22 @@ class RegisterStrategy:
                 venue=command.venue,
                 settlement_currency=command.settlement_currency,
                 fill_mode=command.fill_mode,
-                allocation_percent=AllocationPercent(command.allocation_percent),
             ),
             author_id=command.author_id,
+            visibility=command.visibility,
             allowed_pairs=allowed_pairs,
             # Registered, not armed. Enabling is a separate, deliberate call.
             enabled=False,
         )
 
-        await self._repository.insert(strategy)
+        # Only the hash is stored; the plain secret leaves in the return value,
+        # once, and is never logged (tasks.md D.3).
+        webhook_secret = new_webhook_secret()
+        await self._repository.insert(strategy, hash_webhook_secret(webhook_secret))
         # A subscription is the only way to trade a strategy, its author included
         # (C.4b). Written before the one commit, so a pool that vanished since
         # the check above leaves neither row.
-        await self._author_subscriptions.subscribe_author(strategy)
+        await self._author_subscriptions.subscribe_author(strategy, share)
 
         if strategy.enabled:  # pragma: no cover -- dead today; see class docstring
             await self._enablement_log.append(
@@ -181,7 +204,7 @@ class RegisterStrategy:
             )
 
         await self._commit.commit()
-        return strategy
+        return Registration(strategy=strategy, webhook_secret=webhook_secret)
 
     async def _assert_pairs_listed(
         self, command: RegisterCommand, pairs: frozenset[str]

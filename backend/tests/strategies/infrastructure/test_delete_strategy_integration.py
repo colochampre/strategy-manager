@@ -70,7 +70,7 @@ from strategy_manager.strategies.infrastructure.history_adapter import StrategyH
 from strategy_manager.strategies.infrastructure.models import StrategyRow
 from strategy_manager.strategies.infrastructure.pool_lock_adapter import PoolLockAdapter
 from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStrategyRepository
-from tests.owner import OWNER_ID, ensure_delivery, ensure_pool, seed_owner
+from tests.owner import OWNER_ID, ensure_delivery, ensure_pool, secret_hash, seed_owner
 from tests.pg_head_schema import migrated_head_database
 from tests.strategies.wiring import real_subscribers
 
@@ -157,6 +157,7 @@ def _strategy_row(strategy_id: UUID, *, archived: bool = False) -> StrategyRow:
         venue=venue,
         settlement_currency=currency,
         author_id=OWNER_ID,
+        webhook_secret_hash=secret_hash("fixture-secret"),
         enabled=False,
         fill_mode="PARTIAL",
         allowed_pairs=["STXUSDT"],
@@ -537,7 +538,7 @@ async def test_a_deleted_id_registers_again_with_no_event_and_zero_uptime(
             )
         )
 
-    assert registered.id == strategy_id
+    assert registered.strategy.id == strategy_id
     async with factory() as session:
         events = await SqlAlchemyEnablementLog(session).list_for(strategy_id)
         history = await _real_history(session).history(strategy_id)

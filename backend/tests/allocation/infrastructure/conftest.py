@@ -25,7 +25,7 @@ from strategy_manager.shared.config import get_settings
 from strategy_manager.shared.db import Base
 from strategy_manager.signals.infrastructure.models import SignalRow
 from strategy_manager.strategies.infrastructure.models import StrategyRow
-from tests.owner import OWNER_ID, seed_owner
+from tests.owner import OWNER_ID, secret_hash, seed_owner
 from tests.pg_schema import rebuild_schema_once
 
 TEST_DB_NAME = "strategy_manager_test"
@@ -134,7 +134,6 @@ async def seed_strategy(
     settlement_currency: str = "USDT",
     fill_mode: str = "PARTIAL",
     enabled: bool = True,
-    allocation_percent: Decimal = Decimal("100"),
     author_id: UUID = OWNER_ID,
 ) -> None:
     """Inserts a committed ``strategies`` row so reservation FKs resolve.
@@ -154,9 +153,9 @@ async def seed_strategy(
                 venue=venue,
                 settlement_currency=settlement_currency,
                 author_id=author_id,
+                webhook_secret_hash=secret_hash("fixture-secret"),
                 enabled=enabled,
                 fill_mode=fill_mode,
-                allocation_percent=allocation_percent,
             )
         )
         await session.commit()

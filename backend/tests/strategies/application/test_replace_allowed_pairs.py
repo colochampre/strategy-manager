@@ -7,7 +7,6 @@ import logging
 from collections.abc import Callable
 from dataclasses import replace
 from datetime import UTC, datetime
-from decimal import Decimal
 from uuid import UUID, uuid4
 
 import pytest
@@ -31,7 +30,6 @@ from strategy_manager.strategies.domain.pair_catalog import (
     UnknownPairs,
 )
 from strategy_manager.strategies.domain.strategy import (
-    AllocationPercent,
     AllocationPolicy,
     FillMode,
     Strategy,
@@ -46,7 +44,6 @@ def _strategy(**overrides: object) -> Strategy:
         venue=Venue.SPOT,
         settlement_currency=Currency.USDT,
         fill_mode=FillMode.PARTIAL,
-        allocation_percent=AllocationPercent(Decimal("100")),
     )
     fields: dict[str, object] = {
         "id": STRATEGY_ID,

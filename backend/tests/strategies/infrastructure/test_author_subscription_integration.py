@@ -113,9 +113,10 @@ async def test_registering_writes_the_authors_active_subscription_in_their_pool_
                 {"id": strategy_id},
             )
         ).all()
-        strategy_share = await session.scalar(
-            text("SELECT allocation_percent FROM strategies WHERE id = :id"), {"id": strategy_id}
+        strategy_row = await session.execute(
+            text("SELECT * FROM strategies WHERE id = :id"), {"id": strategy_id}
         )
+        strategy_columns = strategy_row.mappings().one().keys()
     assert len(rows) == 1
     [row] = rows
     assert (row.user_id, row.pool_id, row.allocation_percent, row.status) == (
@@ -124,8 +125,8 @@ async def test_registering_writes_the_authors_active_subscription_in_their_pool_
         Decimal("40"),
         "ACTIVE",
     )
-    # Until C.6 the strategy keeps its own copy, which is what sizing still reads.
-    assert strategy_share == Decimal("40")
+    # The share lives on the subscription alone (migration 0033, tasks.md D.1).
+    assert "allocation_percent" not in strategy_columns
 
 
 async def test_a_pool_that_vanished_before_the_write_leaves_neither_row(

@@ -51,7 +51,7 @@ from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 from strategy_manager.shared.infrastructure.clock import SystemClock
 from strategy_manager.signals.domain.outcome import SignalOutcome
 from strategy_manager.signals.infrastructure.models import SignalDeliveryRow, SignalRow
-from tests.owner import OWNER_ID
+from tests.owner import OWNER_ID, secret_hash
 from tests.signals.infrastructure import test_settle_outcomes_integration as settle_h
 from tests.signals.infrastructure.conftest import (
     seed_execution_attempt,
@@ -146,6 +146,11 @@ async def stack(
                 # The share that sizes an opening is the SUBSCRIPTION's (C.6).
                 text("UPDATE subscriptions SET allocation_percent = :pct WHERE strategy_id = :id"),
                 {"pct": ALLOCATION_PERCENT, "id": strategy_id},
+            )
+            # Ingress authenticates with the strategy's own secret (tasks.md D.2).
+            await session.execute(
+                text("UPDATE strategies SET webhook_secret_hash = :hash WHERE id = :id"),
+                {"hash": secret_hash(SECRET), "id": strategy_id},
             )
             await session.commit()
         strategies[pool.exchange.value] = strategy_id

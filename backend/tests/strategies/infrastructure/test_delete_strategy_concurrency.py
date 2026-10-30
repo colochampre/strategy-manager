@@ -80,7 +80,7 @@ from strategy_manager.strategies.infrastructure.history_adapter import StrategyH
 from strategy_manager.strategies.infrastructure.models import StrategyRow
 from strategy_manager.strategies.infrastructure.pool_lock_adapter import PoolLockAdapter
 from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStrategyRepository
-from tests.owner import OWNER_ID, ensure_author_subscription, seed_owner
+from tests.owner import OWNER_ID, ensure_author_subscription, secret_hash, seed_owner
 from tests.pg_head_schema import migrated_head_database
 from tests.strategies.wiring import real_subscribers
 
@@ -201,6 +201,7 @@ async def _seed_strategy(factory: Factory) -> UUID:
                 venue=venue,
                 settlement_currency=currency,
                 author_id=OWNER_ID,
+                webhook_secret_hash=secret_hash("fixture-secret"),
                 enabled=False,
                 fill_mode="PARTIAL",
                 allowed_pairs=["STXUSDT"],

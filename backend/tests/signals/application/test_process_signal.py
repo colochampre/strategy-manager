@@ -84,6 +84,7 @@ from tests.ledger.infrastructure.conftest import (  # noqa: F401
 )
 from tests.owner import OWNER_ID
 from tests.signals.application.delivery_support import (
+    SnapshotWithShare,
     SoleSubscriberHandler,
     sole_subscriber_handler,
 )
@@ -381,7 +382,7 @@ TRADABLE = frozenset({("pionex", "spot")})
 _DEFAULT_ALLOWED_PAIRS = frozenset({"BTC_USDT", "BTCUSDT", "ETHUSDT"})
 
 
-def _snapshot(**overrides: object) -> StrategyPolicySnapshot:
+def _snapshot(**overrides: object) -> SnapshotWithShare:
     defaults: dict[str, object] = dict(
         # Pionex, because the default venue is spot: the tradable-pool check
         # is keyed by both, so a mismatched pair would be refused for a
@@ -401,7 +402,7 @@ def _snapshot(**overrides: object) -> StrategyPolicySnapshot:
         allowed_pairs=_DEFAULT_ALLOWED_PAIRS,
     )
     defaults.update(overrides)
-    return StrategyPolicySnapshot(**defaults)  # type: ignore[arg-type]
+    return SnapshotWithShare(**defaults)  # type: ignore[arg-type]
 
 
 def _allocate_capital(

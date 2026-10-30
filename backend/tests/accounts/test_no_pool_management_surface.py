@@ -8,7 +8,7 @@ credential routes.
 The inventory comes from the application's own route table. FastAPI 0.141
 includes routers lazily, so ``app.routes`` alone would hide every router mounted
 that way; ``iter_route_contexts`` resolves them, with the prefix each was
-mounted under, the same walk ``test_webhook_secret_router.py`` uses.
+mounted under, the same walk ``test_no_api_response_carries_a_webhook_secret.py`` uses.
 """
 
 from fastapi.routing import iter_route_contexts

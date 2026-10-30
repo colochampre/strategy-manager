@@ -2,12 +2,14 @@ import { useId, useState } from "react";
 import type { FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 
+import { IssuedWebhookUrl } from "@/features/strategies/IssuedWebhookUrl";
 import { PairSelector } from "@/features/strategies/PairSelector";
 import type { PairSelectorStatus } from "@/features/strategies/PairSelector";
+import { VisibilityField } from "@/features/strategies/VisibilityField";
 import { ApiError } from "@/shared/api/client";
 import { useAvailablePairs } from "@/shared/api/pairs";
 import { useRegisterStrategy } from "@/shared/api/strategies";
-import type { FillMode, Pool } from "@/shared/api/types";
+import type { FillMode, Pool, Visibility } from "@/shared/api/types";
 
 const FILL_MODES: readonly FillMode[] = ["SKIP", "PARTIAL"];
 
@@ -65,6 +67,9 @@ function errorMessage(error: unknown): Message {
  * The exchange, venue and currency come from a pool and cannot change later,
  * and the fill mode has no default: it decides what a signal does when capital
  * is short, so the operator picks it.
+ *
+ * Once the strategy exists the dialog shows its webhook URL with the secret the server issued, once, and
+ * closes on "Done" (the secret lives in the mutation result and leaves the cache with the dialog).
  */
 export function NewStrategyDialog({ exchange, pools, onClose }: NewStrategyDialogProps) {
   const { t } = useTranslation();
@@ -74,6 +79,8 @@ export function NewStrategyDialog({ exchange, pools, onClose }: NewStrategyDialo
   const [selectedPool, setSelectedPool] = useState("");
   const [fillMode, setFillMode] = useState("");
   const [pairs, setPairs] = useState<string[]>([]);
+  // Private until the author chooses otherwise (decision 21): nothing turns public by default.
+  const [visibility, setVisibility] = useState<Visibility>("PRIVATE");
   const [validation, setValidation] = useState<string | null>(null);
   const register = useRegisterStrategy();
 
@@ -102,19 +109,18 @@ export function NewStrategyDialog({ exchange, pools, onClose }: NewStrategyDialo
       return;
     }
     setValidation(null);
-    register.mutate(
-      {
-        id: strategyId,
-        name: name.trim(),
-        exchange,
-        venue: pool.venue,
-        settlement_currency: pool.settlement_currency,
-        fill_mode: fillMode as FillMode,
-        allocation_percent: ALLOCATION_PERCENT,
-        allowed_pairs: pairs,
-      },
-      { onSuccess: onClose },
-    );
+    // No `onSuccess: onClose`: the dialog now holds the secret that is shown once, and closes on "Done".
+    register.mutate({
+      id: strategyId,
+      name: name.trim(),
+      exchange,
+      venue: pool.venue,
+      settlement_currency: pool.settlement_currency,
+      fill_mode: fillMode as FillMode,
+      allocation_percent: ALLOCATION_PERCENT,
+      visibility,
+      allowed_pairs: pairs,
+    });
   };
 
   const message: Message | null =
@@ -126,6 +132,45 @@ export function NewStrategyDialog({ exchange, pools, onClose }: NewStrategyDialo
           ? { key: "strategies.pairs.errors.notServed" }
           : null;
   const inputClass = "rounded-md border border-rule bg-ground px-3 py-2 text-sm text-ink";
+
+  if (register.status === "success") {
+    const secret = register.data.webhook_secret;
+    return (
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={ids.title}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") onClose();
+        }}
+        className="fixed inset-0 z-50 flex items-center justify-center bg-ground/80 p-4"
+      >
+        <div className="flex max-h-full w-full max-w-lg flex-col gap-4 overflow-auto rounded-lg border border-rule bg-panel p-6">
+          <h2 id={ids.title} className="text-sm font-semibold text-ink">
+            {t("strategies.new.created")}
+          </h2>
+          {secret !== null ? (
+            <IssuedWebhookUrl secret={secret} onDone={onClose} />
+          ) : (
+            <>
+              <p role="status" className="text-sm text-ink-2">
+                {t("strategies.new.secretMissing")}
+              </p>
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="rounded-md border border-rule px-3 py-1.5 text-sm text-ink-2 hover:bg-panel-2"
+                >
+                  {t("strategies.webhook.issuedDone")}
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -203,6 +248,8 @@ export function NewStrategyDialog({ exchange, pools, onClose }: NewStrategyDialo
             ))}
           </select>
         </div>
+
+        <VisibilityField value={visibility} onChange={setVisibility} selectClass={inputClass} />
 
         {/* Keyed by the pool so the search text of one pool's list does not carry over to the next. */}
         <PairSelector

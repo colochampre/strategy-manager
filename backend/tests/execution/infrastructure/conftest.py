@@ -28,7 +28,7 @@ from strategy_manager.shared.db import Base
 from strategy_manager.shared.infrastructure.models import JobRow  # noqa: F401  (registers table)
 from strategy_manager.signals.infrastructure.models import SignalRow  # noqa: F401
 from strategy_manager.strategies.infrastructure.models import StrategyRow
-from tests.owner import OWNER_ID, attempt_user_id, seed_owner, seed_reservation_row
+from tests.owner import OWNER_ID, attempt_user_id, secret_hash, seed_owner, seed_reservation_row
 from tests.pg_schema import rebuild_schema_once
 
 TEST_DB_NAME = "strategy_manager_test"
@@ -132,6 +132,7 @@ async def seed_strategy(
                 venue=venue,
                 settlement_currency=settlement_currency,
                 author_id=author_id,
+                webhook_secret_hash=secret_hash("fixture-secret"),
                 enabled=enabled,
                 fill_mode=fill_mode,
             )

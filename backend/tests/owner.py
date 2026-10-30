@@ -19,6 +19,7 @@ calls it after its truncate: a test that truncated ``users`` itself (the
 identity tests do) leaves no gap behind.
 """
 
+import hashlib
 from datetime import datetime
 from decimal import Decimal
 from uuid import UUID, uuid4
@@ -31,6 +32,12 @@ from strategy_manager.shared.domain.money import Money
 
 OWNER_ID = UUID("0a1b2c3d-0000-4000-8000-00000000a0a0")
 OWNER_EMAIL = "fixture-owner@example.com"
+
+
+def secret_hash(secret: str) -> str:
+    """What ``strategies.webhook_secret_hash`` holds for ``secret`` (migration
+    0033, multi-user design AD6): the SHA-256 hex of the secret's UTF-8 bytes."""
+    return hashlib.sha256(secret.encode()).hexdigest()
 
 
 async def seed_user(
@@ -131,8 +138,7 @@ async def ensure_author_subscription(
     """The strategy's AUTHOR's subscription to it, seeded when the author holds no
     live one (``RegisterStrategy`` makes it in production). The pool is the
     author's own on the strategy's market, seeded when missing. The share is the
-    strategy's own ``allocation_percent`` unless given, which is what sized a
-    signal before sizing moved to the subscription. A test that
+    100 unless given, the share a new subscription starts from. A test that
     drives a signal through the worker needs it: ``FanOutSignal`` delivers only
     to subscriptions, so a strategy seeded raw has nobody to work its signals.
     Not committed."""
@@ -151,7 +157,7 @@ async def ensure_author_subscription(
     strategy = (
         await executor.execute(
             text(
-                "SELECT author_id, exchange, venue, settlement_currency, allocation_percent "
+                "SELECT author_id, exchange, venue, settlement_currency "
                 "FROM strategies WHERE id = :strategy_id"
             ),
             {"strategy_id": strategy_id},
@@ -159,7 +165,7 @@ async def ensure_author_subscription(
     ).one()
     author_id = UUID(str(strategy[0]))
     if share is None:
-        share = Decimal(strategy[4])
+        share = Decimal("100")
     pool_id = await ensure_pool(
         executor, (strategy[1], strategy[2], strategy[3]), user_id=author_id
     )

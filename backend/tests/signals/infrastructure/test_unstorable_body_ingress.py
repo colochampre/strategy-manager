@@ -43,7 +43,7 @@ from sqlalchemy.ext.asyncio import (
 from strategy_manager.main import create_app
 from strategy_manager.shared import db as shared_db
 from strategy_manager.shared.config import get_settings
-from tests.owner import OWNER_ID, seed_owner
+from tests.owner import OWNER_ID, secret_hash, seed_owner
 from tests.pg_head_schema import migrated_head_database
 
 pytestmark = pytest.mark.integration
@@ -151,10 +151,16 @@ async def strategy_id(engine: AsyncEngine) -> UUID:
         await conn.execute(
             text(
                 "INSERT INTO strategies (id, name, exchange, venue, settlement_currency, "
-                "enabled, fill_mode, allowed_pairs, author_id) VALUES (:id, :name, 'bybit', "
-                "'usdt-m', 'USDT', true, 'PARTIAL', ARRAY['STXUSDT'], :author)"
+                "enabled, fill_mode, allowed_pairs, author_id, webhook_secret_hash) "
+                "VALUES (:id, :name, 'bybit', 'usdt-m', 'USDT', true, 'PARTIAL', "
+                "ARRAY['STXUSDT'], :author, :hash)"
             ),
-            {"id": registered, "name": f"strategy-{registered}", "author": OWNER_ID},
+            {
+                "id": registered,
+                "name": f"strategy-{registered}",
+                "author": OWNER_ID,
+                "hash": secret_hash(SECRET),
+            },
         )
     return registered
 

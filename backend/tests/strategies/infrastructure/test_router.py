@@ -55,6 +55,7 @@ from strategy_manager.strategies.infrastructure.router import router as strategi
 from tests.identity_auth import (
     ADMIN_EMAIL,
     ADMIN_HEADERS,
+    act_as,
     hand_owner_pools_to_admin,
     sign_in_as_admin,
 )
@@ -108,7 +109,10 @@ async def _authenticated_client(
     pg_session_factory: async_sessionmaker[AsyncSession],
     catalog: _Catalog | None = None,
     raise_app_exceptions: bool = True,
+    as_user: UUID | None = None,
 ) -> AsyncIterator[AsyncClient]:
+    """``as_user`` makes ``current_user`` resolve to that user, for a test whose rows
+    are seeded as the fixtures' owner: a strategy is read only by its author (D.4)."""
     from strategy_manager.shared import db as shared_db
 
     # ``strategy_enablement_events`` (migration 0024) has no ORM-level FK to
@@ -125,6 +129,8 @@ async def _authenticated_client(
     await hand_owner_pools_to_admin(pg_session_factory)
 
     app = _app(catalog)
+    if as_user is not None:
+        act_as(app, as_user)
 
     async def _override_get_session() -> AsyncIterator[AsyncSession]:
         async with pg_session_factory() as session:
@@ -1199,20 +1205,24 @@ async def test_delete_archived_with_no_history_204(deleting: AsyncClient) -> Non
 
 # --------------------------------------------------------------------------
 # C.4b -- a strategy no longer carries a share on the API. The share is the
-# subscription's (``/api/subscriptions``); the column stays on the strategy row
-# until C.6 because ``process_signal`` still sizes from it, but neither the view
-# nor the PATCH touches it. A PATCH that still sends one is refused, never
-# silently dropped. (This replaces unit 12f.9.7, which served and edited it.)
+# subscription's (``/api/subscriptions``), and since 0033 the strategy row has no
+# column for it; neither the view nor the PATCH touches it. A PATCH that still
+# sends one is refused, never silently dropped. (This replaces unit 12f.9.7,
+# which served and edited it.)
 # --------------------------------------------------------------------------
 
 
 async def _stored_share(
     pg_session_factory: async_sessionmaker[AsyncSession], strategy_id: UUID
 ) -> Decimal:
-    """The column itself, which is what ``process_signal`` still reads."""
+    """The author's subscription's share, the only one there is since 0033."""
     async with pg_session_factory() as session:
         value = await session.scalar(
-            text("SELECT allocation_percent FROM strategies WHERE id = :id"), {"id": strategy_id}
+            text(
+                "SELECT allocation_percent FROM subscriptions WHERE strategy_id = :id "
+                "ORDER BY created_at DESC LIMIT 1"
+            ),
+            {"id": strategy_id},
         )
     assert isinstance(value, Decimal)
     return value

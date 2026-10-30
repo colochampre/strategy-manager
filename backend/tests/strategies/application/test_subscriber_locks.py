@@ -9,7 +9,6 @@ serializes is proven on real PostgreSQL in ``test_subscriber_locks_concurrency.p
 import logging
 from dataclasses import replace
 from datetime import UTC, datetime
-from decimal import Decimal
 from uuid import UUID
 
 import pytest
@@ -29,7 +28,6 @@ from strategy_manager.strategies.application.ports import (
 from strategy_manager.strategies.application.subscriber_locks import SubscribersChanged
 from strategy_manager.strategies.domain.allowed_pairs import AllowedPairs
 from strategy_manager.strategies.domain.strategy import (
-    AllocationPercent,
     AllocationPolicy,
     FillMode,
     Strategy,
@@ -52,7 +50,6 @@ def _strategy(**overrides: object) -> Strategy:
         venue=Venue.USDT_M,
         settlement_currency=Currency.USDT,
         fill_mode=FillMode.PARTIAL,
-        allocation_percent=AllocationPercent(Decimal("100")),
     )
     fields: dict[str, object] = {
         "id": STRATEGY_ID,

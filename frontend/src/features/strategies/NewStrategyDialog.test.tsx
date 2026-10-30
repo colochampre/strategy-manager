@@ -1,4 +1,6 @@
-import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AppRoutes } from "@/app/router";
@@ -36,8 +38,27 @@ function creationApi(answer: () => Response) {
   return { posted, route };
 }
 
+const SECRET = "p&q/r s-Vh4lu3";
+const SECRET_ENCODED = "p%26q%2Fr%20s-Vh4lu3";
+const HOST = "https://hook.example.com";
+const ISSUED_URL = `${HOST}/webhook/tradingview?secret=${SECRET_ENCODED}`;
+const WARNING =
+  "This URL contains the strategy's secret. It is shown only once: copy it now. It will not be shown again, and if you lose it you will have to regenerate the secret.";
+
 function created() {
-  return jsonResponse({ id: GENERATED_ID }, 201);
+  return jsonResponse({ id: GENERATED_ID, webhook_secret: SECRET }, 201);
+}
+
+/** The webhook's host is answered too, so the issued URL has the origin a TradingView alert needs. */
+function withHost(route: ExtraRoute): ExtraRoute {
+  return (url, init) =>
+    url.endsWith("/webhook-origin") ? Promise.resolve(jsonResponse({ origin: HOST })) : route(url, init);
+}
+
+function stubClipboard(): ReturnType<typeof vi.fn> {
+  const writeText = vi.fn().mockResolvedValue(undefined);
+  Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+  return writeText;
 }
 
 function openDialog(text: Locale = en) {
@@ -99,6 +120,7 @@ beforeEach(() => {
 });
 afterEach(async () => {
   vi.unstubAllGlobals();
+  Reflect.deleteProperty(navigator, "clipboard");
   lock();
   await act(() => i18n.changeLanguage("en"));
 });
@@ -370,9 +392,117 @@ describe("the new-strategy dialog", () => {
       settlement_currency: "USDT",
       fill_mode: "SKIP",
       allocation_percent: "100",
+      visibility: "PRIVATE",
       allowed_pairs: ["STXUSDT"],
     });
     expect(api.posted[0]?.url).toMatch(/\/api\/strategies$/);
+  });
+
+  it("offers the visibility, private by default, and posts the one chosen", async () => {
+    const api = creationApi(created);
+    stubApi(HEALTH, [], POOLS, {}, api.route);
+    renderAt(<AppRoutes />, "/strategies");
+    await screen.findByText(en.strategies.empty);
+    openDialog();
+
+    const visibility = screen.getByLabelText("Visibility") as HTMLSelectElement;
+    expect(visibility.value).toBe("PRIVATE");
+    expect(Array.from(visibility.options).map((option) => [option.value, option.textContent])).toEqual([
+      ["PRIVATE", "Private"],
+      ["PUBLIC", "Public"],
+    ]);
+
+    fill("Delta");
+    await choose(["STXUSDT"]);
+    fireEvent.change(visibility, { target: { value: "PUBLIC" } });
+    fireEvent.click(submitButton());
+
+    await waitFor(() => expect(api.posted).toHaveLength(1));
+    expect(api.posted[0]?.body.visibility).toBe("PUBLIC");
+  });
+
+  it("shows the webhook URL with its secret once after creating, with a warning, and copies it", async () => {
+    const writeText = stubClipboard();
+    const api = creationApi(created);
+    stubApi(HEALTH, [], POOLS, {}, withHost(api.route));
+    renderAt(<AppRoutes />, "/strategies");
+    await screen.findByText(en.strategies.empty);
+    openDialog();
+    fill("Delta");
+    await choose(["STXUSDT"]);
+
+    fireEvent.click(submitButton());
+
+    await waitFor(() => expect(screen.getByLabelText("Webhook URL")).toHaveTextContent(ISSUED_URL));
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(screen.getByText(WARNING)).toBeInTheDocument();
+    expect(screen.queryByLabelText(en.strategies.new.name)).toBeNull();
+    expect(screen.queryByRole("button", { name: en.strategies.new.submit })).toBeNull();
+
+    const row = screen.getByLabelText("Webhook URL").parentElement as HTMLElement;
+    await act(async () => {
+      fireEvent.click(within(row).getByRole("button", { name: "Copy URL" }));
+    });
+
+    expect(writeText).toHaveBeenCalledTimes(1);
+    expect(writeText).toHaveBeenCalledWith(ISSUED_URL);
+    expect(within(row).getByRole("button", { name: "Copied" })).toBeInTheDocument();
+  });
+
+  it("closes on Done, and the secret is then nowhere: page, storage, console or caches", async () => {
+    const spies = (["log", "info", "warn", "error", "debug"] as const).map((method) =>
+      vi.spyOn(console, method).mockImplementation(() => undefined),
+    );
+    const api = creationApi(created);
+    stubApi(HEALTH, [], POOLS, {}, withHost(api.route));
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const onClose = vi.fn();
+    const view = render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
+          <NewStrategyDialog exchange="bybit" pools={[pool("bybit", "usdt-m")]} onClose={onClose} />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    fill("Delta");
+    await choose(["STXUSDT"]);
+    fireEvent.click(submitButton());
+    await waitFor(() => expect(screen.getByLabelText("Webhook URL")).toHaveTextContent(ISSUED_URL));
+    expect(onClose).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+    view.unmount();
+
+    await waitFor(() => expect(queryClient.getMutationCache().getAll()).toHaveLength(0));
+    const places = [
+      document.body.innerHTML,
+      JSON.stringify(queryClient.getQueryCache().findAll().map((query) => [query.queryKey, query.state.data])),
+      JSON.stringify({ ...window.localStorage, ...window.sessionStorage }),
+      ...spies.map((spy) => JSON.stringify(spy.mock.calls)),
+    ];
+    for (const place of places) {
+      expect(place).not.toContain(SECRET);
+      expect(place).not.toContain(SECRET_ENCODED);
+    }
+  });
+
+  it("says the secret could not be read, and shows no URL, when the answer carries none", async () => {
+    const api = creationApi(() => jsonResponse({ id: GENERATED_ID }, 201));
+    stubApi(HEALTH, [], POOLS, {}, withHost(api.route));
+    renderAt(<AppRoutes />, "/strategies");
+    await screen.findByText(en.strategies.empty);
+    openDialog();
+    fill("Delta");
+    await choose(["STXUSDT"]);
+
+    fireEvent.click(submitButton());
+
+    expect(
+      await screen.findByText("The strategy was created, but its secret could not be read. Open the strategy and regenerate the secret."),
+    ).toBeInTheDocument();
+    expect(screen.queryByLabelText("Webhook URL")).toBeNull();
+    expect(screen.getByRole("button", { name: "Done" })).toBeInTheDocument();
   });
 
   it("test_submitting_with_zero_pairs_is_prevented", async () => {
@@ -437,6 +567,8 @@ describe("the new-strategy dialog", () => {
     fireEvent.click(submitButton());
 
     expect(await screen.findByRole("alert")).toHaveTextContent(en.strategies.new.errors.conflict);
+    // The name is unique per author, so the refusal speaks of this user's strategies only.
+    expect(screen.getByRole("alert")).toHaveTextContent("You already have a strategy with this name.");
     expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
 
@@ -455,7 +587,7 @@ describe("the new-strategy dialog", () => {
     expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
 
-  it("closes and refreshes the list after a successful creation", async () => {
+  it("refreshes the list after a successful creation, and closes on Done", async () => {
     const api = creationApi(created);
     const fetchMock = stubApi(HEALTH, [], POOLS, {}, api.route);
     renderAt(<AppRoutes />, "/strategies");
@@ -469,12 +601,17 @@ describe("the new-strategy dialog", () => {
     await choose(["STXUSDT"]);
     fireEvent.click(submitButton());
 
-    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     await waitFor(() =>
       expect(
         fetchMock.mock.calls.filter(([url, init]) => /\/strategies(\?|$)/.test(String(url)) && init?.method === undefined),
       ).toHaveLength(listCallsBefore + 1),
     );
+    // The dialog stays, because it holds the secret that is shown once.
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Done" }));
+
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
   it("reuses the one generated id when the operator retries after a failure", async () => {

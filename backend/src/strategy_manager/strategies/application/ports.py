@@ -11,7 +11,7 @@ from uuid import UUID
 from strategy_manager.shared.domain.errors import DomainError
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 from strategy_manager.strategies.domain.enablement import EnablementEvent
-from strategy_manager.strategies.domain.strategy import Strategy
+from strategy_manager.strategies.domain.strategy import AllocationPercent, Strategy
 
 # ``(exchange, venue, settlement_currency)`` — mirrors
 # ``signals.application.ports.PoolKey``/``reconciliation``'s own alias
@@ -33,7 +33,18 @@ class StrategyRepositoryPort(Protocol):
     from signal_type")."""
 
     async def get_by_id(self, strategy_id: UUID) -> Strategy | None: ...
-    async def insert(self, strategy: Strategy) -> None: ...
+    async def insert(self, strategy: Strategy, webhook_secret_hash: str) -> None:
+        """Stores the strategy with the SHA-256 hex of its webhook secret. The hash
+        is an argument and not a field of ``Strategy`` on purpose: no read of a
+        strategy ever carries it, so no view built from one can leak it."""
+        ...
+
+    async def replace_webhook_secret_hash(
+        self, strategy_id: UUID, webhook_secret_hash: str
+    ) -> None:
+        """Replaces the stored hash, flushed and not committed. The caller holds the
+        row lock (``get_by_id_for_update``). Raises ``LookupError`` for no such row."""
+        ...
 
     async def list_all(self, include_archived: bool = False) -> list[Strategy]:
         """Ordered by name. Excludes archived strategies unless
@@ -125,9 +136,9 @@ class AuthorSubscriptionPort(Protocol):
     commits: the caller commits once, so a failure here leaves neither row.
     """
 
-    async def subscribe_author(self, strategy: Strategy) -> None:
+    async def subscribe_author(self, strategy: Strategy, share: AllocationPercent) -> None:
         """An ACTIVE subscription of ``strategy.author_id``, in the author's own
-        pool for the strategy's market, at the strategy's share. Raises
+        pool for the strategy's market, at ``share``. Raises
         ``PoolNotAvailable`` when the author has no pool for the market."""
         ...
 

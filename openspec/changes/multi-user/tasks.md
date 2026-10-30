@@ -6,10 +6,11 @@ Sequential PRs A-G (`design.md`, "Delivery"), each cut from `main`. Every PR shi
 
 ## Production now
 
-- 2026-10-27: main `7f67fc3`, panel bundle `5632e763deb5` (#87 changed no frontend), alembic `0030`, certifi `2026.10.23`.
+- 2026-10-29: main `214db9b`, panel bundle `214db9b714ef`, alembic `0032`, certifi `2026.10.23`.
 - `DRY_RUN=false`.
 - Access admits only the owner. The API verifies the Access assertion itself; `ADMIN_API_TOKEN` is gone from `.env`.
 - `users` holds one row, the owner's, created by their first `/api/me`. Every owned row is that user's, and every strategy's `author_id` is theirs.
+- Every strategy is traded through its author's subscription: 3 `ACTIVE` at 30 % and 3 `ENDED` (archived) at 5 %. Each of the 54 signals has one delivery. `strategies.allocation_percent` is still there, nullable and unread, until PR D's 0033.
 - The worker reports one enabled pool and one sealed key, Binance's.
 
 ## Delivery log
@@ -20,6 +21,7 @@ Sequential PRs A-G (`design.md`, "Delivery"), each cut from `main`. Every PR shi
 | #85 | PR A: identity from Cloudflare Access, `/api/me`, the panel without the token, migration 0029 | `a1295e0` (parents `7a006fc`, `7f878ca`) | 2026-10-22, see "PR A's delivery" |
 | #86 | PR B: every owned row belongs to its user, scoped reads, the per-user lock, worker and reconciliation, migration 0030 | `5632e76` (parents `a1295e0`, `814f1eb`) | 2026-10-27, see "PR B's delivery" |
 | #87 | Outside this change: certifi 2026.7.22 -> 2026.10.23, which drops the distrusted `emSign ECC Root CA - G3` (eMudhra, Mozilla bug 2083449), and `tests/shared/test_tls_trust.py` to pin it | `7f67fc3` (parents `5632e76`, `39ea058`) | 2026-10-27. Pull as `strategy`; `uv sync --locked` swapped only certifi; both services restarted, both active. The venv's httpx context read `2026.10.23 113 False` (version, distinct root names, G3 present). No WARNING or ERROR in 15 minutes of both journals. No panel step. |
+| #88 | PR C: subscriptions and fan-out, one delivery per eligible subscription, migrations 0031 and 0032 | `214db9b` (parents `7f67fc3`, `b2f1999`) | 2026-10-29, see "PR C's delivery" |
 
 ## PR A: identity from Cloudflare Access
 
@@ -809,7 +811,7 @@ It needs an independent verifier before the PR.
 ### Owner-run (production)
 
 - [x] C.0 The read-only pre-check (2026-10-27). Its results are above, under "Production at planning".
-- [ ] C.13 Before the deploy: a fresh backup, then rehearse 0031 and 0032 on a throwaway restore.
+- [x] C.13 Before the deploy: a fresh backup, then rehearse 0031 and 0032 on a throwaway restore.
   - Counts unchanged on every existing table.
   - 6 subscriptions: 3 ACTIVE at 30 and 3 ENDED at 5.
   - 48 deliveries, with outcomes equal to their signals'.
@@ -831,7 +833,7 @@ It needs an independent verifier before the PR.
     - It prints, without stopping, the deliveries by status and how many `ACCEPTED` deliveries open a position. Those never run, and since `e1314bc` they make no close holder.
     - `jobs` is left out of the count comparison: the live worker enqueues periodic jobs between the dump and the count.
     - **Local run:** a copy of the dev database (4 strategies, 1 archived, 4 signals, 2 reservations, 4 attempts, 6 ledger rows), brought to `0030` with one user, ran the whole script with `REHEARSAL_LOCAL=1`, exit 0. The first local run caught a `GROUP BY` that PostgreSQL refuses. The dev database stayed at `0028`, and the throwaway databases and dumps were removed.
-- [ ] C.14 Deploy:
+- [x] C.14 Deploy (all checks but the last; see "PR C's delivery"):
   1. pull as `strategy`;
   2. stop `strategy-worker`;
   3. `alembic upgrade head`;
@@ -848,10 +850,192 @@ It needs an independent verifier before the PR.
 
 - [x] C.D.1 Gate (backend and frontend), and an independent verifier over the whole PR. Backend after `6adb011`: ruff 0, mypy 0, pytest exit 0 with no failing test. Frontend after `ed2c724`, the last frontend change: lint 0, 102 files, 2,937 tests passed. Verifier: the C.V block, with the B1, B1a and B1b rechecks all closed.
 - [x] C.D.2 Push and open the PR (on the owner's word). PR #88, opened 2026-10-29 from `54bdb2a` (27 commits over `origin/main` `7f67fc3`).
-- [ ] C.D.3 Merge (owner), with a merge commit.
-- [ ] C.D.4 Deploy (C.13, C.14).
-- [ ] C.D.5 Delivery log row and "Production now".
+- [x] C.D.3 Merge (owner), with a merge commit: `214db9b`.
+- [x] C.D.4 Deploy (C.13, C.14).
+- [x] C.D.5 Delivery log row and "Production now".
 
-## PR D-G
+### PR C's delivery
 
-Planned in `design.md`, "Delivery". Their tasks are written when the previous PR is merged, so each starts from what production actually is. PR D's 0033 also drops what PR C left unused: `strategies.allocation_percent`. The signals' `status`, `outcome_reason`, `outcome_detail` and `decided_at` stay, because they hold the strategy-level refusals (C.7).
+**PR C's deploy, 2026-10-29** (owner-run, one step at a time):
+1. Pull as `strategy`, fast-forward `7f67fc3..214db9b`. No dependency changed, so no `uv sync`. The first attempt was typed inside an SSH session already on the VPS, which has no key to reach itself (`Permission denied (publickey)`); run from the owner's machine it worked.
+2. **Backup and rehearsal (C.13).** The backup is `/root/sm_pre0031_20261029_1517.dump`, and the rehearsal ran on `sm_rehearsal_0032`, restored from it.
+   - Production was at `0030`, with 1 user. Strategies: 3 live at 30 %, 3 archived at 5 %, each with exactly one author pool for its market. Live jobs: the six recurring chains, each `PENDING`.
+   - Counts, the same in production and in the copy, and unchanged after `upgrade head`, after `downgrade 0030` and after the second upgrade:
+     - `users` 1, `exchange_credentials` 8, `capital_pools` 5, `pool_balance_snapshots` 2;
+     - `reservations` 13, `execution_attempts` 26, `ledger_entries` 83;
+     - `reconciliation_discrepancies` 1, `booking_proposals` 0;
+     - `strategies` 6, `signals` 54.
+   - The ledger's `(id, xmin)` fingerprint was unchanged by each step.
+   - After each upgrade: subscriptions `ACTIVE 30 3` and `ENDED 5 3`, one per strategy for its author, in a pool of its market, and none beyond the authors'; 54 deliveries for 54 signals, each with its signal's outcome and the author's subscription (`ACCEPTED` 17, `PROCESSED` 22, `REJECTED` 15); every reservation and attempt with its delivery; the constraints, the live unique index and the pool-market trigger present; the `reservations (signal_id)` unique dropped; `strategies.allocation_percent` nullable; both ledger triggers enabled (`O`).
+   - 9 of the `ACCEPTED` deliveries open a position. They have no job and never run, and since `e1314bc` they make no close holder.
+   - After the downgrade: every strategy's share restored and `NOT NULL` again, the new tables gone, the `signal_id` unique back.
+   - The copy was dropped. Production was untouched, still at `0030`.
+3. The worker was stopped (`inactive`) before the migration. The API stayed up: a signal received meanwhile would have waited in `signal.process` for the new worker.
+4. `alembic upgrade head`: `0030 -> 0031`, `0031 -> 0032`.
+5. Both services restarted, both `active`. Checkout `214db9b714ef`.
+6. **pps.6.** The bundle was built from a clean worktree of `origin/main` at `214db9b714ef`: `npm ci` 0, build 0, 22 entries, SHA-256 `558eb57f1c96073ded6a4532acd83f09e553cf2f946140ff955a87eb5056f6cc`. The VPS printed `OK`, `readable`, and `214db9b714ef` for both bundle and checkout.
+7. **Checks.**
+   - Production: alembic `0032`; subscriptions `ACTIVE 30 3` and `ENDED 5 3`; `deliveries=54 signals=54`; live jobs only the six recurring chains.
+   - No WARNING, ERROR or traceback from either service since the restart (16:26:45 CET).
+   - The worker logged `1 enabled pools, dry_run=False`, `vault self-test: 1 sealed credential(s) opened (binance of user a90b5f44)` and `recurring chains already alive; nothing seeded`.
+   - A POST to `/webhook/tradingview` answered `401`.
+   - The owner loaded every page of the panel. The strategy page shows their share at 30 %, as before: it is now read from and written to their subscription.
+   - **Pending:** the first real signal after the deploy makes exactly one delivery.
+
+## PR D: per-strategy secret and authoring for any user
+
+Design AD6, AD8, and decisions 21 and 23. Written 2026-10-29 from production at `0032` (main `214db9b`) and a read-only map of the code. Paths are relative to `backend/src/strategy_manager/`. Branch `feat/multi-user-authoring`.
+
+Every signed-in user can author strategies, scoped to them, and each strategy authenticates its webhook with its own secret, stored as a hash. A strategy can be private (decision 21). The column PR C left unused, `strategies.allocation_percent`, is dropped. Access still admits only the owner, and the panel's admin gate stays until PR G, so production does not change in practice except for the secret flow.
+
+**What the map found** (each is resolved in the tasks below):
+- **a.** Ingress authenticates before it reads the body, with one global secret (`signals/infrastructure/router.py:119-130`, `auth.py:101-118`, constant-time). The strategy is known only from the payload's `signal_type` (`router.py:158-163`), so AD6 needs the strategy row before the secret check. An unknown strategy answers 422 `UNKNOWN_STRATEGY` today.
+- **b.** The strategies router is admin-only at router level (`strategies/infrastructure/router.py:142-146`). `SqlAlchemyStrategyRepository` has no user-scoped read (`strategies/infrastructure/repository.py:49-120`). The pair catalogue is already scoped (`pair_catalog_router.py:91-100`, `read_available_pairs.py:37-40`) and only its admin guard changes.
+- **c.** The create dialog always sends `allocation_percent = "100"` (`frontend/src/features/strategies/NewStrategyDialog.tsx:15,113`). The share still reaches the author's subscription through `StrategyPolicy.allocation_percent` (`register_strategy.py:164`, `author_subscription_adapter.py:44`), and the preview falls back to the column (`router.py:615-617`, N4).
+- **d.** `GET /api/webhook-secret` (`signals/infrastructure/webhook_secret_router.py:55-65`) returns the global secret, and its test sweeps every `/api` route for it (`tests/signals/infrastructure/test_webhook_secret_router.py`).
+- **e.** `strategies.name` is unique across all users (409 near `router.py:517`). Decision 23 makes it unique per author.
+- **f.** The panel lets only admins in (`frontend/src/shared/auth/SignInGate.tsx:30`).
+
+**Stated rather than asked (2026-10-29; the owner may overturn any):**
+- **Ingress order:** source IP, then the body limit and JSON, then `signal_type`, then one read of the strategy by primary key, then the hash compare. An unknown strategy, a missing secret and a wrong secret all answer the same **401**, so an unauthenticated caller cannot probe which ids exist. `UNKNOWN_STRATEGY` goes away at ingress. An archived strategy is still accepted at ingress and refused in processing (operator-panel decision 11).
+- **Shown once:** the create response carries the secret, and a new regenerate route returns a fresh one. Regenerating an archived strategy's secret is refused with 409, like every other write on an archived strategy.
+- **Migrations:** PR D's 0033 holds the secret hash, the visibility, the per-author name unique and the column drop. PR E's mode columns move to 0034 (`design.md` "Migration plan" is updated with this).
+- **Visibility default:** today's 6 strategies become PRIVATE, and the create form defaults to PRIVATE. Nothing turns public without the author's choice. It only matters from PR F, which opens the list.
+- **The share at creation** travels in the command straight to the author's subscription, 100 by default as today. The create form keeps no share input; the share editor (C.12) changes it afterwards.
+- **Scope of reads:** every user, the admin included, lists and reads only the strategies they author. Seeing other authors' strategies is PR F's public list.
+- **Not in PR D:** the display name (decision 17) goes to PR F, the first place another user sees an author. The panel's admin gate opens in PR G, with Access. `Settings.webhook_secret` stays, because 0033 reads it in production; a later PR removes it with its startup invariant.
+
+**Deploy shape:** 0033 drops a column the running code selects, so both services stop for the migration (unlike PR C, where the API stayed up). A signal posted in that window is lost, because TradingView does not retry, so the owner runs it away from a 4h candle close.
+
+**Risk:**
+- item 1: 0033 drops a column, rewrites a unique and backfills hashes;
+- item 2: the webhook's authentication changes, and the strategy routes open from admin-only to scoped;
+- item 3: `GET /api/webhook-secret` is removed, and the create response gains the secret.
+
+It needs an independent verifier before the PR.
+
+### Backend
+
+- [x] D.1 Migration 0033 (AD6, decisions 21 and 23), and no code touches `strategies.allocation_percent` any more. Done on 2026-10-29.
+  - `strategies.webhook_secret_hash text`: the SHA-256 hex of the current `Settings.webhook_secret` for every existing row, so today's TradingView alerts keep working unchanged. It refuses, naming nothing secret, when strategies exist and the setting is empty. The hash is computed in Python (`hashlib`); the secret never goes into SQL text or a log.
+    - It stays NULLABLE here: until D.3 nothing writes it on create. D.3 adds `NOT NULL` to this same migration, together with `RegisterStrategy` writing it (the C.2/C.6 precedent; 0033 is not in production).
+  - The share leaves the strategy (from D.4, moved here because dropping the column needs it): `AllocationPolicy.allocation_percent` and `StrategyPolicySnapshot.allocation_percent` go; `RegisterCommand.allocation_percent` stays and `subscribe_author` takes it as an argument; the repository stops writing and reading the column; the preview's fallback for a user with no subscription is 100 (N4). `AllocationPercent` stays, the subscriptions use it.
+  - `strategies.visibility text NOT NULL` with CHECK `PUBLIC | PRIVATE`; existing rows `PRIVATE`.
+  - The global unique on `strategies.name` is replaced by `UNIQUE (author_id, name)`. Find the old constraint's real name in the schema; do not guess it.
+  - `strategies.allocation_percent` and its CHECK are dropped.
+  - Downgrade: refuses unless exactly one user exists (as 0031); restores `allocation_percent` from each strategy's author subscription (the latest one), `NOT NULL` again; restores the global name unique; drops the two new columns.
+  - Tests on real PostgreSQL through `migrated_database(name, "0032")`: the backfilled hash equals the setting's, the empty-setting refusal, visibility's CHECK and default, two authors may share a name and one author may not repeat one, the column gone, the downgrade and the upgrade again.
+  - The ORM mirrors it: `StrategyRow` loses `allocation_percent` and gains both columns.
+  - **Evidence (2026-10-29):**
+    - `backend/migrations/versions/0033_strategy_authoring.py` and `tests/migrations/test_0033_strategy_authoring.py` (16 tests, real PostgreSQL, `WEBHOOK_SECRET` passed to the alembic subprocess: `wh-test-0033`, and `""` for the refusal and the empty database). The old name unique is found in `pg_constraint`, not guessed.
+    - RED: before the migration existed, every test errored in its fixture with alembic's "Can't locate revision identified by '0033'". A migration test cannot fail on an assertion before its revision exists, so the proof of non-vacuity is the mutations below.
+    - Mutations, each seen red on an assertion and then restored: skipping the hash `UPDATE` (`test_every_strategy_gets_the_hash_of_the_settings_secret`); disabling the empty-secret refusal (`test_refuses_when_strategies_exist_and_the_secret_is_empty`, `0 != 0` on the return code); the visibility default `PUBLIC` (`test_visibility_defaults_to_private`, `test_existing_strategies_are_private`); the downgrade picking the OLDEST subscription (`test_downgrade_restores_each_share_from_the_latest_author_subscription_and_upgrades_again`).
+    - The downgrade restores `allocation_percent` NULLABLE (as it is at 0032 since 0031), not `NOT NULL` as the bullet above says: a strategy with no subscription would otherwise make it fail, and 0031's own downgrade is the step that makes it `NOT NULL` again. It refuses with more than one user (`found 2`).
+    - Code: `AllocationPolicy.allocation_percent` and `StrategyPolicySnapshot.allocation_percent` removed; `subscribe_author(strategy, share)`, with `RegisterStrategy` validating the share (`AllocationPercent`) before the insert; repository and `StrategyRow` updated (`UniqueConstraint("author_id", "name", name="ux_strategies_author_name")`, `ck_strategies_visibility`); the preview's fallback is `Decimal("100")`.
+    - Tests moved off the column: the share the single-subscriber signal tests carry now lives in a test-only `SnapshotWithShare` (`tests/signals/application/delivery_support.py`); `tests/owner.py::ensure_author_subscription` defaults to 100; the share-preview tests seed the owner's subscription instead of the strategy column, and "no subscription" now previews 100.
+    - Focused runs: ruff 0, mypy 0 (341 files); `tests/strategies tests/signals tests/allocation tests/subscriptions tests/accounts` plus the 0033 file, one failure (`test_the_preview_completes_while_the_pools_advisory_lock_is_held`, fixed by seeding the owner's subscription), then green on rerun; `test_0031`, `test_0032` and `test_0033` pass together. The full suite is the parent's.
+    - Parent review: the downgrade's share now comes from the AUTHOR's subscription (a join on `author_id`), as the text says, not from any user's; identical under the one-user guard. Gate after it: ruff 0, mypy 0, full pytest exit 0 with no failing test (the first run was stopped by the machine running low on memory, not by a failure).
+- [x] D.2 The webhook authenticates per strategy (AD6, map a). Done on 2026-10-29.
+  - A port reads one strategy's `webhook_secret_hash` by primary key. Ingress runs in the stated order and compares `sha256(secret)` with `hmac.compare_digest`.
+  - `SourceIpAndSecretAuth` splits into the source check, which stays global and first, and the per-strategy secret check.
+  - One 401 for unknown strategy, missing secret and wrong secret, with the same body. Tests: each of the three; another strategy's secret is refused (the reason AD6 exists); the body limit and the IP refusal still answer as today; an archived strategy's correct secret is accepted and refused in processing.
+  - The webhook still does no write before authentication, and no read but the one strategy row.
+  - **Evidence (2026-10-29):**
+    - Writer (delegated, context backstop): `signals/application/ports.py` `StrategySecretReaderPort`; `signals/infrastructure/strategy_secret_reader.py` (one `SELECT webhook_secret_hash ... WHERE id`); `auth.py` is now `SourceIpAuth` plus `secret_matches_hash`, which fails closed on a missing or empty secret and on a NULL hash. Every secret failure answers 401 `{"detail":"unauthorized"}` and logs nothing; the secret still travels in `?secret=`.
+    - `tests/signals/infrastructure/test_per_strategy_secret_ingress.py`: 9 tests seen red on assertions before the code (own secret 401, cross-strategy, global secret 200, unknown 422, NULL hash 200, 413 and 422 answered 401, zero SELECTs, archived 401). Mutations seen red, then restored: skipping the IP check, accepting a `None` secret, `secret_matches_hash` always true, logging the hash on refusal.
+    - Expectations changed: an oversized body is 413 whatever the secret, because the limit now comes before the secret (the body-never-read claim for a stranger lives on the IP test); an unknown strategy is 401, not 422 `UNKNOWN_STRATEGY`. The router's `UNKNOWN_STRATEGY` branch stays only for a strategy deleted between the hash read and the insert (race test with a patched reader).
+    - Parent review: the writer validated the WHOLE alert before the secret. TradingView's addresses are shared by every TradingView user, so that let anyone get the alert's 422 detail and a warning log line without the secret. Now only `signal_type` is read before the secret; an alert that names no usable strategy is still refused for its shape, as before. `test_the_rest_of_the_alert_is_judged_only_after_the_secret` was seen red on its assertion (422 instead of 401) before the fix. `test_a_refused_alert_is_answered_without_the_secret` now seeds a strategy with that secret. Gate after it: ruff 0, mypy 0, full pytest exit 0 with no failing test.
+- [x] D.3 Issue and regenerate the secret (AD6). Done on 2026-10-29.
+  - `RegisterStrategy` generates 32 random bytes (`secrets.token_urlsafe(32)`), stores only the hash, and the create response carries the secret once.
+  - `POST /api/strategies/{id}/webhook-secret` (author only, AD8 404 otherwise; 409 when archived) replaces the hash and returns the new secret once. The old secret is refused from then on.
+  - `GET /api/webhook-secret` and its router are removed. The sweep in `test_webhook_secret_router.py` becomes: no `/api` response body other than these two contains a strategy's secret, and none contains a `webhook_secret_hash`.
+  - No log line carries a secret or a hash.
+  - **Evidence (2026-10-29):**
+    - Writer (delegated, Sonnet, per the large-unit token scheme): `strategies/domain/webhook_secret.py` (`new_webhook_secret`, `hash_webhook_secret`); `RegisterStrategy.register` returns a `Registration(strategy, webhook_secret)` whose repr hides the secret; new `strategies/application/regenerate_webhook_secret.py` (reads the row with `get_by_id_for_update`, as `UpdateStrategy` does; no pool lock, it touches no capital). The hash stays out of the domain read model: the repository's `insert(strategy, webhook_secret_hash)` and `replace_webhook_secret_hash` are the only ways in, so no `Strategy` read carries it. Create and regenerate answer `Cache-Control: no-store`.
+    - 0033 sets `webhook_secret_hash NOT NULL` after the backfill, and `StrategyRow` mirrors it. Every test insert of a strategy now carries a hash (the conftests of allocation, ledger, execution, reconciliation and signals, and the strategies integration tests); migration tests at revisions before 0033 are untouched.
+    - `signals/infrastructure/webhook_secret_router.py` and its wiring are gone. `tests/signals/infrastructure/test_no_api_response_carries_a_webhook_secret.py` replaces its test: across every `/api` route, no body or header carries the global secret, the strategy's secret, its stored hash or the name `webhook_secret_hash`, and only the create and regenerate routes name `webhook_secret`, without the new secret's hash. A caplog test over create, regenerate and a refused regenerate finds no secret or hash.
+    - Expectations changed: a strategy with a NULL hash can no longer exist, so `test_a_strategy_with_no_hash_accepts_no_secret` went and the four-refusals test became three; `seed_strategy` gives every strategy a secret by default.
+    - TDD: the writer wrote the code before the tests, so there is no RED-first run for D.3. Non-vacuity was proven by mutations, each seen red and restored. The writer's: the author check removed (`(200, 404) == (404, 404)`), the secret logged after commit, the plain secret stored instead of its hash (three tests), the `NOT NULL` skipped (two tests, "DID NOT RAISE"). The parent's, on what the writer left unmutated: a `webhook_secret_hash` field on `StrategyView` (the sweep failed on `GET /api/strategies`, `GET /{id}` and `PATCH /{id}`); the regenerate answer carrying the new secret's hash (failed on that route); the regenerate path without the row lock (`test_regenerating_waits_for_the_strategy_row_lock`, `200 == 409`).
+    - Parent fixes: `tests/shared/infrastructure/test_spa.py` used `/api/webhook-secret` as its known route, so it now uses `/api/webhook-origin` (GET for 200 and 401, DELETE for 405); a stale docstring in `webhook_origin_router.py`. Left as is: a few unused fake repositories in unit tests still have the old `insert` signature; nothing calls them. Gate after it: ruff 0, mypy 0, full pytest exit 0 with no failing test.
+- [x] D.4 Authoring for any signed-in user (AD8, decision 23, map b and c).
+  - The strategies router and the pair-catalogue router take `current_user` instead of `require_admin`.
+  - The repository gains author-scoped reads, and every route reads through them: another user's strategy answers 404 on `GET /{id}`, `/events`, `/share-preview`, `PUT /allowed-pairs`, `PATCH`, `archive`, `DELETE` and the regenerate route, each with its cross-user test.
+  - `GET /strategies` lists the user's own strategies.
+  - A repeated name answers 409 only within one author; the refusal says nothing about other users' strategies.
+  - (The share leaving the strategy moved to D.1.)
+  - Every test that relied on the admin guard still holds for a non-admin author.
+  - **Evidence (2026-10-29):**
+    - Writer (delegated, Sonnet): `AuthorStrategyRepository(session, author_id)` in `strategies/infrastructure/repository.py` filters `get_by_id`, `get_by_id_for_update` (still `FOR UPDATE`, `populate_existing`) and `list_all` by author. Every strategies route builds its use case on it, so another user's strategy is `UnknownStrategy` and the same 404 as a missing one, with the use cases unchanged; `RegenerateWebhookSecret` drops its own author check and relies on it. The strategies and pair-catalogue routers take `current_user`. `is_name_conflict` reads the violated constraint's NAME (`ux_strategies_author_name`); any other `IntegrityError` is no longer reported as a name clash. `RegisterStrategy`'s id-collision 409 names the existing strategy only to its own author.
+    - `tests/strategies/infrastructure/test_strategy_authoring_scope.py` (29 tests). RED on assertions before the code: a non-admin's create, read, PATCH, allowed-pairs, archive, delete, regenerate and pair catalogue (`403`); every cross-user route (`(200, 404) == (404, 404)`, delete `(204, 404)`); the id-collision text naming another user's strategy; another constraint answering 409 instead of 500. The two `AuthorStrategyRepository` unit tests were red on an ImportError, not an assertion. Mutations seen red, then restored: the regenerate route on the unscoped repository; `is_name_conflict` always false; `.with_for_update()` dropped from the scoped read (`test_the_scoped_locked_read_waits_for_the_row_lock`); the model's unique on `name` alone. `test_the_admin_authors_exactly_as_before` and the non-admin pool-404 test passed at once and were not mutated.
+    - Expectations changed: a user who is not the author now gets 404 instead of 403 on regenerate; the `test_router_auth.py` non-admin 403 sweep became a structural check (no `require_admin`, `current_user` on the router); share-preview and strategy-view tests that read the owner's strategy as another user now expect 404, since reading another author's strategy waits for PR F; `test_every_api_route_is_guarded.py` lists the ten strategies and pair routes as scoped to the signed-in user, and its admin-only floor went from 10 to 3.
+    - Kept unscoped on purpose: `get_register_strategy`'s id lookup (ids are global) and the base repository for non-router callers (the fan-out, the worker).
+    - Gate (parent): ruff 0, mypy 0, full pytest exit 0 with no failing test.
+- [x] D.5 Private strategies (decision 21). Done on 2026-10-29.
+  - The create request takes `visibility` (default `PRIVATE`); `PATCH /{id}` changes it, author only.
+  - `Subscribe` refuses another author's private strategy as `StrategyNotFound`, 404, the same answer as a strategy that does not exist (`subscriptions/application/subscribe.py:44-48`). The author's own private strategy is not refused.
+  - Making a strategy private keeps its current subscribers, and the fan-out never reads visibility. A test pins that a private strategy's existing subscription still gets its delivery.
+  - **Evidence (2026-10-29):**
+    - Writer (delegated, Sonnet): `Visibility` (PUBLIC/PRIVATE) in `strategies/domain/strategy.py`, carried by `Strategy` (default PRIVATE), `RegisterCommand` and `UpdateCommand`, persisted by the repository and shown on `StrategyView`; an invalid value is a 422. `Subscribe` refuses another author's PRIVATE strategy with the same `StrategyNotFound` text as a missing one; `StrategyMarket.visibility` is required, so no caller can skip the check. A PATCH with `"visibility": null` leaves it unchanged, like the other optional fields.
+    - `tests/strategies/infrastructure/test_strategy_visibility.py` (7), three tests in `tests/subscriptions/infrastructure/test_subscriptions_router.py`, one in `tests/signals/infrastructure/test_fan_out_integration.py`. RED: another author's private strategy `(201, 404) == (404, 404)`; an invalid value `(201, 200) == (422, 422)`; the default, the create, the change and the untouched-on-PATCH tests on a `KeyError: 'visibility'` in the response body (the field did not exist yet). Mutations seen red, then restored: the author's exemption dropped (own private strategy 404); refusing on authorship alone (another's public strategy 404); the PATCH on the unscoped repository (`200 == 404`); the archived check skipped for visibility (`200 == 409`); the repository not writing visibility (`'PRIVATE' == 'PUBLIC'`); a visibility filter in the fan-out's subscriber read (`set() == {delivery}`; the file was restored and is unchanged).
+    - Test seeds: `tests/subscriptions/infrastructure/seeds.py::strategy()` defaults to PUBLIC, because the existing subscribe tests subscribe a user who is not the author and the column's default is PRIVATE. No existing expectation changed.
+    - Gate (parent): ruff 0, mypy 0, full pytest exit 0 with no failing test.
+
+### Frontend
+
+- [x] D.6 The panel's secret flow and visibility (EN/ES). Done on 2026-10-30.
+  - The create dialog offers the visibility choice (default private) and, after creating, shows the webhook URL with its secret once, with a copy button and a warning that it will not be shown again.
+  - The strategy header's webhook message shows the URL with a placeholder, and a regenerate action with a confirmation that the old secret stops working. "Show secret" and `shared/api/webhook-secret.ts` go away.
+  - The strategy page shows and changes the visibility.
+  - The name conflict message no longer implies the name is taken system-wide.
+  - **Evidence (2026-10-30):**
+    - Writer (delegated, Sonnet): `shared/api/types.ts` (`Visibility`, `Strategy.visibility`, `RegisteredStrategy`); `shared/api/strategies.ts` (`regenerateWebhookSecret`, `setStrategyVisibility` and their hooks; both secret-holding mutations use `gcTime: 0`, so the secret leaves the mutation cache when its view unmounts); `shared/api/webhook-secret.ts` deleted. New `CopyAction`, `IssuedWebhookUrl` (the one "shown once" view, used by create and regenerate), `RegenerateSecretDialog`, `VisibilityField`, `VisibilityControl`; `WebhookMessage`, `NewStrategyDialog`, `StrategyHeader` and `StrategyDetailPage` changed; EN and ES copy, ES in "usted". The secret is in no storage, console line, panel URL or long-lived cache.
+    - RED before the code: 22 of 27 `WebhookMessage` tests and 9 of 9 `VisibilityControl` tests (the latter on "Unable to find a label" for the control under test, not an assertion), the new and changed `NewStrategyDialog` tests and the rename 409 text. Mutations seen red, then restored: `archived={false}` on the header (two tests); `gcTime: 0` removed from regenerate (the header collapse test and three `WebhookMessage` tests) and from register (the "secret is nowhere after Done" test); the archived guard in `VisibilityControl`.
+    - Expectations changed: the Show/Hide-secret and Copy-URL-while-hidden tests went with those controls; the create dialog stays open on its issued URL until Done; the 409 text says the user already has a strategy with that name. `visibility` was added to the `Strategy` fixtures, four of them under `features/positions` (fixture field only).
+    - Behaviour choices (the second one is decision 24, confirmed 2026-10-30): the header keeps only Copy message (a Copy URL there would copy the placeholder); in the issued view Copy stays enabled with no webhook host configured and copies the path with a note to put the host in front, unlike decision 53, which disabled Copy with no host, because otherwise a secret shown once could not be copied at all.
+    - Parent check: `npm run lint` exit 0; `npm test` 2889 passed of 2889.
+
+### Independent verification (2026-10-30)
+
+An Opus verifier read the whole PR D section, AD6, AD8 and decisions 21 and 23, and probed `7258fac` against the baseline `214db9b` in a scratch directory outside the workspace (since removed), on throwaway PostgreSQL databases.
+
+- **Verdict: no blockers.** D.1-D.6 PASS.
+- 0033 on a copy shaped like production (1 user, 6 strategies, 3 archived, subscriptions at 30 and 5): the empty-secret refusal changes nothing and names nothing secret; every hash equals sha256 of the setting, a non-ASCII secret included; neither appears in alembic's output; subscriptions and the other strategy columns are byte-identical after the upgrade and after the downgrade; the downgrade refuses with 2 users and with 1 restores 30, 30, 30, 5, 5, 5; upgrading again works.
+- Ingress: unknown id, missing, empty, wrong, another strategy's, the old global secret and the stored hash sent as the secret all answer one byte-identical 401 (status, body, headers), identical to the IP refusal; nothing written, no log record; the access log shows `secret=REDACTED`.
+- Ten cross-user calls each answer the same 404 as a missing id, with no data change. Create and regenerate are no-store; no other `/api` answer carries the secret, the hash or the name.
+- **Advisories:**
+  - The 0033 downgrade restored `allocation_percent` without 0032's `DEFAULT 100`. **Fixed:** `test_the_downgraded_share_column_gets_back_its_default` was seen red on its assertion (`None == "'100'::numeric"`), then green; the 0031, 0032 and 0033 migration tests pass together.
+  - At baseline already: `GET /api/performance/strategies/{id}` reads strategies unscoped, so another user's strategy, a private one included, answers differently from a missing id. For PR F, where other users' strategies become readable.
+  - At baseline already, and a stated choice: an alert with a stale secret after a regenerate is a 401 with no log line, so the signal is lost without a trace.
+  - From PR G: `/api/webhook-origin` is still admin-only, so a non-admin author's issued URL would carry only the path.
+  - Escape closes the create dialog's shown-once view without a confirmation, and the secret is gone (regenerate recovers it).
+  - A concurrent create with the same id is now a 500 (a primary-key `IntegrityError`) instead of the old, wrong, name 409.
+
+### Rehearsal and deploy (owner-run)
+
+- [ ] D.7 Before the deploy: a fresh backup, then rehearse 0033 on a throwaway restore, with a downgrade to 0032 and a second upgrade.
+  - Counts and the ledger's `(id, xmin)` unchanged.
+  - Every strategy has a hash equal to `sha256` of the current setting (compared on the VPS, printing only `ok`), and is `PRIVATE`.
+  - The name unique is per author; `allocation_percent` gone; the downgrade restores each share from the author's subscription.
+- [ ] D.8 Deploy:
+  1. pull as `strategy`;
+  2. away from a 4h candle close, stop both services;
+  3. `alembic upgrade head`;
+  4. start both services;
+  5. pps.6 for the panel.
+  - Check:
+    - a POST with no secret and one with a wrong secret both answer 401;
+    - the panel and every page load, and the strategies show as private;
+    - no new WARNING or ERROR in either service;
+    - the first real signal after the deploy authenticates with the alert's unchanged URL and makes exactly one delivery.
+
+### Delivery
+
+- [x] D.D.1 Gate (backend and frontend), and an independent verifier over the whole PR. Done on 2026-10-30: the full backend gate was green after every unit and in the verifier's run at `7258fac`; frontend lint 0 and 2889/2889; the one fix after it touches only 0033's downgrade, whose migration tests (0031, 0032, 0033) and ruff pass.
+- [x] D.D.2 Push and open the PR (on the owner's word). PR #89, opened 2026-10-30 from `9eea362` (11 commits over `origin/main` `214db9b`).
+- [ ] D.D.3 Merge (owner), with a merge commit.
+- [ ] D.D.4 Deploy (D.7, D.8).
+- [ ] D.D.5 Delivery log row and "Production now".
+
+## PR E-G
+
+Planned in `design.md`, "Delivery". Their tasks are written when the previous PR is merged, so each starts from what production actually is. PR E's mode columns take migration 0034, because PR D's 0033 holds the secret hash, the visibility and the drop of `strategies.allocation_percent`. The signals' `status`, `outcome_reason`, `outcome_detail` and `decided_at` stay, because they hold the strategy-level refusals (C.7). Advisory N1 (Leave with a queued opening) must be closed before PR F.

@@ -1,6 +1,6 @@
 """The two routes outside the ``/api`` sweep never answer the webhook secret.
 
-``test_webhook_secret_router.py`` sweeps every ``/api`` route. ``/health`` and
+``test_no_api_response_carries_a_webhook_secret.py`` sweeps every ``/api`` route. ``/health`` and
 ``POST /webhook/tradingview`` are mounted elsewhere, so the sweep never asked
 them; until now only a reading of their code said they keep the value out (S2).
 
@@ -15,6 +15,7 @@ from uuid import UUID, uuid4
 
 import pytest
 from httpx import ASGITransport, AsyncClient, Response
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from strategy_manager.main import create_app
@@ -25,6 +26,7 @@ from tests.ledger.infrastructure.conftest import (  # noqa: F401
     pg_session_factory,
     seed_strategy,
 )
+from tests.owner import secret_hash
 
 pytestmark = pytest.mark.integration
 
@@ -87,6 +89,12 @@ async def test_an_accepted_alert_is_answered_without_the_secret(
 ) -> None:
     strategy_id = uuid4()
     await seed_strategy(pg_session_factory, strategy_id=strategy_id)
+    async with pg_session_factory() as session:
+        await session.execute(
+            text("UPDATE strategies SET webhook_secret_hash = :hash WHERE id = :id"),
+            {"hash": secret_hash(SECRET), "id": strategy_id},
+        )
+        await session.commit()
 
     response = await client.post(WEBHOOK, params={"secret": SECRET}, json=_alert(strategy_id))
 
@@ -105,9 +113,22 @@ async def test_a_wrong_secret_is_refused_without_either_secret(client: AsyncClie
     assert wrong not in response.text, "the refusal echoed the secret the sender provided"
 
 
-async def test_a_refused_alert_is_answered_without_the_secret(client: AsyncClient) -> None:
+async def test_a_refused_alert_is_answered_without_the_secret(
+    client: AsyncClient,
+    pg_session_factory: async_sessionmaker[AsyncSession],  # noqa: F811
+) -> None:
+    # The alert's shape is judged after its strategy's secret, so it needs one.
+    strategy_id = uuid4()
+    await seed_strategy(pg_session_factory, strategy_id=strategy_id)
+    async with pg_session_factory() as session:
+        await session.execute(
+            text("UPDATE strategies SET webhook_secret_hash = :hash WHERE id = :id"),
+            {"hash": secret_hash(SECRET), "id": strategy_id},
+        )
+        await session.commit()
+
     refused = await client.post(
-        WEBHOOK, params={"secret": SECRET}, json=_alert(uuid4(), symbol="")
+        WEBHOOK, params={"secret": SECRET}, json=_alert(strategy_id, symbol="")
     )
     not_json = await client.post(
         WEBHOOK,

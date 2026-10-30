@@ -5,7 +5,6 @@ database's: ``update`` must not be able to move a strategy between capital
 pools, and the only convincing proof of that is a row that did not move.
 """
 
-from decimal import Decimal
 from uuid import uuid4
 
 import pytest
@@ -14,7 +13,6 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 from strategy_manager.strategies.domain.strategy import (
-    AllocationPercent,
     AllocationPolicy,
     FillMode,
     Strategy,
@@ -25,7 +23,7 @@ from strategy_manager.strategies.infrastructure.pool_catalog import (
 from strategy_manager.strategies.infrastructure.repository import (
     SqlAlchemyStrategyRepository,
 )
-from tests.owner import OWNER_ID, seed_other_user, seed_pool
+from tests.owner import OWNER_ID, secret_hash, seed_other_user, seed_pool
 
 pytestmark = pytest.mark.integration
 
@@ -37,7 +35,6 @@ def _strategy(
     venue: Venue = Venue.SPOT,
     currency: Currency = Currency.USDT,
     enabled: bool = False,
-    percent: str = "100",
 ) -> Strategy:
     """``exchange`` defaults to the one owning the default venue among the
     seeded pools — the composite FK now names all three columns."""
@@ -49,7 +46,6 @@ def _strategy(
             venue=venue,
             settlement_currency=currency,
             fill_mode=FillMode.PARTIAL,
-            allocation_percent=AllocationPercent(Decimal(percent)),
         ),
         author_id=OWNER_ID,
         enabled=enabled,
@@ -62,7 +58,7 @@ async def test_listing_is_ordered_by_name_so_it_is_stable(
     async with pg_session_factory() as session:
         repository = SqlAlchemyStrategyRepository(session)
         for name in ("SOL 4h", "AAVE 4h", "BAT v1.3"):
-            await repository.insert(_strategy(name))
+            await repository.insert(_strategy(name), secret_hash("listed"))
         await session.commit()
 
     async with pg_session_factory() as session:
@@ -81,10 +77,10 @@ async def test_an_empty_registry_lists_nothing_rather_than_failing(
 async def test_update_writes_the_mutable_fields(
     pg_session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    strategy = _strategy("original", enabled=False, percent="100")
+    strategy = _strategy("original", enabled=False)
 
     async with pg_session_factory() as session:
-        await SqlAlchemyStrategyRepository(session).insert(strategy)
+        await SqlAlchemyStrategyRepository(session).insert(strategy, secret_hash("original"))
         await session.commit()
 
     changed = Strategy(
@@ -94,7 +90,6 @@ async def test_update_writes_the_mutable_fields(
             venue=strategy.policy.venue,
             settlement_currency=strategy.policy.settlement_currency,
             fill_mode=FillMode.SKIP,
-            allocation_percent=AllocationPercent(Decimal("25")),
         ),
         author_id=OWNER_ID,
         enabled=True,
@@ -111,7 +106,6 @@ async def test_update_writes_the_mutable_fields(
     assert found.name == "renamed"
     assert found.enabled is True
     assert found.policy.fill_mode is FillMode.SKIP
-    assert found.policy.allocation_percent.value == Decimal("25")
 
 
 async def test_update_cannot_move_a_strategy_to_another_pool(
@@ -125,7 +119,7 @@ async def test_update_cannot_move_a_strategy_to_another_pool(
     strategy = _strategy("spot strategy", venue=Venue.SPOT, currency=Currency.USDT)
 
     async with pg_session_factory() as session:
-        await SqlAlchemyStrategyRepository(session).insert(strategy)
+        await SqlAlchemyStrategyRepository(session).insert(strategy, secret_hash("spot"))
         await session.commit()
 
     moved = Strategy(
@@ -135,7 +129,6 @@ async def test_update_cannot_move_a_strategy_to_another_pool(
             venue=Venue.USDT_M,
             settlement_currency=Currency.USDT,
             fill_mode=strategy.policy.fill_mode,
-            allocation_percent=strategy.policy.allocation_percent,
         ),
         author_id=OWNER_ID,
         enabled=True,

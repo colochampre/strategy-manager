@@ -33,7 +33,11 @@ from tests.ledger.infrastructure.conftest import (  # noqa: F401
     pg_session_factory,
 )
 from tests.owner import OWNER_ID
-from tests.strategies.infrastructure.test_share_preview_router import _strategy, _synced
+from tests.strategies.infrastructure.test_share_preview_router import (
+    _strategy,
+    _subscribe,
+    _synced,
+)
 
 pytestmark = pytest.mark.integration
 
@@ -117,9 +121,14 @@ async def _register(client: AsyncClient, strategy_id: UUID, value: str) -> Any:
 
 
 async def _stored_share(factory: Factory, strategy_id: UUID) -> Decimal | None:
+    """The latest subscription's share to the strategy: the only share there is."""
     async with factory() as session:
         value = await session.scalar(
-            text("SELECT allocation_percent FROM strategies WHERE id = :id"), {"id": strategy_id}
+            text(
+                "SELECT allocation_percent FROM subscriptions WHERE strategy_id = :id "
+                "ORDER BY created_at DESC LIMIT 1"
+            ),
+            {"id": strategy_id},
         )
     assert value is None or isinstance(value, Decimal)
     return value
@@ -153,7 +162,8 @@ async def test_a_share_of_1e_minus_999999999_is_refused_on_all_three_inputs_with
     monkeypatch.setattr(
         "strategy_manager.strategies.infrastructure.router._canonical_share", _never_format
     )
-    existing = await _strategy(pg_session_factory, share="30")
+    existing = await _strategy(pg_session_factory)
+    await _subscribe(pg_session_factory, existing, OWNER_ID, "30")
     await _synced(pg_session_factory)
     registered = uuid4()
 
@@ -214,7 +224,8 @@ async def test_the_update_refuses_every_share_without_echo_and_stores_nothing(
     pg_session_factory: Factory,  # noqa: F811
     value: str,
 ) -> None:
-    strategy_id = await _strategy(pg_session_factory, share="30")
+    strategy_id = await _strategy(pg_session_factory)
+    await _subscribe(pg_session_factory, strategy_id, OWNER_ID, "30")
 
     response = await _patch(client, strategy_id, value)
 

@@ -12,15 +12,18 @@ from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 from strategy_manager.strategies.application.ports import StrategyStillReferenced
 from strategy_manager.strategies.domain.allowed_pairs import AllowedPairs
 from strategy_manager.strategies.domain.strategy import (
-    AllocationPercent,
     AllocationPolicy,
     FillMode,
     Strategy,
+    Visibility,
 )
 from strategy_manager.strategies.infrastructure.models import StrategyRow
 
 FOREIGN_KEY_VIOLATION = "23503"
 """PostgreSQL's SQLSTATE for ``foreign_key_violation``."""
+
+AUTHOR_NAME_CONSTRAINT = "ux_strategies_author_name"
+"""The unique ``(author_id, name)``: a name is taken only within one author."""
 
 
 class SqlAlchemyStrategyRepository:
@@ -29,7 +32,7 @@ class SqlAlchemyStrategyRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def insert(self, strategy: Strategy) -> None:
+    async def insert(self, strategy: Strategy, webhook_secret_hash: str) -> None:
         self._session.add(
             StrategyRow(
                 id=strategy.id,
@@ -39,11 +42,22 @@ class SqlAlchemyStrategyRepository:
                 settlement_currency=strategy.policy.settlement_currency.value,
                 author_id=strategy.author_id,
                 enabled=strategy.enabled,
+                visibility=strategy.visibility.value,
                 fill_mode=strategy.policy.fill_mode.value,
-                allocation_percent=strategy.policy.allocation_percent.value,
+                webhook_secret_hash=webhook_secret_hash,
                 allowed_pairs=strategy.allowed_pairs.sorted(),
             )
         )
+        await self._session.flush()
+
+    async def replace_webhook_secret_hash(
+        self, strategy_id: UUID, webhook_secret_hash: str
+    ) -> None:
+        row = await self._session.get(StrategyRow, strategy_id)
+        if row is None:
+            raise LookupError(f"no strategy row under id {strategy_id}")
+        row.webhook_secret_hash = webhook_secret_hash
+        row.updated_at = datetime.now(UTC)
         await self._session.flush()
 
     async def get_by_id(self, strategy_id: UUID) -> Strategy | None:
@@ -82,9 +96,10 @@ class SqlAlchemyStrategyRepository:
         (spec: strategy-lifecycle § "Strategy Listing Excludes Archived By
         Default").
 
-        Unscoped by design: every author's strategies, for the admin-only
-        router (owner decision 16; multi-user design AD8 makes the list a
-        public read). It takes no ``user_id``."""
+        Unscoped: every author's strategies, for the callers that work on the
+        system's strategies and not a user's (it takes no ``user_id``). The
+        strategies router never reads through this: it uses
+        ``AuthorStrategyRepository``, which lists one author's."""
         stmt = select(StrategyRow).order_by(StrategyRow.name)
         if not include_archived:
             stmt = stmt.where(StrategyRow.archived_at.is_(None))
@@ -105,8 +120,8 @@ class SqlAlchemyStrategyRepository:
 
         row.name = strategy.name
         row.enabled = strategy.enabled
+        row.visibility = strategy.visibility.value
         row.fill_mode = strategy.policy.fill_mode.value
-        row.allocation_percent = strategy.policy.allocation_percent.value
         row.allowed_pairs = strategy.allowed_pairs.sorted()
         # Archive is terminal (design.md § 8): every OTHER caller of
         # ``update()`` (``UpdateStrategy``, ``ReplaceAllowedPairs``) reads
@@ -138,6 +153,69 @@ class SqlAlchemyStrategyRepository:
             raise
 
 
+class AuthorStrategyRepository(SqlAlchemyStrategyRepository):
+    """The strategies of ONE author (multi-user design AD8, tasks.md D.4).
+
+    Every read answers only ``author_id``'s strategies, so another user's strategy
+    is ``None`` here exactly as one that does not exist, and each use case that
+    reads through this repository answers the same 404 for both. The locked read is
+    the base class's ``SELECT ... FOR UPDATE`` with the same filter, so a write that
+    takes it holds the row lock it always held: it only never locks a row that is
+    not the caller's.
+
+    The writes (``update``, ``delete``, ``replace_webhook_secret_hash``) are the base
+    class's, by id: every use case reads the strategy through this class first and
+    stops on ``None``, and an author never changes. ``insert`` stays the base's too.
+    """
+
+    def __init__(self, session: AsyncSession, author_id: UUID) -> None:
+        super().__init__(session)
+        self._author_id = author_id
+
+    async def get_by_id(self, strategy_id: UUID) -> Strategy | None:
+        row = (
+            await self._session.execute(
+                select(StrategyRow).where(
+                    StrategyRow.id == strategy_id, StrategyRow.author_id == self._author_id
+                )
+            )
+        ).scalar_one_or_none()
+        return None if row is None else _to_domain(row)
+
+    async def get_by_id_for_update(self, strategy_id: UUID) -> Strategy | None:
+        row = (
+            await self._session.execute(
+                select(StrategyRow)
+                .where(StrategyRow.id == strategy_id, StrategyRow.author_id == self._author_id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+        ).scalar_one_or_none()
+        return None if row is None else _to_domain(row)
+
+    async def list_all(self, include_archived: bool = False) -> list[Strategy]:
+        """The author's own strategies, ordered by name. The name is unique only
+        within one author, so no two rows here share one."""
+        stmt = (
+            select(StrategyRow)
+            .where(StrategyRow.author_id == self._author_id)
+            .order_by(StrategyRow.name)
+        )
+        if not include_archived:
+            stmt = stmt.where(StrategyRow.archived_at.is_(None))
+        result = await self._session.execute(stmt)
+        return [_to_domain(row) for row in result.scalars().all()]
+
+
+def is_name_conflict(error: IntegrityError) -> bool:
+    """Whether the database refused a write because the author already has a strategy
+    of that name (``ux_strategies_author_name``, migration 0033). Read from the
+    violated constraint's NAME, never from the message text, which follows the
+    server's locale; any other integrity failure is not a name clash."""
+    cause = getattr(error.orig, "__cause__", None)
+    return getattr(cause, "constraint_name", None) == AUTHOR_NAME_CONSTRAINT
+
+
 def _to_domain(row: StrategyRow) -> Strategy:
     return Strategy(
         id=row.id,
@@ -147,10 +225,10 @@ def _to_domain(row: StrategyRow) -> Strategy:
             venue=Venue(row.venue),
             settlement_currency=Currency(row.settlement_currency),
             fill_mode=FillMode(row.fill_mode),
-            allocation_percent=AllocationPercent(row.allocation_percent),
         ),
         author_id=row.author_id,
         enabled=row.enabled,
+        visibility=Visibility(row.visibility),
         allowed_pairs=AllowedPairs(frozenset(row.allowed_pairs)),
         archived_at=row.archived_at,
         created_at=row.created_at,

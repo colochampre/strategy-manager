@@ -2,8 +2,9 @@
 delete (multi-user tasks.md C.9), and the session is rolled back first so the locks
 the refused request took are released at once."""
 
+from types import SimpleNamespace
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 from fastapi import HTTPException
@@ -61,7 +62,7 @@ async def test_archive_answers_409_and_rolls_back(monkeypatch: pytest.MonkeyPatc
         await strategies_router.archive_strategy(
             STRATEGY_ID,
             session,  # type: ignore[arg-type]
-            None,  # type: ignore[arg-type]
+            SimpleNamespace(id=uuid4()),  # type: ignore[arg-type]  # the signed-in user
         )
 
     assert refused.value.status_code == 409

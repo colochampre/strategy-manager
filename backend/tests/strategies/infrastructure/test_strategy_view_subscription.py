@@ -1,10 +1,11 @@
 """``StrategyView.subscription``: the SIGNED-IN user's own non-ENDED subscription to
 the strategy, or null (tasks.md C.4b), on real PostgreSQL.
 
-Mounted through ``create_app()``. The strategies router is admin-only, so every
-request carries the admin's assertion; ``act_as`` then makes ``current_user`` resolve
-to the user under test, who is NOT necessarily the admin. That is the cross-user
-case: the view of one user never carries another's subscription.
+Mounted through ``create_app()``. Every request carries the admin's assertion;
+``act_as`` then makes ``current_user`` resolve to the user under test, who is NOT
+necessarily the admin. The user reads their own strategies only (tasks.md D.4), so
+each strategy here is authored by its reader; the view never carries another user's
+subscription to it.
 """
 
 from collections.abc import AsyncIterator, Callable, Iterator
@@ -14,7 +15,7 @@ from uuid import UUID
 
 import pytest
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import event
+from sqlalchemy import event, text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from strategy_manager.main import create_app
@@ -87,12 +88,25 @@ def _shown(subscription: dict[str, Any] | None) -> tuple[Any, ...]:
     )
 
 
+async def _authored_by(factory: Factory, user_id: UUID, *, archived: bool = False) -> UUID:
+    """A strategy ``user_id`` authors: the strategies router answers a user only
+    their own (tasks.md D.4), so the view under test must belong to its reader."""
+    strategy_id = await seeds.strategy(factory, archived=archived)
+    async with factory() as session:
+        await session.execute(
+            text("UPDATE strategies SET author_id = :author WHERE id = :id"),
+            {"author": user_id, "id": strategy_id},
+        )
+        await session.commit()
+    return strategy_id
+
+
 async def test_the_detail_carries_the_signed_in_users_subscription(
     pg_session_factory: Factory,  # noqa: F811
     client_for: ClientFor,
 ) -> None:
-    strategy_id = await seeds.strategy(pg_session_factory)
     user_id, pool_id = await seeds.user(pg_session_factory)
+    strategy_id = await _authored_by(pg_session_factory, user_id)
     await seeds.subscription(pg_session_factory, user_id, strategy_id, pool_id or 0, share="30")
 
     response = await client_for(user_id).get(f"/api/strategies/{strategy_id}")
@@ -107,38 +121,34 @@ async def test_another_users_subscription_never_appears_in_this_users_view(
     pg_session_factory: Factory,  # noqa: F811
     client_for: ClientFor,
 ) -> None:
-    """B holds the only subscription. A has none: A's view of the same strategy
-    says null, on the detail and on the list, and B's own view shows B's."""
-    strategy_id = await seeds.strategy(pg_session_factory)
+    """B holds a subscription to A's strategy. A, its author, has none of their own:
+    A's view of the strategy says null, on the detail and on the list. (B cannot
+    read it at all until strategies can be public, PR F: the scope is the author's.)"""
     holder, holder_pool = await seeds.user(pg_session_factory)
-    bystander, _ = await seeds.user(pg_session_factory)
+    author, _ = await seeds.user(pg_session_factory)
+    strategy_id = await _authored_by(pg_session_factory, author)
     await seeds.subscription(
         pg_session_factory, holder, strategy_id, holder_pool or 0, share="55"
     )
 
-    detail = await client_for(bystander).get(f"/api/strategies/{strategy_id}")
-    listing = await client_for(bystander).get("/api/strategies")
+    detail = await client_for(author).get(f"/api/strategies/{strategy_id}")
+    listing = await client_for(author).get("/api/strategies")
     held = await client_for(holder).get(f"/api/strategies/{strategy_id}")
 
     assert detail.status_code == 200
     assert "subscription" in detail.json()
     assert detail.json()["subscription"] is None
     assert [row.get("subscription", "absent") for row in listing.json()] == [None]
-    assert _shown(held.json().get("subscription")) == (
-        str(strategy_id),
-        holder_pool,
-        "55",
-        "ACTIVE",
-    )
+    assert held.status_code == 404
 
 
 async def test_a_leaving_subscription_is_served_and_an_ended_one_is_not(
     pg_session_factory: Factory,  # noqa: F811
     client_for: ClientFor,
 ) -> None:
-    leaving_strategy = await seeds.strategy(pg_session_factory)
-    ended_strategy = await seeds.strategy(pg_session_factory)
     user_id, pool_id = await seeds.user(pg_session_factory)
+    leaving_strategy = await _authored_by(pg_session_factory, user_id)
+    ended_strategy = await _authored_by(pg_session_factory, user_id)
     await seeds.subscription(
         pg_session_factory, user_id, leaving_strategy, pool_id or 0, status="LEAVING", share="20"
     )
@@ -165,16 +175,16 @@ async def test_the_list_pairs_each_strategy_with_its_own_subscription_in_one_que
     pg_session_factory: Factory,  # noqa: F811
     client_for: ClientFor,
 ) -> None:
-    subscribed = await seeds.strategy(pg_session_factory)
-    unsubscribed = await seeds.strategy(pg_session_factory)
     user_id, pool_id = await seeds.user(pg_session_factory)
+    subscribed = await _authored_by(pg_session_factory, user_id)
+    unsubscribed = await _authored_by(pg_session_factory, user_id)
     await seeds.subscription(pg_session_factory, user_id, subscribed, pool_id or 0, share="12.5")
     api = client_for(user_id)
 
     with _captured_sql(pg_engine) as for_two:
         two = await api.get("/api/strategies")
     for _ in range(3):
-        await seeds.strategy(pg_session_factory)
+        await _authored_by(pg_session_factory, user_id)
     with _captured_sql(pg_engine) as for_five:
         five = await api.get("/api/strategies")
 

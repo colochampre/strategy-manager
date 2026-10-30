@@ -65,9 +65,8 @@ DELIVERY = UUID("5b5b5b5b-0000-4000-8000-0000000000c3")
 SIGNAL = UUID("5b5b5b5b-0000-4000-8000-0000000000c4")
 PRIOR_RESERVATION = UUID("5b5b5b5b-0000-4000-8000-0000000000c5")
 
-# The strategy says 100%, the subscription 25%: a sizing read left on the
-# strategy would ask for 1000, not 250.
-STRATEGY_SHARE = Decimal("100")
+# The delivery carries the subscription's 25%: sizing from anything else (a full
+# share) would ask for 1000, not 250.
 SUBSCRIPTION_SHARE = Decimal("25")
 POOL_TOTAL = Decimal("1000")
 
@@ -121,7 +120,7 @@ def _rig(
 ) -> Rig:
     from strategy_manager.signals.application.holding_guard import HoldingGuard
 
-    policy = policy or _snapshot(author_id=AUTHOR, allocation_percent=STRATEGY_SHARE)
+    policy = policy or _snapshot(author_id=AUTHOR)
     delivery = Delivery(
         delivery_id=DELIVERY,
         signal_id=SIGNAL,

@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -10,7 +10,7 @@ import { jsonResponse, lock, unlock } from "@/test/harness";
 
 const ID = "11111111-1111-4111-8111-111111111111";
 const SECRET = "s3cr3t-Vh4lu3-Zq9";
-const PLACEHOLDER_URL = "/webhook/tradingview?secret=<your WEBHOOK_SECRET>";
+const PLACEHOLDER_URL = "/webhook/tradingview?secret=<your secret>";
 
 const STRATEGY: Strategy = {
   id: ID,
@@ -24,21 +24,22 @@ const STRATEGY: Strategy = {
   archived_at: null,
   allowed_pairs: ["ETHUSDT"],
   uptime: { seconds: 0, first_enabled_at: null, baseline: false },
+  visibility: "PRIVATE",
 };
 
-function setup() {
+function setup(strategy: Strategy = STRATEGY) {
   const secretCalls: string[] = [];
   vi.stubGlobal("fetch", (input: RequestInfo | URL) => {
     // The block also reads the webhook's host when it opens; it is not a call for the secret.
     if (String(input).endsWith("/webhook-origin")) return Promise.resolve(jsonResponse({ origin: null }));
     secretCalls.push(String(input));
-    return Promise.resolve(jsonResponse({ secret: SECRET }));
+    return Promise.resolve(jsonResponse({ webhook_secret: SECRET }));
   });
   const queryClient = new QueryClient();
   render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter>
-        <StrategyHeader strategy={STRATEGY} />
+        <StrategyHeader strategy={strategy} />
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -121,28 +122,32 @@ describe("StrategyHeader webhook disclosure", () => {
     expect(screen.queryByRole("group", { name: "Alert message" })).toBeNull();
   });
 
-  it("test_collapsing_after_a_reveal_leaves_nothing_in_the_cache_and_reopening_shows_the_placeholder_without_a_request", async () => {
+  it("test_collapsing_after_a_regeneration_leaves_nothing_in_the_cache_and_reopening_shows_the_placeholder_without_a_request", async () => {
     const { queryClient, secretCalls } = setup();
     fireEvent.click(toggle());
-    fireEvent.click(screen.getByRole("button", { name: "Show secret" }));
+    fireEvent.click(screen.getByRole("button", { name: "Regenerate secret" }));
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Regenerate" }));
     expect(await screen.findByText(`/webhook/tradingview?secret=${SECRET}`)).toBeInTheDocument();
-    // The secret's entries only: the webhook's host is cached too, and is not what closing the block evicts.
-    const secretEntries = () => queryClient.getQueryCache().findAll({ queryKey: ["webhook-secret"] });
-    expect(secretEntries()).toHaveLength(1);
     expect(secretCalls).toHaveLength(1);
+    expect(queryClient.getMutationCache().getAll()).toHaveLength(1);
 
     fireEvent.click(toggle());
 
-    expect(secretEntries()).toHaveLength(0);
-    expect(queryClient.getQueryData(["webhook-secret"])).toBeUndefined();
+    await waitFor(() => expect(queryClient.getMutationCache().getAll()).toHaveLength(0));
     expect(document.body.textContent).not.toContain(SECRET);
 
     fireEvent.click(toggle());
 
     expect(screen.getByText(PLACEHOLDER_URL)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Show secret" })).toBeEnabled();
     expect(secretCalls).toHaveLength(1);
     expect(document.body.textContent).not.toContain(SECRET);
+  });
+
+  it("offers no regeneration of an archived strategy's secret", () => {
+    setup({ ...STRATEGY, archived_at: "2026-10-01T00:00:00Z" });
+    fireEvent.click(toggle());
+
+    expect(screen.getByRole("button", { name: "Regenerate secret" })).toBeDisabled();
   });
 
   it("is labelled in Spanish", async () => {

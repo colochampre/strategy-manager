@@ -4,10 +4,10 @@ pool — the first grants 600, the second is clamped to the remaining 400 by
 concurrency invariant (design.md § "Order size never comes from the alert";
 tasks.md 7.9).
 
-Exercises the real ``strategies.allocation_percent`` column end to end:
-``SqlAlchemyStrategyRepository`` -> ``StrategyPolicyAdapter`` ->
-``StrategyPolicySnapshot.allocation_percent`` -> ``requested_from_percent()``
--> ``AllocateCapital.allocate()``. ``decide()`` itself is untouched.
+The share is a subscription's since migration ``0033`` dropped the strategy's
+column, so ``_SHARE`` stands for it: ``requested_from_percent()`` ->
+``AllocateCapital.allocate()`` against real PostgreSQL. ``decide()`` itself is
+untouched.
 """
 
 from decimal import Decimal
@@ -46,6 +46,7 @@ _SPOT_USDT_POOL = {
     )
 }
 _BALANCE = Decimal("1000")
+_SHARE = Decimal("60")
 
 
 def _build_allocate_capital(session: AsyncSession) -> AllocateCapital:
@@ -65,14 +66,13 @@ def _build_allocate_capital(session: AsyncSession) -> AllocateCapital:
 
 
 async def _requested_for(session: AsyncSession, strategy_id: object) -> Money:
-    """Mirrors ``ProcessSignalHandler._handle_consumes`` (tasks.md 7.8):
-    read the strategy's policy, then derive ``requested`` from its
-    ``allocation_percent`` applied to the pool balance — never from an
-    alert."""
+    """Mirrors the delivery path (tasks.md 7.8): read the strategy's policy,
+    then derive ``requested`` from the subscription's share applied to the pool
+    balance — never from an alert."""
     policy = await StrategyPolicyAdapter(SqlAlchemyStrategyRepository(session)).policy_for(
         strategy_id  # type: ignore[arg-type]
     )
-    amount = requested_from_percent(_BALANCE, policy.allocation_percent)
+    amount = requested_from_percent(_BALANCE, _SHARE)
     return Money(amount=amount, currency=Currency(policy.settlement_currency))
 
 
@@ -82,16 +82,8 @@ async def test_two_strategies_at_60_percent_second_is_clamped_by_decide(
     first_strategy_id, second_strategy_id = uuid4(), uuid4()
     first_signal_id, second_signal_id = uuid4(), uuid4()
 
-    await seed_strategy(
-        pg_session_factory,
-        strategy_id=first_strategy_id,
-        allocation_percent=Decimal("60"),
-    )
-    await seed_strategy(
-        pg_session_factory,
-        strategy_id=second_strategy_id,
-        allocation_percent=Decimal("60"),
-    )
+    await seed_strategy(pg_session_factory, strategy_id=first_strategy_id)
+    await seed_strategy(pg_session_factory, strategy_id=second_strategy_id)
     await seed_signal(
         pg_session_factory,
         signal_id=first_signal_id,

@@ -1,113 +1,115 @@
-"""Unit tests for SourceIpAndSecretAuth.
+"""Unit tests for the webhook's two authentication halves: ``SourceIpAuth`` (the
+global source address) and ``secret_matches_hash`` (the strategy's own secret).
 
-Covers spec: signal-ingress § Webhook Authentication.
+Covers spec: signal-ingress § Webhook Authentication; multi-user design AD6.
 """
 
 from strategy_manager.shared.config import Settings
 from strategy_manager.signals.infrastructure.auth import (
-    SourceIpAndSecretAuth,
+    SourceIpAuth,
     resolve_source_ip,
+    secret_matches_hash,
 )
+from tests.owner import secret_hash
 
 ALLOWED_IP = "52.89.214.238"
 OTHER_ALLOWED_IP = "34.212.75.30"
 
 
 def _settings(
-    secret: str = "s3cr3t",
     extra: list[str] | None = None,
     behind_tunnel: bool = False,
 ) -> Settings:
     """Built without reading .env, so these assertions describe the code and
     not whatever the developer's machine happens to be configured with."""
     return Settings(
-        webhook_secret=secret,
         extra_webhook_source_ips=extra or [],
         behind_cloudflare_tunnel=behind_tunnel,
         _env_file=None,  # type: ignore[call-arg]
     )
 
 
-def test_valid_secret_and_ip_authenticates() -> None:
-    auth = SourceIpAndSecretAuth(expected_secret="s3cr3t")
-
-    assert auth.authenticate(ALLOWED_IP, "s3cr3t") is True
+def test_a_documented_ip_is_allowed() -> None:
+    assert SourceIpAuth().allows(ALLOWED_IP) is True
 
 
-def test_wrong_source_ip_rejected_even_with_correct_secret() -> None:
-    auth = SourceIpAndSecretAuth(expected_secret="s3cr3t")
-
-    assert auth.authenticate("203.0.113.9", "s3cr3t") is False
-
-
-def test_missing_secret_rejected() -> None:
-    auth = SourceIpAndSecretAuth(expected_secret="s3cr3t")
-
-    assert auth.authenticate(ALLOWED_IP, None) is False
-
-
-def test_wrong_secret_rejected() -> None:
-    auth = SourceIpAndSecretAuth(expected_secret="s3cr3t")
-
-    assert auth.authenticate(ALLOWED_IP, "wrong") is False
-
-
-def test_unconfigured_expected_secret_never_authenticates() -> None:
-    auth = SourceIpAndSecretAuth(expected_secret="")
-
-    assert auth.authenticate(ALLOWED_IP, "") is False
+def test_an_unknown_ip_is_refused() -> None:
+    assert SourceIpAuth().allows("203.0.113.9") is False
 
 
 def test_only_the_four_documented_ips_are_allowed() -> None:
-    auth = SourceIpAndSecretAuth(expected_secret="s3cr3t")
+    auth = SourceIpAuth()
 
-    assert auth.authenticate(OTHER_ALLOWED_IP, "s3cr3t") is True
-    assert auth.authenticate(None, "s3cr3t") is False
+    assert auth.allows(OTHER_ALLOWED_IP) is True
+    assert auth.allows(None) is False
 
 
 def test_by_default_only_tradingviews_addresses_are_accepted() -> None:
     """The extra list is empty unless a deployment sets it, so configuring
     nothing behaves exactly as before."""
-    auth = SourceIpAndSecretAuth.from_settings(_settings())
+    auth = SourceIpAuth.from_settings(_settings())
 
-    assert auth.authenticate(ALLOWED_IP, "s3cr3t") is True
-    assert auth.authenticate("127.0.0.1", "s3cr3t") is False
+    assert auth.allows(ALLOWED_IP) is True
+    assert auth.allows("127.0.0.1") is False
 
 
 def test_a_configured_address_is_accepted_alongside_tradingviews() -> None:
     """Without this the ingress path cannot be rehearsed at all: an alert has
     to come from one of four fixed addresses, so nobody can send themselves a
     test one."""
-    auth = SourceIpAndSecretAuth.from_settings(_settings(extra=["127.0.0.1"]))
+    auth = SourceIpAuth.from_settings(_settings(extra=["127.0.0.1"]))
 
-    assert auth.authenticate("127.0.0.1", "s3cr3t") is True
+    assert auth.allows("127.0.0.1") is True
 
 
 def test_configuration_can_only_widen_never_replace() -> None:
     """No configuration may stop TradingView's own alerts from arriving, which
     is the one thing this endpoint exists for."""
-    auth = SourceIpAndSecretAuth.from_settings(_settings(extra=["127.0.0.1"]))
+    auth = SourceIpAuth.from_settings(_settings(extra=["127.0.0.1"]))
 
-    assert auth.authenticate(ALLOWED_IP, "s3cr3t") is True
-    assert auth.authenticate(OTHER_ALLOWED_IP, "s3cr3t") is True
-
-
-def test_an_added_address_still_needs_the_secret() -> None:
-    """Widening the allowlist widens authentication; it does not bypass it."""
-    auth = SourceIpAndSecretAuth.from_settings(_settings(extra=["127.0.0.1"]))
-
-    assert auth.authenticate("127.0.0.1", "wrong") is False
-    assert auth.authenticate("127.0.0.1", None) is False
+    assert auth.allows(ALLOWED_IP) is True
+    assert auth.allows(OTHER_ALLOWED_IP) is True
 
 
-def test_an_added_address_cannot_rescue_an_unconfigured_secret() -> None:
-    """An empty configured secret makes the comparison vacuous, so it fails
-    closed no matter where the request came from."""
-    auth = SourceIpAndSecretAuth.from_settings(
-        _settings(secret="", extra=["127.0.0.1"])
-    )
+# --- secret_matches_hash: the strategy's own secret ------------------------
 
-    assert auth.authenticate("127.0.0.1", "") is False
+
+def test_the_secret_whose_hash_is_stored_matches() -> None:
+    assert secret_matches_hash("s3cr3t", secret_hash("s3cr3t")) is True
+
+
+def test_another_secret_does_not_match() -> None:
+    assert secret_matches_hash("wrong", secret_hash("s3cr3t")) is False
+
+
+def test_a_missing_or_empty_secret_does_not_match() -> None:
+    stored = secret_hash("s3cr3t")
+
+    assert secret_matches_hash(None, stored) is False
+    assert secret_matches_hash("", stored) is False
+
+
+def test_a_strategy_with_no_stored_hash_matches_nothing() -> None:
+    """Not even the empty secret, whose hash is a well-known constant."""
+    assert secret_matches_hash("s3cr3t", None) is False
+    assert secret_matches_hash("", None) is False
+    assert secret_matches_hash("s3cr3t", "") is False
+
+
+def test_the_hash_itself_is_not_a_secret_that_matches() -> None:
+    """A leaked hash must not open the webhook: the comparison hashes what the
+    caller sends, so sending the stored value hashes it a second time."""
+    stored = secret_hash("s3cr3t")
+
+    assert secret_matches_hash(stored, stored) is False
+
+
+def test_a_non_ascii_secret_is_compared_without_raising() -> None:
+    """``hmac.compare_digest`` rejects non-ASCII ``str``; the comparison works on
+    bytes, so a unicode secret fails as wrong rather than as a 500, and matches
+    when it is the one stored."""
+    assert secret_matches_hash("contraseña", secret_hash("s3cr3t")) is False
+    assert secret_matches_hash("contraseña", secret_hash("contraseña")) is True
 
 
 # --- resolve_source_ip: which address the allowlist is given ----------------
@@ -162,9 +164,9 @@ def test_behind_the_tunnel_a_missing_header_never_falls_back_to_the_peer() -> No
 
     assert resolved is None
     assert (
-        SourceIpAndSecretAuth.from_settings(
+        SourceIpAuth.from_settings(
             _settings(extra=[CLOUDFLARED_PEER], behind_tunnel=True)
-        ).authenticate(resolved, "s3cr3t")
+        ).allows(resolved)
         is False
     )
 
@@ -199,14 +201,3 @@ def test_behind_the_tunnel_surrounding_whitespace_is_tolerated() -> None:
     )
 
     assert resolved == ALLOWED_IP
-
-
-def test_a_non_ascii_secret_is_compared_without_raising() -> None:
-    """``hmac.compare_digest`` rejects non-ASCII ``str``; the comparison
-    encodes first, so a unicode secret fails as wrong rather than as a 500."""
-    auth = SourceIpAndSecretAuth(expected_secret="s3cr3t")
-
-    assert auth.authenticate(ALLOWED_IP, "contraseña") is False
-    assert SourceIpAndSecretAuth(expected_secret="contraseña").authenticate(
-        ALLOWED_IP, "contraseña"
-    ) is True

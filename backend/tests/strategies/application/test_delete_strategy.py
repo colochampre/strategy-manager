@@ -11,7 +11,6 @@ actually serializes is proven on real PostgreSQL in
 import logging
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
-from decimal import Decimal
 from uuid import UUID
 
 import pytest
@@ -30,7 +29,6 @@ from strategy_manager.strategies.application.update_strategy import UnknownStrat
 from strategy_manager.strategies.domain.allowed_pairs import AllowedPairs
 from strategy_manager.strategies.domain.enablement import EnablementEvent, EnablementOrigin
 from strategy_manager.strategies.domain.strategy import (
-    AllocationPercent,
     AllocationPolicy,
     FillMode,
     Strategy,
@@ -76,7 +74,6 @@ def _strategy(**overrides: object) -> Strategy:
         venue=Venue.USDT_M,
         settlement_currency=Currency.USDT,
         fill_mode=FillMode.PARTIAL,
-        allocation_percent=AllocationPercent(Decimal("100")),
     )
     fields: dict[str, object] = {
         "id": STRATEGY_ID,
@@ -253,7 +250,6 @@ async def test_the_pool_locked_is_the_strategys_own_exchange_venue_and_settlemen
             venue=Venue.COIN_M,
             settlement_currency=Currency.BTC,
             fill_mode=FillMode.PARTIAL,
-            allocation_percent=AllocationPercent(Decimal("100")),
         )
     )
     harness = Harness(own)

@@ -96,22 +96,6 @@ def test_allocation_percent_requires_a_decimal() -> None:
         AllocationPercent(50)  # type: ignore[arg-type]
 
 
-def test_allocation_policy_defaults_allocation_percent_to_100() -> None:
-    """Migration 0007's ``DEFAULT 100`` preserves current behaviour for any
-    existing row; the domain VO mirrors that default (tasks.md 7.2)."""
-    policy = AllocationPolicy(exchange=Exchange.PIONEX, 
-        venue=Venue.SPOT, settlement_currency=Currency.USDT, fill_mode=FillMode.SKIP
-    )
-
-    assert policy.allocation_percent == AllocationPercent(Decimal("100"))
-
-
-def test_allocation_policy_stores_an_explicit_allocation_percent() -> None:
-    policy = AllocationPolicy(exchange=Exchange.PIONEX, 
-        venue=Venue.SPOT,
-        settlement_currency=Currency.USDT,
-        fill_mode=FillMode.SKIP,
-        allocation_percent=AllocationPercent(Decimal("20")),
-    )
-
-    assert policy.allocation_percent == AllocationPercent(Decimal("20"))
+def test_the_share_is_not_part_of_the_allocation_policy() -> None:
+    """The share belongs to a subscription (migration 0033, tasks.md D.1)."""
+    assert "allocation_percent" not in AllocationPolicy.__dataclass_fields__

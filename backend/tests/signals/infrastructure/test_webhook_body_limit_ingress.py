@@ -14,8 +14,10 @@ stored with a 200. The limit is 65,536 bytes, enforced here and not at the edge:
 * the count of bytes that actually arrive is the authority. A ``Content-Length``
   that is absent, not a number or smaller than what arrives never lets a larger
   body through and never raises;
-* authentication stays first: an unauthenticated request is a 401 and none of its
-  body is read.
+* the source address stays first: a request from a stranger is a 401 and none of its
+  body is read (``test_per_strategy_secret_ingress.py``). The secret is per strategy
+  and the strategy is named by the body, so it is judged AFTER the limit: a body
+  past the limit is a 413 whatever secret it carries (tasks.md D.2).
 
 What the test transport does with the header. ``httpx.ASGITransport`` drives the
 application's ``receive`` straight from the request's stream, one chunk per call,
@@ -53,7 +55,7 @@ from sqlalchemy.ext.asyncio import (
 from strategy_manager.main import create_app
 from strategy_manager.shared import db as shared_db
 from strategy_manager.shared.config import get_settings
-from tests.owner import OWNER_ID, seed_owner
+from tests.owner import OWNER_ID, secret_hash, seed_owner
 from tests.pg_head_schema import migrated_head_database
 
 pytestmark = pytest.mark.integration
@@ -156,10 +158,16 @@ async def strategy_id(engine: AsyncEngine) -> UUID:
         await conn.execute(
             text(
                 "INSERT INTO strategies (id, name, exchange, venue, settlement_currency, "
-                "enabled, fill_mode, allowed_pairs, author_id) VALUES (:id, :name, 'bybit', "
-                "'usdt-m', 'USDT', true, 'PARTIAL', ARRAY['STXUSDT'], :author)"
+                "enabled, fill_mode, allowed_pairs, author_id, webhook_secret_hash) "
+                "VALUES (:id, :name, 'bybit', 'usdt-m', 'USDT', true, 'PARTIAL', "
+                "ARRAY['STXUSDT'], :author, :hash)"
             ),
-            {"id": registered, "name": f"strategy-{registered}", "author": OWNER_ID},
+            {
+                "id": registered,
+                "name": f"strategy-{registered}",
+                "author": OWNER_ID,
+                "hash": secret_hash(SECRET),
+            },
         )
     return registered
 
@@ -531,8 +539,25 @@ async def test_the_existing_refusals_still_answer_422_for_a_body_under_the_limit
 
 
 @pytest.mark.parametrize("secret", ["wrong-secret", None], ids=["wrong-secret", "no-secret"])
+async def test_an_unauthenticated_alert_within_the_limit_is_401_and_stores_nothing(
+    client: AsyncClient,
+    engine: AsyncEngine,
+    strategy_id: UUID,
+    caplog: pytest.LogCaptureFixture,
+    secret: str | None,
+) -> None:
+    with caplog.at_level(logging.DEBUG):
+        response = await _post(client, _body(strategy_id), secret=secret)
+
+    assert response.status_code == 401
+    assert [r for r in caplog.records if r.name == ROUTER_LOGGER] == []
+    assert _loud(caplog) == []
+    assert await _count(engine, "signals") == 0
+
+
+@pytest.mark.parametrize("secret", ["wrong-secret", None], ids=["wrong-secret", "no-secret"])
 @pytest.mark.parametrize("declared", [None, str(8 * 1024 * 1024)], ids=["streamed", "declared"])
-async def test_an_unauthenticated_request_is_401_and_none_of_its_body_is_read(
+async def test_the_limit_is_judged_before_the_secret_so_a_body_past_it_is_413_whoever_sent_it(
     client: AsyncClient,
     engine: AsyncEngine,
     strategy_id: UUID,
@@ -540,14 +565,14 @@ async def test_an_unauthenticated_request_is_401_and_none_of_its_body_is_read(
     secret: str | None,
     declared: str | None,
 ) -> None:
+    """The secret is per strategy and the strategy is named by the body, so the
+    body is read (up to the limit) before the secret can be judged. The address
+    is the check that precedes the body: ``test_per_strategy_secret_ingress.py``
+    pins that a stranger's body is never read."""
     stream = CountingBody(_alert_of_size(strategy_id, 2 * LIMIT))
     headers = None if declared is None else {"content-length": declared}
 
     with caplog.at_level(logging.DEBUG):
         response = await _post(client, stream, headers=headers, secret=secret)
 
-    assert response.status_code == 401
-    assert stream.pulled == 0
-    assert [r for r in caplog.records if r.name == ROUTER_LOGGER] == []
-    assert _loud(caplog) == []
-    assert await _count(engine, "signals") == 0
+    await _assert_refused_as_too_large(response, engine, caplog)

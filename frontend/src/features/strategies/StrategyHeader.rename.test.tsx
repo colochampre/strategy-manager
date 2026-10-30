@@ -22,6 +22,7 @@ const STRATEGY: Strategy = {
   archived_at: null,
   allowed_pairs: ["ETHUSDT"],
   uptime: { seconds: 0, first_enabled_at: null, baseline: false },
+  visibility: "PRIVATE",
 };
 
 interface Sent {
@@ -250,7 +251,7 @@ describe("StrategyHeader rename: saving and cancelling (p21.3)", () => {
 
 describe("StrategyHeader rename: the refusals (p21.4)", () => {
   it.each([
-    ["a name in use (409)", () => jsonResponse({ detail: "a strategy named 'Taken' already exists" }, 409), "A strategy with this name already exists."],
+    ["a name in use (409)", () => jsonResponse({ detail: "a strategy named 'Taken' already exists" }, 409), "You already have a strategy with this name."],
     [
       "an archived strategy (409 STRATEGY_ARCHIVED)",
       () => jsonResponse({ detail: { error: "STRATEGY_ARCHIVED", message: "archived" } }, 409),
@@ -294,7 +295,7 @@ describe("StrategyHeader rename: the refusals (p21.4)", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Guardar nombre" }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("Ya existe una estrategia con este nombre.");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Usted ya tiene una estrategia con este nombre.");
   });
 
   it("says any other failure in Spanish, with usted", async () => {

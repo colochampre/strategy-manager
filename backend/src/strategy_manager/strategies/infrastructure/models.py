@@ -18,10 +18,18 @@ registers it for the integration tests). The constraints carry 0030's names.
 """
 
 from datetime import datetime
-from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Index, Numeric, Text, text
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Index,
+    Text,
+    UniqueConstraint,
+    text,
+)
 from sqlalchemy.dialects.postgresql import ARRAY as PGARRAY
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -32,17 +40,20 @@ from strategy_manager.shared.db import Base
 
 class StrategyRow(Base):
     """Mirrors the ``strategies`` table created by migration ``0003``,
-    extended with ``allocation_percent`` by migration ``0007`` and with
-    ``author_id`` by migration ``0030``."""
+    extended with ``author_id`` by migration ``0030`` and with the secret hash,
+    the visibility and the per-author name by ``0033``, which also dropped
+    ``allocation_percent``."""
 
     __tablename__ = "strategies"
     __table_args__ = (
         CheckConstraint("venue IN ('spot', 'usdt-m', 'coin-m')", name="ck_strategies_venue"),
+        CheckConstraint("visibility IN ('PUBLIC', 'PRIVATE')", name="ck_strategies_visibility"),
+        UniqueConstraint("author_id", "name", name="ux_strategies_author_name"),
         Index("ix_strategies_author_id", "author_id"),
     )
 
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
-    name: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
     exchange: Mapped[str] = mapped_column(Text, nullable=False)
     venue: Mapped[str] = mapped_column(Text, nullable=False)
     settlement_currency: Mapped[str] = mapped_column(Text, nullable=False)
@@ -55,8 +66,11 @@ class StrategyRow(Base):
         Boolean, nullable=False, server_default=text("false")
     )
     fill_mode: Mapped[str] = mapped_column(Text, nullable=False)
-    allocation_percent: Mapped[Decimal] = mapped_column(
-        Numeric, nullable=False, server_default=text("100")
+    # SHA-256 hex of the strategy's webhook secret (migration 0033). The domain
+    # ``Strategy`` never carries it: only the repository's insert and replace touch it.
+    webhook_secret_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    visibility: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("'PRIVATE'")
     )
     # ``ck_strategies_allowed_pairs_no_null`` (migration 0024): entries are
     # market_key()-normalized symbols this strategy may OPEN on.

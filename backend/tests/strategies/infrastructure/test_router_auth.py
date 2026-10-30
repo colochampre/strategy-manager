@@ -1,4 +1,5 @@
-"""API tests for the admin guard on ``/strategies``.
+"""API tests for the sign-in guard on ``/strategies`` (any signed-in user, not
+only the admin: tasks.md D.4).
 
 The assertion that matters most here is not that a forged assertion is refused
 — it is that EVERY route on this router is refused, discovered from the router
@@ -18,16 +19,15 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from strategy_manager.identity.infrastructure.dependencies import (
-    FORBIDDEN_DETAIL,
     UNAUTHORIZED_DETAIL,
+    current_user,
+    require_admin,
 )
 from strategy_manager.main import create_app
-from strategy_manager.shared.config import get_settings
 from strategy_manager.strategies.infrastructure.router import router as strategies_router
 from tests.identity_auth import (
     ADMIN_HEADERS,
     FORGED_HEADERS,
-    OTHER_HEADERS,
     sign_in_as_admin,
 )
 
@@ -126,16 +126,20 @@ async def test_no_route_leaks_which_part_of_the_credential_was_wrong(
     assert details == {UNAUTHORIZED_DETAIL}
 
 
-async def test_every_registered_route_forbids_a_signed_in_user_who_is_not_the_admin(
-    client: AsyncClient,
-) -> None:
-    """A user who proved who they are, and is not the admin, gets 403 on every
-    route: the guard is the router's, so it covers routes added later too."""
-    for method, path in _routes():
-        response = await client.request(method, path, headers=OTHER_HEADERS)
-
-        assert response.status_code == 403, f"{method} {path} was not forbidden"
-        assert response.json() == {"detail": FORBIDDEN_DETAIL}, f"{method} {path}"
+def test_no_route_requires_the_admin_and_every_route_resolves_the_signed_in_user() -> None:
+    """Any signed-in user authors (tasks.md D.4): the router asks who is signed in,
+    not whether they are the admin. The admin-only answer is covered by the guard
+    sweep in ``tests/identity``; the behaviour of a non-admin user, by
+    ``test_strategy_authoring_scope.py``."""
+    for route in strategies_router.routes:
+        dependencies = {
+            dependency.dependency
+            for dependency in getattr(route, "dependencies", [])
+        }
+        assert require_admin not in dependencies
+    router_calls = {dependency.dependency for dependency in strategies_router.dependencies}
+    assert current_user in router_calls
+    assert require_admin not in router_calls
 
 
 async def test_a_forged_assertion_is_refused(client: AsyncClient) -> None:
@@ -150,25 +154,12 @@ async def test_a_missing_assertion_header_is_refused(client: AsyncClient) -> Non
     assert response.status_code == 401
 
 
-async def test_an_unconfigured_admin_admits_nobody(
-    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """The comparison must never be vacuous. Startup invariant 4 refuses to
-    boot a deployment configured this way; this asserts the second lock, which
-    is what stands if that invariant is ever removed or bypassed."""
-    monkeypatch.setattr(get_settings(), "admin_email", "")
-
-    response = await client.get("/strategies", headers=ADMIN_HEADERS)
-
-    assert response.status_code == 403
-
-
 async def test_strategy_routes_live_under_api_prefix() -> None:
     """The ``/api`` move (design.md §13, spec: admin-api). In the real
     composition root, every strategies route now resolves under
     ``/api/strategies`` — still refused without an assertion, because wrapping
     the router changes where its routes are reachable from, never its own
-    ``dependencies=[Depends(require_admin)]`` — and the pre-move path is
+    ``dependencies=[Depends(current_user)]`` — and the pre-move path is
     no longer registered at all.
 
     Uses ``create_app()`` rather than this file's own bare ``_app()``: the

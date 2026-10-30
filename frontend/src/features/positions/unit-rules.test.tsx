@@ -48,6 +48,7 @@ function strategy(): Strategy {
     archived_at: null,
     allowed_pairs: ["SOLUSDT"],
     uptime: { seconds: 0, first_enabled_at: null, baseline: false },
+    visibility: "PRIVATE",
   };
 }
 
