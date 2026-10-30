@@ -7,6 +7,7 @@ from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import (
+    CheckConstraint,
     DateTime,
     ForeignKey,
     ForeignKeyConstraint,
@@ -41,6 +42,7 @@ class ReservationRow(Base):
             name="fk_reservations_capital_pool",
         ),
         ForeignKeyConstraint(["user_id"], ["users.id"], name="fk_reservations_user"),
+        CheckConstraint("mode IN ('LIVE', 'SIMULATION')", name="ck_reservations_mode"),
         Index("ix_reservations_user_id", "user_id"),
     )
 
@@ -88,3 +90,6 @@ class ReservationRow(Base):
         nullable=False,
         unique=True,
     )
+    # Added by migration 0035: the mode this reservation opened in. NO server
+    # default, so a writer that forgets it fails loudly.
+    mode: Mapped[str] = mapped_column(Text, nullable=False)

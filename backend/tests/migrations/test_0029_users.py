@@ -97,12 +97,15 @@ async def _columns(conn: AsyncConnection) -> dict[str, tuple[str, str]]:
     return {name: (kind, nullable) for name, kind, nullable in rows}
 
 
-async def test_the_table_holds_an_id_an_email_and_two_timestamps(conn: AsyncConnection) -> None:
+async def test_the_table_holds_an_id_an_email_two_timestamps_and_the_mode(
+    conn: AsyncConnection,
+) -> None:
     assert await _columns(conn) == {
         "id": ("uuid", "NO"),
         "email": ("text", "NO"),
         "created_at": ("timestamp with time zone", "NO"),
         "last_seen_at": ("timestamp with time zone", "NO"),
+        "mode": ("text", "NO"),
     }
 
 

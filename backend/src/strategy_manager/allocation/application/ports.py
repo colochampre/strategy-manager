@@ -15,6 +15,7 @@ from uuid import UUID
 
 from strategy_manager.allocation.domain.lock_key import LockKey
 from strategy_manager.allocation.domain.reservation import Reservation, ReservationStatus
+from strategy_manager.shared.domain.mode import Mode
 
 
 @dataclass(frozen=True, slots=True)
@@ -137,6 +138,23 @@ class PoolStatusPort(Protocol):
     ) -> bool: ...
 
 
+class UserModePort(Protocol):
+    """The mode an opening runs in for ``user_id``: ``LIVE`` only with the brake
+    off and the user ``LIVE`` (multi-user design AD7, decisions 6 and 14).
+
+    ``AllocateCapital`` calls it inside the pool advisory lock, before anything is
+    decided or written (lock order: advisory lock first, then row locks).
+    Implementations MUST read the user row ``FOR SHARE``: a flip to simulation
+    takes that row ``FOR UPDATE`` after checking the user is flat, so it either
+    waits for this opening to commit or lands first and this opening runs in
+    simulation. Either way a real reservation never appears after the flat check
+    passed. A plain read could see the mode from before the flip.
+
+    The read is committed state of one row, never a remote call."""
+
+    async def effective_mode(self, user_id: UUID) -> Mode: ...
+
+
 class AdvisoryLockPort(Protocol):
     """MUST run on the same session/connection as the reservation write, MUST
     be inside an open transaction, and MUST be released only by that
@@ -159,6 +177,7 @@ class ReservationRepositoryPort(Protocol):
         exchange: str,
         venue: str,
         settlement_currency: str,
+        mode: Mode,
         now: datetime,
     ) -> Decimal: ...
 

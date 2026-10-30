@@ -77,6 +77,7 @@ from strategy_manager.allocation.infrastructure.repository import SqlAlchemyRese
 from strategy_manager.allocation.infrastructure.reservation_gateway import (
     ReservationGatewayAdapter,
 )
+from strategy_manager.allocation.infrastructure.user_mode import SqlAlchemyUserMode
 from strategy_manager.execution.application.assert_mode_matches_ledger import (
     assert_mode_matches_ledger,
 )
@@ -534,6 +535,7 @@ def _build_process_delivery(
         reservation_ttl_seconds=settings.reservation_ttl_seconds,
         skip_recorder=SignalSkipRecorder(delivery_outcomes),
         pool_status=SqlAlchemyPoolStatus(session),
+        user_mode=SqlAlchemyUserMode(session, brake=settings.dry_run),
     )
 
     place_order = PlaceOrder(

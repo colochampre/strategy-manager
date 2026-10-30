@@ -10,6 +10,7 @@ import pytest
 from strategy_manager.allocation.domain.pool_key import PoolKey
 from strategy_manager.allocation.domain.reservation import Reservation, ReservationStatus
 from strategy_manager.shared.domain.errors import InvariantViolation
+from strategy_manager.shared.domain.mode import Mode
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 
 _KEY = PoolKey(exchange=Exchange.PIONEX, venue=Venue.SPOT, settlement_currency=Currency.USDT)
@@ -23,6 +24,7 @@ def _reservation(status: ReservationStatus = ReservationStatus.PENDING) -> Reser
         pool_key=_KEY,
         amount=Decimal("100"),
         status=status,
+        mode=Mode.LIVE,
         expires_at=datetime(2026, 1, 1, tzinfo=UTC),
     )
 

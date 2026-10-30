@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from strategy_manager.identity.domain.user import User
 from strategy_manager.identity.infrastructure.models import UserRow
+from strategy_manager.shared.domain.mode import Mode
 
 
 class SqlAlchemyUserRepository:
@@ -40,5 +41,9 @@ class SqlAlchemyUserRepository:
 
 def _to_domain(row: UserRow) -> User:
     return User(
-        id=row.id, email=row.email, created_at=row.created_at, last_seen_at=row.last_seen_at
+        id=row.id,
+        email=row.email,
+        created_at=row.created_at,
+        last_seen_at=row.last_seen_at,
+        mode=Mode(row.mode),
     )

@@ -54,6 +54,7 @@ from strategy_manager.execution.infrastructure.repository import (
 from strategy_manager.ledger.application.read_symbol_holdings import ReadSymbolHoldings
 from strategy_manager.ledger.domain.ledger_entry import LedgerEntry
 from strategy_manager.ledger.infrastructure.repository import SqlAlchemyLedgerRepository
+from strategy_manager.shared.domain.mode import Mode
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 from strategy_manager.signals.infrastructure.models import SignalRow
 from strategy_manager.strategies.application.archive_strategy import (
@@ -179,6 +180,7 @@ async def _seed_open_fill(
                 ),
                 amount=Decimal("100"),
                 status=ReservationStatus.FILLED,
+                mode=Mode.LIVE,
                 expires_at=FIXED_NOW + timedelta(seconds=30),
             )
         )
@@ -270,6 +272,7 @@ async def _seed_open_short_fill(
                 ),
                 amount=Decimal("100"),
                 status=ReservationStatus.FILLED,
+                mode=Mode.LIVE,
                 expires_at=FIXED_NOW + timedelta(seconds=30),
             )
         )
@@ -763,6 +766,7 @@ async def test_live_reservation_with_no_fill_yet_still_refuses_archive(
                 ),
                 amount=Decimal("50"),
                 status=ReservationStatus.PENDING,
+                mode=Mode.LIVE,
                 expires_at=FIXED_NOW + timedelta(seconds=30),
             )
         )

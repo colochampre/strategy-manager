@@ -63,6 +63,7 @@ from strategy_manager.execution.domain.execution_attempt import (
 )
 from strategy_manager.execution.domain.order import OrderSide
 from strategy_manager.shared.application.ports import CommitPort
+from strategy_manager.shared.domain.mode import Mode
 from strategy_manager.shared.domain.money import Currency, Exchange, Money
 from strategy_manager.shared.infrastructure.crypto import MASTER_KEY_BYTES, EnvelopeCipher
 from strategy_manager.signals.application.close_orphans import CloseOrphans
@@ -77,7 +78,7 @@ from strategy_manager.signals.application.process_signal import Delivery, Signal
 from strategy_manager.signals.domain.holding import HeldAllocation
 from strategy_manager.strategies.infrastructure.pool_lock_adapter import PoolLockAdapter
 from tests.accounts.fakes import BYBIT_KEY, BYBIT_SECRET, TickingClock
-from tests.allocation.fakes import AlwaysEnabledPool, RecordingSkipRecorder
+from tests.allocation.fakes import AlwaysEnabledPool, FixedUserMode, RecordingSkipRecorder
 from tests.ledger.infrastructure.conftest import (  # noqa: F401
     pg_engine,
     pg_session_factory,
@@ -140,6 +141,7 @@ class FakeReservationRepository:
         exchange: str,
         venue: str,
         settlement_currency: str,
+        mode: Mode,
         now: datetime,
     ) -> Decimal:
         return Decimal("0")
@@ -427,6 +429,7 @@ def _allocate_capital(
         reservation_ttl_seconds=30,
         skip_recorder=skip_recorder or RecordingSkipRecorder(),
         pool_status=AlwaysEnabledPool(),
+        user_mode=FixedUserMode(),
     )
 
 

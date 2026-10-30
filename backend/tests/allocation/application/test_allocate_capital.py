@@ -23,9 +23,11 @@ from strategy_manager.allocation.domain.lock_key import LockKey
 from strategy_manager.allocation.domain.pool_key import PoolKey
 from strategy_manager.allocation.domain.reservation import Reservation, ReservationStatus
 from strategy_manager.shared.domain.errors import InvariantViolation
+from strategy_manager.shared.domain.mode import Mode
 from strategy_manager.shared.domain.money import Currency, Exchange, Money, Venue
 from tests.allocation.fakes import (
     AlwaysEnabledPool,
+    FixedUserMode,
     RecordingPoolStatus,
     RecordingSkipRecorder,
 )
@@ -102,6 +104,7 @@ class FakeReservationRepository:
     sum_active_return: Decimal = Decimal("0")
     found_for: list[UUID] = field(default_factory=list)
     summed_for: list[UUID] = field(default_factory=list)
+    summed_in: list[Mode] = field(default_factory=list)
     inserted_for: list[UUID] = field(default_factory=list)
 
     async def find_by_signal_id(self, user_id: UUID, signal_id: UUID) -> Reservation | None:
@@ -114,9 +117,11 @@ class FakeReservationRepository:
         exchange: str,
         venue: str,
         settlement_currency: str,
+        mode: Mode,
         now: datetime,
     ) -> Decimal:
         self.summed_for.append(user_id)
+        self.summed_in.append(mode)
         return self.sum_active_return
 
     async def insert(self, user_id: UUID, reservation: Reservation) -> None:
@@ -160,6 +165,7 @@ def _build_use_case(
     reservations: FakeReservationRepository | None = None,
     lock: FakeAdvisoryLock | None = None,
     commit: FakeCommit | None = None,
+    user_mode: FixedUserMode | None = None,
 ) -> tuple[AllocateCapital, FakeAdvisoryLock, FakeReservationRepository, FakeCommit]:
     lock = lock or FakeAdvisoryLock()
     reservations = reservations or FakeReservationRepository()
@@ -174,6 +180,7 @@ def _build_use_case(
         reservation_ttl_seconds=30,
         skip_recorder=RecordingSkipRecorder(),
         pool_status=AlwaysEnabledPool(),
+        user_mode=user_mode or FixedUserMode(),
     )
     return use_case, lock, reservations, commit
 
@@ -198,6 +205,7 @@ async def test_the_pool_read_and_checked_is_the_deliverys_users_not_the_authors(
         reservation_ttl_seconds=30,
         skip_recorder=RecordingSkipRecorder(),
         pool_status=status,
+        user_mode=FixedUserMode(),
     )
 
     result = await use_case.allocate(
@@ -286,6 +294,7 @@ async def test_resume_returns_existing_reservation_without_taking_the_lock() -> 
         ),
         amount=Decimal("200"),
         status=ReservationStatus.PENDING,
+        mode=Mode.LIVE,
         expires_at=datetime(2026, 1, 1, tzinfo=UTC) + timedelta(seconds=30),
     )
     reservations = FakeReservationRepository(existing=existing)
@@ -462,6 +471,7 @@ async def test_in_lock_reread_skips_with_strategy_disabled_when_disabled_after_p
         reservation_ttl_seconds=30,
         skip_recorder=RecordingSkipRecorder(),
         pool_status=AlwaysEnabledPool(),
+        user_mode=FixedUserMode(),
     )
 
     with caplog.at_level("WARNING"):
@@ -523,6 +533,7 @@ async def test_in_lock_reread_skips_with_strategy_archived_when_archived_after_p
         reservation_ttl_seconds=30,
         skip_recorder=RecordingSkipRecorder(),
         pool_status=AlwaysEnabledPool(),
+        user_mode=FixedUserMode(),
     )
 
     with caplog.at_level("WARNING"):
@@ -754,6 +765,7 @@ async def test_reservation_records_in_lock_pool_capital_not_prelock_read() -> No
         reservation_ttl_seconds=30,
         skip_recorder=RecordingSkipRecorder(),
         pool_status=AlwaysEnabledPool(),
+        user_mode=FixedUserMode(),
     )
 
     result = await use_case.allocate(
@@ -875,6 +887,7 @@ async def test_resume_of_retried_allocation_returns_existing_row_unchanged() -> 
         ),
         amount=Decimal("200"),
         status=ReservationStatus.PENDING,
+        mode=Mode.LIVE,
         expires_at=datetime(2026, 1, 1, tzinfo=UTC) + timedelta(seconds=30),
         pool_total_at_open=Decimal("500"),
     )
@@ -900,6 +913,7 @@ async def test_resume_of_retried_allocation_returns_existing_row_unchanged() -> 
         reservation_ttl_seconds=30,
         skip_recorder=RecordingSkipRecorder(),
         pool_status=AlwaysEnabledPool(),
+        user_mode=FixedUserMode(),
     )
 
     result = await use_case.allocate(
@@ -918,3 +932,71 @@ async def test_resume_of_retried_allocation_returns_existing_row_unchanged() -> 
     assert existing.pool_total_at_open == Decimal("500")
     assert balance.reads == 0  # the pool was never read again
     assert lock.acquired == []
+
+
+def _open_command() -> AllocateCommand:
+    return AllocateCommand(
+        signal_id=uuid4(),
+        strategy_id=uuid4(),
+        requested=Money(amount=Decimal("200"), currency=Currency.USDT),
+        user_id=OWNER_ID,
+        delivery_id=uuid4(),
+    )
+
+
+@pytest.mark.parametrize("mode", [Mode.LIVE, Mode.SIMULATION])
+async def test_the_mode_decided_in_the_lock_is_summed_and_recorded(mode: Mode) -> None:
+    """Decision 26: the reserved total is read for the opening's mode, and the
+    reservation carries it."""
+    use_case, _, reservations, _ = _build_use_case(
+        policy=_enabled_snapshot(),
+        pool_balance=PoolBalance(
+            total=Decimal("1000"), available=Decimal("1000"), min_order_size=Decimal("10")
+        ),
+        user_mode=FixedUserMode(mode),
+    )
+
+    result = await use_case.allocate(_open_command())
+
+    assert result.outcome is DecisionOutcome.FULL
+    assert reservations.summed_in == [mode]
+    assert [r.mode for r in reservations.inserted] == [mode]
+
+
+async def test_the_mode_is_read_after_the_pool_lock_and_before_the_policy_reread() -> None:
+    """Lock order: the advisory lock first, then row locks. The user row is read
+    ``FOR SHARE`` by the real adapter, so reading it before ``acquire`` would
+    take a row lock ahead of the advisory lock. It also precedes the in-lock
+    policy re-read, where the first decision is made."""
+    events: list[str] = []
+
+    class EventLock(FakeAdvisoryLock):
+        async def acquire(self, key: LockKey) -> None:
+            events.append("lock")
+            await super().acquire(key)
+
+    class EventPolicy(FakeStrategyPolicyPort):
+        async def policy_for(self, strategy_id: UUID) -> StrategyPolicySnapshot:
+            events.append("policy")
+            return await super().policy_for(strategy_id)
+
+    use_case = AllocateCapital(
+        strategy_policy=EventPolicy(_enabled_snapshot()),
+        pool_balance=FakePoolBalancePort(
+            PoolBalance(
+                total=Decimal("1000"), available=Decimal("1000"), min_order_size=Decimal("10")
+            )
+        ),
+        lock=EventLock(),
+        reservations=FakeReservationRepository(),
+        commit=FakeCommit(),
+        clock=FrozenClock(datetime(2026, 1, 1, tzinfo=UTC)),
+        reservation_ttl_seconds=30,
+        skip_recorder=RecordingSkipRecorder(),
+        pool_status=AlwaysEnabledPool(),
+        user_mode=FixedUserMode(events=events),
+    )
+
+    await use_case.allocate(_open_command())
+
+    assert events == ["policy", "lock", "user_mode", "policy"]

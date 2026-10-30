@@ -28,6 +28,7 @@ from strategy_manager.identity.application.ports import IdentityRefusedError
 from strategy_manager.identity.domain.user import User
 from strategy_manager.identity.infrastructure import dependencies
 from strategy_manager.shared.config import Settings, get_settings
+from strategy_manager.shared.domain.mode import Mode
 from tests.owner import OWNER_ID
 
 ADMIN_EMAIL = "owner@example.com"
@@ -78,7 +79,9 @@ def without_a_database(app: FastAPI) -> FastAPI:
 
     async def _user(email: Annotated[str, Depends(dependencies.verified_email)]) -> User:
         now = datetime.now(UTC)
-        return User(id=SIGNED_IN_ID, email=email, created_at=now, last_seen_at=now)
+        return User(
+            id=SIGNED_IN_ID, email=email, created_at=now, last_seen_at=now, mode=Mode.SIMULATION
+        )
 
     app.dependency_overrides[dependencies.current_user] = _user
     return app
@@ -92,7 +95,9 @@ def act_as(app: FastAPI, user_id: UUID) -> FastAPI:
 
     async def _user(email: Annotated[str, Depends(dependencies.verified_email)]) -> User:
         now = datetime.now(UTC)
-        return User(id=user_id, email=email, created_at=now, last_seen_at=now)
+        return User(
+            id=user_id, email=email, created_at=now, last_seen_at=now, mode=Mode.SIMULATION
+        )
 
     app.dependency_overrides[dependencies.current_user] = _user
     return app

@@ -74,6 +74,7 @@ async def _seed_reservation(
                 settlement_currency="USDT",
                 amount=Decimal("100"),
                 status=status,
+                mode="LIVE",
                 expires_at=expires_at,
                 terminal_at=NOW if status in ("FILLED", "RELEASED", "EXPIRED") else None,
             )

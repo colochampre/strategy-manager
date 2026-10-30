@@ -27,6 +27,7 @@ from strategy_manager.allocation.application.ports import (
     ReservationRepositoryPort,
     SkipRecorderPort,
     StrategyPolicyPort,
+    UserModePort,
 )
 from strategy_manager.allocation.domain.capital_pool import CapitalPool
 from strategy_manager.allocation.domain.decision import DecisionOutcome, decide
@@ -110,6 +111,7 @@ class AllocateCapital:
         reservation_ttl_seconds: int,
         skip_recorder: SkipRecorderPort,
         pool_status: PoolStatusPort,
+        user_mode: UserModePort,
     ) -> None:
         self._strategy_policy = strategy_policy
         self._pool_balance = pool_balance
@@ -120,6 +122,7 @@ class AllocateCapital:
         self._reservation_ttl_seconds = reservation_ttl_seconds
         self._skip_recorder = skip_recorder
         self._pool_status = pool_status
+        self._user_mode = user_mode
 
     async def allocate(self, command: AllocateCommand) -> AllocationResult:
         # The reservations are the DELIVERY's user's (multi-user design AD5 and
@@ -179,6 +182,12 @@ class AllocateCapital:
         # ---- TXN-A begins: the advisory lock serializes everything below
         # per (venue, settlement_currency) (design.md § Transaction Boundaries)
         await self._lock.acquire(LockKey.from_pool_key(command.user_id, pool_key))
+
+        # The mode this opening runs in (decisions 6, 14 and 26), read FOR SHARE
+        # right after the lock and before anything is decided: a flip to simulation
+        # either waits for this transaction or has already landed, so a real
+        # reservation never appears after the flat check passed.
+        mode = await self._user_mode.effective_mode(command.user_id)
 
         # In-lock re-check (design.md § 8 point (ii), "AllocateCapital
         # re-reads the policy inside the lock"): the pre-lock read above can
@@ -256,7 +265,12 @@ class AllocateCapital:
 
         now = self._clock.now()
         reserved_active = await self._reservations.sum_active(
-            command.user_id, policy.exchange, policy.venue, policy.settlement_currency, now
+            command.user_id,
+            policy.exchange,
+            policy.venue,
+            policy.settlement_currency,
+            mode,
+            now,
         )
         pool = CapitalPool(
             key=pool_key, balance=pool_balance.available, reserved_active=reserved_active
@@ -285,6 +299,7 @@ class AllocateCapital:
                     pool_key=pool_key,
                     amount=decision.granted,
                     status=ReservationStatus.PENDING,
+                    mode=mode,
                     expires_at=now + timedelta(seconds=self._reservation_ttl_seconds),
                     pool_total_at_open=pool_total_at_open,
                 )

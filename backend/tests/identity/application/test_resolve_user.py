@@ -15,6 +15,7 @@ import pytest
 
 from strategy_manager.identity.application.resolve_user import ResolveUser
 from strategy_manager.identity.domain.user import InvalidEmailError, User
+from strategy_manager.shared.domain.mode import Mode
 
 T0 = datetime(2026, 10, 21, 12, 0, 0, tzinfo=UTC)
 
@@ -34,7 +35,9 @@ class _Users:
 
     async def find_or_create(self, email: str, now: datetime) -> User:
         if email not in self.by_email:
-            self.by_email[email] = User(id=uuid4(), email=email, created_at=now, last_seen_at=now)
+            self.by_email[email] = User(
+                id=uuid4(), email=email, created_at=now, last_seen_at=now, mode=Mode.SIMULATION
+            )
         return self.by_email[email]
 
     async def mark_seen(self, user_id: UUID, now: datetime) -> None:

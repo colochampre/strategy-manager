@@ -22,6 +22,7 @@ from strategy_manager.allocation.domain.reservation import Reservation, Reservat
 from strategy_manager.allocation.infrastructure.models import ReservationRow
 from strategy_manager.allocation.infrastructure.repository import SqlAlchemyReservationRepository
 from strategy_manager.shared.domain.errors import InvariantViolation
+from strategy_manager.shared.domain.mode import Mode
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 from tests.allocation.infrastructure.conftest import seed_signal, seed_strategy
 from tests.owner import (
@@ -62,6 +63,7 @@ async def _reservation(
     amount: Decimal = Decimal("100"),
     status: str = "PENDING",
     expires_at: datetime = NOW + timedelta(minutes=5),
+    mode: str = "LIVE",
 ) -> tuple[UUID, UUID]:
     """One reservation of ``user_id`` on ``MARKET`` for ``strategy_id``, with a
     signal of its own. Returns ``(reservation_id, signal_id)``."""
@@ -80,6 +82,7 @@ async def _reservation(
             status=status,
             expires_at=expires_at,
             user_id=user_id,
+            mode=mode,
         )
         await session.commit()
     return reservation_id, signal_id
@@ -141,11 +144,85 @@ async def test_sum_active_counts_only_the_users_own_reservations(
 
     async with pg_session_factory() as session:
         repository = SqlAlchemyReservationRepository(session)
-        mine = await repository.sum_active(OWNER_ID, *MARKET, NOW)
-        theirs = await repository.sum_active(other, *MARKET, NOW)
+        mine = await repository.sum_active(OWNER_ID, *MARKET, Mode.LIVE, NOW)
+        theirs = await repository.sum_active(other, *MARKET, Mode.LIVE, NOW)
 
     assert mine == Decimal("100")
     assert theirs == Decimal("250")
+
+
+async def test_sum_active_counts_only_reservations_of_the_asked_mode(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """Decision 26: a simulated reservation holds no real capital and a real one
+    no simulated capital, for the same user on the same market. A second user's
+    reservation of either mode stays out as well."""
+    other = await _other_user_with_a_pool(pg_session_factory)
+    strategy_id = await _strategy(pg_session_factory)
+    for user_id, amount, mode in (
+        (OWNER_ID, "100", "LIVE"),
+        (OWNER_ID, "30", "SIMULATION"),
+        (other, "250", "LIVE"),
+        (other, "7", "SIMULATION"),
+    ):
+        await _reservation(
+            pg_session_factory,
+            user_id=user_id,
+            strategy_id=strategy_id,
+            amount=Decimal(amount),
+            mode=mode,
+        )
+
+    async with pg_session_factory() as session:
+        repository = SqlAlchemyReservationRepository(session)
+        owner_live = await repository.sum_active(OWNER_ID, *MARKET, Mode.LIVE, NOW)
+        owner_simulation = await repository.sum_active(OWNER_ID, *MARKET, Mode.SIMULATION, NOW)
+        other_simulation = await repository.sum_active(other, *MARKET, Mode.SIMULATION, NOW)
+
+    assert owner_live == Decimal("100")
+    assert owner_simulation == Decimal("30")
+    assert other_simulation == Decimal("7")
+
+
+async def test_insert_writes_the_reservations_mode(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    strategy_id = await _strategy(pg_session_factory)
+    signal_id = uuid4()
+    await seed_signal(
+        pg_session_factory,
+        signal_id=signal_id,
+        strategy_id=strategy_id,
+        idempotency_key=f"k-{signal_id}",
+    )
+    async with pg_session_factory() as session:
+        await ensure_pool(session, MARKET, user_id=OWNER_ID)
+        delivery_id = await ensure_delivery(session, signal_id=signal_id, strategy_id=strategy_id)
+        await session.commit()
+    reservation = Reservation(
+        id=uuid4(),
+        strategy_id=strategy_id,
+        signal_id=signal_id,
+        delivery_id=delivery_id,
+        pool_key=PoolKey(
+            exchange=Exchange.PIONEX, venue=Venue.SPOT, settlement_currency=Currency.USDT
+        ),
+        amount=Decimal("100"),
+        status=ReservationStatus.PENDING,
+        mode=Mode.SIMULATION,
+        expires_at=NOW + timedelta(minutes=5),
+    )
+
+    async with pg_session_factory() as session:
+        await SqlAlchemyReservationRepository(session).insert(OWNER_ID, reservation)
+        await session.commit()
+
+    assert (await _row(pg_session_factory, reservation.id)).mode == "SIMULATION"
+    async with pg_session_factory() as session:
+        found = await SqlAlchemyReservationRepository(session).find_by_signal_id(
+            OWNER_ID, signal_id
+        )
+    assert found is not None and found.mode is Mode.SIMULATION
 
 
 async def test_insert_writes_the_user_and_that_users_pool_on_the_market(
@@ -179,6 +256,7 @@ async def test_insert_writes_the_user_and_that_users_pool_on_the_market(
         ),
         amount=Decimal("100"),
         status=ReservationStatus.PENDING,
+        mode=Mode.LIVE,
         expires_at=NOW + timedelta(minutes=5),
     )
 
@@ -214,6 +292,7 @@ async def test_insert_refuses_a_reservation_that_names_no_delivery(
         ),
         amount=Decimal("100"),
         status=ReservationStatus.PENDING,
+        mode=Mode.LIVE,
         expires_at=NOW + timedelta(minutes=5),
     )
 
@@ -248,6 +327,7 @@ async def test_insert_refuses_a_market_the_user_holds_no_pool_on(
         ),
         amount=Decimal("100"),
         status=ReservationStatus.PENDING,
+        mode=Mode.LIVE,
         expires_at=NOW + timedelta(minutes=5),
     )
 
@@ -287,6 +367,7 @@ async def test_a_reservation_cannot_reference_another_users_pool(
                 settlement_currency=MARKET[2],
                 amount=Decimal("100"),
                 status="PENDING",
+                mode="LIVE",
                 expires_at=NOW + timedelta(minutes=5),
             )
         )

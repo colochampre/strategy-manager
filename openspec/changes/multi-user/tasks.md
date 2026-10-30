@@ -1136,10 +1136,18 @@ The rule: a delivery opens LIVE only if `.env` `DRY_RUN` is false and the user's
 
 **Risk:** item 1 (0035 backfills what decides a real close); item 3 (`/api/me`'s shape); item 4 (the race between a flip and an opening). It gets an independent verifier before the PR.
 
-- [ ] E.1 The columns (backend).
+- [x] E.1 The columns (backend).
   - `Mode` in the domain, and a pure `effective_mode(brake, user_mode)`: `LIVE` only for brake off and `LIVE`.
   - 0035 with tests on real PostgreSQL through `migrated_database(name, "0034")`: each backfill case, the refusal, the CHECKs, a new user's default, a reservation without a mode refused, downgrade and a second upgrade. The test seeds both `DRY_RUN` values.
   - The nine test files that insert reservations by hand gain the column.
+- **Evidence for E.1 and E.4's allocation half (2026-10-30, the parent for 0035 and `Mode`, one Sonnet writer for the rest, the parent for the pools panel):**
+  - `Mode` and `effective_mode` in `shared/domain/mode.py`, since allocation, execution and identity all read them. RED on an assertion first (`LIVE is SIMULATION`, the stub ignored the brake).
+  - 0035 cannot fail on an assertion before the revision exists, so by mutations seen red and restored: real evidence loses to simulated; closing orders, orders, or fake orders not read as evidence; no refusal; the refusal ignoring the net; users not backfilled; the brake ignored; users defaulting to `LIVE`; the column left nullable; each CHECK gone; the downgrade not refusing. A fourteenth mutation meant for "no evidence is always `LIVE`" produced invalid SQL, so it proved nothing; "the brake ignored" covers that rule.
+  - `Reservation.mode` is required with no default and `User.mode` required; `UserModePort`, with `SqlAlchemyUserMode(session, brake=...)` reading `FOR SHARE`, is called right after the pool advisory lock; `sum_active` takes the mode (decision 26).
+  - The writer did not work test-first: adding required fields breaks every fixture with constructor errors. Its tests are proven by mutations seen red and restored: the mode hard-coded in `AllocateCapital`; the read moved before `acquire`; `sum_active` without the mode filter (`PARTIAL is FULL`, `130 == 100`); the brake ignored; `FOR SHARE` removed. That last one fails on the recorded mode, not on `not task.done()`: without `FOR SHARE` the opening still blocks on the foreign key's `FOR KEY SHARE` at the insert, having read the old mode. So the recorded mode is what pins it.
+  - Found on the way: `GET /api/pools` calls `sum_active`. It now takes the user's effective mode, so the panel shows what the next opening would get (decision 26). RED on an assertion first (`300 == 7`, with the mode fixed to `LIVE`).
+  - `test_0029_users.py` asserts the head schema's `users` columns, so it gains `mode`.
+  - Gate: ruff 0, mypy 0, full pytest with that one test failing and nothing else (a first run was stopped by the machine's low memory); the test fixed and its file rerun.
 - [ ] E.2 The user's mode (`POST /api/me/mode`).
   - `GET /api/me` answers `mode` and `dry_run_brake`.
   - `POST /api/me/mode` takes the user row `FOR UPDATE`. To `LIVE`: 409 `MODE_LIVE_NEEDS_TRADE_KEY` without an active trade-capable key on some exchange. To `SIMULATION`: 409 `MODE_SIMULATION_NEEDS_FLAT` and the list by symbol, while the user holds a live reservation, a live open allocation or a SUBMITTED live attempt. Either way 409 `MODE_BRAKE_ON` under the brake. Each user changes only their own.
@@ -1150,8 +1158,8 @@ The rule: a delivery opens LIVE only if `.env` `DRY_RUN` is false and the user's
   - `tradable_pools` per mode; `venue_net_position_reader_for` takes the mode.
   - `DryRunTradeCapability` goes: simulation needs no trade-capable key, LIVE does, for that exchange.
 - [ ] E.4 An opening records its mode.
-  - `AllocateCapital` takes the user row `FOR SHARE` after the pool advisory lock and before the reservation write, computes the effective mode, and writes it on the reservation.
-  - `sum_active` counts only that mode (decision 26).
+  - Done with E.1: `AllocateCapital` takes the user row `FOR SHARE` after the pool advisory lock and before the reservation write, computes the effective mode, and writes it on the reservation.
+  - Done with E.1: `sum_active` counts only that mode (decision 26).
   - LIVE with no trade-capable key on that exchange refuses in the lock too, with the existing reason: a flip can land after the pre-checks. If the mode decided in the lock differs from the one the pre-checks used, nothing is reserved and the delivery runs again.
   - `PlaceOrder` picks its adapter from the reservation.
   - Lock-hold harness on real PostgreSQL: a flip to simulation waits for an opening in flight (`not task.done()`); an opening that starts after the flip runs in simulation; a real reservation never appears after the flat check passed.

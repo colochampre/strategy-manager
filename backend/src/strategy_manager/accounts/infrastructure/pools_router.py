@@ -24,6 +24,7 @@ from strategy_manager.identity.domain.user import User
 from strategy_manager.identity.infrastructure.dependencies import current_user
 from strategy_manager.shared.config import get_settings
 from strategy_manager.shared.db import get_session
+from strategy_manager.shared.domain.mode import effective_mode
 from strategy_manager.shared.infrastructure.clock import SystemClock
 from strategy_manager.shared.infrastructure.wire import Instant, Money
 
@@ -79,10 +80,13 @@ class PoolBody(BaseModel):
 
 @router.get("", response_model=list[PoolBody])
 async def list_pools(session: SessionDep, user: CurrentUserDep) -> list[PoolBody]:
-    """The signed-in user's pools only (multi-user design AD8)."""
+    """The signed-in user's pools only (multi-user design AD8), reserved and
+    allocatable as their next opening would see them (decision 26)."""
+    settings = get_settings()
     overview = SqlAlchemyPoolOverview(
         session,
         SystemClock(),
-        snapshot_max_age_seconds=get_settings().balance_snapshot_max_age_seconds,
+        snapshot_max_age_seconds=settings.balance_snapshot_max_age_seconds,
     )
-    return [PoolBody.of(pool) for pool in await overview.list_pools(user.id)]
+    mode = effective_mode(brake=settings.dry_run, user_mode=user.mode)
+    return [PoolBody.of(pool) for pool in await overview.list_pools(user.id, mode)]

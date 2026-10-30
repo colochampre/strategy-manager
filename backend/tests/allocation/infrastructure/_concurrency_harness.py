@@ -25,7 +25,7 @@ from strategy_manager.shared.domain.money import Currency, Exchange, Money, Venu
 from strategy_manager.shared.infrastructure.clock import SystemClock
 from strategy_manager.strategies.application.policy_adapter import StrategyPolicyAdapter
 from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStrategyRepository
-from tests.allocation.fakes import AlwaysEnabledPool, RecordingSkipRecorder
+from tests.allocation.fakes import AlwaysEnabledPool, FixedUserMode, RecordingSkipRecorder
 from tests.owner import OWNER_ID, allocate_command
 
 POOL_BALANCE = Decimal("1000")
@@ -58,6 +58,7 @@ def build_allocate_capital(session: AsyncSession, lock: AdvisoryLockPort) -> All
         reservation_ttl_seconds=30,
         skip_recorder=RecordingSkipRecorder(),
         pool_status=AlwaysEnabledPool(),
+        user_mode=FixedUserMode(),
     )
 
 

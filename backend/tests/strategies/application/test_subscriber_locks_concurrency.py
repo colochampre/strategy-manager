@@ -57,7 +57,7 @@ from strategy_manager.strategies.infrastructure.subscribers_adapter import (
     StrategySubscribersAdapter,
 )
 from strategy_manager.subscriptions.infrastructure.models import SubscriptionRow
-from tests.allocation.fakes import AlwaysEnabledPool, RecordingSkipRecorder
+from tests.allocation.fakes import AlwaysEnabledPool, FixedUserMode, RecordingSkipRecorder
 from tests.ledger.infrastructure.conftest import seed_strategy
 from tests.owner import OWNER_ID, allocate_command, ensure_author_subscription
 from tests.strategies.wiring import real_subscribers
@@ -355,6 +355,7 @@ async def test_an_opening_in_a_subscribers_pool_waits_for_archive_and_is_then_re
                 reservation_ttl_seconds=30,
                 skip_recorder=RecordingSkipRecorder(),
                 pool_status=AlwaysEnabledPool(),
+                user_mode=FixedUserMode(),
             )
             outcome["value"] = await use_case.allocate(command)
 

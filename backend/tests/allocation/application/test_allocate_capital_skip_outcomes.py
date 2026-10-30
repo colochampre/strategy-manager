@@ -30,7 +30,7 @@ from tests.allocation.application.test_allocate_capital import (
     SequencedStrategyPolicyPort,
     _enabled_snapshot,
 )
-from tests.allocation.fakes import AlwaysEnabledPool, RecordingSkipRecorder
+from tests.allocation.fakes import AlwaysEnabledPool, FixedUserMode, RecordingSkipRecorder
 from tests.owner import OWNER_ID
 
 
@@ -62,6 +62,7 @@ def _use_case(
         reservation_ttl_seconds=30,
         skip_recorder=recorder,
         pool_status=AlwaysEnabledPool(),
+        user_mode=FixedUserMode(),
     )
 
 

@@ -34,7 +34,7 @@ from tests.allocation.application.test_allocate_capital import (
     FrozenClock,
     _enabled_snapshot,
 )
-from tests.allocation.fakes import RecordingPoolStatus, RecordingSkipRecorder
+from tests.allocation.fakes import FixedUserMode, RecordingPoolStatus, RecordingSkipRecorder
 from tests.owner import OWNER_ID
 
 
@@ -92,6 +92,7 @@ def _rig(*, disabled: bool) -> _Rig:
         reservation_ttl_seconds=30,
         skip_recorder=recorder,
         pool_status=pool_status,
+        user_mode=FixedUserMode(),
     )
     return _Rig(use_case, strategy_id, pool_status, reservations, recorder)
 

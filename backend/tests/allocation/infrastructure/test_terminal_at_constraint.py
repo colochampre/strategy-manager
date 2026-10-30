@@ -133,9 +133,9 @@ async def _seed_active_reservation(conn: AsyncConnection) -> str:
         text(
             "INSERT INTO reservations "
             "(id, user_id, pool_id, strategy_id, signal_id, delivery_id, exchange, venue, "
-            "settlement_currency, amount, status, expires_at) VALUES "
+            "settlement_currency, amount, status, expires_at, mode) VALUES "
             "(:id, :user_id, :pool_id, :sid, :sig, :delivery, 'pionex', 'spot', 'USDT', "
-            ":amount, 'PENDING', now() + interval '1 hour')"
+            ":amount, 'PENDING', now() + interval '1 hour', 'LIVE')"
         ),
         {
             "id": reservation_id,

@@ -76,6 +76,7 @@ from strategy_manager.ledger.application.read_symbol_holdings import ReadSymbolH
 from strategy_manager.ledger.application.record_fill import RecordFill
 from strategy_manager.ledger.infrastructure.repository import SqlAlchemyLedgerRepository
 from strategy_manager.shared.application.job import ClaimedJob, Job, JobKind
+from strategy_manager.shared.domain.mode import Mode
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 from strategy_manager.shared.infrastructure.job_queue import PostgresJobQueue
 from strategy_manager.shared.infrastructure.worker_runner import JobHandler, WorkerRunner
@@ -98,7 +99,7 @@ from strategy_manager.subscriptions.infrastructure.adapters import OpenAllocatio
 from strategy_manager.subscriptions.infrastructure.repository import (
     SqlAlchemySubscriptionRepository,
 )
-from tests.allocation.fakes import AlwaysEnabledPool, RecordingSkipRecorder
+from tests.allocation.fakes import AlwaysEnabledPool, FixedUserMode, RecordingSkipRecorder
 from tests.execution.fakes import RecordingOrderOutcomes, RecordingSettleOutcomes
 from tests.owner import OWNER_ID, ensure_delivery, ensure_pool, seed_snapshot
 from tests.signals.fakes import FakeTradeCapability, RecordingSignalOutcomes
@@ -301,6 +302,7 @@ async def test_the_open_waits_for_the_close_to_settle_then_grants_the_freed_bala
                 ),
                 amount=Decimal("100"),
                 status=ReservationStatus.FILLED,
+                mode=Mode.LIVE,
                 expires_at=START,
             )
         )
@@ -501,6 +503,7 @@ async def test_the_open_waits_for_the_close_to_settle_then_grants_the_freed_bala
             reservation_ttl_seconds=30,
             skip_recorder=RecordingSkipRecorder(),
             pool_status=AlwaysEnabledPool(),
+            user_mode=FixedUserMode(),
         )
         place_order = PlaceOrder(
             reservations=ReservationGatewayAdapter(reservation_repository),

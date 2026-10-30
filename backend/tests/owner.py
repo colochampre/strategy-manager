@@ -315,6 +315,7 @@ async def seed_reservation_row(
     expires_at: datetime,
     user_id: UUID = OWNER_ID,
     delivery_id: UUID | None = None,
+    mode: str = "LIVE",
 ) -> int:
     """One ``reservations`` row of ``user_id``, in that user's pool on
     ``market`` (seeded when missing, ``ensure_pool``), written raw. Returns the
@@ -332,10 +333,10 @@ async def seed_reservation_row(
         text(
             "INSERT INTO reservations "
             "(id, user_id, pool_id, strategy_id, signal_id, delivery_id, exchange, venue, "
-            "settlement_currency, amount, status, expires_at) "
+            "settlement_currency, amount, status, expires_at, mode) "
             "VALUES (:id, :user_id, :pool_id, :strategy_id, :signal_id, :delivery_id, "
             ":exchange, :venue, "
-            ":settlement_currency, :amount, :status, :expires_at)"
+            ":settlement_currency, :amount, :status, :expires_at, :mode)"
         ),
         {
             "id": reservation_id,
@@ -350,6 +351,7 @@ async def seed_reservation_row(
             "amount": amount,
             "status": status,
             "expires_at": expires_at,
+            "mode": mode,
         },
     )
     return pool_id

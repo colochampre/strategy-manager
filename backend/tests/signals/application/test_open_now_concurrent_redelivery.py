@@ -84,6 +84,7 @@ from strategy_manager.execution.infrastructure.repository import (
 from strategy_manager.ledger.application.read_symbol_holdings import ReadSymbolHoldings
 from strategy_manager.ledger.application.record_fill import RecordFill
 from strategy_manager.ledger.infrastructure.repository import SqlAlchemyLedgerRepository
+from strategy_manager.shared.domain.mode import Mode
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 from strategy_manager.signals.application.holding_guard import HoldingGuard
 from strategy_manager.signals.application.process_signal import (
@@ -100,7 +101,7 @@ from strategy_manager.signals.infrastructure.repository import SqlAlchemySignalR
 from strategy_manager.signals.infrastructure.signal_context import SignalContextAdapter
 from strategy_manager.strategies.application.policy_adapter import StrategyPolicyAdapter
 from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStrategyRepository
-from tests.allocation.fakes import AlwaysEnabledPool, RecordingSkipRecorder
+from tests.allocation.fakes import AlwaysEnabledPool, FixedUserMode, RecordingSkipRecorder
 from tests.execution.fakes import RecordingOrderOutcomes
 from tests.owner import OWNER_ID, ensure_delivery, ensure_pool, seed_snapshot
 from tests.signals.fakes import FakeTradeCapability, RecordingSignalOutcomes
@@ -209,9 +210,12 @@ class RaceSyncedReservations:
         exchange: str,
         venue: str,
         settlement_currency: str,
+        mode: Mode,
         now: datetime,
     ) -> Decimal:
-        return await self._inner.sum_active(user_id, exchange, venue, settlement_currency, now)
+        return await self._inner.sum_active(
+            user_id, exchange, venue, settlement_currency, mode, now
+        )
 
     async def insert(self, user_id: UUID, reservation: Reservation) -> None:
         await self._inner.insert(user_id, reservation)
@@ -339,6 +343,7 @@ async def _seed_settled_flat_holding(
                 # reads as in flight -- the deferral branch is not what this
                 # test is about.
                 status=ReservationStatus.FILLED,
+                mode=Mode.LIVE,
                 expires_at=START - timedelta(minutes=30),
             )
         )
@@ -458,6 +463,7 @@ def _build_handler(
             reservation_ttl_seconds=RESERVATION_TTL_SECONDS,
             skip_recorder=RecordingSkipRecorder(),
             pool_status=AlwaysEnabledPool(),
+            user_mode=FixedUserMode(),
         ),
         place_order=PlaceOrder(
             reservations=ReservationGatewayAdapter(own_reservations),

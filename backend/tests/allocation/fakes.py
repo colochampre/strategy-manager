@@ -3,6 +3,8 @@
 from dataclasses import dataclass, field
 from uuid import UUID
 
+from strategy_manager.shared.domain.mode import Mode
+
 
 @dataclass
 class RecordingSkipRecorder:
@@ -46,3 +48,20 @@ class RecordingPoolStatus:
         self.calls.append((exchange, venue, settlement_currency))
         self.events.append("pool_status")
         return self.disabled
+
+
+@dataclass
+class FixedUserMode:
+    """``UserModePort`` for tests that are not about the mode: every opening runs
+    in ``mode`` (``LIVE`` by default, what a reservation recorded before the mode
+    existed became). ``users`` and ``events`` record the calls, ``events`` shared
+    with the fakes around it so a test can prove the read came after the lock."""
+
+    mode: Mode = Mode.LIVE
+    events: list[str] = field(default_factory=list)
+    users: list[UUID] = field(default_factory=list)
+
+    async def effective_mode(self, user_id: UUID) -> Mode:
+        self.users.append(user_id)
+        self.events.append("user_mode")
+        return self.mode

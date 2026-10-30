@@ -23,6 +23,7 @@ class UserRow(Base):
         CheckConstraint(
             "email = lower(email) AND email !~ '[[:space:]]'", name="ck_users_email_normalized"
         ),
+        CheckConstraint("mode IN ('LIVE', 'SIMULATION')", name="ck_users_mode"),
     )
 
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
@@ -33,3 +34,5 @@ class UserRow(Base):
     last_seen_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+    # Added by migration 0035. A new user starts in simulation (decision 6).
+    mode: Mapped[str] = mapped_column(Text, nullable=False, server_default="SIMULATION")
