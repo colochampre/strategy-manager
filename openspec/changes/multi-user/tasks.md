@@ -1107,7 +1107,9 @@ The strategy page shows the webhook URL with the secret masked by its last four 
 2. pps.6: built by the assistant from a detached worktree of `origin/main` at `ddf82629b572`, `npm ci` 0, build 0, 22 entries, SHA-256 `253e482844d0a546136b5e64013a98194d2d206c2ff4c5d7f280c5c6837f14c9`; the owner's block printed `/root/panel-ddf82629b572.tgz: OK`, `readable`, `bundle:   ddf82629b572` and `checkout: ddf82629b572`.
 3. The panel, read by the owner: "El panel muestra correctamente la URL enmascarada y la visibilidad al lado del titulo con su icono". This also closes PR D's open point about the visibility on the strategy page.
 
-**Still open:** the first real signal after the deploy authenticates with the alert's unchanged URL and makes exactly one delivery (C's and D's open check).
+**The first real signal after PR C (read by the owner, 2026-10-30):** `SFPUSDT.P` buy received 2026-10-30 12:00:03 UTC: one ACTIVE subscription, one delivery `PROCESSED`, one reservation `FILLED` at 322.89, one attempt `FILLED`, 12 fills. The signal's own `status` reads `ACCEPTED`, as designed since C.7: after a fan-out that delivered, the outcome lives on the delivery. This closes PR C's check for an opening.
+
+**Still open:** that signal predates PR D's deploy (the owner reported it at about 14:48 UTC), so it authenticated with the old global secret. The first signal after that deploy must authenticate through the strategy's hash with the alert's unchanged URL and make exactly one delivery. The close of this SFP position is the likely first one, and it also proves a close's delivery. A wrong secret answers a 401 and logs nothing, so a close that TradingView fired and the panel never shows must be raised at once: the position would stay open.
 
 ## PR E-G
 
