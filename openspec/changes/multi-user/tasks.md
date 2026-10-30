@@ -1148,10 +1148,19 @@ The rule: a delivery opens LIVE only if `.env` `DRY_RUN` is false and the user's
   - Found on the way: `GET /api/pools` calls `sum_active`. It now takes the user's effective mode, so the panel shows what the next opening would get (decision 26). RED on an assertion first (`300 == 7`, with the mode fixed to `LIVE`).
   - `test_0029_users.py` asserts the head schema's `users` columns, so it gains `mode`.
   - Gate: ruff 0, mypy 0, full pytest with that one test failing and nothing else (a first run was stopped by the machine's low memory); the test fixed and its file rerun.
-- [ ] E.2 The user's mode (`POST /api/me/mode`).
+- [x] E.2 The user's mode (`POST /api/me/mode`).
   - `GET /api/me` answers `mode` and `dry_run_brake`.
   - `POST /api/me/mode` takes the user row `FOR UPDATE`. To `LIVE`: 409 `MODE_LIVE_NEEDS_TRADE_KEY` without an active trade-capable key on some exchange. To `SIMULATION`: 409 `MODE_SIMULATION_NEEDS_FLAT` and the list by symbol, while the user holds a live reservation, a live open allocation or a SUBMITTED live attempt. Either way 409 `MODE_BRAKE_ON` under the brake. Each user changes only their own.
   - Moving to `LIVE` with simulated positions open succeeds (decision 26).
+- **Evidence for E.2 (2026-10-30, the parent, inline):**
+  - `ChangeMode` in `identity/application/`; `SqlAlchemyLiveExposure` in `execution/infrastructure/`; `holds_trade_capable_key` on the vault adapter. RED on assertions first (`404 == 409`, the old `/api/me` body), against a stub reader so the test module could import.
+  - `/api/me` answers the stored mode, not the effective one: the panel says "forced by the brake" from the two values together.
+  - `expires_at` is not read: a reservation the sweeper has not reached may still have a worker placing its order. A SUBMITTED attempt counts with or without an order id.
+  - The reads run reservation, attempt, ledger, in the order exposure moves. Settling commits fills and terminal status together (TXN-B2), so whatever left one read has reached the next. The opposite order could read a user with a real position as flat; a test pins the order.
+  - The lock test holds `FOR SHARE` with a reservation uncommitted, sees `not task.done()`, commits, and the change answers 409 naming the symbol.
+  - Fourteen mutations seen red and restored: no row lock; ledger read first; the reservation's mode ignored, its user, or SUBMITTED; the attempt's mode ignored, its user, or a closing attempt missed; rehearsal fills counted; no market key; the key's user, activity, or trade capability ignored; the brake ignored. The attempt's user survived the first run, so the test that another user's exposure refuses nobody gained a SUBMITTED attempt.
+  - Gate: ruff 0, mypy 0, full pytest with one test failing and nothing else: the secret sweep asks every new write route for a real body. It gained one and its file was rerun.
+  - `frontend/src/shared/api/me.ts` still reads `dry_run` until E.7, so the panel on this branch is not deployable before then.
 - [ ] E.3 Adapters by mode (no behaviour change for a `LIVE` owner).
   - `exchange_for(session, user_id, mode)`: `LIVE` loads that user's vault key, `SIMULATION` returns that user's fake. The fakes exist whatever the brake. `LIVE` can never return a fake, nor `SIMULATION` a live adapter; a test pins each.
   - `FakeVenueBook` keyed by user, seeded only from `fake-fill-` rows. Two users in simulation on one symbol keep separate nets.

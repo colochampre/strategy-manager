@@ -38,6 +38,16 @@ class SqlAlchemyUserRepository:
             update(UserRow).where(UserRow.id == user_id).values(last_seen_at=now)
         )
 
+    async def lock_for_mode_change(self, user_id: UUID) -> None:
+        await self._session.execute(
+            select(UserRow.id).where(UserRow.id == user_id).with_for_update()
+        )
+
+    async def set_mode(self, user_id: UUID, mode: Mode) -> None:
+        await self._session.execute(
+            update(UserRow).where(UserRow.id == user_id).values(mode=mode.value)
+        )
+
 
 def _to_domain(row: UserRow) -> User:
     return User(

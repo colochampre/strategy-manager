@@ -25,6 +25,9 @@ from strategy_manager.shared.domain.errors import InvariantViolation
 _ZERO = Decimal(0)
 _BUY = "BUY"
 
+#: Joins the spellings of one allocation's symbol in ``OpenAllocationOrigin``.
+SPELLING_SEPARATOR = " / "
+
 
 class Origin(StrEnum):
     REHEARSAL = "rehearsal"
@@ -129,7 +132,7 @@ def fold_open_allocations(groups: Sequence[LedgerGroup]) -> tuple[OpenAllocation
                 exchange=first.exchange,
                 venue=first.venue,
                 settlement_currency=first.settlement_currency,
-                symbol=" / ".join(sorted({row.symbol for row in rows})),
+                symbol=SPELLING_SEPARATOR.join(sorted({row.symbol for row in rows})),
                 holds_rehearsal_fill=any(row.rehearsal for row in rows),
                 holds_live_fill=any(not row.rehearsal for row in rows),
             )

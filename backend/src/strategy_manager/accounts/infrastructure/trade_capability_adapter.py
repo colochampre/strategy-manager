@@ -24,7 +24,7 @@ seen on the very next signal. A key replaced between this read and
 
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import exists, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from strategy_manager.accounts.infrastructure.models import ExchangeCredentialRow
@@ -56,6 +56,19 @@ class VaultTradeCapabilityAdapter:
         if trade_capable is None:
             return TradeCapability.NO_KEY
         return TradeCapability.TRADE_CAPABLE if trade_capable else TradeCapability.READ_ONLY
+
+    async def holds_trade_capable_key(self, user_id: UUID) -> bool:
+        """On any exchange: what going live asks (decision 6). The opening asks
+        ``capability`` for its own exchange, in the lock."""
+        return bool(
+            (
+                await self._session.execute(
+                    select(
+                        exists().where(_ROW.user_id == user_id, _ROW.is_active, _ROW.trade_capable)
+                    )
+                )
+            ).scalar_one()
+        )
 
 
 class DryRunTradeCapability:

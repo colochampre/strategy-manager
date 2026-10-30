@@ -113,6 +113,7 @@ _BODIES: dict[tuple[str, str], dict[str, Any]] = {
         "api_secret": "SWEEP-FAKE-SECRET-wxyz",
     },
     ("PATCH", "/api/subscriptions/{subscription_id}"): {"allocation_percent": "40"},
+    ("POST", "/api/me/mode"): {"mode": "SIMULATION"},
 }
 
 

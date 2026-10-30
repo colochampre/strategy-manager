@@ -32,7 +32,7 @@ from strategy_manager.identity.infrastructure.dependencies import (
 from strategy_manager.main import create_app
 from tests.identity_auth import FORGED_HEADERS, OTHER_HEADERS, sign_in_as_admin
 
-OPEN_TO_ANY_USER = {"/api/me"}
+OPEN_TO_ANY_USER = {"/api/me", "/api/me/mode"}
 #: Owner decision 16: the routes any signed-in user reaches, each answering that
 #: user's own rows only. Listed explicitly, so a new route cannot join the set by
 #: forgetting ``require_admin``: it fails the first test below instead.
