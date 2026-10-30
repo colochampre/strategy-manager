@@ -163,4 +163,9 @@ These come from the owner's own words above. They are not asked again.
     - So one author cannot repeat their own name, and two authors may share one. In the public list (PR F) the author's display name tells them apart.
     - Production holds one author, so the new unique is satisfied by today's rows.
 
+24. **Copy stays enabled on a secret shown once, even with no webhook host configured (PR D, D.6, 2026-10-30).** The owner chose "Creo que convendría igualmente" to the recommendation to keep it.
+    - Operator-panel decision 53 disables Copy on the webhook URL when no usable `webhook_public_origin` is configured, so an incomplete URL is never copied.
+    - A secret is now shown once (AD6). Disabling Copy there would leave it to be transcribed by hand, or regenerated.
+    - So the shown-once view copies the path with the secret and says to put the host in front. Decision 53 still holds everywhere else.
+
 11. **The existing data becomes the owner's (Q10, 2026-10-21; a default, stated rather than asked).** The owner becomes the first user and the admin, and owns today's strategies, keys, pools, ledger and signals. Nothing already recorded changes owner or meaning. The migration that adds the owner column fills it with the owner's user for every existing row. Like every migration, it is rehearsed on a throwaway copy first.
