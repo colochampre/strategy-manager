@@ -1111,6 +1111,63 @@ The strategy page shows the webhook URL with the secret masked by its last four 
 
 **Still open:** that signal predates PR D's deploy (the owner reported it at about 14:48 UTC), so it authenticated with the old global secret. The first signal after that deploy must authenticate through the strategy's hash with the alert's unchanged URL and make exactly one delivery. The close of this SFP position is the likely first one, and it also proves a close's delivery. A wrong secret answers a 401 and logs nothing, so a close that TradingView fired and the panel never shows must be raised at once: the position would stay open.
 
-## PR E-G
+## PR E: the mode belongs to the user (AD7, decisions 6, 7, 13, 14, 26)
 
-Planned in `design.md`, "Delivery". Their tasks are written when the previous PR is merged, so each starts from what production actually is. PR E's mode columns take migration 0035, because PR D2's 0034 holds the secret's last four and PR D's 0033 holds the secret hash, the visibility and the drop of `strategies.allocation_percent`. The signals' `status`, `outcome_reason`, `outcome_detail` and `decided_at` stay, because they hold the strategy-level refusals (C.7). Advisory N1 (Leave with a queued opening) must be closed before PR F.
+Written 2026-10-30, after PR D2's deploy, from a read-only map of today's code. Branch `feat/multi-user-mode`, cut from `main` `ddf8262`.
+
+The rule: a delivery opens LIVE only if `.env` `DRY_RUN` is false and the user's `mode` is `LIVE`; otherwise it opens in simulation, against the user's real balance. The mode is recorded on the reservation at open, and everything after that (the order, its settle, the close) follows the reservation, never the brake or the user's current mode. Production must trade exactly as before: the owner is `LIVE` and `DRY_RUN=false`.
+
+**What the map found, which the design did not say:**
+- No column records a mode today. "Rehearsal" is only the `fake-fill-` and `fake-order-` prefixes.
+- `exchange_for(session, user_id)` is entered before a job reads its reservation, so a job cannot yet pick an adapter by the recorded mode. A REVERSE can need two modes in one job: the close's and the reopening's.
+- A close never reads its reservation row; a recorded mode needs its own read there.
+- `FakeVenueBook` is one process-wide book keyed `(exchange, market)` and seeded from every ledger row, and the fakes exist only under `DRY_RUN=true`. `tradable_pools` is computed once, from either the fakes or the live classes.
+- `balance.sync`, the on-demand balance refresh and the vault self-test already use the real key whatever the mode. Nothing there changes.
+- A scan compares the ledger with the venue, and the ledger holds `fake-fill-` rows, so scanning a user with simulated positions would report the rehearsal itself as a discrepancy.
+
+**Defaults, stated rather than asked:**
+- `users.mode` is `LIVE | SIMULATION`, `NOT NULL`, default `SIMULATION` (decision 6). 0035 sets existing users to `LIVE` when `DRY_RUN=false` at migration, else `SIMULATION`, read from the setting as 0033 read the secret.
+- `reservations.mode` is `NOT NULL` with **no default**: a writer that forgets it fails loudly instead of recording a wrong mode. Backfill, per reservation: any `fake-` fill or order and no real one is `SIMULATION`; any real fill or order is `LIVE`; no evidence (no order ever reached a venue) takes the mode the users get. 0035 refuses, writing nothing, when an **open** allocation holds both real and fake fills; a closed one is `LIVE`, since real money moved.
+- Under the brake the server refuses any mode change (409 `MODE_BRAKE_ON`), as the badge cannot be clicked.
+- `/api/me` gains `mode` and replaces `dry_run` with `dry_run_brake`; the panel is its only reader. `/health` stays as it is, for monitoring. The keyed exchanges AD11 lists on `/api/me` wait for PR F, which is what reads them.
+- Under the brake reconciliation stays skipped as it is today. With the brake off it skips users in simulation with nothing real open, and it compares only real fills with the venue.
+- The startup guard keeps checking mismatches, now between a reservation's recorded mode and its fills, and it gains AD7's refusal: a real open allocation whose user has no active trade-capable key.
+- 0035 needs both services **stopped**: running code inserts reservations without `mode`.
+
+**Risk:** item 1 (0035 backfills what decides a real close); item 3 (`/api/me`'s shape); item 4 (the race between a flip and an opening). It gets an independent verifier before the PR.
+
+- [ ] E.1 The columns (backend).
+  - `Mode` in the domain, and a pure `effective_mode(brake, user_mode)`: `LIVE` only for brake off and `LIVE`.
+  - 0035 with tests on real PostgreSQL through `migrated_database(name, "0034")`: each backfill case, the refusal, the CHECKs, a new user's default, a reservation without a mode refused, downgrade and a second upgrade. The test seeds both `DRY_RUN` values.
+  - The nine test files that insert reservations by hand gain the column.
+- [ ] E.2 The user's mode (`POST /api/me/mode`).
+  - `GET /api/me` answers `mode` and `dry_run_brake`.
+  - `POST /api/me/mode` takes the user row `FOR UPDATE`. To `LIVE`: 409 `MODE_LIVE_NEEDS_TRADE_KEY` without an active trade-capable key on some exchange. To `SIMULATION`: 409 `MODE_SIMULATION_NEEDS_FLAT` and the list by symbol, while the user holds a live reservation, a live open allocation or a SUBMITTED live attempt. Either way 409 `MODE_BRAKE_ON` under the brake. Each user changes only their own.
+  - Moving to `LIVE` with simulated positions open succeeds (decision 26).
+- [ ] E.3 Adapters by mode (no behaviour change for a `LIVE` owner).
+  - `exchange_for(session, user_id, mode)`: `LIVE` loads that user's vault key, `SIMULATION` returns that user's fake. The fakes exist whatever the brake. `LIVE` can never return a fake, nor `SIMULATION` a live adapter; a test pins each.
+  - `FakeVenueBook` keyed by user, seeded only from `fake-fill-` rows. Two users in simulation on one symbol keep separate nets.
+  - `tradable_pools` per mode; `venue_net_position_reader_for` takes the mode.
+  - `DryRunTradeCapability` goes: simulation needs no trade-capable key, LIVE does, for that exchange.
+- [ ] E.4 An opening records its mode.
+  - `AllocateCapital` takes the user row `FOR SHARE` after the pool advisory lock and before the reservation write, computes the effective mode, and writes it on the reservation.
+  - `sum_active` counts only that mode (decision 26).
+  - LIVE with no trade-capable key on that exchange refuses in the lock too, with the existing reason: a flip can land after the pre-checks. If the mode decided in the lock differs from the one the pre-checks used, nothing is reserved and the delivery runs again.
+  - `PlaceOrder` picks its adapter from the reservation.
+  - Lock-hold harness on real PostgreSQL: a flip to simulation waits for an opening in flight (`not task.done()`); an opening that starts after the flip runs in simulation; a real reservation never appears after the flat check passed.
+- [ ] E.5 Everything after an opening follows the reservation.
+  - `ClosePosition` reads the mode of the reservation it closes; `settle` learns it from the attempt's reservation before building its adapter; `CloseOrphans` per allocation. A job builds an adapter only once it knows the mode.
+  - A REVERSE whose close and reopening differ in mode uses each one's adapter. Under the brake, a real allocation closes for real (decision 14), and a simulated position closes in simulation after the user went live (decision 26).
+- [ ] E.6 Reconciliation and the startup guard.
+  - The scan and booking skip a simulated user with nothing real open, and compare only real fills with the venue, so a live user's leftover simulated position is no discrepancy. `/reconciliation/confirmed`'s `dry_run` reads true for such a user.
+  - The startup guard as stated above, naming users by id and how many allocations each holds, and no longer refusing `DRY_RUN=true` with real allocations open.
+  - The worker's log and alert wording stop saying one mode for the whole process.
+- [ ] E.7 The panel (EN/ES).
+  - The badge reads `/api/me`: Simulation or Live for this user, clickable, with a confirmation; moving to Live says real orders will be placed. With the brake on it shows that simulation is forced for everyone and cannot be clicked. Each 409 is shown in words, and the flat refusal lists the symbols.
+  - Discrepancies and the nav badge read the per-user value.
+- [ ] E.8 Rehearsal and deploy (owner-run): a fresh backup; 0035 rehearsed on a throwaway restore with a downgrade to 0034 and a second upgrade, checking every reservation's mode against its fills and that the owner is `LIVE`; both services stopped for the migration, away from a 4h candle close; pps.6. Every query a script runs is exercised locally first.
+- [ ] E.D Gate, independent verifier, then push and PR on the owner's word, merge, deploy, delivery log.
+
+## PR F-G
+
+Planned in `design.md`, "Delivery". Their tasks are written when the previous PR is merged, so each starts from what production actually is. The signals' `status`, `outcome_reason`, `outcome_detail` and `decided_at` stay, because they hold the strategy-level refusals (C.7). Advisory N1 (Leave with a queued opening) must be closed before PR F.

@@ -279,6 +279,8 @@ The fakes stay process-lifetime, as today.
 
 **Closes follow the open (decision 14).** A closing delivery runs in the `mode` recorded on the reservation it closes, whatever the brake or the user's current mode say. So `exchange_for` is called with the reservation's mode for a close, and with the effective mode for an open.
 
+**Capital is per mode (decision 26).** Allocation counts only reservations of the mode it is deciding. A user may go live with simulated positions open; they run until they close, in simulation, and never shrink a real order.
+
 **Startup guard.** `assert_dry_run_matches_ledger` (`main.py:777-797`) no longer refuses `DRY_RUN=true` while real allocations are open; decision 14 makes that a valid state. What it still refuses is a real open allocation whose user has no active trade-capable key, because that close could not run. Its message names the users by id and how many allocations each holds.
 
 ### AD8. Every read and write is scoped, and checked across users
