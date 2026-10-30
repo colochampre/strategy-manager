@@ -1031,7 +1031,7 @@ An Opus verifier read the whole PR D section, AD6, AD8 and decisions 21 and 23, 
 ### Delivery
 
 - [x] D.D.1 Gate (backend and frontend), and an independent verifier over the whole PR. Done on 2026-10-30: the full backend gate was green after every unit and in the verifier's run at `7258fac`; frontend lint 0 and 2889/2889; the one fix after it touches only 0033's downgrade, whose migration tests (0031, 0032, 0033) and ruff pass.
-- [ ] D.D.2 Push and open the PR (on the owner's word).
+- [x] D.D.2 Push and open the PR (on the owner's word). PR #89, opened 2026-10-30 from `9eea362` (11 commits over `origin/main` `214db9b`).
 - [ ] D.D.3 Merge (owner), with a merge commit.
 - [ ] D.D.4 Deploy (D.7, D.8).
 - [ ] D.D.5 Delivery log row and "Production now".
