@@ -6,12 +6,12 @@ Sequential PRs A-G (`design.md`, "Delivery"), each cut from `main`. Every PR shi
 
 ## Production now
 
-- 2026-10-30: main `d75e5a4`, panel bundle `d75e5a488cc6`, alembic `0033`, certifi `2026.10.23`.
+- 2026-10-30: main `ddf8262`, panel bundle `ddf82629b572`, alembic `0034`, certifi `2026.10.23`.
 - `DRY_RUN=false`.
 - Access admits only the owner. The API verifies the Access assertion itself; `ADMIN_API_TOKEN` is gone from `.env`.
 - `users` holds one row, the owner's, created by their first `/api/me`. Every owned row is that user's, and every strategy's `author_id` is theirs.
 - Every strategy is traded through its author's subscription: 3 `ACTIVE` at 30 % and 3 `ENDED` (archived) at 5 %. Each of the 54 signals has one delivery. `strategies.allocation_percent` is gone (0033).
-- Every strategy is `PRIVATE` and has its own webhook secret hash, today the hash of the old global `WEBHOOK_SECRET`, so the TradingView alerts kept their URL. None has been regenerated. `GET /api/webhook-secret` no longer exists.
+- Every strategy is `PRIVATE` and has its own webhook secret hash, today the hash of the old global `WEBHOOK_SECRET`, so the TradingView alerts kept their URL. None had been regenerated at 0034 (it refuses otherwise), so each holds that secret's last four. `GET /api/webhook-secret` no longer exists.
 - The worker reports one enabled pool and one sealed key, Binance's.
 
 ## Delivery log
@@ -24,6 +24,7 @@ Sequential PRs A-G (`design.md`, "Delivery"), each cut from `main`. Every PR shi
 | #87 | Outside this change: certifi 2026.7.22 -> 2026.10.23, which drops the distrusted `emSign ECC Root CA - G3` (eMudhra, Mozilla bug 2083449), and `tests/shared/test_tls_trust.py` to pin it | `7f67fc3` (parents `5632e76`, `39ea058`) | 2026-10-27. Pull as `strategy`; `uv sync --locked` swapped only certifi; both services restarted, both active. The venv's httpx context read `2026.10.23 113 False` (version, distinct root names, G3 present). No WARNING or ERROR in 15 minutes of both journals. No panel step. |
 | #88 | PR C: subscriptions and fan-out, one delivery per eligible subscription, migrations 0031 and 0032 | `214db9b` (parents `7f67fc3`, `b2f1999`) | 2026-10-29, see "PR C's delivery" |
 | #89 | PR D: a webhook secret per strategy (stored as a hash, shown once), authoring for any user scoped to them, private strategies, migration 0033 | `d75e5a4` (parents `214db9b`, `541bd16`) | 2026-10-30, see "PR D's delivery" |
+| #90 | PR D2: the webhook secret masked with its last four characters, the visibility beside the settings heading, migration 0034 | `ddf8262` (parents `d75e5a4`, `e8e636c`) | 2026-10-30, see "PR D2's delivery" |
 
 ## PR A: identity from Cloudflare Access
 
@@ -1094,8 +1095,19 @@ The strategy page shows the webhook URL with the secret masked by its last four 
     3. The mask draws the four without percent-encoding, while the shown-once URL encodes the secret. Cosmetic, and only for a setting with characters that are not URL-safe.
     4. A refetch that fails after every retry following a regenerate swaps the page to its error branch and loses the shown-once secret. A failed background refetch did the same at baseline.
     5. Stale wording: this task line (fixed), some `WebhookMessage` test names still say "placeholder", an odd wrap in `regenerate_webhook_secret.py`'s docstring; `_view` and `list_strategies` index `last4s[id]`, so a delete racing the read answers 500 rather than 404.
-- [ ] H.3 Rehearsal and deploy (owner-run): a fresh backup, 0034 rehearsed on a throwaway restore with a downgrade to 0033 and a second upgrade; then pull, migrate with the services up, restart both, pps.6. Every query a script runs is exercised locally first (PR D's lesson).
-- [ ] H.D Gate, independent verifier, then push and PR on the owner's word, merge, deploy, delivery log.
+- [x] H.3 Rehearsal and deploy (owner-run): a fresh backup, 0034 rehearsed on a throwaway restore with a downgrade to 0033 and a second upgrade; then pull, migrate with the services up, restart both, pps.6. Every query a script runs is exercised locally first (PR D's lesson).
+- [x] H.D Gate, independent verifier, then push and PR on the owner's word, merge, deploy, delivery log.
+
+### PR D2's delivery
+
+**Before the handover (2026-10-30).** `rehearse_0034.sh` and `deploy_0034.sh` ran whole against the local PostgreSQL, with the service commands stubbed in the deploy's local mode, on a copy of the dev database brought to 0033 with a throwaway secret: both exit 0. With one strategy given a hash of its own, both stopped with exit 1 and the copy stayed at 0033. Both scripts check for such a strategy before the backup or the migration, so a refusal changes nothing.
+
+**PR D2's deploy, 2026-10-30** (owner-run):
+1. Pull as `strategy` to `ddf8262`; `rehearse_0034.sh`; `deploy_0034.sh`, which migrates with both services up and restarts both. The owner reported the steps done and pasted only the panel block's output, so these outputs are not recorded. What confirms them: the panel shows `***` and four characters, which only the restarted code at 0034 can serve.
+2. pps.6: built by the assistant from a detached worktree of `origin/main` at `ddf82629b572`, `npm ci` 0, build 0, 22 entries, SHA-256 `253e482844d0a546136b5e64013a98194d2d206c2ff4c5d7f280c5c6837f14c9`; the owner's block printed `/root/panel-ddf82629b572.tgz: OK`, `readable`, `bundle:   ddf82629b572` and `checkout: ddf82629b572`.
+3. The panel, read by the owner: "El panel muestra correctamente la URL enmascarada y la visibilidad al lado del titulo con su icono". This also closes PR D's open point about the visibility on the strategy page.
+
+**Still open:** the first real signal after the deploy authenticates with the alert's unchanged URL and makes exactly one delivery (C's and D's open check).
 
 ## PR E-G
 
