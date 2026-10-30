@@ -23,9 +23,9 @@ since 0031) and its CHECK are dropped; the share is the subscription's.
 
 **Downgrade.** Refuses when more than one user exists, as 0031's does, since
 the global name unique and the single share per strategy only hold for one
-author. It restores ``allocation_percent`` (nullable and defaulting to 100, as at 0032) with its CHECK,
-filled from each strategy's author subscription (the latest by ``created_at``),
-restores the global name unique, and drops the two columns.
+author. It restores ``allocation_percent`` (nullable and defaulting to 100, as at
+0032) with its CHECK, filled from each strategy's author subscription (the latest
+by ``created_at``), restores the global name unique, and drops the two columns.
 """
 
 import hashlib

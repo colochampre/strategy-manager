@@ -221,8 +221,11 @@ async def test_no_api_response_carries_a_secret_or_a_hash_except_the_two_that_is
     await seed_strategy(factory, strategy_id=strategy_id, author_id=admin)
     async with factory() as session:
         await session.execute(
-            text("UPDATE strategies SET webhook_secret_hash = :hash WHERE id = :id"),
-            {"hash": STORED_HASH, "id": strategy_id},
+            text(
+                "UPDATE strategies SET webhook_secret_hash = :hash, "
+                "webhook_secret_last4 = :last4 WHERE id = :id"
+            ),
+            {"hash": STORED_HASH, "last4": STRATEGY_SECRET[-4:], "id": strategy_id},
         )
         # The pool routes answer the signed-in admin's pools, and the share preview
         # reads the strategy author's (AD8): both users hold a synced Bybit pool.
@@ -373,6 +376,13 @@ async def test_no_api_response_carries_a_secret_or_a_hash_except_the_two_that_is
     if (method, template) == ("GET", "/api/credentials"):
         stored = [entry for entry in response.json() if entry["status"] == "STORED"]
         assert [entry["last4"] for entry in stored] == ["9876"]
+    if (method, template) in {("GET", "/api/strategies"), ("GET", "/api/strategies/{strategy_id}")}:
+        # The one place a character of the strategy's secret may leave: its last four,
+        # as the panel masks it, and nothing longer.
+        payload = response.json()
+        rows = payload if isinstance(payload, list) else [payload]
+        assert [row["secret_last4"] for row in rows] == [STRATEGY_SECRET[-4:]]
+        assert STRATEGY_SECRET[-5:] not in response.text
 
     # Never a value already held, on any route.
     forbidden = (GLOBAL_SECRET, STRATEGY_SECRET, STORED_HASH, "webhook_secret_hash")

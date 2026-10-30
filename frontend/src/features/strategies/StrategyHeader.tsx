@@ -68,7 +68,7 @@ export function StrategyHeader({ strategy }: StrategyHeaderProps) {
         <UptimeSummary uptime={strategy.uptime} />
       </p>
       <div id={panelId} className="mt-2">
-        {open && <WebhookMessage strategyId={strategy.id} archived={archived} />}
+        {open && <WebhookMessage strategyId={strategy.id} secretLast4={strategy.secret_last4} archived={archived} />}
       </div>
     </header>
   );

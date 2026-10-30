@@ -49,6 +49,7 @@ function strategy(overrides: Partial<Strategy> = {}): Strategy {
     allowed_pairs: ["SOLUSDT"],
     uptime: { seconds: 0, first_enabled_at: null, baseline: false },
     visibility: "PRIVATE",
+    secret_last4: "x4F2",
     ...overrides,
   };
 }

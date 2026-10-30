@@ -168,4 +168,9 @@ These come from the owner's own words above. They are not asked again.
     - A secret is now shown once (AD6). Disabling Copy there would leave it to be transcribed by hand, or regenerated.
     - So the shown-once view copies the path with the secret and says to put the host in front. Decision 53 still holds everywhere else.
 
+25. **The strategy page masks the webhook secret with its last four characters, as API keys are shown (after PR D's deploy, 2026-10-30).** The owner asked to replace the `<your secret>` placeholder with a mask "como las claves API", and chose "la 2 me parece bien" and then "Si, prefiero la 2" to storing a four-character hint over a fixed mask.
+    - Only the secret's hash is stored (AD6), so no character of it can be shown unless it is kept apart. The owner asked why the secret cannot be shown again: keeping it readable means storing it, and a stored secret is what a database dump would leak; showing it from the vault would make the API decrypt, which rule 8 forbids.
+    - The last four characters let the author tell which secret an alert carries, for instance after regenerating. They reveal 4 of 43 characters.
+    - Existing strategies get the last four of today's `WEBHOOK_SECRET`, as 0033 gave them its hash.
+
 11. **The existing data becomes the owner's (Q10, 2026-10-21; a default, stated rather than asked).** The owner becomes the first user and the admin, and owns today's strategies, keys, pools, ledger and signals. Nothing already recorded changes owner or meaning. The migration that adds the owner column fills it with the owner's user for every existing row. Like every migration, it is rehearsed on a throwaway copy first.

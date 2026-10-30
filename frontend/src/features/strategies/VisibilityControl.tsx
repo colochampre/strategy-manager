@@ -36,6 +36,7 @@ export function VisibilityControl({ strategy }: VisibilityControlProps) {
         }}
         disabled={strategy.archived_at !== null || change.isPending}
         selectClass="min-h-11 rounded-md border border-rule bg-ground px-3 text-sm text-ink disabled:opacity-50"
+        compact
       />
       {change.status === "error" && (
         <p role="alert" className="text-xs text-loss">

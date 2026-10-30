@@ -4,6 +4,8 @@ import { ApiError, apiFetch } from "@/shared/api/client";
 import { isSubscription } from "@/shared/api/subscriptions";
 import type { EnablementEvent, RegisteredStrategy, RegisterStrategyBody, Strategy, Visibility } from "@/shared/api/types";
 
+const SECRET_LAST4_LENGTH = 4;
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -32,7 +34,10 @@ function isStrategy(value: unknown): value is Strategy {
     (value.archived_at === null || typeof value.archived_at === "string") &&
     Array.isArray(value.allowed_pairs) &&
     isUptime(value.uptime) &&
-    (value.visibility === "PUBLIC" || value.visibility === "PRIVATE")
+    (value.visibility === "PUBLIC" || value.visibility === "PRIVATE") &&
+    // Exactly four characters: anything else is not the tail of a secret, and is not drawn as one.
+    typeof value.secret_last4 === "string" &&
+    value.secret_last4.length === SECRET_LAST4_LENGTH
   );
 }
 
@@ -150,10 +155,19 @@ export function useRegisterStrategy() {
   });
 }
 
-/** Regenerates the secret; the new one is the mutation's `data`, evicted like the one `useRegisterStrategy` holds. */
+/**
+ * Regenerates the secret; the new one is the mutation's `data`, evicted like the one `useRegisterStrategy` holds.
+ * The strategy is read again on success, because its `secret_last4` changed with the secret.
+ */
 export function useRegenerateWebhookSecret(strategyId: string) {
+  const queryClient = useQueryClient();
   return useMutation<string, Error, void>({
     mutationFn: () => regenerateWebhookSecret(strategyId),
+    // Not awaited: the secret is shown once, and a slow read must not hold it back.
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["strategies"] });
+      void queryClient.invalidateQueries({ queryKey: ["strategy", strategyId] });
+    },
     gcTime: 0,
   });
 }

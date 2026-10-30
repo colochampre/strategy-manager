@@ -138,7 +138,8 @@ export interface Subscription {
 /**
  * One strategy of `GET /api/strategies` (`StrategyView`). `subscription` is the signed-in user's live
  * (ACTIVE or LEAVING) subscription to it, or null; the share lives there, not on the strategy.
- * `archived_at` is null while the strategy is live.
+ * `archived_at` is null while the strategy is live. `secret_last4` is the last four characters of its
+ * webhook secret, the only part of it the API ever serves again: the panel masks the secret with them.
  */
 export interface Strategy {
   id: string;
@@ -153,6 +154,7 @@ export interface Strategy {
   allowed_pairs: string[];
   uptime: StrategyUptime;
   visibility: Visibility;
+  secret_last4: string;
 }
 
 /** Who else may subscribe to a strategy: a PRIVATE one only its author. Private is the default (decision 21). */

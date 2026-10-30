@@ -81,9 +81,9 @@ async def _host_strategy(session: AsyncSession) -> UUID:
         text(
             "INSERT INTO strategies "
             "(id, name, exchange, venue, settlement_currency, enabled, fill_mode, author_id, "
-            "webhook_secret_hash) "
+            "webhook_secret_hash, webhook_secret_last4) "
             "VALUES (:id, :name, :exchange, :venue, :currency, false, 'PARTIAL', :author, "
-            "'fixture')"
+            "'fixture', 'fxtr')"
         ),
         {
             "id": host,
@@ -139,6 +139,7 @@ async def _strategy(factory: Factory) -> UUID:
             settlement_currency=currency,
             author_id=OWNER_ID,
             webhook_secret_hash=secret_hash("fixture-secret"),
+            webhook_secret_last4="cret",
             enabled=False,
             fill_mode="PARTIAL",
             allowed_pairs=["STXUSDT"],

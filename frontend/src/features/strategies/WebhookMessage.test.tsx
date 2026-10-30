@@ -14,7 +14,13 @@ const SECRET = "s3cr3t-Vh4lu3-Zq9";
 const AWKWARD = "p&q/r s";
 const AWKWARD_ENCODED = "p%26q%2Fr%20s";
 const URL_BASE = "/webhook/tradingview?secret=";
-const PLACEHOLDER_URL = `${URL_BASE}<your secret>`;
+/** The last four characters of the strategy's secret, which the API serves; the rest cannot be read back. */
+const LAST4 = "x4F2";
+const MASKED_URL = `${URL_BASE}***${LAST4}`;
+const MASK_HINT_EN =
+  "Only the last four characters of the secret are kept, so you can tell which one an alert uses. The rest cannot be read back.";
+const MASK_HINT_ES =
+  "Solo se conservan los últimos cuatro caracteres del secreto, para que pueda reconocer cuál usa una alerta. El resto no puede volver a leerse.";
 const ORIGIN_PATH = "/api/webhook-origin";
 const REGENERATE_PATH = `/api/strategies/${ID}/webhook-secret`;
 const HOST = "https://hook.example.com";
@@ -45,6 +51,7 @@ interface Options {
   origin?: Answer;
   regenerate?: Answer;
   archived?: boolean;
+  secretLast4?: string;
 }
 
 /** The block, with the webhook's host answered by `origin` and the regenerate route by `regenerate`. */
@@ -63,7 +70,7 @@ function setup(options: Options = {}) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const tree = (strategyId: string) => (
     <QueryClientProvider client={queryClient}>
-      <WebhookMessage strategyId={strategyId} archived={options.archived ?? false} />
+      <WebhookMessage strategyId={strategyId} secretLast4={options.secretLast4 ?? LAST4} archived={options.archived ?? false} />
     </QueryClientProvider>
   );
   const view = render(tree(ID));
@@ -154,16 +161,46 @@ afterEach(async () => {
 });
 
 describe("WebhookMessage", () => {
-  it("shows the URL with a placeholder instead of the secret, and offers no way to read the secret", async () => {
+  it("shows the URL with the secret masked by its last four, and offers no way to read the secret", async () => {
     const { calls, regenerateCalls } = setup();
 
-    await waitFor(() => expect(urlText()).toBe(`${HOST}${PLACEHOLDER_URL}`));
+    await waitFor(() => expect(urlText()).toBe(`${HOST}${MASKED_URL}`));
     await settle();
 
     expect(screen.queryByRole("button", { name: "Show secret" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Copy URL" })).toBeNull();
     expect(regenerateCalls()).toHaveLength(0);
     expect(calls.every((call) => call.url.endsWith(ORIGIN_PATH))).toBe(true);
+  });
+
+  it("masks with the last four it is given, and no placeholder is drawn", async () => {
+    setup({ secretLast4: "Qm7_" });
+
+    await waitFor(() => expect(urlText()).toBe(`${HOST}${URL_BASE}***Qm7_`));
+
+    expect(document.body.textContent).not.toContain("<your secret>");
+  });
+
+  it("draws the last four apart, as the credentials' key hint draws its own", async () => {
+    setup();
+    await waitFor(() => expect(urlText()).toBe(`${HOST}${MASKED_URL}`));
+
+    const four = within(screen.getByLabelText("Webhook URL")).getByText(LAST4);
+
+    expect(four).toHaveClass("tracking-wider", "text-ink");
+  });
+
+  it("says what the four characters are for", async () => {
+    setup();
+
+    expect(await screen.findByText(MASK_HINT_EN)).toBeInTheDocument();
+  });
+
+  it("leaves the alert message free of the secret and of its mask", async () => {
+    setup();
+
+    expect(messageText()).toBe(webhookMessage(ID));
+    expect(messageText()).not.toContain(LAST4);
   });
 
   it("renders the copy-ready alert message for the strategy", () => {
@@ -214,7 +251,7 @@ describe("WebhookMessage", () => {
     it("puts a configured host in front of the path", async () => {
       setup();
 
-      await waitFor(() => expect(urlText()).toBe(`${HOST}${PLACEHOLDER_URL}`));
+      await waitFor(() => expect(urlText()).toBe(`${HOST}${MASKED_URL}`));
 
       expect(screen.queryByText(HOST_UNSET)).toBeNull();
       expect(screen.queryByText(HOST_ERROR)).toBeNull();
@@ -224,7 +261,7 @@ describe("WebhookMessage", () => {
       setup({ origin: () => new Promise<Response>(() => undefined) });
       await settle();
 
-      expect(urlText()).toBe(PLACEHOLDER_URL);
+      expect(urlText()).toBe(MASKED_URL);
       expect(screen.queryByText(HOST_UNSET)).toBeNull();
       expect(screen.queryByText(HOST_ERROR)).toBeNull();
     });
@@ -234,7 +271,7 @@ describe("WebhookMessage", () => {
 
       await waitFor(() => expect(screen.queryByText(HOST_UNSET)).toBeInTheDocument());
 
-      expect(urlText()).toBe(PLACEHOLDER_URL);
+      expect(urlText()).toBe(MASKED_URL);
     });
 
     it.each([
@@ -246,12 +283,12 @@ describe("WebhookMessage", () => {
 
       await waitFor(() => expect(screen.queryByText(HOST_ERROR)).toBeInTheDocument());
 
-      expect(urlText()).toBe(PLACEHOLDER_URL);
+      expect(urlText()).toBe(MASKED_URL);
     });
 
     it("draws the URL as text, never inside an anchor, and requests nothing at the origin", async () => {
       const { calls } = setup();
-      await waitFor(() => expect(urlText()).toBe(`${HOST}${PLACEHOLDER_URL}`));
+      await waitFor(() => expect(urlText()).toBe(`${HOST}${MASKED_URL}`));
 
       const code = screen.getByLabelText("Webhook URL");
       fireEvent.click(code);
@@ -267,7 +304,7 @@ describe("WebhookMessage", () => {
   describe("regenerating the secret", () => {
     it("asks first, says the old secret stops working, and sends nothing until it is confirmed", async () => {
       const { regenerateCalls } = setup();
-      await waitFor(() => expect(urlText()).toBe(`${HOST}${PLACEHOLDER_URL}`));
+      await waitFor(() => expect(urlText()).toBe(`${HOST}${MASKED_URL}`));
 
       fireEvent.click(regenerateButton());
 
@@ -282,12 +319,12 @@ describe("WebhookMessage", () => {
 
       expect(screen.queryByRole("dialog")).toBeNull();
       expect(regenerateCalls()).toHaveLength(0);
-      expect(urlText()).toBe(`${HOST}${PLACEHOLDER_URL}`);
+      expect(urlText()).toBe(`${HOST}${MASKED_URL}`);
     });
 
     it("confirming posts to the strategy's route, then shows the new URL with its secret and the warning", async () => {
       const { regenerateCalls } = setup({ regenerate: regenerates(AWKWARD) });
-      await waitFor(() => expect(urlText()).toBe(`${HOST}${PLACEHOLDER_URL}`));
+      await waitFor(() => expect(urlText()).toBe(`${HOST}${MASKED_URL}`));
 
       await regenerateNow();
 
@@ -298,14 +335,14 @@ describe("WebhookMessage", () => {
       expect(call?.url).not.toContain(AWKWARD_ENCODED);
       expect(screen.queryByRole("dialog")).toBeNull();
       expect(urlText()).toBe(`${HOST}${URL_BASE}${AWKWARD_ENCODED}`);
-      expect(screen.queryByText(`${HOST}${PLACEHOLDER_URL}`)).toBeNull();
+      expect(screen.queryByText(`${HOST}${MASKED_URL}`)).toBeNull();
       expect(screen.getByText(WARNING)).toBeInTheDocument();
     });
 
     it("copies the new URL with its secret from the shared Copy button", async () => {
       const writeText = stubClipboard();
       setup({ regenerate: regenerates(AWKWARD) });
-      await waitFor(() => expect(urlText()).toBe(`${HOST}${PLACEHOLDER_URL}`));
+      await waitFor(() => expect(urlText()).toBe(`${HOST}${MASKED_URL}`));
       await regenerateNow();
 
       await press(copyIssued());
@@ -317,13 +354,13 @@ describe("WebhookMessage", () => {
 
     it("puts the placeholder back and leaves no secret anywhere when it is dismissed", async () => {
       const { queryClient } = setup();
-      await waitFor(() => expect(urlText()).toBe(`${HOST}${PLACEHOLDER_URL}`));
+      await waitFor(() => expect(urlText()).toBe(`${HOST}${MASKED_URL}`));
       await regenerateNow();
       expect(urlText()).toBe(`${HOST}${URL_BASE}${SECRET}`);
 
       fireEvent.click(screen.getByRole("button", { name: "Done" }));
 
-      await waitFor(() => expect(urlText()).toBe(`${HOST}${PLACEHOLDER_URL}`));
+      await waitFor(() => expect(urlText()).toBe(`${HOST}${MASKED_URL}`));
       expect(screen.queryByText(WARNING)).toBeNull();
       await waitFor(() => expect(leaksOf(queryClient, [SECRET])).toEqual([]));
     });
@@ -331,7 +368,7 @@ describe("WebhookMessage", () => {
     it("leaves no secret in the cache, storage or console when the view is left", async () => {
       const writeText = stubClipboard();
       const { queryClient, unmount } = setup();
-      await waitFor(() => expect(urlText()).toBe(`${HOST}${PLACEHOLDER_URL}`));
+      await waitFor(() => expect(urlText()).toBe(`${HOST}${MASKED_URL}`));
       await regenerateNow();
       await press(copyIssued());
       expect(JSON.stringify(writeText.mock.calls)).toContain(SECRET);
@@ -347,12 +384,12 @@ describe("WebhookMessage", () => {
 
     it("starts from the placeholder for another strategy", async () => {
       const { queryClient, tree, rerender } = setup();
-      await waitFor(() => expect(urlText()).toBe(`${HOST}${PLACEHOLDER_URL}`));
+      await waitFor(() => expect(urlText()).toBe(`${HOST}${MASKED_URL}`));
       await regenerateNow();
 
       rerender(tree(OTHER_ID));
 
-      await waitFor(() => expect(urlText()).toBe(`${HOST}${PLACEHOLDER_URL}`));
+      await waitFor(() => expect(urlText()).toBe(`${HOST}${MASKED_URL}`));
       expect(screen.queryByText(WARNING)).toBeNull();
       await waitFor(() => expect(leaksOf(queryClient, [SECRET])).toEqual([]));
     });
@@ -360,7 +397,7 @@ describe("WebhookMessage", () => {
     it("disables the confirm button while the request is in flight, and sends no second one", async () => {
       let answer: (response: Response) => void = () => undefined;
       const { regenerateCalls } = setup({ regenerate: () => new Promise<Response>((resolve) => (answer = resolve)) });
-      await waitFor(() => expect(urlText()).toBe(`${HOST}${PLACEHOLDER_URL}`));
+      await waitFor(() => expect(urlText()).toBe(`${HOST}${MASKED_URL}`));
       fireEvent.click(regenerateButton());
 
       fireEvent.click(confirmButton().closest("button") as HTMLElement);
@@ -399,19 +436,19 @@ describe("WebhookMessage", () => {
       ["a body without a secret", regenerates(undefined), "The secret was not regenerated. Try again."],
     ] as Array<[string, Answer, string]>)("keeps the confirmation open and says why after %s", async (_name, regenerate, text) => {
       setup({ regenerate });
-      await waitFor(() => expect(urlText()).toBe(`${HOST}${PLACEHOLDER_URL}`));
+      await waitFor(() => expect(urlText()).toBe(`${HOST}${MASKED_URL}`));
       fireEvent.click(regenerateButton());
 
       fireEvent.click(confirmButton());
 
       expect(await within(confirmDialog()).findByRole("alert")).toHaveTextContent(text);
-      expect(urlText()).toBe(`${HOST}${PLACEHOLDER_URL}`);
+      expect(urlText()).toBe(`${HOST}${MASKED_URL}`);
       expect(screen.queryByText(WARNING)).toBeNull();
     });
 
     it("cannot be asked of an archived strategy", async () => {
       const { regenerateCalls } = setup({ archived: true });
-      await waitFor(() => expect(urlText()).toBe(`${HOST}${PLACEHOLDER_URL}`));
+      await waitFor(() => expect(urlText()).toBe(`${HOST}${MASKED_URL}`));
 
       expect(regenerateButton()).toBeDisabled();
       fireEvent.click(regenerateButton());
@@ -432,7 +469,8 @@ describe("WebhookMessage", () => {
       warning: WARNING,
       done: "Done",
       copyUrl: "Copy URL",
-      placeholder: `${URL_BASE}<your secret>`,
+      masked: MASKED_URL,
+      maskHint: MASK_HINT_EN,
     },
     {
       language: "es",
@@ -444,16 +482,18 @@ describe("WebhookMessage", () => {
         "Esta URL contiene el secreto de la estrategia. Se muestra una sola vez: cópiela ahora. No se volverá a mostrar y, si la pierde, deberá regenerar el secreto.",
       done: "Listo",
       copyUrl: "Copiar URL",
-      placeholder: `${URL_BASE}<su secreto>`,
+      masked: MASKED_URL,
+      maskHint: MASK_HINT_ES,
     },
   ])("the texts in $language", (T) => {
     beforeEach(async () => {
       await act(() => i18n.changeLanguage(T.language));
     });
 
-    it("renders the placeholder, the regenerate flow, the warning and the shared buttons", async () => {
+    it("renders the mask and what it is for, the regenerate flow, the warning and the shared buttons", async () => {
       setup();
-      await waitFor(() => expect(screen.getByLabelText(T.urlLabel).textContent).toBe(`${HOST}${T.placeholder}`));
+      await waitFor(() => expect(screen.getByLabelText(T.urlLabel).textContent).toBe(`${HOST}${T.masked}`));
+      expect(screen.getByText(T.maskHint)).toBeInTheDocument();
 
       fireEvent.click(screen.getByRole("button", { name: T.regenerate }));
       const dialog = screen.getByRole("dialog", { name: T.title });

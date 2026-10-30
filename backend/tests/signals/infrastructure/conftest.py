@@ -161,6 +161,7 @@ async def seed_strategy(
                 fill_mode=fill_mode,
                 allowed_pairs=sorted(allowed_pairs) if allowed_pairs else [],
                 webhook_secret_hash=secret_hash(webhook_secret),
+                webhook_secret_last4=webhook_secret[-4:],
             )
         )
         await session.commit()

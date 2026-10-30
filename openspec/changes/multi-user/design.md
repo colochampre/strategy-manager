@@ -333,7 +333,8 @@ The fakes stay process-lifetime, as today.
 | 0031 | `subscriptions`; one per existing strategy for the owner; `allocation_percent` copied, then made nullable on `strategies` and dropped by 0033 (expand and contract, `tasks.md` PR C) | reversible while only the owner exists |
 | 0032 | `signal_deliveries`; one per existing signal for the owner's subscription; `reservations.delivery_id` backfilled, `signal_id UNIQUE` dropped | reversible while only the owner exists |
 | 0033 | `strategies.webhook_secret_hash` (the current global secret hashed by the migration from settings); `strategies.visibility` (decision 21); the name unique per author (decision 23); `strategies.allocation_percent` dropped (PR D) | reversible while only the owner exists |
-| 0034 | `users.mode` (the owner's set to `LIVE` if `DRY_RUN=false` at migration time, else `SIMULATION`); `reservations.mode` backfilled from each row's recorded mode origin | reversible while only the owner exists |
+| 0034 | `strategies.webhook_secret_last4`, the secret's last four characters (decision 25), backfilled from the current global secret as 0033 hashed it (PR D2) | reversible |
+| 0035 | `users.mode` (the owner's set to `LIVE` if `DRY_RUN=false` at migration time, else `SIMULATION`); `reservations.mode` backfilled from each row's recorded mode origin | reversible while only the owner exists |
 
 - Each migration is rehearsed on a throwaway database restored from a fresh production backup, before production migrates.
 - "Reversible while only the owner exists" means: after a second user has data, a downgrade drops that data, so the plan is fix-forward from then on.
@@ -349,7 +350,8 @@ Sequential PRs, each cut from `main`. Every PR ships while Access admits only th
 | B | AD2 ownership, AD8 scoping and cross-user tests, AD9 worker per user, AD10 | rehearse 0030 |
 | C | AD3-AD5 subscriptions and fan-out | rehearse 0031-0032 |
 | D | AD6 per-strategy secret, authoring for any user, private strategies (decision 21) | rehearse 0033 |
-| E | AD7 mode per user and the badge | rehearse 0034 |
+| D2 | The secret's last four on the strategy page (decision 25) | rehearse 0034 |
+| E | AD7 mode per user and the badge | rehearse 0035 |
 | F | Public strategy list (decision 9, OQ3), author aggregates (decision 10), admin users list (decision 8) | none |
 | G | Readiness: D.1-D.4 below | open the Access policy, turn on seat expiration |
 

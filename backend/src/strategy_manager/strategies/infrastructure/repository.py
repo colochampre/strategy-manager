@@ -1,5 +1,6 @@
 """SQLAlchemy implementation of ``StrategyRepositoryPort``."""
 
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from uuid import UUID
 
@@ -32,7 +33,9 @@ class SqlAlchemyStrategyRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def insert(self, strategy: Strategy, webhook_secret_hash: str) -> None:
+    async def insert(
+        self, strategy: Strategy, webhook_secret_hash: str, secret_last4: str
+    ) -> None:
         self._session.add(
             StrategyRow(
                 id=strategy.id,
@@ -45,18 +48,20 @@ class SqlAlchemyStrategyRepository:
                 visibility=strategy.visibility.value,
                 fill_mode=strategy.policy.fill_mode.value,
                 webhook_secret_hash=webhook_secret_hash,
+                webhook_secret_last4=secret_last4,
                 allowed_pairs=strategy.allowed_pairs.sorted(),
             )
         )
         await self._session.flush()
 
-    async def replace_webhook_secret_hash(
-        self, strategy_id: UUID, webhook_secret_hash: str
+    async def replace_webhook_secret(
+        self, strategy_id: UUID, webhook_secret_hash: str, secret_last4: str
     ) -> None:
         row = await self._session.get(StrategyRow, strategy_id)
         if row is None:
             raise LookupError(f"no strategy row under id {strategy_id}")
         row.webhook_secret_hash = webhook_secret_hash
+        row.webhook_secret_last4 = secret_last4
         row.updated_at = datetime.now(UTC)
         await self._session.flush()
 
@@ -163,7 +168,7 @@ class AuthorStrategyRepository(SqlAlchemyStrategyRepository):
     takes it holds the row lock it always held: it only never locks a row that is
     not the caller's.
 
-    The writes (``update``, ``delete``, ``replace_webhook_secret_hash``) are the base
+    The writes (``update``, ``delete``, ``replace_webhook_secret``) are the base
     class's, by id: every use case reads the strategy through this class first and
     stops on ``None``, and an author never changes. ``insert`` stays the base's too.
     """
@@ -205,6 +210,19 @@ class AuthorStrategyRepository(SqlAlchemyStrategyRepository):
             stmt = stmt.where(StrategyRow.archived_at.is_(None))
         result = await self._session.execute(stmt)
         return [_to_domain(row) for row in result.scalars().all()]
+
+    async def secret_last4s(self, strategy_ids: Sequence[UUID]) -> dict[UUID, str]:
+        """The last four characters of each of the author's strategies' CURRENT secret,
+        for the panel's mask. A separate read, because no ``Strategy`` carries them (nor
+        the hash). An id that is not the author's, or does not exist, is absent."""
+        if not strategy_ids:
+            return {}
+        rows = await self._session.execute(
+            select(StrategyRow.id, StrategyRow.webhook_secret_last4).where(
+                StrategyRow.id.in_(strategy_ids), StrategyRow.author_id == self._author_id
+            )
+        )
+        return {row_id: last4 for row_id, last4 in rows.all()}
 
 
 def is_name_conflict(error: IntegrityError) -> bool:

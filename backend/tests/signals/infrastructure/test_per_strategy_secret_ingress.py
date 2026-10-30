@@ -131,8 +131,9 @@ async def _register(
             text(
                 "INSERT INTO strategies (id, name, exchange, venue, settlement_currency, "
                 "enabled, fill_mode, allowed_pairs, author_id, webhook_secret_hash, "
-                "archived_at) VALUES (:id, :name, 'bybit', 'usdt-m', 'USDT', :enabled, "
-                "'PARTIAL', ARRAY['STXUSDT'], :author, :hash, "
+                "webhook_secret_last4, archived_at) "
+                "VALUES (:id, :name, 'bybit', 'usdt-m', 'USDT', :enabled, "
+                "'PARTIAL', ARRAY['STXUSDT'], :author, :hash, 'fxtr', "
                 "CASE WHEN :archived THEN now() END)"
             ),
             {

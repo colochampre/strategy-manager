@@ -77,10 +77,12 @@ export function StrategyDetailPage() {
           aria-label={t("strategies.detail.settings")}
           className="flex flex-col gap-5 self-start rounded-lg border border-rule bg-panel p-5"
         >
-          <h2 className="font-display text-base font-semibold text-ink">{t("strategies.detail.settings")}</h2>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h2 className="font-display text-base font-semibold text-ink">{t("strategies.detail.settings")}</h2>
+            <VisibilityControl strategy={subject} />
+          </div>
           <PoolShareEditor key={subject.id} strategy={subject} />
           <AllowedPairsEditor strategy={subject} />
-          <VisibilityControl strategy={subject} />
           <div className="flex flex-col gap-2 border-t border-rule pt-4">
             <EnableToggle strategy={subject} />
             <EnablementHistory strategyId={subject.id} />

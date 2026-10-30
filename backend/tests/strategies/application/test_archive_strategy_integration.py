@@ -115,6 +115,7 @@ async def _seed_strategy(
                 settlement_currency=POOL[2],
                 author_id=OWNER_ID,
                 webhook_secret_hash=secret_hash("fixture-secret"),
+                webhook_secret_last4="cret",
                 enabled=enabled,
                 fill_mode="PARTIAL",
                 archived_at=archived_at,

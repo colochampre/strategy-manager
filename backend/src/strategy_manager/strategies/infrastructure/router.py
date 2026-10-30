@@ -197,10 +197,18 @@ class StrategyView(BaseModel):
     # The SIGNED-IN user's own ACTIVE or LEAVING subscription to this strategy, or
     # null (multi-user C.4b). The share lives there, not on the strategy.
     subscription: SubscriptionView | None
+    # The last four characters of the strategy's current webhook secret, for the panel's
+    # mask. Named without ``webhook_secret`` on purpose: that name is the issuing
+    # routes' alone, and four characters are all this carries.
+    secret_last4: str
 
     @classmethod
     def of(
-        cls, strategy: Strategy, uptime_value: Uptime, subscription: Subscription | None
+        cls,
+        strategy: Strategy,
+        uptime_value: Uptime,
+        subscription: Subscription | None,
+        secret_last4: str,
     ) -> "StrategyView":
         return cls(
             id=strategy.id,
@@ -215,6 +223,7 @@ class StrategyView(BaseModel):
             allowed_pairs=strategy.allowed_pairs.sorted(),
             uptime=UptimeView.of(uptime_value),
             subscription=None if subscription is None else SubscriptionView.of(subscription),
+            secret_last4=secret_last4,
         )
 
 
@@ -244,11 +253,15 @@ def _own(session: AsyncSession, user: User) -> AuthorStrategyRepository:
 async def _view(
     session: AsyncSession, user: User, strategy: Strategy, events: list[EnablementEvent]
 ) -> StrategyView:
-    """One strategy as ``user`` sees it: its uptime, and the user's own subscription."""
+    """One strategy as ``user`` sees it: its uptime, the user's own subscription and
+    the last four of its secret."""
     held = await SqlAlchemySubscriptionRepository(session).live_for_strategies(
         user.id, [strategy.id]
     )
-    return StrategyView.of(strategy, uptime(events, datetime.now(UTC)), held.get(strategy.id))
+    last4s = await _own(session, user).secret_last4s([strategy.id])
+    return StrategyView.of(
+        strategy, uptime(events, datetime.now(UTC)), held.get(strategy.id), last4s[strategy.id]
+    )
 
 
 class EnablementEventView(BaseModel):
@@ -615,10 +628,14 @@ async def list_strategies(
     held = await SqlAlchemySubscriptionRepository(session).live_for_strategies(
         user.id, [strategy.id for strategy in strategies]
     )
+    last4s = await _own(session, user).secret_last4s([strategy.id for strategy in strategies])
     now = datetime.now(UTC)
     return [
         StrategyView.of(
-            strategy, uptime(events_by_strategy.get(strategy.id, []), now), held.get(strategy.id)
+            strategy,
+            uptime(events_by_strategy.get(strategy.id, []), now),
+            held.get(strategy.id),
+            last4s[strategy.id],
         )
         for strategy in strategies
     ]
