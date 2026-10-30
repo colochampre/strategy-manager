@@ -35,10 +35,9 @@ def _handler_for(dry_run: bool) -> object:
         {},
         settings,
         object(),  # type: ignore[arg-type]
-        object(),  # type: ignore[arg-type]
         {},
         object(),  # type: ignore[arg-type]
-        object(),  # type: ignore[arg-type]
+        {},
     )
     return handler._trade_capability  # type: ignore[attr-defined]
 

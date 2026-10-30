@@ -33,7 +33,7 @@ from strategy_manager.signals.application.process_signal import (
 )
 from strategy_manager.signals.domain.holding import HeldAllocation
 from strategy_manager.signals.domain.outcome import SignalOutcome
-from tests.allocation.fakes import FixedUserMode
+from tests.allocation.fakes import FixedUserMode, RecordedModes
 from tests.owner import OWNER_ID
 from tests.signals.application.test_process_signal import (
     TRADABLE,
@@ -153,7 +153,8 @@ def _rig(
         or HoldingGuard(
             holdings=FakeSymbolHoldingsPort([]),
             in_flight_work=in_flight,
-            venue_net_position=FakeVenueNetPositionPort(None),
+            venue_net_position=in_both_modes(FakeVenueNetPositionPort(None)),
+            allocation_modes=RecordedModes(),
             clock=FrozenClock(context.received_at),
             delayed_open_max_signal_age_seconds=600.0,
         ),
@@ -169,6 +170,7 @@ def _rig(
         outcomes=outcomes,
         trade_capability=capability,
         user_mode=FixedUserMode(),
+        allocation_modes=RecordedModes(),
     )
     return Rig(
         handler,

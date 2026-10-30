@@ -15,7 +15,7 @@ FOUND note, closed by this slice).
 import logging
 import os
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import UUID, uuid4
@@ -82,6 +82,7 @@ from tests.allocation.fakes import (
     AlwaysEnabledPool,
     AnyKeyTrades,
     FixedUserMode,
+    RecordedModes,
     RecordingSkipRecorder,
 )
 from tests.ledger.infrastructure.conftest import (  # noqa: F401
@@ -94,7 +95,7 @@ from tests.signals.application.delivery_support import (
     SoleSubscriberHandler,
     sole_subscriber_handler,
 )
-from tests.signals.fakes import FakeTradeCapability, RecordingSignalOutcomes
+from tests.signals.fakes import FakeTradeCapability, RecordingSignalOutcomes, in_both_modes
 
 
 class FrozenClock:
@@ -374,7 +375,8 @@ def _holding_guard(
     return HoldingGuard(
         holdings=FakeSymbolHoldingsPort(holdings or []),
         in_flight_work=FakeInFlightWorkPort(in_flight),
-        venue_net_position=FakeVenueNetPositionPort(venue_net),
+        venue_net_position=in_both_modes(FakeVenueNetPositionPort(venue_net)),
+        allocation_modes=RecordedModes(),
         clock=FrozenClock(datetime(2026, 1, 1, tzinfo=UTC)),
         delayed_open_max_signal_age_seconds=600.0,
     )
@@ -483,6 +485,7 @@ def _process_signal_handler(
     outcomes: RecordingSignalOutcomes | None = None,
     trade_capability: FakeTradeCapability | None = None,
     user_mode: FixedUserMode | None = None,
+    allocation_modes: RecordedModes | None = None,
 ) -> SoleSubscriberHandler:
     return sole_subscriber_handler(
         signal_context=FakeSignalContextPort(context),
@@ -505,6 +508,7 @@ def _process_signal_handler(
         outcomes=outcomes or RecordingSignalOutcomes(),
         trade_capability=trade_capability or FakeTradeCapability(),
         user_mode=user_mode or FixedUserMode(),
+        allocation_modes=allocation_modes or RecordedModes(),
     )
 
 
@@ -1411,9 +1415,10 @@ async def test_scenario_a_a_real_orphan_spanning_two_polls_closes_and_opens_once
             [[allocation_a], [allocation_b], []]
         ),
         in_flight_work=FakeInFlightWorkPort(result=False),
-        venue_net_position=_SequencedVenueNetPositionPort(
-            [Decimal("0.5"), Decimal("-0.3")]
+        venue_net_position=in_both_modes(
+            _SequencedVenueNetPositionPort([Decimal("0.5"), Decimal("-0.3")])
         ),
+        allocation_modes=RecordedModes(),
         clock=FrozenClock(datetime(2026, 1, 1, tzinfo=UTC)),
         delayed_open_max_signal_age_seconds=600.0,
     )
@@ -1789,7 +1794,8 @@ async def test_the_in_flight_read_and_the_placement_are_the_strategy_authors() -
         holding_guard=HoldingGuard(
             holdings=FakeSymbolHoldingsPort([]),
             in_flight_work=in_flight_work,
-            venue_net_position=FakeVenueNetPositionPort(None),
+            venue_net_position=in_both_modes(FakeVenueNetPositionPort(None)),
+            allocation_modes=RecordedModes(),
             clock=FrozenClock(datetime(2026, 1, 1, tzinfo=UTC)),
             delayed_open_max_signal_age_seconds=600.0,
         ),
@@ -3323,6 +3329,122 @@ async def test_the_continuation_checks_the_pool_and_tells_the_mode_too(
     assert (result.refused is not None) is refused
     assert [command.pre_checked_mode for command in engine.calls] == ([] if refused else [mode])
     assert len(place_order.calls) == (0 if refused else 1)
+
+
+def _stx_close_context() -> SignalContext:
+    return replace(
+        _stx_open_context(),
+        position_size=Decimal("0"),
+        prior_position_size=Decimal("1"),
+        prior_reservation_id=uuid4(),
+    )
+
+
+def _stx_reverse_context() -> SignalContext:
+    return replace(
+        _stx_open_context(),
+        position_size=Decimal("-1"),
+        prior_position_size=Decimal("1"),
+        prior_reservation_id=uuid4(),
+    )
+
+
+@pytest.mark.parametrize("context", [_stx_close_context(), _stx_reverse_context()])
+async def test_a_close_is_checked_for_the_mode_its_allocation_opened_in(
+    context: SignalContext,
+) -> None:
+    """Decision 26: a user who went live closes the simulated position on the pool
+    it runs on, even one the live adapters do not serve. Going by the user's mode
+    would refuse the close and strand it. The opening half of a REVERSE is checked
+    apart, in ``open_now``."""
+    close_position = SpyClosePosition()
+    modes = RecordedModes(Mode.SIMULATION)
+    user_mode = FixedUserMode(Mode.LIVE)
+    handler = _process_signal_handler(
+        context=context,
+        allocate_capital=_allocate_capital(SpyAdvisoryLock()),
+        place_order=SpyPlaceOrder(),
+        close_position=close_position,
+        policy=_stx_policy(),
+        tradable_pools=_SIMULATION_ONLY,
+        user_mode=user_mode,
+        allocation_modes=modes,
+    )
+
+    result = await handler.handle(uuid4())
+
+    assert result.refused is None
+    assert len(close_position.calls) == 1
+    assert modes.asked == [(OWNER_ID, context.prior_reservation_id)]
+    assert user_mode.users == []
+
+
+async def test_a_close_is_refused_when_its_allocations_side_does_not_serve_the_pool() -> None:
+    """The other direction: the check still refuses, and it names what the
+    allocation's mode serves, not what the user's does."""
+    close_position = SpyClosePosition()
+    handler = _process_signal_handler(
+        context=_stx_close_context(),
+        allocate_capital=_allocate_capital(SpyAdvisoryLock()),
+        place_order=SpyPlaceOrder(),
+        close_position=close_position,
+        policy=_stx_policy(),
+        tradable_pools={Mode.LIVE: frozenset({("pionex", "spot")}), Mode.SIMULATION: _BYBIT_POOLS},
+        user_mode=FixedUserMode(Mode.SIMULATION),
+        allocation_modes=RecordedModes(Mode.LIVE),
+    )
+
+    result = await handler.handle(uuid4())
+
+    assert result.refused is not None
+    assert "pionex/spot" in result.refused
+    assert close_position.calls == []
+
+
+async def test_a_close_with_nothing_to_close_goes_by_the_users_mode() -> None:
+    """No reservation, so no recorded mode to read: what is left is the user's,
+    and the signal goes on to its own refusal."""
+    modes = RecordedModes()
+    user_mode = FixedUserMode(Mode.SIMULATION)
+    outcomes = RecordingSignalOutcomes()
+    handler = _process_signal_handler(
+        context=replace(_stx_close_context(), prior_reservation_id=None),
+        allocate_capital=_allocate_capital(SpyAdvisoryLock()),
+        place_order=SpyPlaceOrder(),
+        policy=_stx_policy(),
+        tradable_pools=_SIMULATION_ONLY,
+        outcomes=outcomes,
+        user_mode=user_mode,
+        allocation_modes=modes,
+    )
+
+    await handler.handle(uuid4())
+
+    assert modes.asked == []
+    assert len(user_mode.users) == 1
+    assert [outcome.reason for _, outcome in outcomes.calls] == ["NO_POSITION_TO_CLOSE"]
+
+
+async def test_an_opening_goes_by_the_users_mode_whatever_its_last_allocation_ran_in() -> None:
+    """A flat subscription still has a latest reservation. It says how the last
+    position ran, never how this one will: a user back in simulation opens there."""
+    modes = RecordedModes(Mode.LIVE)
+    place_order = SpyPlaceOrder()
+    handler = _process_signal_handler(
+        context=replace(_stx_open_context(), prior_reservation_id=uuid4()),
+        allocate_capital=_allocate_capital(SpyAdvisoryLock(), mode=Mode.SIMULATION),
+        place_order=place_order,
+        policy=_stx_policy(),
+        tradable_pools=_SIMULATION_ONLY,
+        user_mode=FixedUserMode(Mode.SIMULATION),
+        allocation_modes=modes,
+    )
+
+    result = await handler.handle(uuid4())
+
+    assert result.refused is None
+    assert modes.asked == []
+    assert len(place_order.calls) == 1
 
 
 async def test_a_trade_capable_exchange_opens_exactly_as_before() -> None:

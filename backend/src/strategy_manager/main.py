@@ -68,6 +68,9 @@ from strategy_manager.allocation.application.allocate_capital import AllocateCap
 from strategy_manager.allocation.application.expire_reservations import ExpireReservations
 from strategy_manager.allocation.application.sweep_handler import SweepHandler
 from strategy_manager.allocation.infrastructure.advisory_lock import PgAdvisoryLockAdapter
+from strategy_manager.allocation.infrastructure.allocation_mode import (
+    SqlAlchemyAllocationMode,
+)
 from strategy_manager.allocation.infrastructure.lock_key_invariant import (
     PoolLockKeyCollisionError,
     assert_pool_lock_keys_distinct,
@@ -84,7 +87,6 @@ from strategy_manager.execution.application.close_position import ClosePosition
 from strategy_manager.execution.application.place_order import PlaceOrder
 from strategy_manager.execution.application.ports import (
     ExchangePort,
-    ExchangeRegistryPort,
     ModeExchangesPort,
 )
 from strategy_manager.execution.application.settle_execution import SettleExecution
@@ -438,11 +440,10 @@ def _build_process_delivery(
     session: AsyncSession,
     pools_by_key: Mapping[tuple[UUID, tuple[str, str, str]], PoolConfig],
     settings: Settings,
-    exchanges: ExchangeRegistryPort,
     job_exchanges: ModeExchangesPort,
     tradable_pools: Mapping[Mode, frozenset[tuple[str, str]]],
     balance_refresh_reader: ExchangeBalanceReaderPort,
-    venue_position_readers: VenuePositionReaderRegistryPort,
+    venue_position_readers: Mapping[Mode, VenuePositionReaderRegistryPort],
 ) -> tuple[ProcessDelivery, OpenAfterClose]:
     """Composes ``AllocateCapital`` (slice 4) and ``ExecuteReservation``
     (slice 5) into the ``delivery.process`` job handler (design.md's job
@@ -455,13 +456,13 @@ def _build_process_delivery(
 
     The exchanges are passed in rather than built here: which adapters a job
     gets depends on the mode, a decision ``ExchangesByMode`` owns, and the job
-    closes what it opened. ``job_exchanges`` serves an opening, which learns its
-    mode from its reservation. ``exchanges`` serves ``ClosePosition`` until
-    tasks.md E.5 gives a close the same treatment."""
+    closes what it opened. An opening and a close each learn their mode from
+    the reservation, so a job that builds neither opens nothing."""
 
     strategy_repository = SqlAlchemyStrategyRepository(session)
     signal_repository = SqlAlchemySignalRepository(session)
     reservation_repository = SqlAlchemyReservationRepository(session)
+    allocation_modes = SqlAlchemyAllocationMode(session)
     # Decision 25 (C.7): one outcome adapter on the run's session, so every outcome
     # write is staged on the same unit of work as the commit that decides it. The
     # work of a delivery records on that DELIVERY's row; the signal's own row is
@@ -501,10 +502,14 @@ def _build_process_delivery(
         # Orphan Classification; design.md § S4) -- built from a registry the
         # caller already assembled, exactly like ``balance_refresh`` below
         # reuses ``balance_refresh_reader``.
-        venue_net_position=VenueNetPositionAdapter(
-            venue_position_readers,
-            timeout_seconds=settings.venue_net_position_timeout_seconds,
-        ),
+        venue_net_position={
+            mode: VenueNetPositionAdapter(
+                readers,
+                timeout_seconds=settings.venue_net_position_timeout_seconds,
+            )
+            for mode, readers in venue_position_readers.items()
+        },
+        allocation_modes=allocation_modes,
         clock=SystemClock(),
         delayed_open_max_signal_age_seconds=settings.delayed_open_max_signal_age_seconds,
     )
@@ -560,7 +565,8 @@ def _build_process_delivery(
     # but nothing else: no reservation gateway, no advisory lock, and its size
     # comes from the ledger rather than from a granted amount and a price.
     close_position = ClosePosition(
-        exchanges=exchanges,
+        exchanges=job_exchanges,
+        allocation_modes=allocation_modes,
         attempts=SqlAlchemyExecutionAttemptRepository(session),
         held=ReadHeldBase(SqlAlchemyLedgerRepository(session)),
         queue=_job_queue(session, settings),
@@ -629,12 +635,13 @@ def _build_process_delivery(
         outcomes=delivery_outcomes,
         trade_capability=trade_capability,
         user_mode=user_mode,
+        allocation_modes=allocation_modes,
     )
     return handler, open_after_close
 
 
 def _build_settle_execution(
-    session: AsyncSession, exchanges: ExchangeRegistryPort
+    session: AsyncSession, exchanges: ModeExchangesPort
 ) -> SettleExecution:
     """Composes the ``execution.settle`` job's use case: ask the exchange what
     the order became, and write it to the append-only ledger."""
@@ -643,6 +650,7 @@ def _build_settle_execution(
             SqlAlchemyReservationRepository(session)
         ),
         exchanges=exchanges,
+        allocation_modes=SqlAlchemyAllocationMode(session),
         attempts=SqlAlchemyExecutionAttemptRepository(session),
         fill_recorder=RecordFill(SqlAlchemyLedgerRepository(session)),
         usd_rate_provider=FixedUsdRateProvider({Currency.USDT: Decimal("1")}),
@@ -1153,8 +1161,9 @@ def build_worker_runner(
     for adapter in registered:
         assert_dry_run_safe(dry_run=settings.dry_run, exchange=adapter)
 
-    # What every job runs in until tasks.md E.4 and E.5 give each opening and
-    # each reservation its own: the brake decides, as it always has.
+    # No job runs in this: each opening decides its own and everything after
+    # follows the reservation. Only the startup warning below still reads it,
+    # until tasks.md E.6 stops it saying one mode for the whole process.
     job_mode = effective_mode(brake=settings.dry_run, user_mode=Mode.LIVE)
 
     # Its ledger reader opens a short-lived session per call rather than sharing
@@ -1452,7 +1461,6 @@ def build_worker_runner(
             yield adapters
 
     exchanges_by_mode = ExchangesByMode(live=live_adapters_for, simulated=simulated_venues)
-    exchange_for = exchanges_by_mode.open
 
     @asynccontextmanager
     async def balance_refresh_reader_for(
@@ -1470,7 +1478,7 @@ def build_worker_runner(
         OWN pool's exchange -- which is not known until ``_handle_consumes``
         reads the strategy's policy, well after this context manager has to
         be entered. Building both exchanges' credentials/clients
-        UNCONDITIONALLY here, the way ``exchange_for`` above does for trade
+        UNCONDITIONALLY here, the way ``live_adapters_for`` above does for trade
         clients, would cost a close -- or a signal on the other exchange -- a
         credential problem it never needed. That is exactly the failure mode
         ``_vault_credential`` already exists to prevent for trade clients;
@@ -1649,6 +1657,19 @@ def build_worker_runner(
                 )
             yield VenuePositionReaderRegistry(readers)
 
+    @asynccontextmanager
+    async def venue_readers_by_mode(
+        session: AsyncSession, user_id: UUID | None
+    ) -> AsyncIterator[Mapping[Mode, VenuePositionReaderRegistryPort]]:
+        """Both of them, since one user can hold in both (decision 26) and which
+        is read is known only per holding. Building them costs nothing: a real
+        reader decrypts only if its pool is actually read."""
+        async with (
+            venue_net_position_reader_for(session, user_id, Mode.LIVE) as live,
+            venue_net_position_reader_for(session, user_id, Mode.SIMULATION) as simulated,
+        ):
+            yield {Mode.LIVE: live, Mode.SIMULATION: simulated}
+
     async def handle_signal_process(job: ClaimedJob) -> None:
         """Fans the signal out to every eligible subscription (AD5, C.5/C.6). It
         places nothing, so it builds no exchange client and decrypts no key: each
@@ -1665,16 +1686,14 @@ def build_worker_runner(
             # unless the author is the subscriber (AD8, C.6).
             owner = await delivery_owner(session, delivery_id)
             async with (
-                exchange_for(session, owner, job_mode) as exchanges,
                 exchanges_by_mode.for_job(session, owner) as job_exchanges,
                 balance_refresh_reader_for(session, owner) as balance_refresh_reader,
-                venue_net_position_reader_for(session, owner, job_mode) as venue_position_readers,
+                venue_readers_by_mode(session, owner) as venue_position_readers,
             ):
                 handler, _ = _build_process_delivery(
                     session,
                     pool_set.by_key,
                     settings,
-                    exchanges,
                     job_exchanges,
                     tradable_by_mode,
                     balance_refresh_reader,
@@ -1716,16 +1735,14 @@ def build_worker_runner(
             owner = await delivery_owner(session, delivery_id)
             job = replace(job, payload={**job.payload, "delivery_id": str(delivery_id)})
             async with (
-                exchange_for(session, owner, job_mode) as exchanges,
                 exchanges_by_mode.for_job(session, owner) as job_exchanges,
                 balance_refresh_reader_for(session, owner) as balance_refresh_reader,
-                venue_net_position_reader_for(session, owner, job_mode) as venue_position_readers,
+                venue_readers_by_mode(session, owner) as venue_position_readers,
             ):
                 _, open_after_close = _build_process_delivery(
                     session,
                     pool_set.by_key,
                     settings,
-                    exchanges,
                     job_exchanges,
                     tradable_by_mode,
                     balance_refresh_reader,
@@ -1745,8 +1762,8 @@ def build_worker_runner(
                     f"execution attempt {attempt_id} has no owner: the attempt, its "
                     "reservation or its strategy is gone"
                 )
-            async with exchange_for(session, owner, job_mode) as exchanges:
-                await _build_settle_execution(session, exchanges).settle(owner, attempt_id)
+            async with exchanges_by_mode.for_job(session, owner) as job_exchanges:
+                await _build_settle_execution(session, job_exchanges).settle(owner, attempt_id)
 
     async def handle_balance_sync(job: ClaimedJob) -> None:
         """One sync per exchange that has enabled pools AND an active vault

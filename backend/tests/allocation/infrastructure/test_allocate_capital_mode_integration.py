@@ -33,6 +33,9 @@ from strategy_manager.allocation.application.allocate_capital import (
 )
 from strategy_manager.allocation.domain.decision import DecisionOutcome
 from strategy_manager.allocation.infrastructure.advisory_lock import PgAdvisoryLockAdapter
+from strategy_manager.allocation.infrastructure.allocation_mode import (
+    SqlAlchemyAllocationMode,
+)
 from strategy_manager.allocation.infrastructure.models import ReservationRow
 from strategy_manager.allocation.infrastructure.repository import SqlAlchemyReservationRepository
 from strategy_manager.allocation.infrastructure.reservation_gateway import (
@@ -47,6 +50,7 @@ from strategy_manager.identity.application.change_mode import (
 )
 from strategy_manager.identity.infrastructure.models import UserRow
 from strategy_manager.identity.infrastructure.user_repository import SqlAlchemyUserRepository
+from strategy_manager.shared.domain.errors import InvariantViolation
 from strategy_manager.shared.domain.mode import Mode
 from strategy_manager.shared.domain.money import Currency, Exchange, Money, Venue
 from strategy_manager.shared.infrastructure.clock import SystemClock
@@ -440,6 +444,67 @@ async def test_the_pre_check_reads_the_mode_without_waiting_for_a_row_lock(
                 await asyncio.gather(task, return_exceptions=True)
 
     assert task.result() is expected
+
+
+@pytest.mark.parametrize("mode", list(Mode))
+async def test_an_allocations_mode_is_what_its_reservation_recorded(
+    pg_session_factory: async_sessionmaker[AsyncSession], mode: Mode
+) -> None:
+    """Whatever the user's mode says now: a flip moves the next opening, never this."""
+    factory = pg_session_factory
+    strategy_id = uuid4()
+    await seed_strategy(factory, strategy_id=strategy_id)
+    await _holding(factory, strategy_id, mode=mode, amount="10")
+    other = Mode.SIMULATION if mode is Mode.LIVE else Mode.LIVE
+    await _set_user_mode(factory, OWNER_ID, other)
+    async with factory() as session:
+        allocation_id = (await session.execute(select(ReservationRow.id))).scalar_one()
+
+        assert await SqlAlchemyAllocationMode(session).mode_of(OWNER_ID, allocation_id) is mode
+
+
+async def test_another_users_allocation_has_no_mode_to_read(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    factory = pg_session_factory
+    strategy_id = uuid4()
+    await seed_strategy(factory, strategy_id=strategy_id)
+    await _holding(factory, strategy_id, mode=Mode.LIVE, amount="10")
+    async with factory() as session:
+        allocation_id = (await session.execute(select(ReservationRow.id))).scalar_one()
+
+        with pytest.raises(InvariantViolation):
+            await SqlAlchemyAllocationMode(session).mode_of(uuid4(), allocation_id)
+
+
+async def test_reading_an_allocations_mode_waits_for_no_row_lock(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """``PlaceOrder`` holds the reservation ``FOR UPDATE``, and the readers of this
+    run before any lock: a row lock here would invert the lock order."""
+    factory = pg_session_factory
+    strategy_id = uuid4()
+    await seed_strategy(factory, strategy_id=strategy_id)
+    await _holding(factory, strategy_id, mode=Mode.LIVE, amount="10")
+
+    async def read(allocation_id: UUID) -> Mode:
+        async with factory() as session:
+            return await SqlAlchemyAllocationMode(session).mode_of(OWNER_ID, allocation_id)
+
+    async with factory() as holder:
+        allocation_id = (
+            await holder.execute(select(ReservationRow.id).with_for_update())
+        ).scalar_one()
+        task = asyncio.create_task(read(allocation_id))
+        try:
+            done, _ = await asyncio.wait({task}, timeout=1.0)
+            assert task in done, "the read waited for the reservation's row"
+        finally:
+            if not task.done():
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+
+    assert task.result() is Mode.LIVE
 
 
 @pytest.mark.parametrize("mode", list(Mode))

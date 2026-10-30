@@ -24,6 +24,7 @@ from strategy_manager.shared.application.job import ClaimedJob, Job, JobKind
 from strategy_manager.shared.infrastructure.job_queue import PostgresJobQueue
 from strategy_manager.shared.infrastructure.models import JobRow
 from strategy_manager.signals.infrastructure.models import SignalDeliveryRow
+from tests.execution.fakes import OneRegistry
 from tests.signals.infrastructure.conftest import pg_engine, pg_session_factory  # noqa: F401
 from tests.signals.infrastructure.test_delivery_flow_integration import (
     Factory,
@@ -74,7 +75,7 @@ async def _run_job(world: World, job: ClaimedJob) -> None:
                 )
             ).scalar_one()
             await _build_settle_execution(
-                session, VenueExchangeRegistry([world.venues[owner]])
+                session, OneRegistry(VenueExchangeRegistry([world.venues[owner]]))
             ).settle(owner, attempt_id)
 
 

@@ -33,6 +33,7 @@ from strategy_manager.signals.application.holding_guard import HoldingGuard
 from strategy_manager.signals.application.open_after_close import OpenAfterClose
 from strategy_manager.signals.application.process_signal import UnknownDeliveryError
 from strategy_manager.signals.domain.signal import IdempotencyKey, SignalStatus, WebhookSignal
+from tests.allocation.fakes import RecordedModes
 from tests.signals.application.delivery_support import sole_subscriber_handler
 from tests.signals.application.test_process_signal import (
     TRADABLE,
@@ -61,6 +62,7 @@ from tests.signals.fakes import (
     FakeTradeCapability,
     RecordingSignalOutcomes,
     SoleSubscriberDeliverySignals,
+    in_both_modes,
 )
 
 NOW = datetime(2026, 9, 22, 12, 0, 0, tzinfo=UTC)
@@ -819,7 +821,8 @@ async def test_a_deferred_opening_is_sized_with_the_share_stored_when_it_finally
         holding_guard=HoldingGuard(
             holdings=FakeSymbolHoldingsPort([]),
             in_flight_work=in_flight,
-            venue_net_position=FakeVenueNetPositionPort(None),
+            venue_net_position=in_both_modes(FakeVenueNetPositionPort(None)),
+            allocation_modes=RecordedModes(),
             clock=FrozenClock(NOW),
             delayed_open_max_signal_age_seconds=MAX_SIGNAL_AGE_SECONDS,
         ),

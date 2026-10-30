@@ -73,6 +73,21 @@ class FixedUserMode:
 
 
 @dataclass
+class RecordedModes:
+    """``AllocationModePort``: every allocation opened in ``mode`` (``LIVE`` by
+    default, for tests that are not about the mode), unless ``by_allocation`` names
+    it. ``asked`` records the ``(user, allocation)`` of each call."""
+
+    mode: Mode = Mode.LIVE
+    by_allocation: dict[UUID, Mode] = field(default_factory=dict)
+    asked: list[tuple[UUID, UUID]] = field(default_factory=list)
+
+    async def mode_of(self, user_id: UUID, allocation_id: UUID) -> Mode:
+        self.asked.append((user_id, allocation_id))
+        return self.by_allocation.get(allocation_id, self.mode)
+
+
+@dataclass
 class AnyKeyTrades:
     """``TradeCapabilityPort`` for tests that are not about the key: every exchange
     answers ``answer``. ``asked`` records the ``(user, exchange)`` of each call and

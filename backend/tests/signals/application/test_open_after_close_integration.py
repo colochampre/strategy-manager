@@ -103,6 +103,7 @@ from tests.allocation.fakes import (
     AlwaysEnabledPool,
     AnyKeyTrades,
     FixedUserMode,
+    RecordedModes,
     RecordingSkipRecorder,
 )
 from tests.execution.fakes import OneRegistry, RecordingOrderOutcomes, RecordingSettleOutcomes
@@ -381,7 +382,8 @@ async def test_the_open_waits_for_the_close_to_settle_then_grants_the_freed_bala
     # ---- submit the close for real, through the production use case ----
     async with pg_session_factory() as session:
         close_position = ClosePosition(
-            exchanges=registry,
+            exchanges=OneRegistry(registry),
+            allocation_modes=RecordedModes(),
             attempts=SqlAlchemyExecutionAttemptRepository(session),
             held=ReadHeldBase(SqlAlchemyLedgerRepository(session)),
             queue=PostgresJobQueue(
@@ -484,7 +486,8 @@ async def test_the_open_waits_for_the_close_to_settle_then_grants_the_freed_bala
             in_flight_work=InFlightWorkAdapter(
                 attempts=attempts_repository, reservations=reservation_repository
             ),
-            venue_net_position=NeverCalledVenueNetPosition(),  # type: ignore[arg-type]
+            venue_net_position=in_both_modes(NeverCalledVenueNetPosition()),  # type: ignore[arg-type]
+            allocation_modes=RecordedModes(),
             clock=clock,
             delayed_open_max_signal_age_seconds=600.0,
         )
@@ -572,6 +575,7 @@ async def test_the_open_waits_for_the_close_to_settle_then_grants_the_freed_bala
             outcomes=RecordingSignalOutcomes(),
             trade_capability=FakeTradeCapability(),
             user_mode=FixedUserMode(),
+            allocation_modes=RecordedModes(),
         )
         return handler, open_after_close
 
@@ -579,7 +583,8 @@ async def test_the_open_waits_for_the_close_to_settle_then_grants_the_freed_bala
         async with pg_session_factory() as session:
             settle = SettleExecution(
                 reservations=SqlAlchemyReservationRepository(session),
-                exchanges=registry,
+                exchanges=OneRegistry(registry),
+                allocation_modes=RecordedModes(),
                 attempts=SqlAlchemyExecutionAttemptRepository(session),
                 fill_recorder=RecordFill(SqlAlchemyLedgerRepository(session)),
                 usd_rate_provider=FixedUsdRate(),

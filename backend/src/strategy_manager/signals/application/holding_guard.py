@@ -15,11 +15,12 @@ capital is allocated (design.md § "Guard order").
    backoff's own arithmetic (30/60/120/240/480s) outlasts the age bound by
    its fifth retry, so a signal it never records as failed could still end
    as a silent FAILED job with no WARNING at all.
-3. The strategy's ledger net on the symbol is zero -- proceed.
+3. The strategy's ledger net on the symbol is zero in every mode -- proceed.
 4. Otherwise the holding is divergent (ledger and venue may disagree, but
-   nothing is in flight to explain it) -- read the venue's own net (the
-   ONE remote call this guard makes, before the pool's advisory lock is ever
-   touched) and classify it (spec: capital-allocation § Orphan
+   nothing is in flight to explain it) -- read the net of the venue of the
+   holding's own mode (the ONE remote call this guard makes per mode, before
+   the pool's advisory lock is ever touched; a simulated holding reads no
+   remote venue) and classify it (spec: capital-allocation § Orphan
    Classification; design.md § S4). GHOST and AMBIGUOUS refuse with a
    WARNING (owner decision A2 refuses AMBIGUOUS exactly like a ghost).
    REAL is never refused: it is reported via
@@ -40,12 +41,14 @@ next.
 """
 
 import logging
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
 
-from strategy_manager.shared.application.ports import ClockPort
+from strategy_manager.shared.application.ports import AllocationModePort, ClockPort
+from strategy_manager.shared.domain.mode import Mode
 from strategy_manager.signals.application.ports import (
     InFlightWorkPort,
     PoolKey,
@@ -99,13 +102,15 @@ class HoldingGuard:
         self,
         holdings: SymbolHoldingsPort,
         in_flight_work: InFlightWorkPort,
-        venue_net_position: VenueNetPositionPort,
+        venue_net_position: Mapping[Mode, VenueNetPositionPort],
+        allocation_modes: AllocationModePort,
         clock: ClockPort,
         delayed_open_max_signal_age_seconds: float,
     ) -> None:
         self._holdings = holdings
         self._in_flight_work = in_flight_work
         self._venue_net_position = venue_net_position
+        self._allocation_modes = allocation_modes
         self._clock = clock
         self._delayed_open_max_signal_age_seconds = delayed_open_max_signal_age_seconds
 
@@ -129,11 +134,32 @@ class HoldingGuard:
             return await self._on_in_flight(user_id, pool, strategy_id, symbol, now, received_at)
 
         holdings = await self._holdings.symbol_holdings(user_id, pool, symbol)
-        net = strategy_net(holdings, strategy_id)
-        if net == 0:
-            return GuardOutcome(proceed=True)
+        real_orphans: list[HeldAllocation] = []
+        for mode, in_mode in (await self._by_mode(user_id, holdings)).items():
+            net = strategy_net(in_mode, strategy_id)
+            if net == 0:
+                continue
+            outcome = await self._classify_divergence(
+                mode, pool, strategy_id, symbol, in_mode, net
+            )
+            if outcome.refused is not None:
+                return outcome
+            real_orphans.extend(outcome.real_orphan_holdings or [])
+        if real_orphans:
+            return GuardOutcome(proceed=False, real_orphan_holdings=real_orphans)
+        return GuardOutcome(proceed=True)
 
-        return await self._classify_divergence(pool, strategy_id, symbol, holdings, net)
+    async def _by_mode(
+        self, user_id: UUID, holdings: list[HeldAllocation]
+    ) -> dict[Mode, list[HeldAllocation]]:
+        """A user can hold in both modes (decisions 14 and 26). They are two sets of
+        positions on two venues, so they neither net against each other nor count
+        towards the other's pool net."""
+        by_mode: dict[Mode, list[HeldAllocation]] = {}
+        for holding in holdings:
+            mode = await self._allocation_modes.mode_of(user_id, holding.allocation_id)
+            by_mode.setdefault(mode, []).append(holding)
+        return by_mode
 
     async def _on_in_flight(
         self,
@@ -170,6 +196,7 @@ class HoldingGuard:
 
     async def _classify_divergence(
         self,
+        mode: Mode,
         pool: PoolKey,
         strategy_id: UUID,
         symbol: str,
@@ -183,7 +210,7 @@ class HoldingGuard:
         caller instead (design.md § S6), which is the one that actually
         closes it via ``CloseOrphans``."""
         pool_net = sum((holding.net_base for holding in holdings), start=Decimal("0"))
-        venue_net = await self._venue_net_position.net_position(pool, symbol)
+        venue_net = await self._venue_net_position[mode].net_position(pool, symbol)
         kind = classify_orphan(net, pool_net, venue_net)
 
         if kind is OrphanKind.REAL:

@@ -70,6 +70,7 @@ from strategy_manager.subscriptions.infrastructure.adapters import OpenAllocatio
 from strategy_manager.subscriptions.infrastructure.repository import (
     SqlAlchemySubscriptionRepository,
 )
+from tests.allocation.fakes import RecordedModes
 from tests.execution.fakes import OneRegistry
 from tests.owner import OWNER_ID, ensure_delivery
 from tests.signals.infrastructure.conftest import (
@@ -115,7 +116,8 @@ def _settle(
 ) -> SettleExecution:
     return SettleExecution(
         reservations=ReservationGatewayAdapter(SqlAlchemyReservationRepository(session)),
-        exchanges=VenueExchangeRegistry([exchange]),
+        exchanges=OneRegistry(VenueExchangeRegistry([exchange])),
+        allocation_modes=RecordedModes(),
         attempts=SqlAlchemyExecutionAttemptRepository(session),
         fill_recorder=RecordFill(SqlAlchemyLedgerRepository(session)),
         usd_rate_provider=FixedUsdRateProvider({Currency.USDT: Decimal("1")}),
@@ -155,7 +157,8 @@ def _place_order(session: AsyncSession, exchange: FakeExchangeAdapter) -> PlaceO
 
 def _close_position(session: AsyncSession, exchange: FakeExchangeAdapter) -> ClosePosition:
     return ClosePosition(
-        exchanges=VenueExchangeRegistry([exchange]),
+        exchanges=OneRegistry(VenueExchangeRegistry([exchange])),
+        allocation_modes=RecordedModes(),
         attempts=SqlAlchemyExecutionAttemptRepository(session),
         held=ReadHeldBase(SqlAlchemyLedgerRepository(session)),
         queue=PostgresJobQueue(session, clock=_FixedClock()),

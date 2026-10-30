@@ -32,7 +32,8 @@ from strategy_manager.execution.infrastructure.exchange_registry import (
 )
 from strategy_manager.shared.domain.mode import Mode
 from strategy_manager.shared.domain.money import Currency
-from tests.execution.fakes import RecordingSettleOutcomes
+from tests.allocation.fakes import RecordedModes
+from tests.execution.fakes import OneRegistry, RecordingSettleOutcomes
 
 NOW = datetime(2026, 8, 20, 12, 0, 0, tzinfo=UTC)
 ATTEMPT_ID = uuid4()
@@ -276,6 +277,8 @@ def _build(
     trace_locks: bool = False,
     lock: FakePoolLock | None = None,
     leaving: FakeLeaving | None = None,
+    modes: RecordedModes | None = None,
+    asked: list[Mode] | None = None,
 ) -> tuple[SettleExecution, FakeReservations, FakeAttempts, SpyLedger, StubUsdRate]:
     reservations = FakeReservations(log if trace_locks else None)
     attempts = FakeAttempts(attempt or _attempt())
@@ -285,7 +288,11 @@ def _build(
     outcomes.log = log
     use_case = SettleExecution(
         reservations=reservations,
-        exchanges=VenueExchangeRegistry([exchange]),  # type: ignore[list-item]
+        exchanges=OneRegistry(
+            VenueExchangeRegistry([exchange]),  # type: ignore[list-item]
+            [] if asked is None else asked,
+        ),
+        allocation_modes=modes or RecordedModes(),
         attempts=attempts,  # type: ignore[arg-type]
         fill_recorder=ledger,  # type: ignore[arg-type]
         usd_rate_provider=usd_rate,
@@ -296,6 +303,38 @@ def _build(
         leaving=leaving or FakeLeaving(log if trace_locks else None),
     )
     return use_case, reservations, attempts, ledger, usd_rate
+
+
+@pytest.mark.parametrize("mode", list(Mode))
+@pytest.mark.parametrize("attempt", [_attempt(), _closing_attempt()])
+async def test_fills_are_read_from_the_mode_the_attempts_allocation_opened_in(
+    mode: Mode, attempt: ExecutionAttempt
+) -> None:
+    """Multi-user design AD7, tasks.md E.5: an open's own reservation, or the one a
+    close unwinds, says where the order went. Reading the other side would answer
+    "not found" and release a position that exists."""
+    modes = RecordedModes(mode)
+    asked: list[Mode] = []
+    exchange = FakeExchange(fills=[_fill("2", "50")])
+    use_case, _, _, _, _ = _build(exchange, attempt, modes=modes, asked=asked)
+
+    await use_case.settle(OWNER, ATTEMPT_ID)
+
+    assert asked == [mode]
+    assert modes.asked == [(OWNER, RESERVATION_ID)]
+
+
+async def test_an_attempt_already_resolved_builds_no_exchange() -> None:
+    """A job builds an adapter only when it needs one: a live one decrypts a key."""
+    asked: list[Mode] = []
+    exchange = FakeExchange(fills=[_fill("2", "50")])
+    use_case, _, _, _, _ = _build(
+        exchange, _attempt(ExecutionStatus.FILLED), asked=asked
+    )
+
+    await use_case.settle(OWNER, ATTEMPT_ID)
+
+    assert asked == []
 
 
 async def test_the_order_is_looked_up_by_the_client_order_id() -> None:

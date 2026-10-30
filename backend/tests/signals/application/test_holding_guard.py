@@ -20,9 +20,11 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from strategy_manager.signals.application.holding_guard import HoldingGuard
+from strategy_manager.shared.domain.mode import Mode
+from strategy_manager.signals.application.holding_guard import GuardOutcome, HoldingGuard
 from strategy_manager.signals.application.ports import PoolKey
 from strategy_manager.signals.domain.holding import HeldAllocation
+from tests.allocation.fakes import RecordedModes
 
 POOL: PoolKey = ("bybit", "usdt-m", "USDT")
 NOW = datetime(2026, 9, 21, 12, 0, 0, tzinfo=UTC)
@@ -99,14 +101,19 @@ def _guard(
     venue_net_position: FakeVenueNetPositionPort | None = None,
     clock: FrozenClock | None = None,
     max_age_seconds: float = MAX_AGE_SECONDS,
+    allocation_modes: RecordedModes | None = None,
+    simulated_venue: FakeVenueNetPositionPort | None = None,
 ) -> tuple[HoldingGuard, FakeSymbolHoldingsPort, FakeInFlightWorkPort, FakeVenueNetPositionPort]:
+    """The venue returned is the live one. A test about both modes passes
+    ``simulated_venue``; without it, both modes read the same fake."""
     holdings_port = holdings or FakeSymbolHoldingsPort()
     in_flight_port = in_flight_work or FakeInFlightWorkPort()
     venue_port = venue_net_position or FakeVenueNetPositionPort()
     guard = HoldingGuard(
         holdings=holdings_port,
         in_flight_work=in_flight_port,
-        venue_net_position=venue_port,
+        venue_net_position={Mode.LIVE: venue_port, Mode.SIMULATION: simulated_venue or venue_port},
+        allocation_modes=allocation_modes or RecordedModes(),
         clock=clock or FrozenClock(NOW),
         delayed_open_max_signal_age_seconds=max_age_seconds,
     )
@@ -294,6 +301,124 @@ async def test_only_the_strategys_own_net_decides_divergence() -> None:
 # REAL when the venue agrees with the WHOLE POOL (0.5); GHOST when it agrees
 # with the pool WITHOUT this strategy's own leg (0, since there is no other
 # strategy here); AMBIGUOUS for anything else, including a failed read.
+
+
+async def _check(guard: HoldingGuard, strategy_id: UUID) -> GuardOutcome:
+    return await guard.check(
+        user_id=AUTHOR,
+        pool=POOL,
+        strategy_id=strategy_id,
+        symbol="ETHUSDT",
+        own_reservation_id=None,
+        received_at=NOW,
+    )
+
+
+@pytest.mark.parametrize("mode", list(Mode))
+async def test_a_holding_is_compared_with_the_venue_of_the_mode_it_opened_in(mode: Mode) -> None:
+    """Decision 26: a user can go live holding a simulated position, and decision 14
+    leaves a real one open under the brake. Compared with the other side's venue
+    either reads flat there, which is a GHOST: an alert and a refusal for a position
+    that is fine."""
+    strategy_id = uuid4()
+    holding = HeldAllocation(strategy_id, uuid4(), Decimal("0.5"))
+    holds_it = FakeVenueNetPositionPort(net=Decimal("0.5"))
+    flat = FakeVenueNetPositionPort(net=Decimal("0"))
+    live, simulated = (holds_it, flat) if mode is Mode.LIVE else (flat, holds_it)
+    guard, _, _, _ = _guard(
+        holdings=FakeSymbolHoldingsPort(holdings=[holding]),
+        venue_net_position=live,
+        simulated_venue=simulated,
+        allocation_modes=RecordedModes(mode),
+    )
+
+    outcome = await _check(guard, strategy_id)
+
+    assert outcome.refused is None
+    assert outcome.real_orphan_holdings == [holding]
+    assert holds_it.calls == [(POOL, "ETHUSDT")]
+    assert flat.calls == []
+
+
+async def test_another_modes_holding_does_not_count_towards_the_pools_net() -> None:
+    """The other strategy's simulated leg is on no real venue, so with it counted
+    the live venue would not match the pool's net and the REAL orphan would read
+    AMBIGUOUS."""
+    strategy_id = uuid4()
+    real = HeldAllocation(strategy_id, uuid4(), Decimal("0.5"))
+    simulated = HeldAllocation(uuid4(), uuid4(), Decimal("0.2"))
+    guard, _, _, _ = _guard(
+        holdings=FakeSymbolHoldingsPort(holdings=[real, simulated]),
+        venue_net_position=FakeVenueNetPositionPort(net=Decimal("0.5")),
+        allocation_modes=RecordedModes(by_allocation={simulated.allocation_id: Mode.SIMULATION}),
+    )
+
+    outcome = await _check(guard, strategy_id)
+
+    assert outcome.real_orphan_holdings == [real]
+
+
+async def test_a_long_in_one_mode_and_a_short_in_the_other_do_not_cancel_out() -> None:
+    """They are two positions on two venues, and netting them would call the
+    strategy flat and open a third."""
+    strategy_id = uuid4()
+    real = HeldAllocation(strategy_id, uuid4(), Decimal("0.5"))
+    simulated = HeldAllocation(strategy_id, uuid4(), Decimal("-0.5"))
+    guard, _, _, _ = _guard(
+        holdings=FakeSymbolHoldingsPort(holdings=[real, simulated]),
+        venue_net_position=FakeVenueNetPositionPort(net=Decimal("0.5")),
+        simulated_venue=FakeVenueNetPositionPort(net=Decimal("-0.5")),
+        allocation_modes=RecordedModes(by_allocation={simulated.allocation_id: Mode.SIMULATION}),
+    )
+
+    outcome = await _check(guard, strategy_id)
+
+    assert outcome.proceed is False
+    assert outcome.real_orphan_holdings == [real, simulated]
+
+
+async def test_a_refusal_in_one_mode_closes_nothing_in_the_other() -> None:
+    """A REAL orphan is closed so the opening can follow, and a refusal means it
+    never will, so nothing is closed for it."""
+    strategy_id = uuid4()
+    real = HeldAllocation(strategy_id, uuid4(), Decimal("0.5"))
+    ghost = HeldAllocation(strategy_id, uuid4(), Decimal("0.3"))
+    guard, _, _, _ = _guard(
+        holdings=FakeSymbolHoldingsPort(holdings=[real, ghost]),
+        venue_net_position=FakeVenueNetPositionPort(net=Decimal("0.5")),
+        simulated_venue=FakeVenueNetPositionPort(net=Decimal("0")),
+        allocation_modes=RecordedModes(by_allocation={ghost.allocation_id: Mode.SIMULATION}),
+    )
+
+    outcome = await _check(guard, strategy_id)
+
+    assert outcome.reason == "DIVERGENT_HOLDING_GHOST"
+    assert outcome.real_orphan_holdings is None
+
+
+async def test_a_flat_market_asks_no_mode() -> None:
+    modes = RecordedModes()
+    guard, _, _, _ = _guard(allocation_modes=modes)
+
+    outcome = await _check(guard, uuid4())
+
+    assert outcome.proceed is True
+    assert modes.asked == []
+
+
+async def test_the_modes_read_are_the_users_own() -> None:
+    strategy_id = uuid4()
+    holding = HeldAllocation(strategy_id, uuid4(), Decimal("0.5"))
+    modes = RecordedModes()
+    guard, _, _, _ = _guard(
+        holdings=FakeSymbolHoldingsPort(holdings=[holding]),
+        venue_net_position=FakeVenueNetPositionPort(net=Decimal("0.5")),
+        allocation_modes=modes,
+    )
+
+    await _check(guard, strategy_id)
+
+    assert modes.asked == [(AUTHOR, holding.allocation_id)]
 
 
 async def test_a_real_orphan_is_reported_for_the_caller_to_close_not_refused() -> None:

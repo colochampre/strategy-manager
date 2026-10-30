@@ -9,11 +9,9 @@ from strategy_manager.shared.domain.trade_capability import TradeCapability
 from strategy_manager.signals.domain.outcome import SignalOutcome
 
 
-def in_both_modes(
-    pools: frozenset[tuple[str, str]],
-) -> dict[Mode, frozenset[tuple[str, str]]]:
-    """``tradable_pools`` for a test that is not about the mode."""
-    return {mode: pools for mode in Mode}
+def in_both_modes[T](value: T) -> dict[Mode, T]:
+    """``tradable_pools`` or a venue read for a test that is not about the mode."""
+    return {mode: value for mode in Mode}
 
 
 @dataclass

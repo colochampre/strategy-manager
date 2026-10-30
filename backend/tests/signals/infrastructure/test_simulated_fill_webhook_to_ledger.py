@@ -462,6 +462,7 @@ async def _seed_orphan(
         exchange=pool.exchange.value,
         status="FILLED",
         amount=Decimal("564"),
+        mode="SIMULATION",
     )
     await seed_execution_attempt(
         stack.factory,

@@ -105,6 +105,7 @@ from tests.allocation.fakes import (
     AlwaysEnabledPool,
     AnyKeyTrades,
     FixedUserMode,
+    RecordedModes,
     RecordingSkipRecorder,
 )
 from tests.execution.fakes import OneRegistry, RecordingOrderOutcomes
@@ -444,7 +445,8 @@ def _build_handler(
             in_flight_work=InFlightWorkAdapter(
                 attempts=attempts_repository, reservations=own_reservations
             ),
-            venue_net_position=NeverCalledVenueNetPosition(),  # type: ignore[arg-type]
+            venue_net_position=in_both_modes(NeverCalledVenueNetPosition()),  # type: ignore[arg-type]
+            allocation_modes=RecordedModes(),
             clock=clock,
             delayed_open_max_signal_age_seconds=600.0,
         ),
@@ -490,6 +492,7 @@ def _build_handler(
         outcomes=RecordingSignalOutcomes(),
         trade_capability=FakeTradeCapability(),
         user_mode=FixedUserMode(),
+        allocation_modes=RecordedModes(),
     )
 
 

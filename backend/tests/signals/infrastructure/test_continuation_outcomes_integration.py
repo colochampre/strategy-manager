@@ -268,11 +268,10 @@ async def _run_continuation(
             session,
             pools,
             settings,
-            VenueExchangeRegistry([exchange]),
             OneRegistry(VenueExchangeRegistry([exchange])),
             in_both_modes(frozenset({("bybit", "usdt-m")})),
             _RichBalanceReader(),  # type: ignore[arg-type]
-            VenuePositionReaderRegistry([]),
+            in_both_modes(VenuePositionReaderRegistry([])),
         )
         await open_after_close.poll(
             ClaimedJob(

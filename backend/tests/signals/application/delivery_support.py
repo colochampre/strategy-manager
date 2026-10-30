@@ -36,7 +36,7 @@ from strategy_manager.signals.domain.position_transition import (
     PositionTransition,
     TransitionEffect,
 )
-from tests.allocation.fakes import FixedUserMode
+from tests.allocation.fakes import FixedUserMode, RecordedModes
 from tests.signals.fakes import in_both_modes
 
 
@@ -103,10 +103,12 @@ def sole_subscriber_handler(**kwargs: Any) -> SoleSubscriberHandler:
     """Builds ``ProcessDelivery`` from the keyword arguments the single-user
     ``ProcessSignalHandler`` took: its deliveries are derived from the fake
     policy port's snapshot. A plain set of pools is tradable in both modes, and the
-    user is ``LIVE`` unless ``user_mode`` says otherwise."""
+    user and every allocation are ``LIVE`` unless ``user_mode`` or
+    ``allocation_modes`` say otherwise."""
     deliveries = SoleSubscriberDeliveries(kwargs["strategy_policy"])
     pools = kwargs["tradable_pools"]
     kwargs["tradable_pools"] = pools if isinstance(pools, Mapping) else in_both_modes(pools)
     kwargs.setdefault("user_mode", FixedUserMode())
+    kwargs.setdefault("allocation_modes", RecordedModes())
     inner = ProcessDelivery(deliveries=deliveries, **kwargs)
     return SoleSubscriberHandler(inner, kwargs["signal_context"], deliveries)

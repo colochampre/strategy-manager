@@ -87,7 +87,7 @@ from strategy_manager.execution.application.place_order import PlaceCommand, Pla
 from strategy_manager.execution.domain.execution_attempt import ExecutionAttempt, ExecutionStatus
 from strategy_manager.execution.domain.market_symbol import is_perpetual, market_key
 from strategy_manager.execution.domain.order import OrderSide
-from strategy_manager.shared.application.ports import CommitPort
+from strategy_manager.shared.application.ports import AllocationModePort, CommitPort
 from strategy_manager.shared.domain.mode import Mode
 from strategy_manager.shared.domain.money import Currency, Money
 from strategy_manager.shared.domain.trade_capability import TradeCapability, key_refusal
@@ -386,6 +386,7 @@ class ProcessDelivery:
         outcomes: DeliveryOutcomePort,
         trade_capability: TradeCapabilityPort,
         user_mode: CurrentModePort,
+        allocation_modes: AllocationModePort,
     ) -> None:
         self._deliveries = deliveries
         self._signal_context = signal_context
@@ -404,6 +405,7 @@ class ProcessDelivery:
         self._outcomes = outcomes
         self._trade_capability = trade_capability
         self._user_mode = user_mode
+        self._allocation_modes = allocation_modes
 
     async def handle(self, delivery_id: UUID, raw_halves: object) -> ProcessSignalResult:
         """Works one delivery. ``raw_halves`` is the job payload's ``halves`` as it
@@ -446,9 +448,17 @@ class ProcessDelivery:
             return await self._refuse_archived_strategy(delivery, context, transition, policy)
 
         # What can be traded depends on the mode, since the fake serves more venues
-        # than the live adapters. A plain read before any lock: the lock decides the
-        # mode and refuses to go on if it is no longer this one (tasks.md E.4).
-        mode = await self._user_mode.current_mode(delivery.user_id)
+        # than the live adapters. A plain read before any lock: the lock decides an
+        # opening's mode and refuses to go on if it is no longer this one (tasks.md
+        # E.4). A close goes by the mode its allocation opened in (E.5), or a user
+        # who went live could not close a simulated position (decision 26).
+        mode = (
+            await self._user_mode.current_mode(delivery.user_id)
+            if halves is DeliveryHalves.OPEN or context.prior_reservation_id is None
+            else await self._allocation_modes.mode_of(
+                delivery.user_id, context.prior_reservation_id
+            )
+        )
         if (policy.exchange, policy.venue) not in self._tradable_pools[mode]:
             return await self._refuse_untradable_pool(
                 delivery, context, transition, policy.exchange, policy.venue, mode

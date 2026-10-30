@@ -44,7 +44,9 @@ from strategy_manager.execution.infrastructure.exchange_registry import (
 )
 from strategy_manager.shared.application.job import Job, JobKind
 from strategy_manager.shared.domain.errors import InvariantViolation
-from tests.execution.fakes import RecordingOrderOutcomes
+from strategy_manager.shared.domain.mode import Mode
+from tests.allocation.fakes import RecordedModes
+from tests.execution.fakes import OneRegistry, RecordingOrderOutcomes
 
 NOW = datetime(2026, 8, 21, 14, 0, 0, tzinfo=UTC)
 SETTLE_DELAY = 2.0
@@ -194,6 +196,8 @@ def _build(
     exchange_raises: Exception | None = None,
     build_close_raises: Exception | None = None,
     outcomes: RecordingOrderOutcomes | None = None,
+    modes: RecordedModes | None = None,
+    asked: list[Mode] | None = None,
 ) -> tuple[ClosePosition, SpyAttempts, SpyQueue, SpyExchange, FakeHeld, list[str]]:
     log: list[str] = []
     outcomes = outcomes if outcomes is not None else RecordingOrderOutcomes()
@@ -203,7 +207,11 @@ def _build(
     exchange = SpyExchange(log, exchange_raises, build_close_raises)
     held = FakeHeld(net_base)
     use_case = ClosePosition(
-        exchanges=VenueExchangeRegistry([exchange]),  # type: ignore[list-item]
+        exchanges=OneRegistry(
+            VenueExchangeRegistry([exchange]),  # type: ignore[list-item]
+            [] if asked is None else asked,
+        ),
+        allocation_modes=modes or RecordedModes(),
         attempts=attempts,  # type: ignore[arg-type]
         held=held,  # type: ignore[arg-type]
         queue=queue,  # type: ignore[arg-type]
@@ -233,6 +241,35 @@ def _command(
         delivery_id=None if signal_id is None else DELIVERY_ID,
         reference_price=reference_price,
     )
+
+
+@pytest.mark.parametrize("mode", list(Mode))
+async def test_a_close_goes_to_the_exchanges_of_the_mode_its_allocation_opened_in(
+    mode: Mode,
+) -> None:
+    """Multi-user design AD7, tasks.md E.5. A real allocation closes for real under
+    the brake (decision 14), and a simulated one in simulation after the user went
+    live (decision 26): neither the brake nor the user's mode of the moment decide."""
+    modes = RecordedModes(mode)
+    asked: list[Mode] = []
+    use_case, _, _, exchange, _, _ = _build(modes=modes, asked=asked)
+
+    await use_case.close(_command())
+
+    assert asked == [mode]
+    assert modes.asked == [(OWNER, ALLOCATION_ID)]
+    assert len(exchange.orders) == 1
+
+
+async def test_a_close_with_nothing_recorded_builds_no_exchange() -> None:
+    """A job builds an adapter only when it needs one: a live one decrypts a key."""
+    asked: list[Mode] = []
+    use_case, _, _, _, _, _ = _build(net_base=Decimal("0"), asked=asked)
+
+    with pytest.raises(NothingRecordedYet):
+        await use_case.close(_command())
+
+    assert asked == []
 
 
 async def test_the_close_size_comes_from_the_ledger_not_from_a_price() -> None:

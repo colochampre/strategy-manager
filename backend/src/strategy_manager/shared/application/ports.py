@@ -11,6 +11,7 @@ from typing import Protocol
 from uuid import UUID
 
 from strategy_manager.shared.application.job import ClaimedJob, Job
+from strategy_manager.shared.domain.mode import Mode
 from strategy_manager.shared.domain.money import Currency
 
 
@@ -110,6 +111,19 @@ class CommitPort(Protocol):
     satisfies it structurally, without leaking SQLAlchemy into this layer."""
 
     async def commit(self) -> None: ...
+
+
+class AllocationModePort(Protocol):
+    """The mode an allocation opened in: what its reservation recorded in the pool
+    lock (multi-user design AD7). Everything after the opening follows this, never
+    the brake and never the user's mode of the moment.
+
+    The record never changes, so this MUST be a plain read: its callers run before
+    any lock. ``user_id`` owns the allocation, and another user's under the same id
+    is not read. An allocation with no reservation raises: guessing here would send
+    an order to the wrong side."""
+
+    async def mode_of(self, user_id: UUID, allocation_id: UUID) -> Mode: ...
 
 
 class UnitOfWorkPort(Protocol):

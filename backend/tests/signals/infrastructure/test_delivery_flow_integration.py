@@ -18,7 +18,7 @@ A symbol wears a different spelling on each side of a boundary: the alert says
 """
 
 import logging
-from collections.abc import Sequence
+from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -31,8 +31,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from strategy_manager.accounts.application.ports import PoolBalanceReading
 from strategy_manager.accounts.application.ports import PoolKey as AccountsPoolKey
 from strategy_manager.accounts.domain.pool_config import PoolConfig
+from strategy_manager.accounts.infrastructure.models import ExchangeCredentialRow
 from strategy_manager.allocation.infrastructure.models import ReservationRow
-from strategy_manager.execution.application.ports import PlacedOrder
+from strategy_manager.execution.application.ports import ModeExchangesPort, PlacedOrder
 from strategy_manager.execution.domain.placeable import PlaceableOrder
 from strategy_manager.execution.infrastructure.exchange_registry import VenueExchangeRegistry
 from strategy_manager.execution.infrastructure.fake_exchange import FakeExchangeAdapter
@@ -47,7 +48,8 @@ from strategy_manager.reconciliation.infrastructure.venue_position_reader_regist
     VenuePositionReaderRegistry,
 )
 from strategy_manager.shared.application.job import ClaimedJob, JobKind
-from strategy_manager.shared.config import get_settings
+from strategy_manager.shared.config import Settings, get_settings
+from strategy_manager.shared.domain.mode import Mode
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 from strategy_manager.shared.infrastructure.models import JobRow
 from strategy_manager.signals.application.fan_out_signal import FanOutResult
@@ -127,6 +129,11 @@ class World:
     #: than ``delayed_open_max_signal_age_seconds`` (600 s), so a time taken at
     #: collection failed that test whenever a full run reached it 9 minutes later.
     t0: datetime
+    #: What each user's job is handed: one venue for every mode, unless a test is about
+    #: which side a mode reaches.
+    exchanges: dict[UUID, ModeExchangesPort]
+    #: Read by every job, so a test can pull the brake between two of them.
+    settings: Settings
 
 
 async def _world(factory: Factory, *, author_share: str = "50", other_share: str = "25") -> World:
@@ -163,6 +170,7 @@ async def _world(factory: Factory, *, author_share: str = "50", other_share: str
     other_subscription = await seeds.subscription(
         factory, other, strategy_id, other_pool, share=other_share, created_at=subscribed_before
     )
+    venues = {OWNER_ID: _Fake(), other: _Fake()}
     return World(
         factory,
         strategy_id,
@@ -170,9 +178,13 @@ async def _world(factory: Factory, *, author_share: str = "50", other_share: str
         other,
         author_subscription,
         other_subscription,
-        venues={OWNER_ID: _Fake(), other: _Fake()},
+        venues=venues,
         totals={OWNER_ID: Decimal("1000"), other: Decimal("400")},
         t0=t0,
+        exchanges={
+            user: OneRegistry(VenueExchangeRegistry([venue])) for user, venue in venues.items()
+        },
+        settings=get_settings(),
     )
 
 
@@ -239,12 +251,11 @@ async def _work(world: World, user: UUID, delivery_id: UUID, halves: object) -> 
         handler, _ = _build_process_delivery(
             session,
             pools,
-            get_settings(),
-            VenueExchangeRegistry([world.venues[user]]),
-            OneRegistry(VenueExchangeRegistry([world.venues[user]])),
+            world.settings,
+            world.exchanges[user],
             in_both_modes(frozenset({("bybit", "usdt-m")})),
             _Reader(world.totals[user]),  # type: ignore[arg-type]
-            VenuePositionReaderRegistry([]),
+            in_both_modes(VenuePositionReaderRegistry([])),
         )
         await handler.handle(delivery_id, halves)
         await session.commit()
@@ -264,9 +275,7 @@ async def _settle_all(world: World) -> None:
         )
     for attempt in attempts:
         async with world.factory() as session:
-            settle = _build_settle_execution(
-                session, VenueExchangeRegistry([world.venues[attempt.user_id]])
-            )
+            settle = _build_settle_execution(session, world.exchanges[attempt.user_id])
             await settle.settle(attempt.user_id, attempt.id)
 
 
@@ -456,6 +465,7 @@ async def test_a_subscription_with_no_prior_reservation_is_told_there_is_nothing
         created_at=world.t0 + timedelta(seconds=90),
     )
     world.venues[stranger] = _Fake()
+    world.exchanges[stranger] = OneRegistry(VenueExchangeRegistry([world.venues[stranger]]))
     world.totals[stranger] = Decimal("100")
     closing = await _signal(world, position_size="0", minutes=2)
     await _fan_out(world, closing)
@@ -539,12 +549,11 @@ async def _continue(world: World, done: set[UUID]) -> list[UUID]:
             _, open_after_close = _build_process_delivery(
                 session,
                 pools,
-                get_settings(),
-                VenueExchangeRegistry([world.venues[owner]]),
-                OneRegistry(VenueExchangeRegistry([world.venues[owner]])),
+                world.settings,
+                world.exchanges[owner],
                 in_both_modes(frozenset({("bybit", "usdt-m")})),
                 _Reader(world.totals[owner]),  # type: ignore[arg-type]
-                VenuePositionReaderRegistry([]),
+                in_both_modes(VenuePositionReaderRegistry([])),
             )
             await open_after_close.poll(
                 ClaimedJob(
@@ -642,6 +651,123 @@ async def test_a_reverse_closes_and_then_opens_for_each_subscriber_in_their_own_
     assert await _signal_outcome(world, reverse) == ("ACCEPTED", None, None)
     # Nothing was dropped on the way: no seed conflict, no abandonment.
     assert [r.getMessage() for r in caplog.records if r.levelno >= logging.ERROR] == []
+
+
+# --- a reverse whose two halves differ in mode (tasks.md E.5) ---------------------------
+
+
+@dataclass
+class _Sides:
+    """The two sides a job can reach: ``ExchangesByMode`` hands each mode its own."""
+
+    live: _Fake
+    simulated: _Fake
+
+    async def for_mode(self, mode: Mode) -> VenueExchangeRegistry:
+        return VenueExchangeRegistry([self.live if mode is Mode.LIVE else self.simulated])
+
+    def side(self, mode: Mode) -> _Fake:
+        return self.live if mode is Mode.LIVE else self.simulated
+
+
+async def _set_user_mode(factory: Factory, user_id: UUID, mode: Mode) -> None:
+    async with factory() as session:
+        await session.execute(
+            text("UPDATE users SET mode = :mode WHERE id = :id"),
+            {"mode": mode.value, "id": user_id},
+        )
+        await session.commit()
+
+
+@pytest.fixture
+async def owner_can_trade(pg_session_factory: Factory) -> AsyncIterator[None]:  # noqa: F811
+    """A trade-capable Bybit key of the owner, for an opening that runs live. Neither
+    the key nor ``users`` is truncated by a fixture, so both are put back."""
+    async with pg_session_factory() as session:
+        session.add(
+            ExchangeCredentialRow(
+                user_id=OWNER_ID,
+                exchange="bybit",
+                label="default",
+                is_active=True,
+                wrapped_dek=b"x",
+                dek_nonce=b"x",
+                api_key_ciphertext=b"x",
+                api_key_nonce=b"x",
+                api_secret_ciphertext=b"x",
+                api_secret_nonce=b"x",
+                api_key_last4="abcd",
+                trade_capable=True,
+                trade_capability_source="VERIFIED",
+                trade_confirmed_at=None,
+                withdraw_check="VERIFIED",
+                withdraw_confirmed_at=None,
+                validated_at=datetime.now(UTC),
+                internal_transfer=True,
+            )
+        )
+        await session.commit()
+    yield
+    async with pg_session_factory() as session:
+        await session.execute(
+            text("DELETE FROM exchange_credentials WHERE user_id = :id"), {"id": OWNER_ID}
+        )
+        await session.commit()
+    await _set_user_mode(pg_session_factory, OWNER_ID, Mode.SIMULATION)
+
+
+@pytest.mark.usefixtures("owner_can_trade")
+@pytest.mark.parametrize(
+    ("opened_as", "reopens"),
+    [
+        pytest.param(Mode.SIMULATION, Mode.LIVE, id="decision-26-went-live-holding"),
+        pytest.param(Mode.LIVE, Mode.SIMULATION, id="decision-14-brake-pulled"),
+    ],
+)
+async def test_a_reverse_closes_on_the_side_it_opened_on_and_reopens_on_the_users_side(
+    pg_session_factory: Factory,  # noqa: F811
+    opened_as: Mode,
+    reopens: Mode,
+) -> None:
+    """The position opens as ``opened_as``, then the user's side moves under it: they
+    go live holding a simulated position (decision 26), or the brake is pulled over a
+    real one (decision 14). Through the real wiring, the flip's close follows the
+    allocation and its reopening follows the user, each on its own venue, so a real
+    position is never left open by a close that went to the simulator."""
+    world = await _world(pg_session_factory)
+    sides = _Sides(live=_Fake(), simulated=_Fake())
+    world.exchanges[world.author] = sides
+    world.settings = get_settings().model_copy(update={"dry_run": False})
+    await _set_user_mode(pg_session_factory, world.author, opened_as)
+    opening = await _signal(world, position_size="1", minutes=1)
+    await _run(world, opening)
+    held = (await _reservations(world, opening))[world.author]
+    assert held.mode == opened_as.value
+
+    if opened_as is Mode.SIMULATION:
+        await _set_user_mode(pg_session_factory, world.author, Mode.LIVE)
+    else:
+        world.settings = get_settings().model_copy(update={"dry_run": True})
+    reverse = await _signal(world, position_size="-1", minutes=29)
+    await _fan_out(world, reverse)
+    delivery_id, halves = (await _queued(world, reverse))[world.author]
+    assert halves == "close_and_open"
+    await _work(world, world.author, delivery_id, halves)
+    await _settle_all(world)
+    assert await _held(world, world.author) == Decimal("0")
+
+    await _continue(world, set())
+    await _settle_all(world)
+
+    # The opening and its close on the side they belong to, the short on the other.
+    assert [order.reduce_only for order in sides.side(opened_as).orders] == [False, True]
+    assert [order.reduce_only for order in sides.side(reopens).orders] == [False]
+    reopened = (await _reservations(world, reverse))[world.author]
+    assert reopened.mode == reopens.value
+    opens, closes = await _attempts_by_kind(world, world.author)
+    assert [attempt.status for attempt in opens + closes] == ["FILLED"] * 3
+    assert await _held(world, world.author) == Decimal("-500")
+    assert await _outcome(world, delivery_id) == ("PROCESSED", None)
 
 
 # --- a subscription that left ---------------------------------------------------------

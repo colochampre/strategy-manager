@@ -193,11 +193,10 @@ async def _close(
                 session,
                 pools,
                 get_settings(),
-                VenueExchangeRegistry([venue]),
                 OneRegistry(VenueExchangeRegistry([venue])),
                 in_both_modes(frozenset({("binance", "usdt-m")})),
                 _Reader(Decimal("1000")),  # type: ignore[arg-type]
-                VenuePositionReaderRegistry([]),
+                in_both_modes(VenuePositionReaderRegistry([])),
             )
             await handler.handle(deliveries[0].id, job.payload["halves"])
             await session.commit()
