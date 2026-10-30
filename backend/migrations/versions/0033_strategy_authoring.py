@@ -23,7 +23,7 @@ since 0031) and its CHECK are dropped; the share is the subscription's.
 
 **Downgrade.** Refuses when more than one user exists, as 0031's does, since
 the global name unique and the single share per strategy only hold for one
-author. It restores ``allocation_percent`` (nullable, as at 0032) with its CHECK,
+author. It restores ``allocation_percent`` (nullable and defaulting to 100, as at 0032) with its CHECK,
 filled from each strategy's author subscription (the latest by ``created_at``),
 restores the global name unique, and drops the two columns.
 """
@@ -115,7 +115,12 @@ def downgrade() -> None:
             f"which only holds for one user at most; found {users}. Fix forward instead."
         )
 
-    op.add_column(_TABLE, sa.Column("allocation_percent", sa.Numeric(), nullable=True))
+    # 0032's column defaults to 100, so a strategy with no author subscription
+    # comes back at 100, as 0032 would have created it.
+    op.add_column(
+        _TABLE,
+        sa.Column("allocation_percent", sa.Numeric(), nullable=True, server_default="100"),
+    )
     op.execute(
         """
         UPDATE strategies AS s SET allocation_percent = latest.allocation_percent

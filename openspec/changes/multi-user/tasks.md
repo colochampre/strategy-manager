@@ -994,6 +994,22 @@ It needs an independent verifier before the PR.
     - Behaviour choices to confirm with the owner: the header keeps only Copy message (a Copy URL there would copy the placeholder); in the issued view Copy stays enabled with no webhook host configured and copies the path with a note to put the host in front, unlike decision 53, which disabled Copy with no host, because otherwise a secret shown once could not be copied at all.
     - Parent check: `npm run lint` exit 0; `npm test` 2889 passed of 2889.
 
+### Independent verification (2026-10-30)
+
+An Opus verifier read the whole PR D section, AD6, AD8 and decisions 21 and 23, and probed `7258fac` against the baseline `214db9b` in a scratch directory outside the workspace (since removed), on throwaway PostgreSQL databases.
+
+- **Verdict: no blockers.** D.1-D.6 PASS.
+- 0033 on a copy shaped like production (1 user, 6 strategies, 3 archived, subscriptions at 30 and 5): the empty-secret refusal changes nothing and names nothing secret; every hash equals sha256 of the setting, a non-ASCII secret included; neither appears in alembic's output; subscriptions and the other strategy columns are byte-identical after the upgrade and after the downgrade; the downgrade refuses with 2 users and with 1 restores 30, 30, 30, 5, 5, 5; upgrading again works.
+- Ingress: unknown id, missing, empty, wrong, another strategy's, the old global secret and the stored hash sent as the secret all answer one byte-identical 401 (status, body, headers), identical to the IP refusal; nothing written, no log record; the access log shows `secret=REDACTED`.
+- Ten cross-user calls each answer the same 404 as a missing id, with no data change. Create and regenerate are no-store; no other `/api` answer carries the secret, the hash or the name.
+- **Advisories:**
+  - The 0033 downgrade restored `allocation_percent` without 0032's `DEFAULT 100`. **Fixed:** `test_the_downgraded_share_column_gets_back_its_default` was seen red on its assertion (`None == "'100'::numeric"`), then green; the 0031, 0032 and 0033 migration tests pass together.
+  - At baseline already: `GET /api/performance/strategies/{id}` reads strategies unscoped, so another user's strategy, a private one included, answers differently from a missing id. For PR F, where other users' strategies become readable.
+  - At baseline already, and a stated choice: an alert with a stale secret after a regenerate is a 401 with no log line, so the signal is lost without a trace.
+  - From PR G: `/api/webhook-origin` is still admin-only, so a non-admin author's issued URL would carry only the path.
+  - Escape closes the create dialog's shown-once view without a confirmation, and the secret is gone (regenerate recovers it).
+  - A concurrent create with the same id is now a 500 (a primary-key `IntegrityError`) instead of the old, wrong, name 409.
+
 ### Rehearsal and deploy (owner-run)
 
 - [ ] D.7 Before the deploy: a fresh backup, then rehearse 0033 on a throwaway restore, with a downgrade to 0032 and a second upgrade.
@@ -1014,7 +1030,7 @@ It needs an independent verifier before the PR.
 
 ### Delivery
 
-- [ ] D.D.1 Gate (backend and frontend), and an independent verifier over the whole PR.
+- [x] D.D.1 Gate (backend and frontend), and an independent verifier over the whole PR. Done on 2026-10-30: the full backend gate was green after every unit and in the verifier's run at `7258fac`; frontend lint 0 and 2889/2889; the one fix after it touches only 0033's downgrade, whose migration tests (0031, 0032, 0033) and ruff pass.
 - [ ] D.D.2 Push and open the PR (on the owner's word).
 - [ ] D.D.3 Merge (owner), with a merge commit.
 - [ ] D.D.4 Deploy (D.7, D.8).

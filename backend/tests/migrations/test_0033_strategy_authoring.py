@@ -410,6 +410,24 @@ def test_the_downgraded_share_column_is_nullable(at_0032: Callable[[str], str]) 
     assert nullable == "YES"
 
 
+def test_the_downgraded_share_column_gets_back_its_default(at_0032: Callable[[str], str]) -> None:
+    # 0032's column defaults to 100; a downgrade that drops it leaves a schema
+    # that is not the one 0032 built.
+    url = at_0032("downgrade_default")
+    owner = _add_user(url, "owner@example.com")
+    _add_strategy(url, owner, "live")
+    _alembic_ok(url, "upgrade", "0033")
+
+    _alembic_ok(url, "downgrade", "0032")
+
+    default = _scalar(
+        url,
+        "SELECT column_default FROM information_schema.columns "
+        "WHERE table_name = 'strategies' AND column_name = 'allocation_percent'",
+    )
+    assert default == "'100'::numeric"
+
+
 def test_downgrade_refuses_once_a_second_user_exists(at_0032: Callable[[str], str]) -> None:
     url = at_0032("downgrade_two_users")
     owner = _add_user(url, "owner@example.com")
