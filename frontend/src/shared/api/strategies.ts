@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { ApiError, apiFetch } from "@/shared/api/client";
 import { isSubscription } from "@/shared/api/subscriptions";
-import type { EnablementEvent, RegisterStrategyBody, Strategy } from "@/shared/api/types";
+import type { EnablementEvent, RegisteredStrategy, RegisterStrategyBody, Strategy, Visibility } from "@/shared/api/types";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -31,7 +31,8 @@ function isStrategy(value: unknown): value is Strategy {
     typeof value.enabled === "boolean" &&
     (value.archived_at === null || typeof value.archived_at === "string") &&
     Array.isArray(value.allowed_pairs) &&
-    isUptime(value.uptime)
+    isUptime(value.uptime) &&
+    (value.visibility === "PUBLIC" || value.visibility === "PRIVATE")
   );
 }
 
@@ -60,13 +61,36 @@ export function useStrategies(includeArchived: boolean) {
   });
 }
 
-/** `POST /api/strategies`. A new strategy is always disabled; arming it is a separate call. */
-export function registerStrategy(body: RegisterStrategyBody): Promise<Strategy> {
-  return apiFetch<Strategy>("/strategies", {
+/** A secret the server issues: a non-empty string, or nothing. The body is never echoed into an error. */
+function issuedSecret(body: unknown): string | null {
+  const secret = isRecord(body) ? body.webhook_secret : undefined;
+  return typeof secret === "string" && secret !== "" ? secret : null;
+}
+
+/**
+ * `POST /api/strategies`. A new strategy is always disabled; arming it is a separate call. The answer carries the
+ * webhook secret once, and only that is kept from it: the strategy itself is read again from the list.
+ */
+export async function registerStrategy(body: RegisterStrategyBody): Promise<RegisteredStrategy> {
+  const answer = await apiFetch<unknown>("/strategies", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
+  return { webhook_secret: issuedSecret(answer) };
+}
+
+/**
+ * `POST /api/strategies/{id}/webhook-secret`: replaces the strategy's secret and answers the new one, once. The
+ * old secret stops working at once. A body without a secret reads as an error with a fixed message.
+ */
+export async function regenerateWebhookSecret(strategyId: string): Promise<string> {
+  const answer = await apiFetch<unknown>(`/strategies/${encodeURIComponent(strategyId)}/webhook-secret`, { method: "POST" });
+  const secret = issuedSecret(answer);
+  if (secret === null) {
+    throw new ApiError(200, { detail: "Unexpected response shape from POST /strategies/{id}/webhook-secret: expected a secret" });
+  }
+  return secret;
 }
 
 /** `PATCH /api/strategies/{id}` with only `enabled`: every other field stays unchanged. */
@@ -94,17 +118,61 @@ export async function setStrategyName(strategyId: string, name: string): Promise
   return body;
 }
 
+/** `PATCH /api/strategies/{id}` with only `visibility`. The answer is checked, as for a read. */
+export async function setStrategyVisibility(strategyId: string, visibility: Visibility): Promise<Strategy> {
+  const body = await apiFetch<unknown>(`/strategies/${encodeURIComponent(strategyId)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ visibility }),
+  });
+  if (!isStrategy(body)) {
+    throw new ApiError(200, { detail: "Unexpected response shape from PATCH /strategies/{id}: expected a strategy" });
+  }
+  return body;
+}
+
 /** Every strategy mutation ends here, so the list and the detail never show a stale state. */
 export function useInvalidateStrategies() {
   const queryClient = useQueryClient();
   return () => queryClient.invalidateQueries({ queryKey: ["strategies"] });
 }
 
+/**
+ * `gcTime: 0`: the mutation's result holds the secret that is shown once, and it leaves the mutation cache as
+ * soon as nothing observes it (the dialog closing) instead of five minutes later.
+ */
 export function useRegisterStrategy() {
   const invalidate = useInvalidateStrategies();
-  return useMutation<Strategy, Error, RegisterStrategyBody>({
+  return useMutation<RegisteredStrategy, Error, RegisterStrategyBody>({
     mutationFn: registerStrategy,
     onSuccess: () => invalidate(),
+    gcTime: 0,
+  });
+}
+
+/** Regenerates the secret; the new one is the mutation's `data`, evicted like the one `useRegisterStrategy` holds. */
+export function useRegenerateWebhookSecret(strategyId: string) {
+  return useMutation<string, Error, void>({
+    mutationFn: () => regenerateWebhookSecret(strategyId),
+    gcTime: 0,
+  });
+}
+
+/**
+ * Changes who may subscribe. On success the checked answer is written into `['strategy', id]`, as a rename does;
+ * settled, both keys are read again, so a refusal leaves the page on the stored state.
+ */
+export function useSetStrategyVisibility(strategyId: string) {
+  const queryClient = useQueryClient();
+  return useMutation<Strategy, Error, Visibility>({
+    mutationFn: (visibility) => setStrategyVisibility(strategyId, visibility),
+    onSuccess: (saved) => {
+      queryClient.setQueryData(["strategy", strategyId], saved);
+    },
+    onSettled: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["strategies"] });
+      await queryClient.invalidateQueries({ queryKey: ["strategy", strategyId] });
+    },
   });
 }
 

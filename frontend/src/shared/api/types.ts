@@ -152,7 +152,11 @@ export interface Strategy {
   archived_at: string | null;
   allowed_pairs: string[];
   uptime: StrategyUptime;
+  visibility: Visibility;
 }
+
+/** Who else may subscribe to a strategy: a PRIVATE one only its author. Private is the default (decision 21). */
+export type Visibility = "PUBLIC" | "PRIVATE";
 
 /**
  * The body of `POST /api/strategies` (`RegisterRequest`); `id` is the alert's `signalType`. The share becomes
@@ -166,7 +170,16 @@ export interface RegisterStrategyBody {
   settlement_currency: string;
   fill_mode: FillMode;
   allocation_percent: string;
+  visibility: Visibility;
   allowed_pairs: string[];
+}
+
+/**
+ * What `POST /api/strategies` answers beyond the strategy: the webhook secret, shown once. `null` when the
+ * answer carried none (an older API), which the dialog says instead of showing a URL.
+ */
+export interface RegisteredStrategy {
+  webhook_secret: string | null;
 }
 
 /**

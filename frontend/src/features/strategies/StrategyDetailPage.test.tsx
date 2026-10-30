@@ -39,6 +39,7 @@ function strategy(overrides: Partial<Strategy> = {}): Strategy {
     archived_at: null,
     allowed_pairs: ["ETHUSDT"],
     uptime: { seconds: 0, first_enabled_at: null, baseline: false },
+    visibility: "PRIVATE",
     ...overrides,
   };
 }
@@ -546,11 +547,11 @@ describe("StrategyDetailPage", () => {
   });
 
   it.each([
-    ["en", "Win rate", "Share of the pool per trade", "Connect a TradingView alert", "Copy URL", "Copy message"],
-    ["es", "% acierto", "Porcentaje del pool por operación", "Conectar una alerta de TradingView", "Copiar URL", "Copiar mensaje"],
+    ["en", "Win rate", "Share of the pool per trade", "Connect a TradingView alert", "Regenerate secret", "Copy message"],
+    ["es", "% acierto", "Porcentaje del pool por operación", "Conectar una alerta de TradingView", "Regenerar el secreto", "Copiar mensaje"],
   ])(
     "test_the_new_texts_of_the_page_read_exactly_as_designed_in_%s",
-    async (language, winRate, shareLabel, openWebhook, copyUrl, copyMessage) => {
+    async (language, winRate, shareLabel, openWebhook, regenerate, copyMessage) => {
       await i18n.changeLanguage(language);
       renderPage(strategy(), {
         byPair: [{ pair: "ETHUSDT", trades: 2, wins: 1, win_rate: "0.5000000000", pnl: "4.00", return: "0.0040000000" }],
@@ -561,7 +562,7 @@ describe("StrategyDetailPage", () => {
       expect(within(table).getByRole("columnheader", { name: winRate })).toBeInTheDocument();
       expect(screen.getByRole("slider", { name: shareLabel })).toBeInTheDocument();
       fireEvent.click(screen.getByRole("button", { name: openWebhook }));
-      expect(screen.getByRole("button", { name: copyUrl })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: regenerate })).toBeInTheDocument();
       expect(screen.getByRole("button", { name: copyMessage })).toBeInTheDocument();
     },
   );

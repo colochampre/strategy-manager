@@ -29,8 +29,8 @@ export function BackToStrategies() {
  * uptime, and the button that opens "Connect a TradingView alert". The block
  * opens as a panel under the header, in the page flow (the JSON is long and has
  * to be selected, so it is not a popover). It is closed by default and, closed,
- * UNMOUNTED: `WebhookMessage`'s cleanup then evicts a revealed secret from the
- * query cache, and opening it again starts from the placeholder.
+ * UNMOUNTED: a regenerated secret that was on screen then leaves the mutation
+ * cache, and opening it again starts from the placeholder.
  */
 export function StrategyHeader({ strategy }: StrategyHeaderProps) {
   const { t } = useTranslation();
@@ -68,7 +68,7 @@ export function StrategyHeader({ strategy }: StrategyHeaderProps) {
         <UptimeSummary uptime={strategy.uptime} />
       </p>
       <div id={panelId} className="mt-2">
-        {open && <WebhookMessage strategyId={strategy.id} />}
+        {open && <WebhookMessage strategyId={strategy.id} archived={archived} />}
       </div>
     </header>
   );

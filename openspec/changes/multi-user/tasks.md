@@ -982,11 +982,17 @@ It needs an independent verifier before the PR.
 
 ### Frontend
 
-- [ ] D.6 The panel's secret flow and visibility (EN/ES).
+- [x] D.6 The panel's secret flow and visibility (EN/ES). Done on 2026-10-30.
   - The create dialog offers the visibility choice (default private) and, after creating, shows the webhook URL with its secret once, with a copy button and a warning that it will not be shown again.
   - The strategy header's webhook message shows the URL with a placeholder, and a regenerate action with a confirmation that the old secret stops working. "Show secret" and `shared/api/webhook-secret.ts` go away.
   - The strategy page shows and changes the visibility.
   - The name conflict message no longer implies the name is taken system-wide.
+  - **Evidence (2026-10-30):**
+    - Writer (delegated, Sonnet): `shared/api/types.ts` (`Visibility`, `Strategy.visibility`, `RegisteredStrategy`); `shared/api/strategies.ts` (`regenerateWebhookSecret`, `setStrategyVisibility` and their hooks; both secret-holding mutations use `gcTime: 0`, so the secret leaves the mutation cache when its view unmounts); `shared/api/webhook-secret.ts` deleted. New `CopyAction`, `IssuedWebhookUrl` (the one "shown once" view, used by create and regenerate), `RegenerateSecretDialog`, `VisibilityField`, `VisibilityControl`; `WebhookMessage`, `NewStrategyDialog`, `StrategyHeader` and `StrategyDetailPage` changed; EN and ES copy, ES in "usted". The secret is in no storage, console line, panel URL or long-lived cache.
+    - RED before the code: 22 of 27 `WebhookMessage` tests and 9 of 9 `VisibilityControl` tests (the latter on "Unable to find a label" for the control under test, not an assertion), the new and changed `NewStrategyDialog` tests and the rename 409 text. Mutations seen red, then restored: `archived={false}` on the header (two tests); `gcTime: 0` removed from regenerate (the header collapse test and three `WebhookMessage` tests) and from register (the "secret is nowhere after Done" test); the archived guard in `VisibilityControl`.
+    - Expectations changed: the Show/Hide-secret and Copy-URL-while-hidden tests went with those controls; the create dialog stays open on its issued URL until Done; the 409 text says the user already has a strategy with that name. `visibility` was added to the `Strategy` fixtures, four of them under `features/positions` (fixture field only).
+    - Behaviour choices to confirm with the owner: the header keeps only Copy message (a Copy URL there would copy the placeholder); in the issued view Copy stays enabled with no webhook host configured and copies the path with a note to put the host in front, unlike decision 53, which disabled Copy with no host, because otherwise a secret shown once could not be copied at all.
+    - Parent check: `npm run lint` exit 0; `npm test` 2889 passed of 2889.
 
 ### Rehearsal and deploy (owner-run)
 

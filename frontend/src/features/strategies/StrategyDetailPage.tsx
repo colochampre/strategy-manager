@@ -12,6 +12,7 @@ import { PoolShareEditor } from "@/features/strategies/PoolShareEditor";
 import { BackToStrategies, StrategyHeader } from "@/features/strategies/StrategyHeader";
 import { StrategyPerformance } from "@/features/strategies/StrategyPerformance";
 import { TradesTable } from "@/features/strategies/TradesTable";
+import { VisibilityControl } from "@/features/strategies/VisibilityControl";
 import { ApiError } from "@/shared/api/client";
 import { useStrategy } from "@/shared/api/strategies";
 import { useExchangeScope } from "@/shared/scope/exchange-store";
@@ -79,6 +80,7 @@ export function StrategyDetailPage() {
           <h2 className="font-display text-base font-semibold text-ink">{t("strategies.detail.settings")}</h2>
           <PoolShareEditor key={subject.id} strategy={subject} />
           <AllowedPairsEditor strategy={subject} />
+          <VisibilityControl strategy={subject} />
           <div className="flex flex-col gap-2 border-t border-rule pt-4">
             <EnableToggle strategy={subject} />
             <EnablementHistory strategyId={subject.id} />

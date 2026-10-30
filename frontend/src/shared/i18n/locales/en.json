@@ -190,6 +190,15 @@
       "toggleError": "The change was not saved. Try again.",
       "performanceError": "This strategy's figures could not be loaded."
     },
+    "visibility": {
+      "label": "Visibility",
+      "options": {
+        "PRIVATE": "Private",
+        "PUBLIC": "Public"
+      },
+      "hint": "Other users cannot subscribe to a private strategy. Subscribers it already has keep it.",
+      "saveFailed": "The visibility was not saved. Try again."
+    },
     "new": {
       "open": "New strategy",
       "title": "New strategy",
@@ -209,8 +218,10 @@
       "submit": "Create strategy",
       "submitting": "Creating…",
       "cancel": "Cancel",
+      "created": "Strategy created",
+      "secretMissing": "The strategy was created, but its secret could not be read. Open the strategy and regenerate the secret.",
       "errors": {
-        "conflict": "A strategy with this name or id already exists.",
+        "conflict": "You already have a strategy with this name.",
         "invalid": "The pool is not available or the pairs were refused. Check them and try again.",
         "generic": "The strategy was not created. Try again."
       }
@@ -276,7 +287,7 @@
         "save": "Save name",
         "saving": "Saving…",
         "cancel": "Cancel",
-        "taken": "A strategy with this name already exists.",
+        "taken": "You already have a strategy with this name.",
         "saveFailed": "The name was not saved. Try again."
       },
       "share": {
@@ -402,14 +413,20 @@
     "webhook": {
       "open": "Connect a TradingView alert",
       "title": "Connect a TradingView alert",
-      "hint": "Use the same URL and message for every pair's alert. The ticker travels in the message.",
+      "hint": "Use the same URL and message for every pair's alert. The ticker travels in the message. The secret is stored only as a hash and cannot be read back: use the one shown when it was issued, or regenerate it.",
       "urlLabel": "Webhook URL",
       "messageLabel": "Alert message",
-      "secretPlaceholder": "<your WEBHOOK_SECRET>",
-      "show": "Show secret",
-      "showing": "Fetching the secret…",
-      "hide": "Hide secret",
-      "error": "The secret could not be loaded. The URL still shows the placeholder.",
+      "secretPlaceholder": "<your secret>",
+      "regenerate": "Regenerate secret",
+      "regenerateTitle": "Regenerate the secret?",
+      "regenerateBody": "The current secret stops working as soon as you confirm. Every alert that still uses it will be refused until you update its URL.",
+      "regenerateConfirm": "Regenerate",
+      "regenerating": "Regenerating…",
+      "regenerateCancel": "Cancel",
+      "regenerateFailed": "The secret was not regenerated. Try again.",
+      "issuedTitle": "Your webhook URL",
+      "issuedWarning": "This URL contains the strategy's secret. It is shown only once: copy it now. It will not be shown again, and if you lose it you will have to regenerate the secret.",
+      "issuedDone": "Done",
       "copyUrl": "Copy URL",
       "copyMessage": "Copy message",
       "copied": "Copied",

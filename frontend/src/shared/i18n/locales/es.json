@@ -190,6 +190,15 @@
       "toggleError": "El cambio no se guardó. Inténtelo de nuevo.",
       "performanceError": "No se pudieron cargar las cifras de esta estrategia."
     },
+    "visibility": {
+      "label": "Visibilidad",
+      "options": {
+        "PRIVATE": "Privada",
+        "PUBLIC": "Pública"
+      },
+      "hint": "Otros usuarios no pueden suscribirse a una estrategia privada. Los suscriptores que ya tiene la conservan.",
+      "saveFailed": "La visibilidad no se guardó. Inténtelo de nuevo."
+    },
     "new": {
       "open": "Nueva estrategia",
       "title": "Nueva estrategia",
@@ -209,8 +218,10 @@
       "submit": "Crear estrategia",
       "submitting": "Creando…",
       "cancel": "Cancelar",
+      "created": "Estrategia creada",
+      "secretMissing": "La estrategia se creó, pero no se pudo leer su secreto. Abra la estrategia y regenere el secreto.",
       "errors": {
-        "conflict": "Ya existe una estrategia con este nombre o id.",
+        "conflict": "Usted ya tiene una estrategia con este nombre.",
         "invalid": "El pool no está disponible o los pares fueron rechazados. Revíselos e inténtelo de nuevo.",
         "generic": "La estrategia no se creó. Inténtelo de nuevo."
       }
@@ -276,7 +287,7 @@
         "save": "Guardar nombre",
         "saving": "Guardando…",
         "cancel": "Cancelar",
-        "taken": "Ya existe una estrategia con este nombre.",
+        "taken": "Usted ya tiene una estrategia con este nombre.",
         "saveFailed": "El nombre no se guardó. Inténtelo de nuevo."
       },
       "share": {
@@ -402,14 +413,20 @@
     "webhook": {
       "open": "Conectar una alerta de TradingView",
       "title": "Conectar una alerta de TradingView",
-      "hint": "Use la misma URL y el mismo mensaje en la alerta de cada par. El ticker viaja en el mensaje.",
+      "hint": "Use la misma URL y el mismo mensaje en la alerta de cada par. El ticker viaja en el mensaje. El secreto se guarda solo como hash y no puede volver a leerse: use el que se mostró al emitirlo, o regenérelo.",
       "urlLabel": "URL del webhook",
       "messageLabel": "Mensaje de la alerta",
-      "secretPlaceholder": "<su WEBHOOK_SECRET>",
-      "show": "Mostrar el secreto",
-      "showing": "Obteniendo el secreto…",
-      "hide": "Ocultar el secreto",
-      "error": "No se pudo cargar el secreto. La URL sigue mostrando el marcador.",
+      "secretPlaceholder": "<su secreto>",
+      "regenerate": "Regenerar el secreto",
+      "regenerateTitle": "¿Regenerar el secreto?",
+      "regenerateBody": "El secreto actual deja de funcionar en cuanto usted confirma. Toda alerta que todavía lo use será rechazada hasta que actualice su URL.",
+      "regenerateConfirm": "Regenerar",
+      "regenerating": "Regenerando…",
+      "regenerateCancel": "Cancelar",
+      "regenerateFailed": "El secreto no se regeneró. Inténtelo de nuevo.",
+      "issuedTitle": "La URL de su webhook",
+      "issuedWarning": "Esta URL contiene el secreto de la estrategia. Se muestra una sola vez: cópiela ahora. No se volverá a mostrar y, si la pierde, deberá regenerar el secreto.",
+      "issuedDone": "Listo",
       "copyUrl": "Copiar URL",
       "copyMessage": "Copiar mensaje",
       "copied": "Copiado",

@@ -319,7 +319,7 @@ export function unsyncedSharePreview(id: string, exchange = "bybit", venue = "us
  * and its empty performance report and trades list, so a deep link to its page
  * can load. Pass it as `stubApi`'s `extra`.
  */
-export function strategyRoute(id: string, name: string): ExtraRoute {
+export function strategyRoute(id: string, name: string, overrides: Record<string, unknown> = {}): ExtraRoute {
   const detail = {
     id,
     name,
@@ -332,6 +332,8 @@ export function strategyRoute(id: string, name: string): ExtraRoute {
     archived_at: null,
     allowed_pairs: ["ETHUSDT"],
     uptime: { seconds: 0, first_enabled_at: null, baseline: false },
+    visibility: "PRIVATE",
+    ...overrides,
   };
   return (url) => {
     if (url.includes(`/performance/strategies/${id}/trades`)) {
