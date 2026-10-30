@@ -26,7 +26,12 @@ from strategy_manager.shared.domain.money import Currency, Exchange, Money, Venu
 from strategy_manager.shared.infrastructure.clock import SystemClock
 from strategy_manager.strategies.application.policy_adapter import StrategyPolicyAdapter
 from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStrategyRepository
-from tests.allocation.fakes import AlwaysEnabledPool, FixedUserMode, RecordingSkipRecorder
+from tests.allocation.fakes import (
+    AlwaysEnabledPool,
+    AnyKeyTrades,
+    FixedUserMode,
+    RecordingSkipRecorder,
+)
 from tests.allocation.infrastructure.conftest import seed_signal, seed_strategy
 from tests.owner import (
     OWNER_ID,
@@ -63,6 +68,7 @@ def _build_allocate_capital(session: AsyncSession, balance: Decimal) -> Allocate
         skip_recorder=RecordingSkipRecorder(),
         pool_status=AlwaysEnabledPool(),
         user_mode=FixedUserMode(),
+        trade_capability=AnyKeyTrades(),
     )
 
 
@@ -165,6 +171,7 @@ async def test_the_reservation_is_the_deliverys_users_in_their_pool_and_ignores_
             skip_recorder=RecordingSkipRecorder(),
             pool_status=AlwaysEnabledPool(),
             user_mode=FixedUserMode(),
+            trade_capability=AnyKeyTrades(),
         )
         result = await use_case.allocate(command)
 

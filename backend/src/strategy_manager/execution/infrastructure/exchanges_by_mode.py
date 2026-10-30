@@ -15,12 +15,17 @@ Only ``LIVE`` opens anything: a simulated job decrypts no key and opens no socke
 """
 
 from collections.abc import AsyncIterator, Callable, Iterable, Sequence
-from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager
+from functools import partial
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from strategy_manager.execution.application.ports import ExchangePort, ExchangeRegistryPort
+from strategy_manager.execution.application.ports import (
+    ExchangePort,
+    ExchangeRegistryPort,
+    ModeExchangesPort,
+)
 from strategy_manager.execution.infrastructure.exchange_registry import VenueExchangeRegistry
 from strategy_manager.execution.infrastructure.simulated_venues import SimulatedVenues
 from strategy_manager.shared.domain.errors import InvariantViolation
@@ -44,6 +49,25 @@ def _registry(mode: Mode, adapters: Iterable[ExchangePort]) -> ExchangeRegistryP
     return VenueExchangeRegistry(served)
 
 
+class _JobExchanges:
+    """Opens a mode the first time the job asks for it, so a job builds an adapter
+    only once it knows the mode. Everything opened closes with the job."""
+
+    def __init__(
+        self,
+        open_mode: Callable[[Mode], AbstractAsyncContextManager[ExchangeRegistryPort]],
+        opened: AsyncExitStack,
+    ) -> None:
+        self._open_mode = open_mode
+        self._opened = opened
+        self._by_mode: dict[Mode, ExchangeRegistryPort] = {}
+
+    async def for_mode(self, mode: Mode) -> ExchangeRegistryPort:
+        if mode not in self._by_mode:
+            self._by_mode[mode] = await self._opened.enter_async_context(self._open_mode(mode))
+        return self._by_mode[mode]
+
+
 class ExchangesByMode:
     def __init__(self, *, live: LiveAdapters, simulated: SimulatedVenues) -> None:
         self._live = live
@@ -63,3 +87,10 @@ class ExchangesByMode:
             return
         async with self._live(session, user_id) as adapters:
             yield _registry(mode, adapters)
+
+    @asynccontextmanager
+    async def for_job(
+        self, session: AsyncSession, user_id: UUID | None
+    ) -> AsyncIterator[ModeExchangesPort]:
+        async with AsyncExitStack() as opened:
+            yield _JobExchanges(partial(self.open, session, user_id), opened)

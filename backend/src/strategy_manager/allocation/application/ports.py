@@ -16,6 +16,7 @@ from uuid import UUID
 from strategy_manager.allocation.domain.lock_key import LockKey
 from strategy_manager.allocation.domain.reservation import Reservation, ReservationStatus
 from strategy_manager.shared.domain.mode import Mode
+from strategy_manager.shared.domain.trade_capability import TradeCapability
 
 
 @dataclass(frozen=True, slots=True)
@@ -153,6 +154,18 @@ class UserModePort(Protocol):
     The read is committed state of one row, never a remote call."""
 
     async def effective_mode(self, user_id: UUID) -> Mode: ...
+
+
+class TradeCapabilityPort(Protocol):
+    """Whether ``user_id``'s active key on the exchange can trade, from the value
+    recorded when it was saved (decisions 18 and 20).
+
+    ``AllocateCapital`` asks inside the pool advisory lock, for a LIVE opening:
+    ``DeleteCredential`` deactivates a key under that same lock, and the signal
+    path's own check ran before the wait. MUST be a plain read with no row lock
+    and no remote call."""
+
+    async def capability(self, user_id: UUID, exchange: str) -> TradeCapability: ...
 
 
 class AdvisoryLockPort(Protocol):

@@ -26,6 +26,7 @@ from strategy_manager.allocation.application.allocate_capital import (
 from strategy_manager.allocation.application.ports import PoolBalance
 from strategy_manager.allocation.domain.decision import DecisionOutcome
 from strategy_manager.allocation.domain.lock_key import LockKey
+from strategy_manager.shared.domain.mode import Mode
 from strategy_manager.shared.domain.money import Currency, Money
 from tests.allocation.application.test_allocate_capital import (
     FakePoolBalancePort,
@@ -34,7 +35,12 @@ from tests.allocation.application.test_allocate_capital import (
     FrozenClock,
     _enabled_snapshot,
 )
-from tests.allocation.fakes import FixedUserMode, RecordingPoolStatus, RecordingSkipRecorder
+from tests.allocation.fakes import (
+    AnyKeyTrades,
+    FixedUserMode,
+    RecordingPoolStatus,
+    RecordingSkipRecorder,
+)
 from tests.owner import OWNER_ID
 
 
@@ -69,6 +75,7 @@ class _Rig:
             requested=Money(amount=Decimal("200"), currency=Currency.USDT),
             user_id=OWNER_ID,
             delivery_id=delivery_id if delivery_id is not None else uuid4(),
+            pre_checked_mode=Mode.LIVE,
         )
 
 
@@ -93,6 +100,7 @@ def _rig(*, disabled: bool) -> _Rig:
         skip_recorder=recorder,
         pool_status=pool_status,
         user_mode=FixedUserMode(),
+        trade_capability=AnyKeyTrades(),
     )
     return _Rig(use_case, strategy_id, pool_status, reservations, recorder)
 

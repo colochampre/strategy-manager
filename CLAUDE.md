@@ -198,10 +198,11 @@ the vault. Anything that still describes two keys is stale.
   row is deactivated and kept. Sealing a read-only key therefore replaces the
   trading key.
 - **A read-only key is accepted, with a warning** (`READ_ONLY_KEY`), and
-  recorded as not trade-capable. With `DRY_RUN=false` an opening signal on that
-  exchange is refused up front, before any capital is reserved
-  (`EXCHANGE_KEY_READ_ONLY`, or `EXCHANGE_HAS_NO_KEY` when there is none). A
-  key with withdraw permission is refused outright.
+  recorded as not trade-capable. An opening that would run live on that exchange
+  is refused up front, before any capital is reserved, and again inside the pool
+  lock (`EXCHANGE_KEY_READ_ONLY`, or `EXCHANGE_HAS_NO_KEY` when there is none). A
+  simulated opening needs no key that can trade. A key with withdraw permission
+  is refused outright.
 - **How capability is known differs by exchange.** Bybit's is read from the
   venue when the key is saved. Binance's cannot be read from the VPS, so the
   owner confirms it (decisions 24 and 30).

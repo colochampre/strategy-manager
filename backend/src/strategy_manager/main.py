@@ -62,7 +62,6 @@ from strategy_manager.accounts.infrastructure.stale_snapshot_reader import (
     SqlAlchemyStaleSnapshotReader,
 )
 from strategy_manager.accounts.infrastructure.trade_capability_adapter import (
-    DryRunTradeCapability,
     VaultTradeCapabilityAdapter,
 )
 from strategy_manager.allocation.application.allocate_capital import AllocateCapital
@@ -86,6 +85,7 @@ from strategy_manager.execution.application.place_order import PlaceOrder
 from strategy_manager.execution.application.ports import (
     ExchangePort,
     ExchangeRegistryPort,
+    ModeExchangesPort,
 )
 from strategy_manager.execution.application.settle_execution import SettleExecution
 from strategy_manager.execution.infrastructure.binance_futures_exchange import (
@@ -439,7 +439,8 @@ def _build_process_delivery(
     pools_by_key: Mapping[tuple[UUID, tuple[str, str, str]], PoolConfig],
     settings: Settings,
     exchanges: ExchangeRegistryPort,
-    tradable_pools: frozenset[tuple[str, str]],
+    job_exchanges: ModeExchangesPort,
+    tradable_pools: Mapping[Mode, frozenset[tuple[str, str]]],
     balance_refresh_reader: ExchangeBalanceReaderPort,
     venue_position_readers: VenuePositionReaderRegistryPort,
 ) -> tuple[ProcessDelivery, OpenAfterClose]:
@@ -452,11 +453,11 @@ def _build_process_delivery(
     this runs inside the pool's advisory lock, where a remote call would
     serialize every allocation on that pool behind exchange latency.
 
-    The exchange REGISTRY is passed in rather than built here: which
-    adapters are registered is a ``DRY_RUN`` decision that belongs to the
-    composition root, and the same registry is handed to the
-    ``execution.settle`` handler because placing and settling are two jobs
-    talking about the same order -- on the same venue."""
+    The exchanges are passed in rather than built here: which adapters a job
+    gets depends on the mode, a decision ``ExchangesByMode`` owns, and the job
+    closes what it opened. ``job_exchanges`` serves an opening, which learns its
+    mode from its reservation. ``exchanges`` serves ``ClosePosition`` until
+    tasks.md E.5 gives a close the same treatment."""
 
     strategy_repository = SqlAlchemyStrategyRepository(session)
     signal_repository = SqlAlchemySignalRepository(session)
@@ -525,6 +526,11 @@ def _build_process_delivery(
         fallback_max_age_seconds=settings.balance_snapshot_max_age_seconds,
     )
 
+    user_mode = SqlAlchemyUserMode(session, brake=settings.dry_run)
+    # One column read of the active row, never a decrypt (design.md § 4a). Asked
+    # only for a live opening: a simulated one needs no key that can trade.
+    trade_capability = VaultTradeCapabilityAdapter(session)
+
     allocate_capital = AllocateCapital(
         strategy_policy=strategy_policy,
         pool_balance=pool_balance,
@@ -535,12 +541,13 @@ def _build_process_delivery(
         reservation_ttl_seconds=settings.reservation_ttl_seconds,
         skip_recorder=SignalSkipRecorder(delivery_outcomes),
         pool_status=SqlAlchemyPoolStatus(session),
-        user_mode=SqlAlchemyUserMode(session, brake=settings.dry_run),
+        user_mode=user_mode,
+        trade_capability=trade_capability,
     )
 
     place_order = PlaceOrder(
         reservations=ReservationGatewayAdapter(reservation_repository),
-        exchanges=exchanges,
+        exchanges=job_exchanges,
         attempts=SqlAlchemyExecutionAttemptRepository(session),
         queue=_job_queue(session, settings),
         clock=SystemClock(),
@@ -620,15 +627,8 @@ def _build_process_delivery(
         close_orphans=close_orphans,
         tradable_pools=tradable_pools,
         outcomes=delivery_outcomes,
-        # Decisions 18 and 20 (design.md § 4a): chosen by DRY_RUN like the
-        # exchange adapters. A rehearsal places nothing, so no key is needed
-        # and none can be missing; live, the answer is one column read of the
-        # active row, never a decrypt.
-        trade_capability=(
-            DryRunTradeCapability()
-            if settings.dry_run
-            else VaultTradeCapabilityAdapter(session)
-        ),
+        trade_capability=trade_capability,
+        user_mode=user_mode,
     )
     return handler, open_after_close
 
@@ -1451,7 +1451,8 @@ def build_worker_runner(
 
             yield adapters
 
-    exchange_for = ExchangesByMode(live=live_adapters_for, simulated=simulated_venues).open
+    exchanges_by_mode = ExchangesByMode(live=live_adapters_for, simulated=simulated_venues)
+    exchange_for = exchanges_by_mode.open
 
     @asynccontextmanager
     async def balance_refresh_reader_for(
@@ -1665,6 +1666,7 @@ def build_worker_runner(
             owner = await delivery_owner(session, delivery_id)
             async with (
                 exchange_for(session, owner, job_mode) as exchanges,
+                exchanges_by_mode.for_job(session, owner) as job_exchanges,
                 balance_refresh_reader_for(session, owner) as balance_refresh_reader,
                 venue_net_position_reader_for(session, owner, job_mode) as venue_position_readers,
             ):
@@ -1673,7 +1675,8 @@ def build_worker_runner(
                     pool_set.by_key,
                     settings,
                     exchanges,
-                    tradable_pools,
+                    job_exchanges,
+                    tradable_by_mode,
                     balance_refresh_reader,
                     venue_position_readers,
                 )
@@ -1714,6 +1717,7 @@ def build_worker_runner(
             job = replace(job, payload={**job.payload, "delivery_id": str(delivery_id)})
             async with (
                 exchange_for(session, owner, job_mode) as exchanges,
+                exchanges_by_mode.for_job(session, owner) as job_exchanges,
                 balance_refresh_reader_for(session, owner) as balance_refresh_reader,
                 venue_net_position_reader_for(session, owner, job_mode) as venue_position_readers,
             ):
@@ -1722,7 +1726,8 @@ def build_worker_runner(
                     pool_set.by_key,
                     settings,
                     exchanges,
-                    tradable_pools,
+                    job_exchanges,
+                    tradable_by_mode,
                     balance_refresh_reader,
                     venue_position_readers,
                 )

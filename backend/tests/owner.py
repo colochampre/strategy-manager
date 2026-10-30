@@ -28,6 +28,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession, async_sessionmaker
 
 from strategy_manager.allocation.application.allocate_capital import AllocateCommand
+from strategy_manager.shared.domain.mode import Mode
 from strategy_manager.shared.domain.money import Money
 
 OWNER_ID = UUID("0a1b2c3d-0000-4000-8000-00000000a0a0")
@@ -285,6 +286,7 @@ async def allocate_command(
     strategy_id: UUID,
     requested: Money,
     user_id: UUID = OWNER_ID,
+    pre_checked_mode: Mode = Mode.LIVE,
 ) -> AllocateCommand:
     """The command that allocates ``signal_id`` for ``user_id``: the delivery it
     serves is seeded (``ensure_delivery``) and committed first, since the
@@ -300,6 +302,7 @@ async def allocate_command(
         requested=requested,
         user_id=user_id,
         delivery_id=delivery_id,
+        pre_checked_mode=pre_checked_mode,
     )
 
 

@@ -5,6 +5,22 @@ is a DELIVERY's."""
 from dataclasses import dataclass, field
 from uuid import UUID
 
+from strategy_manager.execution.application.ports import ExchangeRegistryPort
+from strategy_manager.shared.domain.mode import Mode
+
+
+@dataclass
+class OneRegistry:
+    """``ModeExchangesPort`` for a test that is not about which adapter a mode gets:
+    every mode gets ``registry``. ``asked`` records the modes in call order."""
+
+    registry: ExchangeRegistryPort
+    asked: list[Mode] = field(default_factory=list)
+
+    async def for_mode(self, mode: Mode) -> ExchangeRegistryPort:
+        self.asked.append(mode)
+        return self.registry
+
 
 @dataclass
 class RecordingOrderOutcomes:

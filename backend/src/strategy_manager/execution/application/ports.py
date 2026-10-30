@@ -22,6 +22,7 @@ from strategy_manager.execution.domain.mode_origin import (
 from strategy_manager.execution.domain.order import OrderSide
 from strategy_manager.execution.domain.placeable import PlaceableOrder
 from strategy_manager.shared.domain.errors import DomainError
+from strategy_manager.shared.domain.mode import Mode
 
 
 class ExchangeError(DomainError):
@@ -221,6 +222,15 @@ class ExchangeRegistryPort(Protocol):
     def for_pool(self, exchange: str, venue: str) -> ExchangePort: ...
 
 
+class ModeExchangesPort(Protocol):
+    """One job's exchanges, by the mode a reservation recorded (multi-user design
+    AD7). A job asks once it knows the mode, so a job that learns it from its row
+    builds nothing before reading that row, and one that needs both modes, a
+    REVERSE whose close and reopening differ, gets each one's adapters."""
+
+    async def for_mode(self, mode: Mode) -> ExchangeRegistryPort: ...
+
+
 @dataclass(frozen=True, slots=True)
 class ReservationSnapshot:
     """What ``ExecuteReservation`` needs to know about the reservation it is
@@ -236,6 +246,7 @@ class ReservationSnapshot:
     settlement_currency: str
     amount: Decimal
     status: str
+    mode: Mode
     expires_at: datetime
 
 

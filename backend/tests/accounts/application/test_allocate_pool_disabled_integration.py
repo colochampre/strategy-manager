@@ -61,7 +61,7 @@ from tests.accounts.application.test_delete_credential_integration import (
     _until,
 )
 from tests.accounts.pool_seed import POOL, seed_signal, set_strategy_enabled
-from tests.allocation.fakes import FixedUserMode, RecordingSkipRecorder
+from tests.allocation.fakes import AnyKeyTrades, FixedUserMode, RecordingSkipRecorder
 from tests.ledger.infrastructure.conftest import (  # noqa: F401
     pg_engine,
     pg_session_factory,
@@ -155,6 +155,7 @@ class _Allocation:
                 skip_recorder=self.recorder,
                 pool_status=SqlAlchemyPoolStatus(session),
                 user_mode=FixedUserMode(),
+                trade_capability=AnyKeyTrades(),
             )
             command = await _allocate_command(self._factory, self.signal_id, self._strategy_id)
             self.delivery_id = command.delivery_id

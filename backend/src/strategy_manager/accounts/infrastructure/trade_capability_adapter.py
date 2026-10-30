@@ -1,21 +1,18 @@
-"""The answers behind ``TradeCapabilityPort``: can this exchange's active key
+"""The answer behind ``TradeCapabilityPort``: can this exchange's active key
 trade? (decisions 18, 20 and 30; design.md § 4a).
 
-``ProcessSignalHandler`` asks before an OPENING signal reaches the Existing-
-Position Guard, the balance refresh and the pool's advisory lock, so the answer
-has to be cheap, local and free of secrets:
+``ProcessDelivery`` asks before a LIVE opening reaches the Existing-Position
+Guard, the balance refresh and the pool's advisory lock, and ``AllocateCapital``
+asks again inside that lock, so the answer has to be cheap, local and free of
+secrets. A simulated opening never asks: it places nothing (decision 13).
 
-- ``VaultTradeCapabilityAdapter`` reads the ``trade_capable`` column of the
-  exchange's ACTIVE row, recorded when the key was saved, and NOTHING ELSE. It
-  selects no ciphertext, no nonce and no wrapped key, and it has no cipher to
-  decrypt with (rule 8: plaintext exists only in the worker at signing time).
-  It does not look at how the fact was established either: a Binance key whose
-  capability the owner confirmed answers ``TRADE_CAPABLE``, because the owner
-  has vouched for it and the venue is the backstop (decision 30).
-- ``DryRunTradeCapability`` answers ``TRADE_CAPABLE`` for everything. Under
-  ``DRY_RUN`` the fake exchange places nothing, so no key is needed and none
-  can be missing; wiring it is a ``DRY_RUN`` decision made in ``main.py``
-  beside the exchange adapters.
+``VaultTradeCapabilityAdapter`` reads the ``trade_capable`` column of the
+exchange's ACTIVE row, recorded when the key was saved, and NOTHING ELSE. It
+selects no ciphertext, no nonce and no wrapped key, and it has no cipher to
+decrypt with (rule 8: plaintext exists only in the worker at signing time). It
+does not look at how the fact was established either: a Binance key whose
+capability the owner confirmed answers ``TRADE_CAPABLE``, because the owner has
+vouched for it and the venue is the backstop (decision 30).
 
 No lock, no cache and no venue call: a key deleted or replaced a moment ago is
 seen on the very next signal. A key replaced between this read and
@@ -28,7 +25,7 @@ from sqlalchemy import exists, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from strategy_manager.accounts.infrastructure.models import ExchangeCredentialRow
-from strategy_manager.signals.application.ports import TradeCapability
+from strategy_manager.shared.domain.trade_capability import TradeCapability
 
 _ROW = ExchangeCredentialRow
 
@@ -69,10 +66,3 @@ class VaultTradeCapabilityAdapter:
                 )
             ).scalar_one()
         )
-
-
-class DryRunTradeCapability:
-    """Always ``TRADE_CAPABLE``: a rehearsal refuses no exchange for its key."""
-
-    async def capability(self, user_id: UUID, exchange: str) -> TradeCapability:
-        return TradeCapability.TRADE_CAPABLE

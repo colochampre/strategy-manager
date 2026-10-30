@@ -20,6 +20,7 @@ from strategy_manager.allocation.application.allocate_capital import (
     AllocateCommand,
 )
 from strategy_manager.allocation.application.ports import PoolBalance, StrategyPolicySnapshot
+from strategy_manager.shared.domain.mode import Mode
 from strategy_manager.shared.domain.money import Currency, Money
 from tests.allocation.application.test_allocate_capital import (
     FakeAdvisoryLock,
@@ -30,7 +31,12 @@ from tests.allocation.application.test_allocate_capital import (
     SequencedStrategyPolicyPort,
     _enabled_snapshot,
 )
-from tests.allocation.fakes import AlwaysEnabledPool, FixedUserMode, RecordingSkipRecorder
+from tests.allocation.fakes import (
+    AlwaysEnabledPool,
+    AnyKeyTrades,
+    FixedUserMode,
+    RecordingSkipRecorder,
+)
 from tests.owner import OWNER_ID
 
 
@@ -63,6 +69,7 @@ def _use_case(
         skip_recorder=recorder,
         pool_status=AlwaysEnabledPool(),
         user_mode=FixedUserMode(),
+        trade_capability=AnyKeyTrades(),
     )
 
 
@@ -73,6 +80,7 @@ def _command(signal_id: object, strategy_id: object, delivery_id: UUID) -> Alloc
         requested=Money(amount=Decimal("200"), currency=Currency.USDT),
         user_id=OWNER_ID,
         delivery_id=delivery_id,
+        pre_checked_mode=Mode.LIVE,
     )
 
 

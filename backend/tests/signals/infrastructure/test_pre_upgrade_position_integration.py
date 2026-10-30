@@ -32,6 +32,7 @@ from strategy_manager.shared.config import get_settings
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 from strategy_manager.shared.infrastructure.models import JobRow
 from strategy_manager.signals.infrastructure.models import SignalDeliveryRow
+from tests.execution.fakes import OneRegistry
 from tests.migrations.test_0032_signal_deliveries import (
     _add_attempt,
     _add_pool,
@@ -44,6 +45,7 @@ from tests.migrations.test_0032_signal_deliveries import (
     _subscribe,
 )
 from tests.pg_head_schema import migrated_database
+from tests.signals.fakes import in_both_modes
 from tests.signals.infrastructure.test_delivery_flow_integration import _Reader
 
 pytestmark = pytest.mark.integration
@@ -192,7 +194,8 @@ async def _close(
                 pools,
                 get_settings(),
                 VenueExchangeRegistry([venue]),
-                frozenset({("binance", "usdt-m")}),
+                OneRegistry(VenueExchangeRegistry([venue])),
+                in_both_modes(frozenset({("binance", "usdt-m")})),
                 _Reader(Decimal("1000")),  # type: ignore[arg-type]
                 VenuePositionReaderRegistry([]),
             )

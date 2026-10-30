@@ -30,7 +30,12 @@ from strategy_manager.shared.domain.money import Currency, Exchange, Money, Venu
 from strategy_manager.shared.infrastructure.clock import SystemClock
 from strategy_manager.strategies.application.policy_adapter import StrategyPolicyAdapter
 from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStrategyRepository
-from tests.allocation.fakes import AlwaysEnabledPool, FixedUserMode, RecordingSkipRecorder
+from tests.allocation.fakes import (
+    AlwaysEnabledPool,
+    AnyKeyTrades,
+    FixedUserMode,
+    RecordingSkipRecorder,
+)
 from tests.allocation.infrastructure.conftest import seed_signal, seed_strategy
 from tests.owner import OWNER_ID, allocate_command
 
@@ -63,6 +68,7 @@ def _build_allocate_capital(session: AsyncSession) -> AllocateCapital:
         skip_recorder=RecordingSkipRecorder(),
         pool_status=AlwaysEnabledPool(),
         user_mode=FixedUserMode(),
+        trade_capability=AnyKeyTrades(),
     )
 
 

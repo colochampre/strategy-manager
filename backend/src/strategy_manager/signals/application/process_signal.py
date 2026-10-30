@@ -62,6 +62,7 @@ apply-progress report.
 """
 
 import logging
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -87,15 +88,17 @@ from strategy_manager.execution.domain.execution_attempt import ExecutionAttempt
 from strategy_manager.execution.domain.market_symbol import is_perpetual, market_key
 from strategy_manager.execution.domain.order import OrderSide
 from strategy_manager.shared.application.ports import CommitPort
+from strategy_manager.shared.domain.mode import Mode
 from strategy_manager.shared.domain.money import Currency, Money
+from strategy_manager.shared.domain.trade_capability import TradeCapability, key_refusal
 from strategy_manager.signals.application.fan_out_signal import DeliveryHalves
 from strategy_manager.signals.application.holding_guard import HoldingGuard
 from strategy_manager.signals.application.ports import (
     BalanceRefreshPort,
+    CurrentModePort,
     DeliveryOutcomePort,
     PoolKey,
     RefreshStatus,
-    TradeCapability,
     TradeCapabilityPort,
 )
 from strategy_manager.signals.domain.holding import HeldAllocation
@@ -379,9 +382,10 @@ class ProcessDelivery:
         commit: CommitPort,
         closing_attempts: ClosingAttemptsPort,
         close_orphans: CloseOrphansPort,
-        tradable_pools: frozenset[tuple[str, str]],
+        tradable_pools: Mapping[Mode, frozenset[tuple[str, str]]],
         outcomes: DeliveryOutcomePort,
         trade_capability: TradeCapabilityPort,
+        user_mode: CurrentModePort,
     ) -> None:
         self._deliveries = deliveries
         self._signal_context = signal_context
@@ -399,6 +403,7 @@ class ProcessDelivery:
         self._tradable_pools = tradable_pools
         self._outcomes = outcomes
         self._trade_capability = trade_capability
+        self._user_mode = user_mode
 
     async def handle(self, delivery_id: UUID, raw_halves: object) -> ProcessSignalResult:
         """Works one delivery. ``raw_halves`` is the job payload's ``halves`` as it
@@ -440,9 +445,13 @@ class ProcessDelivery:
         if policy.archived:
             return await self._refuse_archived_strategy(delivery, context, transition, policy)
 
-        if (policy.exchange, policy.venue) not in self._tradable_pools:
+        # What can be traded depends on the mode, since the fake serves more venues
+        # than the live adapters. A plain read before any lock: the lock decides the
+        # mode and refuses to go on if it is no longer this one (tasks.md E.4).
+        mode = await self._user_mode.current_mode(delivery.user_id)
+        if (policy.exchange, policy.venue) not in self._tradable_pools[mode]:
             return await self._refuse_untradable_pool(
-                delivery, context, transition, policy.exchange, policy.venue
+                delivery, context, transition, policy.exchange, policy.venue, mode
             )
 
         # The halves are what ``FanOutSignal`` decided this subscription runs, in
@@ -457,7 +466,7 @@ class ProcessDelivery:
         # With a consuming side hardcoded to BUY, a strategy holding a long and
         # told to flip short bought MORE long.
         if halves is DeliveryHalves.OPEN:
-            return await self._handle_consumes(context, transition, policy, delivery)
+            return await self._handle_consumes(context, transition, policy, delivery, mode)
         result = await self._handle_releases(context, transition, policy, delivery, halves)
         if halves is DeliveryHalves.CLOSE:
             return result
@@ -536,11 +545,25 @@ class ProcessDelivery:
             return await self._refuse_archived_strategy(
                 delivery, context, transition, policy, close_executed=close_executed
             )
+        # ``handle`` checked this for the mode of that moment; the opening below is
+        # a new decision, and the mode can have moved while the close settled.
+        mode = await self._user_mode.current_mode(delivery.user_id)
+        if (policy.exchange, policy.venue) not in self._tradable_pools[mode]:
+            return await self._refuse_untradable_pool(
+                delivery,
+                context,
+                transition,
+                policy.exchange,
+                policy.venue,
+                mode,
+                close_executed=close_executed,
+            )
         return await self._handle_consumes(
             context,
             transition,
             policy,
             delivery,
+            mode,
             next_poll=poll + 1,
             close_executed=close_executed,
         )
@@ -551,6 +574,7 @@ class ProcessDelivery:
         transition: PositionTransition,
         policy: StrategyPolicySnapshot,
         delivery: Delivery,
+        mode: Mode,
         next_poll: int = 0,
         close_executed: bool = False,
     ) -> ProcessSignalResult:
@@ -572,14 +596,22 @@ class ProcessDelivery:
         # venue after a reservation was taken. Placed after the allowlist
         # refusal and before the guard, the refresh and the lock, and only in
         # this method, so a close is never refused by it and ``open_now`` (the
-        # REVERSE continuation) is covered. Under DRY_RUN the wired port
-        # answers TRADE_CAPABLE, so nothing is refused. The key asked about is
-        # the delivery's user's, i.e. the subscriber's (multi-user design AD8, C.6).
-        capability = await self._trade_capability.capability(delivery.user_id, policy.exchange)
-        if capability is not TradeCapability.TRADE_CAPABLE:
-            return await self._refuse_read_only_exchange(
-                delivery, context, transition, policy, capability, close_executed=close_executed
+        # REVERSE continuation) is covered. A simulated open needs no key that can
+        # trade (decision 13), so it is not asked. The key asked about is the
+        # delivery's user's, i.e. the subscriber's (multi-user design AD8, C.6).
+        if mode is Mode.LIVE:
+            capability = await self._trade_capability.capability(
+                delivery.user_id, policy.exchange
             )
+            if capability is not TradeCapability.TRADE_CAPABLE:
+                return await self._refuse_read_only_exchange(
+                    delivery,
+                    context,
+                    transition,
+                    policy,
+                    capability,
+                    close_executed=close_executed,
+                )
 
         # The Existing-Position Guard (spec: capital-allocation §
         # Existing-Position Guard) runs BEFORE anything else in this branch --
@@ -722,6 +754,7 @@ class ProcessDelivery:
                 requested=requested,
                 user_id=delivery.user_id,
                 delivery_id=delivery.delivery_id,
+                pre_checked_mode=mode,
             )
         )
 
@@ -1087,20 +1120,11 @@ class ProcessDelivery:
 
         Never silent (decision 25): the refusal is recorded as a ``REJECTED``
         outcome through ``_reject``, exactly like the other pre-lock
-        refusals. The residual race -- a key replaced or deleted after this
-        read and before ``PlaceOrder`` -- fails at the venue as any refused
-        write does today.
+        refusals. A key replaced or deleted after this read is refused again in
+        the lock (``AllocateCapital``), with the same reason; one that goes after
+        the lock fails at the venue as any refused write does today.
         """
-        exchange = policy.exchange
-        if capability is TradeCapability.NO_KEY:
-            code = "EXCHANGE_HAS_NO_KEY"
-            reason = f"{exchange} has no active key; store one (Settings)"
-        else:
-            code = "EXCHANGE_KEY_READ_ONLY"
-            reason = (
-                f"the active {exchange} key cannot trade; "
-                "store a key that can trade futures (Settings)"
-            )
+        code, reason = key_refusal(capability, policy.exchange)
         refused = (
             f"signal {delivery.signal_id} for strategy {policy.name} ({context.strategy_id}) "
             f"refused: {reason}; no capital reserved"
@@ -1117,6 +1141,9 @@ class ProcessDelivery:
         transition: PositionTransition,
         exchange: str,
         venue: str,
+        mode: Mode,
+        *,
+        close_executed: bool = False,
     ) -> ProcessSignalResult:
         """Refuse THIS signal, and only this one.
 
@@ -1136,14 +1163,16 @@ class ProcessDelivery:
         still learns about it at startup, as a warning that names the pools
         without taking the process down with them.
         """
-        served = ", ".join(sorted(f"{e}/{v}" for e, v in self._tradable_pools))
+        served = ", ".join(sorted(f"{e}/{v}" for e, v in self._tradable_pools[mode]))
         refused = (
             f"strategy {context.strategy_id} trades on {exchange}/{venue}, which "
             f"no registered exchange adapter serves ({served or 'nothing'}). "
             "No order was placed and no capital was reserved."
         )
         logger.warning("refusing signal for %s: %s", context.symbol, refused)
-        return await self._reject(delivery, transition, "UNTRADABLE_POOL", refused)
+        return await self._reject(
+            delivery, transition, "UNTRADABLE_POOL", refused, close_executed=close_executed
+        )
 
     async def _refuse_halves(
         self, delivery: Delivery, transition: PositionTransition, reason: str, refused: str

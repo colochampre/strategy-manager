@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from uuid import UUID
 
 from strategy_manager.shared.domain.mode import Mode
+from strategy_manager.shared.domain.trade_capability import TradeCapability
 
 
 @dataclass
@@ -65,3 +66,24 @@ class FixedUserMode:
         self.users.append(user_id)
         self.events.append("user_mode")
         return self.mode
+
+    async def current_mode(self, user_id: UUID) -> Mode:
+        self.users.append(user_id)
+        return self.mode
+
+
+@dataclass
+class AnyKeyTrades:
+    """``TradeCapabilityPort`` for tests that are not about the key: every exchange
+    answers ``answer``. ``asked`` records the ``(user, exchange)`` of each call and
+    ``events`` is shared with the fakes around it, so a test can prove the read came
+    after the lock, or never happened."""
+
+    answer: TradeCapability = TradeCapability.TRADE_CAPABLE
+    asked: list[tuple[UUID, str]] = field(default_factory=list)
+    events: list[str] = field(default_factory=list)
+
+    async def capability(self, user_id: UUID, exchange: str) -> TradeCapability:
+        self.asked.append((user_id, exchange))
+        self.events.append("trade_capability")
+        return self.answer

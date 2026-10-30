@@ -30,6 +30,7 @@ from strategy_manager.execution.domain.order import OrderSide
 from strategy_manager.execution.infrastructure.exchange_registry import (
     VenueExchangeRegistry,
 )
+from strategy_manager.shared.domain.mode import Mode
 from strategy_manager.shared.domain.money import Currency
 from tests.execution.fakes import RecordingSettleOutcomes
 
@@ -132,6 +133,7 @@ class FakeReservations:
             settlement_currency="USDT",
             amount=Decimal("100"),
             status="SUBMITTED",
+            mode=Mode.LIVE,
             expires_at=NOW,
         )
 

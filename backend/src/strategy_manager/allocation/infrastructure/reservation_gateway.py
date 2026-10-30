@@ -32,6 +32,7 @@ class ReservationGatewayAdapter:
             settlement_currency=reservation.pool_key.settlement_currency.value,
             amount=reservation.amount,
             status=reservation.status.value,
+            mode=reservation.mode,
             expires_at=reservation.expires_at,
         )
 

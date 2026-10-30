@@ -58,7 +58,9 @@ from strategy_manager.subscriptions.infrastructure.models import SubscriptionRow
 from strategy_manager.subscriptions.infrastructure.repository import (
     SqlAlchemySubscriptionRepository,
 )
+from tests.execution.fakes import OneRegistry
 from tests.owner import OWNER_ID, ensure_pool, seed_other_user, seed_snapshot
+from tests.signals.fakes import in_both_modes
 from tests.signals.infrastructure.conftest import (  # noqa: F401
     pg_engine,
     pg_session_factory,
@@ -239,7 +241,8 @@ async def _work(world: World, user: UUID, delivery_id: UUID, halves: object) -> 
             pools,
             get_settings(),
             VenueExchangeRegistry([world.venues[user]]),
-            frozenset({("bybit", "usdt-m")}),
+            OneRegistry(VenueExchangeRegistry([world.venues[user]])),
+            in_both_modes(frozenset({("bybit", "usdt-m")})),
             _Reader(world.totals[user]),  # type: ignore[arg-type]
             VenuePositionReaderRegistry([]),
         )
@@ -538,7 +541,8 @@ async def _continue(world: World, done: set[UUID]) -> list[UUID]:
                 pools,
                 get_settings(),
                 VenueExchangeRegistry([world.venues[owner]]),
-                frozenset({("bybit", "usdt-m")}),
+                OneRegistry(VenueExchangeRegistry([world.venues[owner]])),
+                in_both_modes(frozenset({("bybit", "usdt-m")})),
                 _Reader(world.totals[owner]),  # type: ignore[arg-type]
                 VenuePositionReaderRegistry([]),
             )

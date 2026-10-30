@@ -101,10 +101,15 @@ from strategy_manager.signals.infrastructure.repository import SqlAlchemySignalR
 from strategy_manager.signals.infrastructure.signal_context import SignalContextAdapter
 from strategy_manager.strategies.application.policy_adapter import StrategyPolicyAdapter
 from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStrategyRepository
-from tests.allocation.fakes import AlwaysEnabledPool, FixedUserMode, RecordingSkipRecorder
-from tests.execution.fakes import RecordingOrderOutcomes
+from tests.allocation.fakes import (
+    AlwaysEnabledPool,
+    AnyKeyTrades,
+    FixedUserMode,
+    RecordingSkipRecorder,
+)
+from tests.execution.fakes import OneRegistry, RecordingOrderOutcomes
 from tests.owner import OWNER_ID, ensure_delivery, ensure_pool, seed_snapshot
-from tests.signals.fakes import FakeTradeCapability, RecordingSignalOutcomes
+from tests.signals.fakes import FakeTradeCapability, RecordingSignalOutcomes, in_both_modes
 from tests.signals.infrastructure.conftest import seed_strategy
 from tests.subscriptions.infrastructure import seeds
 
@@ -464,10 +469,11 @@ def _build_handler(
             skip_recorder=RecordingSkipRecorder(),
             pool_status=AlwaysEnabledPool(),
             user_mode=FixedUserMode(),
+            trade_capability=AnyKeyTrades(),
         ),
         place_order=PlaceOrder(
             reservations=ReservationGatewayAdapter(own_reservations),
-            exchanges=registry,
+            exchanges=OneRegistry(registry),
             attempts=attempts_repository,
             queue=_NullQueue(),  # type: ignore[arg-type]
             clock=clock,
@@ -480,9 +486,10 @@ def _build_handler(
         commit=session,
         closing_attempts=attempts_repository,
         close_orphans=NeverCalledCloseOrphans(),
-        tradable_pools=frozenset({("bybit", "usdt-m")}),
+        tradable_pools=in_both_modes(frozenset({("bybit", "usdt-m")})),
         outcomes=RecordingSignalOutcomes(),
         trade_capability=FakeTradeCapability(),
+        user_mode=FixedUserMode(),
     )
 
 

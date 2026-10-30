@@ -18,6 +18,7 @@ The distinct-user behaviour (a subscriber that is NOT the author, at a share tha
 NOT the strategy's) is proven in ``test_process_delivery.py``.
 """
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any
@@ -35,6 +36,8 @@ from strategy_manager.signals.domain.position_transition import (
     PositionTransition,
     TransitionEffect,
 )
+from tests.allocation.fakes import FixedUserMode
+from tests.signals.fakes import in_both_modes
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,7 +102,11 @@ class SoleSubscriberHandler:
 def sole_subscriber_handler(**kwargs: Any) -> SoleSubscriberHandler:
     """Builds ``ProcessDelivery`` from the keyword arguments the single-user
     ``ProcessSignalHandler`` took: its deliveries are derived from the fake
-    policy port's snapshot."""
+    policy port's snapshot. A plain set of pools is tradable in both modes, and the
+    user is ``LIVE`` unless ``user_mode`` says otherwise."""
     deliveries = SoleSubscriberDeliveries(kwargs["strategy_policy"])
+    pools = kwargs["tradable_pools"]
+    kwargs["tradable_pools"] = pools if isinstance(pools, Mapping) else in_both_modes(pools)
+    kwargs.setdefault("user_mode", FixedUserMode())
     inner = ProcessDelivery(deliveries=deliveries, **kwargs)
     return SoleSubscriberHandler(inner, kwargs["signal_context"], deliveries)

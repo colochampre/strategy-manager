@@ -27,6 +27,7 @@ from strategy_manager.allocation.application.ports import (
     ReservationRepositoryPort,
     SkipRecorderPort,
     StrategyPolicyPort,
+    TradeCapabilityPort,
     UserModePort,
 )
 from strategy_manager.allocation.domain.capital_pool import CapitalPool
@@ -37,7 +38,9 @@ from strategy_manager.allocation.domain.reservation import Reservation, Reservat
 from strategy_manager.allocation.domain.rules import AllocationRules, FillMode
 from strategy_manager.shared.application.ports import ClockPort
 from strategy_manager.shared.domain.errors import DomainError
+from strategy_manager.shared.domain.mode import Mode
 from strategy_manager.shared.domain.money import Currency, Exchange, Money, Venue
+from strategy_manager.shared.domain.trade_capability import TradeCapability, key_refusal
 
 logger = logging.getLogger(__name__)
 
@@ -72,17 +75,27 @@ class InvalidAllocationRequestError(DomainError):
     """Raised when the requested amount is not strictly positive."""
 
 
+class ModeChangedError(DomainError):
+    """The mode decided in the lock is not the one the signal path's checks went by:
+    a flip landed in between (multi-user design AD7, tasks.md E.4). Those checks may
+    not hold for this mode, so nothing is reserved and the error fails the job, which
+    releases the lock and runs the delivery again from the top."""
+
+
 @dataclass(frozen=True, slots=True)
 class AllocateCommand:
     """``user_id`` is the delivery's user: the subscriber whose pool this is
     allocated in, never the strategy's author unless the author is the
-    subscriber. ``delivery_id`` is the delivery the reservation serves."""
+    subscriber. ``delivery_id`` is the delivery the reservation serves.
+    ``pre_checked_mode`` is the mode the signal path's checks went by: the mode
+    itself is decided in the lock, and it must still be this one."""
 
     signal_id: UUID
     strategy_id: UUID
     requested: Money
     user_id: UUID
     delivery_id: UUID
+    pre_checked_mode: Mode
 
 
 @dataclass(frozen=True, slots=True)
@@ -112,6 +125,7 @@ class AllocateCapital:
         skip_recorder: SkipRecorderPort,
         pool_status: PoolStatusPort,
         user_mode: UserModePort,
+        trade_capability: TradeCapabilityPort,
     ) -> None:
         self._strategy_policy = strategy_policy
         self._pool_balance = pool_balance
@@ -123,6 +137,7 @@ class AllocateCapital:
         self._skip_recorder = skip_recorder
         self._pool_status = pool_status
         self._user_mode = user_mode
+        self._trade_capability = trade_capability
 
     async def allocate(self, command: AllocateCommand) -> AllocationResult:
         # The reservations are the DELIVERY's user's (multi-user design AD5 and
@@ -186,8 +201,16 @@ class AllocateCapital:
         # The mode this opening runs in (decisions 6, 14 and 26), read FOR SHARE
         # right after the lock and before anything is decided: a flip to simulation
         # either waits for this transaction or has already landed, so a real
-        # reservation never appears after the flat check passed.
+        # reservation never appears after the flat check passed. Raising here
+        # leaves nothing committed, like the UNIQUE loser ``open_now`` describes:
+        # the rollback releases the lock and ``WorkerRunner`` runs the job again.
         mode = await self._user_mode.effective_mode(command.user_id)
+        if mode is not command.pre_checked_mode:
+            raise ModeChangedError(
+                f"signal {command.signal_id} was checked for {command.pre_checked_mode.value} "
+                f"but delivery {command.delivery_id} is now {mode.value}; nothing was "
+                f"reserved and the delivery runs again"
+            )
 
         # In-lock re-check (design.md § 8 point (ii), "AllocateCapital
         # re-reads the policy inside the lock"): the pre-lock read above can
@@ -253,6 +276,29 @@ class AllocateCapital:
                 reservation_id=None,
                 skip_reason=POOL_DISABLED_SKIP_REASON,
             )
+
+        # The key can be gone by now, since ``ProcessDelivery`` asked before the
+        # wait and ``DeleteCredential`` deactivates it under this same lock. Only a
+        # real opening needs one (decision 13). The key is the delivery's user's.
+        if mode is Mode.LIVE:
+            capability = await self._trade_capability.capability(
+                command.user_id, policy.exchange
+            )
+            if capability is not TradeCapability.TRADE_CAPABLE:
+                code, reason = key_refusal(capability, policy.exchange)
+                detail = (
+                    f"in-lock re-check skips signal {command.signal_id} for strategy "
+                    f"{command.strategy_id}: {reason}; no capital reserved"
+                )
+                logger.warning("%s", detail)
+                await self._skip_recorder.record_skip(command.delivery_id, code, detail)
+                await self._commit.commit()
+                return AllocationResult(
+                    outcome=DecisionOutcome.SKIP,
+                    granted=Decimal("0"),
+                    reservation_id=None,
+                    skip_reason=code,
+                )
 
         try:
             pool_balance = await self._pool_balance.read(

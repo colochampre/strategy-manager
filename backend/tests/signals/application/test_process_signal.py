@@ -14,7 +14,7 @@ FOUND note, closed by this slice).
 
 import logging
 import os
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -39,7 +39,6 @@ from strategy_manager.accounts.infrastructure.models import ExchangeCredentialRo
 from strategy_manager.accounts.infrastructure.pool_exposure_adapter import PoolExposureAdapter
 from strategy_manager.accounts.infrastructure.reader_by_exchange import ReaderByExchange
 from strategy_manager.accounts.infrastructure.trade_capability_adapter import (
-    DryRunTradeCapability,
     VaultTradeCapabilityAdapter,
 )
 from strategy_manager.allocation.application.allocate_capital import (
@@ -47,6 +46,7 @@ from strategy_manager.allocation.application.allocate_capital import (
     AllocateCommand,
     AllocationResult,
     InvalidAllocationRequestError,
+    ModeChangedError,
 )
 from strategy_manager.allocation.application.ports import PoolBalance, StrategyPolicySnapshot
 from strategy_manager.allocation.domain.lock_key import LockKey
@@ -78,7 +78,12 @@ from strategy_manager.signals.application.process_signal import Delivery, Signal
 from strategy_manager.signals.domain.holding import HeldAllocation
 from strategy_manager.strategies.infrastructure.pool_lock_adapter import PoolLockAdapter
 from tests.accounts.fakes import BYBIT_KEY, BYBIT_SECRET, TickingClock
-from tests.allocation.fakes import AlwaysEnabledPool, FixedUserMode, RecordingSkipRecorder
+from tests.allocation.fakes import (
+    AlwaysEnabledPool,
+    AnyKeyTrades,
+    FixedUserMode,
+    RecordingSkipRecorder,
+)
 from tests.ledger.infrastructure.conftest import (  # noqa: F401
     pg_engine,
     pg_session_factory,
@@ -157,8 +162,10 @@ class FakeReservationRepository:
 
 @dataclass
 class FakeCommit:
+    committed: bool = False
+
     async def commit(self) -> None:
-        pass
+        self.committed = True
 
 
 @dataclass
@@ -414,6 +421,7 @@ def _allocate_capital(
     reservations: FakeReservationRepository | None = None,
     skip_recorder: RecordingSkipRecorder | None = None,
     commit: CommitPort | None = None,
+    mode: Mode = Mode.LIVE,
 ) -> AllocateCapital:
     return AllocateCapital(
         strategy_policy=FakeStrategyPolicyPort(policy or _snapshot()),
@@ -429,7 +437,8 @@ def _allocate_capital(
         reservation_ttl_seconds=30,
         skip_recorder=skip_recorder or RecordingSkipRecorder(),
         pool_status=AlwaysEnabledPool(),
-        user_mode=FixedUserMode(),
+        user_mode=FixedUserMode(mode),
+        trade_capability=AnyKeyTrades(),
     )
 
 
@@ -463,7 +472,8 @@ def _process_signal_handler(
     close_position: SpyClosePosition | None = None,
     policy: StrategyPolicySnapshot | None = None,
     pool_balance: PoolBalance | None = None,
-    tradable_pools: frozenset[tuple[str, str]] = TRADABLE,
+    tradable_pools: frozenset[tuple[str, str]]
+    | Mapping[Mode, frozenset[tuple[str, str]]] = TRADABLE,
     holding_guard: HoldingGuard | None = None,
     balance_refresh: FakeBalanceRefreshPort | None = None,
     open_after_close: SpyContinuationSeeder | None = None,
@@ -472,6 +482,7 @@ def _process_signal_handler(
     close_orphans: SpyCloseOrphans | None = None,
     outcomes: RecordingSignalOutcomes | None = None,
     trade_capability: FakeTradeCapability | None = None,
+    user_mode: FixedUserMode | None = None,
 ) -> SoleSubscriberHandler:
     return sole_subscriber_handler(
         signal_context=FakeSignalContextPort(context),
@@ -493,6 +504,7 @@ def _process_signal_handler(
         tradable_pools=tradable_pools,
         outcomes=outcomes or RecordingSignalOutcomes(),
         trade_capability=trade_capability or FakeTradeCapability(),
+        user_mode=user_mode or FixedUserMode(),
     )
 
 
@@ -2667,6 +2679,7 @@ async def test_an_empty_pool_is_refused_rather_than_raised() -> None:
                 requested=Money(amount=Decimal("0"), currency=Currency("USDT")),
                 user_id=OWNER_ID,
                 delivery_id=uuid4(),
+                pre_checked_mode=Mode.LIVE,
             )
         )
 
@@ -3159,21 +3172,27 @@ async def test_close_on_readonly_exchange_not_refused_by_this_rule(
         assert [r for r in caplog.records if r.levelname == "WARNING"] == [], capability
 
 
-async def test_dry_run_true_readonly_key_refuses_nothing() -> None:
-    """Under ``DRY_RUN=true`` the composition root wires
-    ``DryRunTradeCapability``: the fake exchange places nothing, so even an
-    exchange that would be READ_ONLY (or keyless) live opens normally."""
+@pytest.mark.parametrize("capability", [TradeCapability.READ_ONLY, TradeCapability.NO_KEY])
+async def test_a_simulated_opening_never_asks_about_the_key(
+    capability: TradeCapability,
+) -> None:
+    """Decision 13: the fake exchange places nothing, so an exchange whose key is
+    READ_ONLY, or that has none, opens in simulation. The question is not asked at
+    all: a key that cannot trade is no reason to refuse here, and no reason to
+    read it either."""
     lock = SpyAdvisoryLock()
     place_order = SpyPlaceOrder()
     outcomes = RecordingSignalOutcomes()
+    trade_capability = FakeTradeCapability(capability)
     handler = _process_signal_handler(
         context=_stx_open_context(),
-        allocate_capital=_allocate_capital(lock),
+        allocate_capital=_allocate_capital(lock, mode=Mode.SIMULATION),
         place_order=place_order,
         policy=_stx_policy(),
         tradable_pools=_BYBIT_POOLS,
         outcomes=outcomes,
-        trade_capability=DryRunTradeCapability(),  # type: ignore[arg-type]
+        trade_capability=trade_capability,
+        user_mode=FixedUserMode(Mode.SIMULATION),
     )
 
     result = await handler.handle(uuid4())
@@ -3183,6 +3202,127 @@ async def test_dry_run_true_readonly_key_refuses_nothing() -> None:
     assert len(place_order.calls) == 1
     assert len(lock.acquired) == 1
     assert outcomes.calls == []
+    assert trade_capability.asked == []
+
+
+@pytest.mark.parametrize("mode", list(Mode))
+async def test_the_allocation_is_told_the_mode_the_checks_went_by(mode: Mode) -> None:
+    """Tasks.md E.4: one read per pass, and that read is what the lock compares its
+    own against. A second read here could differ from the one the checks used."""
+    engine = SpyAllocateCapital(_allocate_capital(SpyAdvisoryLock(), mode=mode))
+    user_mode = FixedUserMode(mode)
+    handler = _process_signal_handler(
+        context=_stx_open_context(),
+        allocate_capital=engine,
+        place_order=SpyPlaceOrder(),
+        policy=_stx_policy(),
+        tradable_pools=_BYBIT_POOLS,
+        user_mode=user_mode,
+    )
+
+    await handler.handle(uuid4())
+
+    assert [command.pre_checked_mode for command in engine.calls] == [mode]
+    assert len(user_mode.users) == 1
+
+
+async def test_a_mode_that_moved_under_the_checks_fails_the_job_for_another_run() -> None:
+    """Nothing is placed and nothing is recorded: a recorded outcome would end a
+    delivery that has not been decided. The error reaches ``WorkerRunner``, which
+    fails the job, and the rollback releases the pool lock."""
+    place_order = SpyPlaceOrder()
+    outcomes = RecordingSignalOutcomes()
+    commit = FakeCommit()
+    handler = _process_signal_handler(
+        context=_stx_open_context(),
+        allocate_capital=_allocate_capital(SpyAdvisoryLock(), mode=Mode.SIMULATION),
+        place_order=place_order,
+        policy=_stx_policy(),
+        tradable_pools=_BYBIT_POOLS,
+        outcomes=outcomes,
+        commit=commit,
+        user_mode=FixedUserMode(Mode.LIVE),
+    )
+
+    with pytest.raises(ModeChangedError):
+        await handler.handle(uuid4())
+
+    assert place_order.calls == []
+    assert outcomes.calls == []
+    assert commit.committed is False
+
+
+_SIMULATION_ONLY = {Mode.LIVE: frozenset[tuple[str, str]](), Mode.SIMULATION: _BYBIT_POOLS}
+
+
+@pytest.mark.parametrize(
+    ("mode", "refused"), [(Mode.LIVE, True), (Mode.SIMULATION, False)]
+)
+async def test_whether_a_pool_is_tradable_depends_on_the_users_mode(
+    mode: Mode, refused: bool
+) -> None:
+    """The fake serves spot, usdt-m and coin-m while the live adapters serve usdt-m
+    only, so one set for both would refuse a simulated user a pool that works, or
+    let a live user reach an adapter that does not exist."""
+    place_order = SpyPlaceOrder()
+    handler = _process_signal_handler(
+        context=_stx_open_context(),
+        allocate_capital=_allocate_capital(SpyAdvisoryLock(), mode=mode),
+        place_order=place_order,
+        policy=_stx_policy(),
+        tradable_pools=_SIMULATION_ONLY,
+        user_mode=FixedUserMode(mode),
+    )
+
+    result = await handler.handle(uuid4())
+
+    assert (result.refused is not None) is refused
+    assert len(place_order.calls) == (0 if refused else 1)
+
+
+async def test_an_untradable_refusal_names_what_the_users_mode_serves() -> None:
+    outcomes = RecordingSignalOutcomes()
+    handler = _process_signal_handler(
+        context=_stx_open_context(),
+        allocate_capital=_allocate_capital(SpyAdvisoryLock(), mode=Mode.SIMULATION),
+        place_order=SpyPlaceOrder(),
+        policy=_stx_policy(),
+        tradable_pools={Mode.LIVE: _BYBIT_POOLS, Mode.SIMULATION: frozenset({("pionex", "spot")})},
+        outcomes=outcomes,
+        user_mode=FixedUserMode(Mode.SIMULATION),
+    )
+
+    result = await handler.handle(uuid4())
+
+    assert result.refused is not None
+    assert "pionex/spot" in result.refused
+    assert "bybit/usdt-m" not in result.refused.split("(")[-1]
+
+
+@pytest.mark.parametrize(
+    ("mode", "refused"), [(Mode.LIVE, True), (Mode.SIMULATION, False)]
+)
+async def test_the_continuation_checks_the_pool_and_tells_the_mode_too(
+    mode: Mode, refused: bool
+) -> None:
+    """``open_now`` skips ``handle``, and the mode can move while a close settles:
+    the opening it runs is a new decision, for the mode of that moment."""
+    engine = SpyAllocateCapital(_allocate_capital(SpyAdvisoryLock(), mode=mode))
+    place_order = SpyPlaceOrder()
+    handler = _process_signal_handler(
+        context=_stx_open_context(),
+        allocate_capital=engine,
+        place_order=place_order,
+        policy=_stx_policy(),
+        tradable_pools=_SIMULATION_ONLY,
+        user_mode=FixedUserMode(mode),
+    )
+
+    result = await handler.open_now(uuid4(), poll=0)
+
+    assert (result.refused is not None) is refused
+    assert [command.pre_checked_mode for command in engine.calls] == ([] if refused else [mode])
+    assert len(place_order.calls) == (0 if refused else 1)
 
 
 async def test_a_trade_capable_exchange_opens_exactly_as_before() -> None:

@@ -1,16 +1,20 @@
-"""``SqlAlchemyUserMode``: implements ``UserModePort`` against ``users.mode``.
+"""``SqlAlchemyUserMode``: implements ``UserModePort`` and ``CurrentModePort`` against
+``users.mode``.
 
-The user row is read ``FOR SHARE`` on the allocation's own session, after the pool
-advisory lock (lock order: advisory lock first, then row locks). A change of the
-user's mode takes the same row ``FOR UPDATE``, so the two cannot interleave: the
-flip waits for this opening's transaction, or lands first and this reads the new
-mode. ``FOR SHARE`` rather than ``FOR UPDATE`` so that openings of one user in
-different pools do not queue on each other for a read.
+Inside the lock the user row is read ``FOR SHARE`` on the allocation's own session,
+after the pool advisory lock (lock order: advisory lock first, then row locks). A
+change of the user's mode takes the same row ``FOR UPDATE``, so the two cannot
+interleave: the flip waits for this opening's transaction, or lands first and this
+reads the new mode. ``FOR SHARE`` rather than ``FOR UPDATE`` so that openings of one
+user in different pools do not queue on each other for a read.
+
+Before the lock the row is read plainly. A row lock taken there would invert the
+order above, and that read decides nothing: the lock compares its own with it.
 """
 
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import Select, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from strategy_manager.identity.infrastructure.models import UserRow
@@ -27,10 +31,14 @@ class SqlAlchemyUserMode:
         self._brake = brake
 
     async def effective_mode(self, user_id: UUID) -> Mode:
+        return await self._read(select(UserRow.mode).with_for_update(read=True), user_id)
+
+    async def current_mode(self, user_id: UUID) -> Mode:
+        return await self._read(select(UserRow.mode), user_id)
+
+    async def _read(self, statement: Select[tuple[str]], user_id: UUID) -> Mode:
         stored = (
-            await self._session.execute(
-                select(UserRow.mode).where(UserRow.id == user_id).with_for_update(read=True)
-            )
+            await self._session.execute(statement.where(UserRow.id == user_id))
         ).scalar_one_or_none()
         if stored is None:
             raise InvariantViolation(

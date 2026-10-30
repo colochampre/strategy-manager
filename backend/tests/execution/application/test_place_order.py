@@ -35,7 +35,8 @@ from strategy_manager.execution.infrastructure.exchange_registry import (
 )
 from strategy_manager.shared.application.job import Job, JobKind
 from strategy_manager.shared.domain.errors import InvariantViolation
-from tests.execution.fakes import RecordingOrderOutcomes
+from strategy_manager.shared.domain.mode import Mode
+from tests.execution.fakes import OneRegistry, RecordingOrderOutcomes
 
 NOW = datetime(2026, 8, 20, 12, 0, 0, tzinfo=UTC)
 SETTLE_DELAY = 2.0
@@ -54,8 +55,10 @@ class FrozenClock:
 
 
 class FakeReservations:
-    def __init__(self, expires_at: datetime, amount: Decimal = Decimal("100")) -> None:
-        self._snapshot = ReservationSnapshot(exchange="pionex", 
+    def __init__(
+        self, expires_at: datetime, amount: Decimal = Decimal("100"), mode: Mode = Mode.LIVE
+    ) -> None:
+        self._snapshot = ReservationSnapshot(exchange="pionex",
             id=RESERVATION_ID,
             strategy_id=STRATEGY_ID,
             signal_id=SIGNAL_ID,
@@ -63,6 +66,7 @@ class FakeReservations:
             settlement_currency="USDT",
             amount=amount,
             status="PENDING",
+            mode=mode,
             expires_at=expires_at,
         )
         self.marks: list[tuple[UUID, str]] = []
@@ -196,17 +200,22 @@ def _build(
     exchange_raises: Exception | None = None,
     build_open_raises: Exception | None = None,
     outcomes: RecordingOrderOutcomes | None = None,
+    mode: Mode = Mode.LIVE,
+    asked: list[Mode] | None = None,
 ) -> tuple[PlaceOrder, FakeReservations, SpyAttempts, SpyQueue, SpyExchange, list[str]]:
     log: list[str] = []
     outcomes = outcomes if outcomes is not None else RecordingOrderOutcomes()
     outcomes.log = log
-    reservations = FakeReservations(expires_at, amount)
+    reservations = FakeReservations(expires_at, amount, mode)
     attempts = SpyAttempts(log)
     queue = SpyQueue(log)
     exchange = SpyExchange(log, exchange_raises, build_open_raises)
     use_case = PlaceOrder(
         reservations=reservations,
-        exchanges=VenueExchangeRegistry([exchange]),  # type: ignore[list-item]
+        exchanges=OneRegistry(
+            VenueExchangeRegistry([exchange]),  # type: ignore[list-item]
+            [] if asked is None else asked,
+        ),
         attempts=attempts,  # type: ignore[arg-type]
         queue=queue,  # type: ignore[arg-type]
         clock=FrozenClock(),
@@ -228,6 +237,30 @@ def _command(
         side=side,
         price=price,
     )
+
+
+@pytest.mark.parametrize("mode", list(Mode))
+async def test_the_order_goes_to_the_exchanges_of_the_reservations_mode(mode: Mode) -> None:
+    """Multi-user design AD7, tasks.md E.4: the mode was decided in the lock and
+    recorded. A flip or the brake landing after that changes nothing for this order,
+    so ``PlaceOrder`` reads no mode of its own."""
+    asked: list[Mode] = []
+    use_case, _, _, _, exchange, _ = _build(mode=mode, asked=asked)
+
+    await use_case.place(_command())
+
+    assert asked == [mode]
+    assert len(exchange.orders) == 1
+
+
+async def test_an_expired_reservation_builds_no_exchange() -> None:
+    """A job builds an adapter only when it needs one: a live one decrypts a key."""
+    asked: list[Mode] = []
+    use_case, _, _, _, _, _ = _build(expires_at=NOW - timedelta(seconds=1), asked=asked)
+
+    await use_case.place(_command())
+
+    assert asked == []
 
 
 async def test_the_reservation_read_and_marked_is_the_commands_user() -> None:

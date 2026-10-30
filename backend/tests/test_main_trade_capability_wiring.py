@@ -1,12 +1,10 @@
-"""Composition-root wiring of ``TradeCapabilityPort`` (unit 6c, design.md § 4a).
+"""Composition-root wiring of ``TradeCapabilityPort`` (unit 6c, design.md § 4a;
+multi-user design AD7, tasks.md E.4).
 
-Which adapter answers "can this exchange's key trade?" is a ``DRY_RUN``
-decision, made where the exchange adapters are chosen: the worker's
-``_build_process_delivery``. Under ``DRY_RUN`` the fake exchange places
-nothing, so every exchange must answer ``TRADE_CAPABLE``; live, the answer comes
-from the vault's recorded column. Getting either wrong is silent: a live worker
-wired to the dry-run answer places orders on read-only keys, and a rehearsal
-wired to the vault refuses every signal on a machine with no key.
+The vault's recorded column answers "can this exchange's key trade?", brake on or
+off: what decides whether the question is asked is the opening's mode, not which
+adapter is wired. A simulated opening never asks. Getting that wrong is silent: an
+always-yes adapter behind a live opening places orders on read-only keys.
 
 No database is opened: the handler is only constructed, and constructing a
 repository over an unconnected session performs no I/O.
@@ -14,11 +12,11 @@ repository over an unconnected session performs no I/O.
 
 import inspect
 
+import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 from strategy_manager import main
 from strategy_manager.accounts.infrastructure.trade_capability_adapter import (
-    DryRunTradeCapability,
     VaultTradeCapabilityAdapter,
 )
 from strategy_manager.shared.config import Settings
@@ -37,27 +35,24 @@ def _handler_for(dry_run: bool) -> object:
         {},
         settings,
         object(),  # type: ignore[arg-type]
-        frozenset(),
+        object(),  # type: ignore[arg-type]
+        {},
         object(),  # type: ignore[arg-type]
         object(),  # type: ignore[arg-type]
     )
     return handler._trade_capability  # type: ignore[attr-defined]
 
 
-def test_dry_run_true_wires_the_dry_run_capability() -> None:
-    assert isinstance(_handler_for(dry_run=True), DryRunTradeCapability)
+@pytest.mark.parametrize("dry_run", [True, False])
+def test_the_vault_answers_whatever_the_brake(dry_run: bool) -> None:
+    assert isinstance(_handler_for(dry_run=dry_run), VaultTradeCapabilityAdapter)
 
 
-def test_dry_run_false_wires_the_vault_capability() -> None:
-    assert isinstance(_handler_for(dry_run=False), VaultTradeCapabilityAdapter)
-
-
-def test_every_handler_build_takes_the_capability_from_the_same_dry_run_switch() -> None:
+def test_every_handler_build_takes_the_capability_from_the_one_builder() -> None:
     """Both job handlers that build the handler (``delivery.process`` and the
     open-after-close continuation) go through the one builder, so the
     continuation cannot end up with a different answer than the first pass."""
     source = inspect.getsource(main.build_worker_runner)
     assert source.count("_build_process_delivery(") == 2
     assert "VaultTradeCapabilityAdapter" not in source
-    assert "DryRunTradeCapability" not in source
 

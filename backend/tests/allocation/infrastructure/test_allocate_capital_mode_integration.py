@@ -10,6 +10,7 @@ cannot interleave with an opening: the lock-hold test proves the opening waits.
 
 import asyncio
 from collections.abc import AsyncIterator
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from uuid import UUID, uuid4
@@ -21,23 +22,37 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from strategy_manager.accounts.application.pool_balance_adapter import PoolBalanceAdapter
 from strategy_manager.accounts.domain.pool_config import PoolConfig
 from strategy_manager.accounts.infrastructure.fake_balance_source import FakeBalanceSource
+from strategy_manager.accounts.infrastructure.trade_capability_adapter import (
+    VaultTradeCapabilityAdapter,
+)
 from strategy_manager.allocation.application.allocate_capital import (
     AllocateCapital,
     AllocateCommand,
     AllocationResult,
+    ModeChangedError,
 )
 from strategy_manager.allocation.domain.decision import DecisionOutcome
 from strategy_manager.allocation.infrastructure.advisory_lock import PgAdvisoryLockAdapter
 from strategy_manager.allocation.infrastructure.models import ReservationRow
 from strategy_manager.allocation.infrastructure.repository import SqlAlchemyReservationRepository
+from strategy_manager.allocation.infrastructure.reservation_gateway import (
+    ReservationGatewayAdapter,
+)
 from strategy_manager.allocation.infrastructure.user_mode import SqlAlchemyUserMode
+from strategy_manager.execution.infrastructure.live_exposure import SqlAlchemyLiveExposure
+from strategy_manager.identity.application.change_mode import (
+    ChangeMode,
+    ModeChangeRefusedError,
+    ModeRefusal,
+)
 from strategy_manager.identity.infrastructure.models import UserRow
+from strategy_manager.identity.infrastructure.user_repository import SqlAlchemyUserRepository
 from strategy_manager.shared.domain.mode import Mode
 from strategy_manager.shared.domain.money import Currency, Exchange, Money, Venue
 from strategy_manager.shared.infrastructure.clock import SystemClock
 from strategy_manager.strategies.application.policy_adapter import StrategyPolicyAdapter
 from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStrategyRepository
-from tests.allocation.fakes import AlwaysEnabledPool, RecordingSkipRecorder
+from tests.allocation.fakes import AlwaysEnabledPool, AnyKeyTrades, RecordingSkipRecorder
 from tests.allocation.infrastructure.conftest import seed_signal, seed_strategy
 from tests.owner import OWNER_ID, allocate_command, seed_reservation_row
 
@@ -78,7 +93,11 @@ async def _set_user_mode(
 
 
 async def _allocate(
-    factory: async_sessionmaker[AsyncSession], command: AllocateCommand, *, brake: bool = False
+    factory: async_sessionmaker[AsyncSession],
+    command: AllocateCommand,
+    *,
+    brake: bool = False,
+    held: "_HeldCommit | None" = None,
 ) -> AllocationResult:
     source = FakeBalanceSource()
     source.set_balance(*MARKET, Decimal("1000"))
@@ -88,18 +107,23 @@ async def _allocate(
             pool_balance=PoolBalanceAdapter(POOLS, source),
             lock=PgAdvisoryLockAdapter(session),
             reservations=SqlAlchemyReservationRepository(session),
-            commit=session,
+            commit=session if held is None else held.on(session),
             clock=SystemClock(),
             reservation_ttl_seconds=30,
             skip_recorder=RecordingSkipRecorder(),
             pool_status=AlwaysEnabledPool(),
             user_mode=SqlAlchemyUserMode(session, brake=brake),
+            trade_capability=AnyKeyTrades(),
         )
         return await use_case.allocate(command)
 
 
 async def _opening(
-    factory: async_sessionmaker[AsyncSession], strategy_id: UUID, amount: str = "200"
+    factory: async_sessionmaker[AsyncSession],
+    strategy_id: UUID,
+    amount: str = "200",
+    *,
+    pre_checked_mode: Mode = Mode.LIVE,
 ) -> AllocateCommand:
     signal_id = uuid4()
     await seed_signal(
@@ -110,6 +134,7 @@ async def _opening(
         signal_id=signal_id,
         strategy_id=strategy_id,
         requested=Money(amount=Decimal(amount), currency=Currency.USDT),
+        pre_checked_mode=pre_checked_mode,
     )
 
 
@@ -145,6 +170,26 @@ async def _mode_of(factory: async_sessionmaker[AsyncSession], signal_id: UUID) -
         ).scalar_one()
 
 
+async def _mode_of_user(factory: async_sessionmaker[AsyncSession], user_id: UUID) -> str:
+    async with factory() as session:
+        return (
+            await session.execute(select(UserRow.mode).where(UserRow.id == user_id))
+        ).scalar_one()
+
+
+async def _reservations_of(
+    factory: async_sessionmaker[AsyncSession], signal_id: UUID
+) -> list[str]:
+    async with factory() as session:
+        return list(
+            (
+                await session.execute(
+                    select(ReservationRow.mode).where(ReservationRow.signal_id == signal_id)
+                )
+            ).scalars()
+        )
+
+
 @pytest.mark.parametrize(
     ("user_mode", "brake", "expected"),
     [
@@ -165,7 +210,9 @@ async def test_the_reservation_records_the_users_mode_under_the_brake(
     await _set_user_mode(pg_session_factory, OWNER_ID, user_mode)
     command = await _opening(pg_session_factory, strategy_id)
 
-    result = await _allocate(pg_session_factory, command, brake=brake)
+    result = await _allocate(
+        pg_session_factory, replace(command, pre_checked_mode=expected), brake=brake
+    )
 
     assert result.outcome is DecisionOutcome.FULL
     assert await _mode_of(pg_session_factory, command.signal_id) == expected.value
@@ -184,7 +231,7 @@ async def test_a_reservation_of_the_other_mode_does_not_reduce_what_can_be_grant
     await seed_strategy(pg_session_factory, strategy_id=strategy_id)
     await _holding(pg_session_factory, strategy_id, mode=holding, amount="900")
     await _set_user_mode(pg_session_factory, OWNER_ID, asking)
-    command = await _opening(pg_session_factory, strategy_id)
+    command = await _opening(pg_session_factory, strategy_id, pre_checked_mode=asking)
 
     result = await _allocate(pg_session_factory, command)
 
@@ -201,7 +248,7 @@ async def test_a_reservation_of_the_same_mode_still_reduces_what_can_be_granted(
     await seed_strategy(pg_session_factory, strategy_id=strategy_id)
     await _holding(pg_session_factory, strategy_id, mode=mode, amount="900")
     await _set_user_mode(pg_session_factory, OWNER_ID, mode)
-    command = await _opening(pg_session_factory, strategy_id)
+    command = await _opening(pg_session_factory, strategy_id, pre_checked_mode=mode)
 
     result = await _allocate(pg_session_factory, command)
 
@@ -230,17 +277,19 @@ async def _until_waiting_on_a_row_lock(factory: async_sessionmaker[AsyncSession]
         await asyncio.sleep(0.02)
 
 
-async def test_an_opening_waits_for_a_flip_of_the_users_mode_and_then_runs_in_the_new_one(
+async def test_an_opening_waits_for_a_flip_of_the_users_mode_and_reserves_nothing_real(
     pg_session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
-    """A flip takes the user row ``FOR UPDATE``. The opening reads it ``FOR SHARE``,
-    so it does not finish while the flip is open, and once the flip commits it
-    reads the NEW mode: a real reservation never appears after the flat check."""
+    """A flip takes the user row ``FOR UPDATE`` and the opening reads it ``FOR
+    SHARE``, so the opening does not finish while the flip is open. Once the flip
+    commits it reads the NEW mode, which is not the one its pre-checks went by: it
+    reserves nothing, so a real reservation never appears after the flat check
+    passed. The delivery then runs again, and that run is simulated."""
     factory = pg_session_factory
     strategy_id = uuid4()
     await seed_strategy(factory, strategy_id=strategy_id)
     await _set_user_mode(factory, OWNER_ID, Mode.LIVE)
-    command = await _opening(factory, strategy_id)
+    command = await _opening(factory, strategy_id, pre_checked_mode=Mode.LIVE)
 
     task: asyncio.Task[AllocationResult] | None = None
     async with factory() as flip:
@@ -253,11 +302,158 @@ async def test_an_opening_waits_for_a_flip_of_the_users_mode_and_then_runs_in_th
                 text("UPDATE users SET mode = 'SIMULATION' WHERE id = :id"), {"id": OWNER_ID}
             )
             await flip.commit()
-            result = await asyncio.wait_for(task, WAIT_SECONDS)
+            with pytest.raises(ModeChangedError):
+                await asyncio.wait_for(task, WAIT_SECONDS)
         finally:
             if not task.done():
                 task.cancel()
                 await asyncio.gather(task, return_exceptions=True)
 
+    assert await _reservations_of(factory, command.signal_id) == []
+
+    await _allocate(factory, replace(command, pre_checked_mode=Mode.SIMULATION))
+
+    assert await _reservations_of(factory, command.signal_id) == [Mode.SIMULATION.value]
+
+
+class _HeldCommit:
+    """Holds an opening at its commit, with its reservation written and its locks
+    still held, until the test releases it."""
+
+    def __init__(self) -> None:
+        self.reached = asyncio.Event()
+        self.released = asyncio.Event()
+
+    def on(self, session: AsyncSession) -> "_HeldCommitOn":
+        return _HeldCommitOn(self, session)
+
+
+class _HeldCommitOn:
+    def __init__(self, held: _HeldCommit, session: AsyncSession) -> None:
+        self._held = held
+        self._session = session
+
+    async def commit(self) -> None:
+        self._held.reached.set()
+        await self._held.released.wait()
+        await self._session.commit()
+
+
+async def _flip_to_simulation(factory: async_sessionmaker[AsyncSession]) -> None:
+    async with factory() as session:
+        await ChangeMode(
+            SqlAlchemyUserRepository(session),
+            VaultTradeCapabilityAdapter(session),
+            SqlAlchemyLiveExposure(session),
+            session,
+            brake=False,
+        ).execute(OWNER_ID, Mode.SIMULATION)
+
+
+async def test_a_flip_to_simulation_waits_for_an_opening_in_flight_and_then_sees_it(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """The other order of the race: the opening reached the lock first. The flip
+    does not finish while the opening is open, and once it commits the flip finds
+    the real reservation and refuses, naming its market."""
+    factory = pg_session_factory
+    strategy_id = uuid4()
+    await seed_strategy(factory, strategy_id=strategy_id)
+    await _set_user_mode(factory, OWNER_ID, Mode.LIVE)
+    command = await _opening(factory, strategy_id)
+    held = _HeldCommit()
+
+    opening = asyncio.create_task(_allocate(factory, command, held=held))
+    await asyncio.wait_for(held.reached.wait(), WAIT_SECONDS)
+    flip = asyncio.create_task(_flip_to_simulation(factory))
+    try:
+        await _until_waiting_on_a_row_lock(factory)
+        assert not flip.done(), "the flip finished while an opening held the user row"
+        held.released.set()
+        result = await asyncio.wait_for(opening, WAIT_SECONDS)
+        with pytest.raises(ModeChangeRefusedError) as refused:
+            await asyncio.wait_for(flip, WAIT_SECONDS)
+    finally:
+        held.released.set()
+        for task in (opening, flip):
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(opening, flip, return_exceptions=True)
+
     assert result.outcome is DecisionOutcome.FULL
-    assert await _mode_of(factory, command.signal_id) == Mode.SIMULATION.value
+    assert refused.value.refusal is ModeRefusal.SIMULATION_NEEDS_FLAT
+    assert list(refused.value.symbols) == ["BTCUSDT"]
+    assert await _reservations_of(factory, command.signal_id) == [Mode.LIVE.value]
+    assert await _mode_of_user(factory, OWNER_ID) == Mode.LIVE.value
+
+
+async def test_an_opening_that_starts_after_the_flip_runs_in_simulation(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    factory = pg_session_factory
+    strategy_id = uuid4()
+    await seed_strategy(factory, strategy_id=strategy_id)
+    await _set_user_mode(factory, OWNER_ID, Mode.LIVE)
+    await _flip_to_simulation(factory)
+    async with factory() as session:
+        pre_checked = await SqlAlchemyUserMode(session, brake=False).current_mode(OWNER_ID)
+    command = await _opening(factory, strategy_id, pre_checked_mode=pre_checked)
+
+    await _allocate(factory, command)
+
+    assert await _reservations_of(factory, command.signal_id) == [Mode.SIMULATION.value]
+
+
+@pytest.mark.parametrize(
+    ("user_mode", "brake", "expected"),
+    [
+        (Mode.LIVE, False, Mode.LIVE),
+        (Mode.SIMULATION, False, Mode.SIMULATION),
+        (Mode.LIVE, True, Mode.SIMULATION),
+    ],
+)
+async def test_the_pre_check_reads_the_mode_without_waiting_for_a_row_lock(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+    user_mode: Mode,
+    brake: bool,
+    expected: Mode,
+) -> None:
+    """The pre-checks run before the pool's advisory lock, so a row lock there would
+    invert the lock order. A flip holding the row does not hold them up: they read
+    the committed mode, under the brake, and the lock decides later."""
+    factory = pg_session_factory
+    await _set_user_mode(factory, OWNER_ID, user_mode)
+
+    async def pre_check() -> Mode:
+        async with factory() as session:
+            return await SqlAlchemyUserMode(session, brake=brake).current_mode(OWNER_ID)
+
+    async with factory() as flip:
+        await flip.execute(select(UserRow.id).where(UserRow.id == OWNER_ID).with_for_update())
+        task = asyncio.create_task(pre_check())
+        try:
+            done, _ = await asyncio.wait({task}, timeout=1.0)
+            assert task in done, "the pre-check waited for the user row"
+        finally:
+            if not task.done():
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+
+    assert task.result() is expected
+
+
+@pytest.mark.parametrize("mode", list(Mode))
+async def test_the_snapshot_placing_an_order_carries_the_mode_recorded(
+    pg_session_factory: async_sessionmaker[AsyncSession], mode: Mode
+) -> None:
+    factory = pg_session_factory
+    strategy_id = uuid4()
+    await seed_strategy(factory, strategy_id=strategy_id)
+    await _holding(factory, strategy_id, mode=mode, amount="10")
+    async with factory() as session:
+        reservation_id = (await session.execute(select(ReservationRow.id))).scalar_one()
+        gateway = ReservationGatewayAdapter(SqlAlchemyReservationRepository(session))
+
+        snapshot = await gateway.get_for_update(OWNER_ID, reservation_id)
+
+    assert snapshot.mode is mode

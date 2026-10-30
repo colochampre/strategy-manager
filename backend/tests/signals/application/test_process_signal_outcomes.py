@@ -264,6 +264,30 @@ async def test_reverse_open_half_refused_after_the_close_executed_says_so() -> N
     assert commit.staged_at_commit == [1]
 
 
+async def test_a_reverse_open_half_on_an_untradable_pool_says_the_close_executed() -> None:
+    """``open_now`` skips ``handle``, so the untradable check runs there too, and
+    what it refuses is the open half of a REVERSE whose close is already done."""
+    outcomes = RecordingSignalOutcomes()
+    handler = _process_signal_handler(
+        context=_holdable_reverse_context(symbol="STXUSDT.P"),
+        allocate_capital=_allocate_capital(SpyAdvisoryLock()),
+        place_order=SpyPlaceOrder(),
+        close_position=SpyClosePosition(),
+        tradable_pools=frozenset({("bybit", "linear")}),
+        outcomes=outcomes,
+    )
+
+    result = await handler.open_now(uuid4(), poll=0)
+
+    assert result.refused is not None
+    assert len(outcomes.calls) == 1
+    _, outcome = outcomes.calls[0]
+    assert outcome.reason == "UNTRADABLE_POOL"
+    assert outcome.detail is not None
+    assert result.refused in outcome.detail
+    assert "close" in outcome.detail and "executed" in outcome.detail
+
+
 async def test_a_plain_open_refusal_in_open_now_does_not_claim_a_close_executed() -> None:
     """The close note is REVERSE-only: an open deferred behind in-flight work
     or an orphan close is not a REVERSE and must not say a close executed."""

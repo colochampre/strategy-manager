@@ -99,10 +99,15 @@ from strategy_manager.subscriptions.infrastructure.adapters import OpenAllocatio
 from strategy_manager.subscriptions.infrastructure.repository import (
     SqlAlchemySubscriptionRepository,
 )
-from tests.allocation.fakes import AlwaysEnabledPool, FixedUserMode, RecordingSkipRecorder
-from tests.execution.fakes import RecordingOrderOutcomes, RecordingSettleOutcomes
+from tests.allocation.fakes import (
+    AlwaysEnabledPool,
+    AnyKeyTrades,
+    FixedUserMode,
+    RecordingSkipRecorder,
+)
+from tests.execution.fakes import OneRegistry, RecordingOrderOutcomes, RecordingSettleOutcomes
 from tests.owner import OWNER_ID, ensure_delivery, ensure_pool, seed_snapshot
-from tests.signals.fakes import FakeTradeCapability, RecordingSignalOutcomes
+from tests.signals.fakes import FakeTradeCapability, RecordingSignalOutcomes, in_both_modes
 from tests.signals.infrastructure.conftest import seed_strategy
 from tests.subscriptions.infrastructure import seeds
 
@@ -504,10 +509,11 @@ async def test_the_open_waits_for_the_close_to_settle_then_grants_the_freed_bala
             skip_recorder=RecordingSkipRecorder(),
             pool_status=AlwaysEnabledPool(),
             user_mode=FixedUserMode(),
+            trade_capability=AnyKeyTrades(),
         )
         place_order = PlaceOrder(
             reservations=ReservationGatewayAdapter(reservation_repository),
-            exchanges=registry,
+            exchanges=OneRegistry(registry),
             attempts=attempts_repository,
             queue=PostgresJobQueue(
                 session,
@@ -562,9 +568,10 @@ async def test_the_open_waits_for_the_close_to_settle_then_grants_the_freed_bala
             commit=session,
             closing_attempts=attempts_repository,
             close_orphans=NeverCalledCloseOrphans(),
-            tradable_pools=frozenset({("bybit", "usdt-m")}),
+            tradable_pools=in_both_modes(frozenset({("bybit", "usdt-m")})),
             outcomes=RecordingSignalOutcomes(),
             trade_capability=FakeTradeCapability(),
+            user_mode=FixedUserMode(),
         )
         return handler, open_after_close
 

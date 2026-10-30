@@ -33,6 +33,7 @@ from strategy_manager.signals.application.process_signal import (
 )
 from strategy_manager.signals.domain.holding import HeldAllocation
 from strategy_manager.signals.domain.outcome import SignalOutcome
+from tests.allocation.fakes import FixedUserMode
 from tests.owner import OWNER_ID
 from tests.signals.application.test_process_signal import (
     TRADABLE,
@@ -56,7 +57,7 @@ from tests.signals.application.test_process_signal import (
     _open_long_context,
     _snapshot,
 )
-from tests.signals.fakes import FakeTradeCapability, RecordingSignalOutcomes
+from tests.signals.fakes import FakeTradeCapability, RecordingSignalOutcomes, in_both_modes
 
 AUTHOR = OWNER_ID
 SUBSCRIBER = UUID("5b5b5b5b-0000-4000-8000-0000000000c1")
@@ -164,9 +165,10 @@ def _rig(
         commit=FakeCommit(),
         closing_attempts=closing,
         close_orphans=orphans,
-        tradable_pools=TRADABLE,
+        tradable_pools=in_both_modes(TRADABLE),
         outcomes=outcomes,
         trade_capability=capability,
+        user_mode=FixedUserMode(),
     )
     return Rig(
         handler,

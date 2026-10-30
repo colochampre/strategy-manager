@@ -25,6 +25,7 @@ from strategy_manager.allocation.application.allocate_capital import (
 )
 from strategy_manager.allocation.infrastructure.advisory_lock import PgAdvisoryLockAdapter
 from strategy_manager.allocation.infrastructure.repository import SqlAlchemyReservationRepository
+from strategy_manager.shared.domain.mode import Mode
 from strategy_manager.shared.domain.money import Currency, Exchange, Money, Venue
 from strategy_manager.signals.application.process_signal import SignalContext
 from strategy_manager.signals.infrastructure.models import SignalDeliveryRow, SignalRow
@@ -34,7 +35,7 @@ from strategy_manager.signals.infrastructure.outcome_repository import (
 from strategy_manager.signals.infrastructure.skip_recorder import SignalSkipRecorder
 from strategy_manager.strategies.application.policy_adapter import StrategyPolicyAdapter
 from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStrategyRepository
-from tests.allocation.fakes import FixedUserMode
+from tests.allocation.fakes import AnyKeyTrades, FixedUserMode
 from tests.owner import OWNER_ID, ensure_delivery
 from tests.signals.application.test_process_signal import (
     SpyAdvisoryLock,
@@ -158,6 +159,7 @@ def _allocate_capital_on(session: AsyncSession, balance: Decimal) -> AllocateCap
         skip_recorder=SignalSkipRecorder(SqlAlchemyDeliveryOutcomeAdapter(session, _FixedClock())),
         pool_status=SqlAlchemyPoolStatus(session),
         user_mode=FixedUserMode(),
+        trade_capability=AnyKeyTrades(),
     )
 
 
@@ -179,6 +181,7 @@ async def test_the_pre_lock_disabled_skip_is_durable_through_its_added_commit(
                 requested=Money(amount=Decimal("200"), currency=Currency.USDT),
                 user_id=OWNER_ID,
                 delivery_id=signal_id,
+                pre_checked_mode=Mode.LIVE,
             )
         )
 
@@ -209,6 +212,7 @@ async def test_a_decide_skip_is_durable_and_takes_the_signal_lock_after_the_pool
                 requested=Money(amount=Decimal("200"), currency=Currency.USDT),
                 user_id=OWNER_ID,
                 delivery_id=signal_id,
+                pre_checked_mode=Mode.LIVE,
             )
         )
 

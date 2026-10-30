@@ -121,3 +121,46 @@ async def test_an_unresolved_owner_gets_nobodys_adapters(mode: Mode) -> None:
     async with by_mode.open(SESSION, None, mode) as registry:
         with pytest.raises(ExchangeError):
             registry.for_pool("bybit", "usdt-m")
+
+
+async def test_a_job_opens_nothing_until_it_knows_the_mode() -> None:
+    """Tasks.md E.5: a live adapter decrypts a key and opens a socket, so a job that
+    never asks, or asks only for simulation, costs neither."""
+    live = Live(LiveExchange())
+    by_mode = ExchangesByMode(live=live, simulated=_simulated())
+
+    async with by_mode.for_job(SESSION, USER) as exchanges:
+        assert live.opened == []
+        await exchanges.for_mode(Mode.SIMULATION)
+
+    assert live.opened == []
+
+
+async def test_each_mode_of_one_job_gets_its_own_exchanges() -> None:
+    """A REVERSE whose close and reopening differ in mode uses each one's adapter."""
+    adapter = LiveExchange()
+    simulated = _simulated()
+    by_mode = ExchangesByMode(live=Live(adapter), simulated=simulated)
+
+    async with by_mode.for_job(SESSION, USER) as exchanges:
+        real = await exchanges.for_mode(Mode.LIVE)
+        fake = await exchanges.for_mode(Mode.SIMULATION)
+
+        assert real.for_pool("bybit", "usdt-m") is adapter
+        assert fake.for_pool("bybit", "usdt-m") is simulated.exchanges_of(USER)[0]
+
+
+async def test_a_mode_asked_twice_in_one_job_opens_once_and_closes_with_the_job() -> None:
+    adapter = LiveExchange()
+    live = Live(adapter)
+    by_mode = ExchangesByMode(live=live, simulated=_simulated())
+
+    async with by_mode.for_job(SESSION, USER) as exchanges:
+        first = await exchanges.for_mode(Mode.LIVE)
+        second = await exchanges.for_mode(Mode.LIVE)
+
+        assert first is second
+        assert live.closed == 0
+
+    assert live.opened == [USER]
+    assert live.closed == 1
