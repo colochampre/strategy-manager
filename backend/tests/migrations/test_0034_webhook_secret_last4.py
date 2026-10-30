@@ -6,7 +6,8 @@
   so the secret never enters SQL text and no message names it.
 * It is NOT NULL, with a CHECK on four characters.
 * It refuses, naming nothing secret, when strategies exist and the setting is
-  shorter than four characters.
+  shorter than four characters, and when a strategy's hash is not the setting's
+  (a secret of its own, whose four cannot be read back).
 
 Real PostgreSQL. Each migration scenario seeds a database at ``0033`` and upgrades
 it, so each has its own throwaway database; the constraint tests share one
@@ -15,6 +16,7 @@ explicitly, so no test depends on the developer's ``.env``.
 """
 
 import asyncio
+import hashlib
 import os
 import subprocess
 import sys
@@ -119,14 +121,22 @@ def _add_user(database_url: str, email: str) -> UUID:
     return user_id
 
 
-def _add_strategy(database_url: str, author: UUID, name: str) -> UUID:
+def _hash(secret: str) -> str:
+    return hashlib.sha256(secret.encode("utf-8")).hexdigest()
+
+
+def _add_strategy(
+    database_url: str, author: UUID, name: str, *, secret: str = _SECRET
+) -> UUID:
+    """A strategy as 0033 leaves it: by default hashed from the setting's secret, as
+    0033 backfilled every strategy it found."""
     strategy_id = uuid4()
     _query(
         database_url,
         "INSERT INTO strategies (id, author_id, name, exchange, venue, settlement_currency, "
         "fill_mode, webhook_secret_hash) "
-        "VALUES (:id, :author, :name, 'binance', 'usdt-m', 'USDT', 'PARTIAL', 'fixture-hash')",
-        {"id": strategy_id, "author": author, "name": name},
+        "VALUES (:id, :author, :name, 'binance', 'usdt-m', 'USDT', 'PARTIAL', :hash)",
+        {"id": strategy_id, "author": author, "name": name, "hash": _hash(secret)},
     )
     return strategy_id
 
@@ -248,6 +258,31 @@ def test_refuses_when_strategies_exist_and_the_secret_is_shorter_than_four(
     assert result.returncode != 0
     assert "WEBHOOK_SECRET" in result.stderr
     assert "xq7" not in result.stdout + result.stderr
+    assert _version(url) == "0033"
+    assert _COLUMN not in _columns(url)
+
+
+def test_refuses_when_a_strategy_has_a_secret_of_its_own(
+    at_0033: Callable[[str], str],
+) -> None:
+    """A strategy registered or regenerated after 0033 holds a secret that is not the
+    setting's; its last four cannot be read back from a hash, and the setting's
+    four would show the author characters that are not their secret's."""
+    url = at_0033("own_secret")
+    owner = _add_user(url, "owner@example.com")
+    _add_strategy(url, owner, "from-the-setting")
+    own_secret = "wh-own-secret-Kp4R"
+    _add_strategy(url, owner, "own", secret=own_secret)
+
+    result = _alembic(url, "upgrade", "0034")
+
+    assert result.returncode != 0
+    said = result.stdout + result.stderr
+    assert "1 strategy" in said
+    assert "WEBHOOK_SECRET" in said
+    for secret in (_SECRET, own_secret):
+        assert secret[-4:] not in said
+        assert _hash(secret) not in said
     assert _version(url) == "0033"
     assert _COLUMN not in _columns(url)
 
