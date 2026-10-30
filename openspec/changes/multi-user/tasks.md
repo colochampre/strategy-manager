@@ -6,11 +6,12 @@ Sequential PRs A-G (`design.md`, "Delivery"), each cut from `main`. Every PR shi
 
 ## Production now
 
-- 2026-10-29: main `214db9b`, panel bundle `214db9b714ef`, alembic `0032`, certifi `2026.10.23`.
+- 2026-10-30: main `d75e5a4`, panel bundle `d75e5a488cc6`, alembic `0033`, certifi `2026.10.23`.
 - `DRY_RUN=false`.
 - Access admits only the owner. The API verifies the Access assertion itself; `ADMIN_API_TOKEN` is gone from `.env`.
 - `users` holds one row, the owner's, created by their first `/api/me`. Every owned row is that user's, and every strategy's `author_id` is theirs.
-- Every strategy is traded through its author's subscription: 3 `ACTIVE` at 30 % and 3 `ENDED` (archived) at 5 %. Each of the 54 signals has one delivery. `strategies.allocation_percent` is still there, nullable and unread, until PR D's 0033.
+- Every strategy is traded through its author's subscription: 3 `ACTIVE` at 30 % and 3 `ENDED` (archived) at 5 %. Each of the 54 signals has one delivery. `strategies.allocation_percent` is gone (0033).
+- Every strategy is `PRIVATE` and has its own webhook secret hash, today the hash of the old global `WEBHOOK_SECRET`, so the TradingView alerts kept their URL. None has been regenerated. `GET /api/webhook-secret` no longer exists.
 - The worker reports one enabled pool and one sealed key, Binance's.
 
 ## Delivery log
@@ -22,6 +23,7 @@ Sequential PRs A-G (`design.md`, "Delivery"), each cut from `main`. Every PR shi
 | #86 | PR B: every owned row belongs to its user, scoped reads, the per-user lock, worker and reconciliation, migration 0030 | `5632e76` (parents `a1295e0`, `814f1eb`) | 2026-10-27, see "PR B's delivery" |
 | #87 | Outside this change: certifi 2026.7.22 -> 2026.10.23, which drops the distrusted `emSign ECC Root CA - G3` (eMudhra, Mozilla bug 2083449), and `tests/shared/test_tls_trust.py` to pin it | `7f67fc3` (parents `5632e76`, `39ea058`) | 2026-10-27. Pull as `strategy`; `uv sync --locked` swapped only certifi; both services restarted, both active. The venv's httpx context read `2026.10.23 113 False` (version, distinct root names, G3 present). No WARNING or ERROR in 15 minutes of both journals. No panel step. |
 | #88 | PR C: subscriptions and fan-out, one delivery per eligible subscription, migrations 0031 and 0032 | `214db9b` (parents `7f67fc3`, `b2f1999`) | 2026-10-29, see "PR C's delivery" |
+| #89 | PR D: a webhook secret per strategy (stored as a hash, shown once), authoring for any user scoped to them, private strategies, migration 0033 | `d75e5a4` (parents `214db9b`, `541bd16`) | 2026-10-30, see "PR D's delivery" |
 
 ## PR A: identity from Cloudflare Access
 
@@ -1012,11 +1014,13 @@ An Opus verifier read the whole PR D section, AD6, AD8 and decisions 21 and 23, 
 
 ### Rehearsal and deploy (owner-run)
 
-- [ ] D.7 Before the deploy: a fresh backup, then rehearse 0033 on a throwaway restore, with a downgrade to 0032 and a second upgrade.
+- [x] D.7 Before the deploy: a fresh backup, then rehearse 0033 on a throwaway restore, with a downgrade to 0032 and a second upgrade.
+  - Script ready (2026-10-30): `rehearse_0033.sh`, kept in the session scratchpad and piped through `ssh ... "bash -s"`. It prints no DSN, secret or hash: it reads `WEBHOOK_SECRET` from the same `.env` alembic reads, hashes it in the shell and hands the hash to psql on stdin only. It checks counts, the ledger, the subscriptions and the strategy columns 0033 does not touch are unchanged across the upgrade, the downgrade and the second upgrade; every hash equals the current secret's (the condition for today's alerts to keep working); every strategy PRIVATE; the per-author unique and no global one; the column dropped; and, after the downgrade, the global unique back, `allocation_percent` nullable with its default 100 and each share its author's latest subscription's.
+  - Rehearsed locally on a copy of the dev database brought to 0032 (4 strategies, 4 subscriptions): every check ok, exit 0. Its first run stopped on a bug of the script's own local mode (the secret cleared before alembic used it), fixed. Mutation: hashing a different secret stopped it with "4 strategies have another hash", then restored.
   - Counts and the ledger's `(id, xmin)` unchanged.
   - Every strategy has a hash equal to `sha256` of the current setting (compared on the VPS, printing only `ok`), and is `PRIVATE`.
   - The name unique is per author; `allocation_percent` gone; the downgrade restores each share from the author's subscription.
-- [ ] D.8 Deploy:
+- [x] D.8 Deploy (2026-10-30, see "PR D's delivery"; the first-real-signal check and the visibility on the strategy page are still open):
   1. pull as `strategy`;
   2. away from a 4h candle close, stop both services;
   3. `alembic upgrade head`;
@@ -1032,10 +1036,48 @@ An Opus verifier read the whole PR D section, AD6, AD8 and decisions 21 and 23, 
 
 - [x] D.D.1 Gate (backend and frontend), and an independent verifier over the whole PR. Done on 2026-10-30: the full backend gate was green after every unit and in the verifier's run at `7258fac`; frontend lint 0 and 2889/2889; the one fix after it touches only 0033's downgrade, whose migration tests (0031, 0032, 0033) and ruff pass.
 - [x] D.D.2 Push and open the PR (on the owner's word). PR #89, opened 2026-10-30 from `9eea362` (11 commits over `origin/main` `214db9b`).
-- [ ] D.D.3 Merge (owner), with a merge commit.
-- [ ] D.D.4 Deploy (D.7, D.8).
-- [ ] D.D.5 Delivery log row and "Production now".
+- [x] D.D.3 Merge (owner), with a merge commit: `d75e5a4` (parents `214db9b`, `541bd16`).
+- [x] D.D.4 Deploy (D.7, D.8), 2026-10-30.
+- [x] D.D.5 Delivery log row and "Production now".
+
+### PR D's delivery
+
+**PR D's deploy, 2026-10-30** (owner-run, one step at a time):
+1. Pull as `strategy` to `d75e5a4`. No dependency changed.
+2. D.7: `rehearse_0033.sh` through `ssh ... "bash -s"`: fresh backup `/root/sm_pre0033_<UTC>.dump`, the copy upgraded, downgraded to 0032 and upgraded again, every check ok (the owner: "El ensayo pasó").
+3. D.8: `deploy_0033.sh` checked the checkout (`d75e5a488cc6`) and the version (`0032`), stopped both services and migrated `0032 -> 0033`; every strategy's hash equalled the current secret's. It then **stopped on a diagnostic query of its own** (`GROUP BY 1` over an expression holding `count(*)`: "aggregate functions are not allowed in GROUP BY"), after the migration and before starting the services, so both stayed stopped until the owner started them by hand. The query was not in the rehearsal, so nothing had run it. `deploy_0033_finish.sh`, with the query fixed and tried on local PostgreSQL first, ran the remaining checks; the owner: "Todo correcto". Stopping the API left it `failed`, not `inactive` (uvicorn probably exits non-zero on the stop signal); it came back `active` on start.
+4. pps.6: built by the assistant from a detached worktree of `origin/main` at `d75e5a488cc6`, 22 entries, SHA-256 `e89c367a1c7c513bfab4f79c9c63971392532ab83a30d7264272be6ad8398886`; the owner's block printed `/root/panel-d75e5a488cc6.tgz: OK`, `readable`, `bundle:   d75e5a488cc6` and `checkout: d75e5a488cc6`.
+5. The panel: the owner saw the "Regenerate secret" action. They did not see the visibility ("Privada") on the strategy page; the control sits in the page's settings block, below the allowed pairs. Open until the owner looks there again.
+
+**Lesson:** every query a deploy script runs is exercised locally before it is handed over, not only the rehearsal's. A check that can fail goes before the step that cannot be left half done, or after the services are back.
+
+**Still open:** the first real signal after the deploy authenticates with the alert's unchanged URL and makes exactly one delivery (C's open check too).
+
+## PR D2: the webhook secret's last four (decision 25)
+
+Written 2026-10-30, after PR D's deploy, from the owner's request to mask the secret on the strategy page "como las claves API". Branch `feat/webhook-secret-hint`, cut from `main` `d75e5a4`.
+
+The strategy page shows the webhook URL with the secret masked by its last four characters (`***` and the four), as an API key's hint is shown, instead of the `<your secret>` placeholder. Only a hash of the secret is stored, so the four characters are kept apart, written whenever a secret is issued.
+
+**Defaults, stated rather than asked:**
+- The API names the field `secret_last4`, never with `webhook_secret` in it: the PR D sweep forbids that name in every answer but the two that issue a secret. The column is `strategies.webhook_secret_last4`.
+- 0034 backfills every existing strategy with the last four of today's `WEBHOOK_SECRET`, computed in Python from the setting as 0033 did, and refuses when strategies exist and the setting is empty or shorter than four characters. It is `NOT NULL`, with a CHECK on four characters.
+- The header's Copy message copies the masked URL, as it copied the placeholder.
+- The deploy needs no stop: 0034 only adds a column the running code does not select, so it migrates with both services up, then both restart and pps.6 runs.
+
+**Risk:** item 1 (0034 backfills from a setting); item 2 (characters of a secret reach an API answer). It gets an independent verifier before the PR.
+
+- [ ] H.1 Store and serve the last four (backend).
+  - 0034, with tests on real PostgreSQL through `migrated_database(name, "0033")`: the backfill equals the setting's last four; the refusals; `NOT NULL` and the CHECK; the downgrade drops the column and the upgrade runs again.
+  - `RegisterStrategy` and `RegenerateWebhookSecret` write the hash and the last four together through one helper; the repository takes both and still keeps them out of the domain read model's other uses; `StrategyView` carries `secret_last4`.
+  - Regenerating changes it; another user still gets the same 404; no log line carries it with the rest of the secret.
+  - The PR D sweep still holds: no answer carries the secret, its hash or a `webhook_secret` name outside the issuing routes; it gains: the list and `GET /{id}` carry exactly the last four of the strategy's current secret, and nothing longer.
+- [ ] H.2 The panel masks with the last four (EN/ES).
+  - The header's webhook URL shows `***` and the last four in place of the secret, styled as the credentials' last-four hint; the hint text says what the four characters are for; Copy message copies the masked URL.
+  - The `<your secret>` / `<su secreto>` placeholder goes.
+- [ ] H.3 Rehearsal and deploy (owner-run): a fresh backup, 0034 rehearsed on a throwaway restore with a downgrade to 0033 and a second upgrade; then pull, migrate with the services up, restart both, pps.6. Every query a script runs is exercised locally first (PR D's lesson).
+- [ ] H.D Gate, independent verifier, then push and PR on the owner's word, merge, deploy, delivery log.
 
 ## PR E-G
 
-Planned in `design.md`, "Delivery". Their tasks are written when the previous PR is merged, so each starts from what production actually is. PR E's mode columns take migration 0034, because PR D's 0033 holds the secret hash, the visibility and the drop of `strategies.allocation_percent`. The signals' `status`, `outcome_reason`, `outcome_detail` and `decided_at` stay, because they hold the strategy-level refusals (C.7). Advisory N1 (Leave with a queued opening) must be closed before PR F.
+Planned in `design.md`, "Delivery". Their tasks are written when the previous PR is merged, so each starts from what production actually is. PR E's mode columns take migration 0035, because PR D2's 0034 holds the secret's last four and PR D's 0033 holds the secret hash, the visibility and the drop of `strategies.allocation_percent`. The signals' `status`, `outcome_reason`, `outcome_detail` and `decided_at` stay, because they hold the strategy-level refusals (C.7). Advisory N1 (Leave with a queued opening) must be closed before PR F.
