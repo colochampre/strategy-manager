@@ -149,6 +149,37 @@ async def _open_allocations(session_factory: async_sessionmaker[AsyncSession]) -
         return list(await SqlAlchemyModeOriginReader(session).open_allocations())
 
 
+async def test_a_simulated_book_is_seeded_from_rehearsal_fills_only(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """A simulated user's book must not start with their real position in it (AD7,
+    tasks.md E.3): a real close would then read as a ghost in simulation."""
+    factory = pg_session_factory
+    real = await _seed_allocation(factory)
+    await _record(factory, real, side="BUY", quantity="2", rehearsal=False)
+    simulated = await _seed_allocation(factory, strategy_id=real.strategy_id)
+    await _record(factory, simulated, side="BUY", quantity="3", rehearsal=True)
+    # A live id that merely contains the marker is a live id.
+    lookalike = await _seed_allocation(factory, strategy_id=real.strategy_id)
+    await _record(
+        factory,
+        lookalike,
+        side="BUY",
+        quantity="5",
+        rehearsal=False,
+        fill_id=f"live-{REHEARSAL_FILL_ID_PREFIX}1",
+    )
+
+    async with factory() as session:
+        positions = await SqlAlchemyLedgerRepository(session).net_positions_by_symbol(
+            OWNER_ID, "bybit", "usdt-m", "USDT", rehearsal_only=True
+        )
+
+    assert [(position.symbol, position.net_base) for position in positions] == [
+        ("SOLUSDT.P", Decimal("3"))
+    ]
+
+
 async def _in_flight(session_factory: async_sessionmaker[AsyncSession]) -> list:  # type: ignore[type-arg]
     async with session_factory() as session:
         return list(await SqlAlchemyModeOriginReader(session).in_flight_attempts())

@@ -64,7 +64,7 @@ async def test_the_symbols_of_a_pool_are_the_asking_users_own(
     assert others == frozenset({"SOLUSDT"})
 
 
-async def test_the_users_of_a_strategy_and_of_a_pool_are_read_across_users(
+async def test_the_users_of_a_strategy_are_read_across_users(
     pg_session_factory: Factory,  # noqa: F811
 ) -> None:
     other, owner_strategy, other_strategy, _ = await _two_users_on_one_market(
@@ -75,14 +75,12 @@ async def test_the_users_of_a_strategy_and_of_a_pool_are_read_across_users(
         repository = SqlAlchemyLedgerRepository(session)
         of_owner_strategy = await repository.distinct_users_for_strategy(*POOL, owner_strategy)
         of_other_strategy = await repository.distinct_users_for_strategy(*POOL, other_strategy)
-        of_pool = await repository.distinct_users_for_pool(*POOL)
         symbols_of_other_strategy = await repository.distinct_symbols_for_strategy(
             *POOL, other_strategy
         )
 
     assert of_owner_strategy == frozenset({OWNER_ID})
     assert of_other_strategy == frozenset({other})
-    assert of_pool == frozenset({OWNER_ID, other})
     assert symbols_of_other_strategy == frozenset({"SOLUSDT"})
 
 

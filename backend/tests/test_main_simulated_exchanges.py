@@ -174,17 +174,16 @@ def test_bybit_and_binance_have_a_simulated_exchange_even_when_no_pool_names_the
     assert sorted(fake.exchange for fake in built) == ["binance", "bybit"]
 
 
-def test_with_dry_run_false_no_simulated_exchange_is_built_and_no_simulated_line_is_logged(
+def test_the_simulated_exchanges_exist_with_the_brake_off_too(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
     built: list[FakeExchangeAdapter],
 ) -> None:
-    """The real adapters' side is proven on the wire in
-    ``test_real_adapters_ignore_reference_price``. Here: a live process builds no
-    rehearsal exchange and says nothing about one."""
+    """A user in simulation trades on them whatever the brake says (AD7), and the
+    log says what they charge either way."""
     caplog.set_level(logging.INFO, logger=MAIN_LOGGER)
 
     _build_worker(monkeypatch, [BYBIT_POOL, PIONEX_POOL], dry_run=False)
 
-    assert built == []
-    assert [r for r in caplog.records if "simulated" in r.getMessage()] == []
+    assert sorted(fake.exchange for fake in built) == ["binance", "bybit"]
+    assert len(_simulated_lines(caplog, logging.INFO)) == 1

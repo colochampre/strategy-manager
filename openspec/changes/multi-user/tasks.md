@@ -1161,14 +1161,22 @@ The rule: a delivery opens LIVE only if `.env` `DRY_RUN` is false and the user's
   - Fourteen mutations seen red and restored: no row lock; ledger read first; the reservation's mode ignored, its user, or SUBMITTED; the attempt's mode ignored, its user, or a closing attempt missed; rehearsal fills counted; no market key; the key's user, activity, or trade capability ignored; the brake ignored. The attempt's user survived the first run, so the test that another user's exposure refuses nobody gained a SUBMITTED attempt.
   - Gate: ruff 0, mypy 0, full pytest with one test failing and nothing else: the secret sweep asks every new write route for a real body. It gained one and its file was rerun.
   - `frontend/src/shared/api/me.ts` still reads `dry_run` until E.7, so the panel on this branch is not deployable before then.
-- [ ] E.3 Adapters by mode (no behaviour change for a `LIVE` owner).
+- [x] E.3 Adapters by mode (no behaviour change for a `LIVE` owner).
   - `exchange_for(session, user_id, mode)`: `LIVE` loads that user's vault key, `SIMULATION` returns that user's fake. The fakes exist whatever the brake. `LIVE` can never return a fake, nor `SIMULATION` a live adapter; a test pins each.
   - `FakeVenueBook` keyed by user, seeded only from `fake-fill-` rows. Two users in simulation on one symbol keep separate nets.
   - `tradable_pools` per mode; `venue_net_position_reader_for` takes the mode.
-  - `DryRunTradeCapability` goes: simulation needs no trade-capable key, LIVE does, for that exchange.
+- **Evidence for E.3 (2026-10-30, the parent, inline):**
+  - `ExchangesByMode` is the one place a mode becomes adapters; `SimulatedVenues` keeps one book and one set of fakes per user for the life of the process, because a fake holds its placed orders in memory and place and settle are separate jobs. `LIVE` handed a fake, or `SIMULATION` handed a live adapter, raises `InvariantViolation`; each direction has its own test.
+  - A `LIVE` owner runs as before by construction: until E.4 and E.5 every job takes `job_mode`, which is `LIVE` with the brake off, and `tradable_by_mode[LIVE]` is the old set. Under the brake each user now has their own book, seeded from `fake-fill-` rows only. `net_positions_by_symbol` gained `rehearsal_only`; `distinct_users_for_pool` lost its last reader and went.
+  - The fakes are built at startup whatever the brake, so the unrated warning and `log_simulated_exchange_startup` now run with the brake off too, with wording that still says "dry run". E.6 changes that wording.
+  - `DryRunTradeCapability` did not go here: its replacement reads the mode in the pre-check, which is E.4's. The bullet moved there.
+  - RED on assertions first, with two exceptions proven by mutation instead. `test_two_users_never_share_a_fake` passed at once against the stub, so "every user shares one set" proves it. The ledger test failed first on a `TypeError` for the new keyword, not on an assertion, so "the filter is dropped" and "a substring test instead of a prefix" prove it.
+  - Ten mutations seen red and restored: a user's venues not kept; every user sharing one set; a book seeded from the first user's ledger; the wrong adapter not refused, in both directions and in each one alone; the modes swapped; an unknown owner getting a fake; the rehearsal filter dropped; a substring test instead of a prefix. The seeding mutation survived the first run, since the test only asked the first user; it now asks both.
+  - Gate: ruff 0, mypy 0, full pytest with one test failing and nothing else (a first run was stopped by the machine's low memory): `test_booking_prepare_wiring.py` cuts `main.py`'s source at `async def exchange_for`, which is now `live_adapters_for`. The marker changed and its file was rerun.
 - [ ] E.4 An opening records its mode.
   - Done with E.1: `AllocateCapital` takes the user row `FOR SHARE` after the pool advisory lock and before the reservation write, computes the effective mode, and writes it on the reservation.
   - Done with E.1: `sum_active` counts only that mode (decision 26).
+  - `DryRunTradeCapability` goes (moved from E.3): simulation needs no trade-capable key, LIVE does, for that exchange.
   - LIVE with no trade-capable key on that exchange refuses in the lock too, with the existing reason: a flip can land after the pre-checks. If the mode decided in the lock differs from the one the pre-checks used, nothing is reserved and the delivery runs again.
   - `PlaceOrder` picks its adapter from the reservation.
   - Lock-hold harness on real PostgreSQL: a flip to simulation waits for an opening in flight (`not task.done()`); an opening that starts after the flip runs in simulation; a real reservation never appears after the flat check passed.
