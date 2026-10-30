@@ -58,6 +58,7 @@ from strategy_manager.strategies.domain.strategy import (
 from strategy_manager.strategies.domain.webhook_secret import (
     hash_webhook_secret,
     new_webhook_secret,
+    webhook_secret_last4,
 )
 
 logger = logging.getLogger(__name__)
@@ -189,10 +190,12 @@ class RegisterStrategy:
             enabled=False,
         )
 
-        # Only the hash is stored; the plain secret leaves in the return value,
-        # once, and is never logged (tasks.md D.3).
+        # Only the hash and the last four are stored; the plain secret leaves in the
+        # return value, once, and is never logged (tasks.md D.3, H.1).
         webhook_secret = new_webhook_secret()
-        await self._repository.insert(strategy, hash_webhook_secret(webhook_secret))
+        await self._repository.insert(
+            strategy, hash_webhook_secret(webhook_secret), webhook_secret_last4(webhook_secret)
+        )
         # A subscription is the only way to trade a strategy, its author included
         # (C.4b). Written before the one commit, so a pool that vanished since
         # the check above leaves neither row.

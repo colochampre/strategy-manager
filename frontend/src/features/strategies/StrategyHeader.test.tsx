@@ -10,7 +10,8 @@ import { jsonResponse, lock, unlock } from "@/test/harness";
 
 const ID = "11111111-1111-4111-8111-111111111111";
 const SECRET = "s3cr3t-Vh4lu3-Zq9";
-const PLACEHOLDER_URL = "/webhook/tradingview?secret=<your secret>";
+/** The strategy's `secret_last4` below, drawn as the API serves it: the secret is never read back. */
+const MASKED_URL = "/webhook/tradingview?secret=***x4F2";
 
 const STRATEGY: Strategy = {
   id: ID,
@@ -25,6 +26,7 @@ const STRATEGY: Strategy = {
   allowed_pairs: ["ETHUSDT"],
   uptime: { seconds: 0, first_enabled_at: null, baseline: false },
   visibility: "PRIVATE",
+  secret_last4: "x4F2",
 };
 
 function setup(strategy: Strategy = STRATEGY) {
@@ -74,13 +76,13 @@ describe("StrategyHeader webhook disclosure", () => {
     expect(toggle()).toHaveAttribute("aria-expanded", "false");
     expect(webhookHeading()).toBeNull();
     expect(screen.queryByRole("group", { name: "Alert message" })).toBeNull();
-    expect(document.body.textContent).not.toContain(PLACEHOLDER_URL);
+    expect(document.body.textContent).not.toContain(MASKED_URL);
 
     fireEvent.click(toggle());
 
     expect(toggle()).toHaveAttribute("aria-expanded", "true");
     expect(webhookHeading()).toBeInTheDocument();
-    expect(screen.getByText(PLACEHOLDER_URL)).toBeInTheDocument();
+    expect(screen.getByLabelText("Webhook URL")).toHaveTextContent(MASKED_URL);
     expect(JSON.parse(screen.getByRole("group", { name: "Alert message" }).textContent ?? "")).toMatchObject({
       signal_type: ID,
     });
@@ -138,7 +140,7 @@ describe("StrategyHeader webhook disclosure", () => {
 
     fireEvent.click(toggle());
 
-    expect(screen.getByText(PLACEHOLDER_URL)).toBeInTheDocument();
+    expect(screen.getByLabelText("Webhook URL")).toHaveTextContent(MASKED_URL);
     expect(secretCalls).toHaveLength(1);
     expect(document.body.textContent).not.toContain(SECRET);
   });

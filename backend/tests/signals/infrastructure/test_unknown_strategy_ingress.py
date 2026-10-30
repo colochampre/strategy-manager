@@ -106,9 +106,10 @@ async def _register(engine: AsyncEngine, strategy_id: UUID, *, allowed: str = "S
         await conn.execute(
             text(
                 "INSERT INTO strategies (id, name, exchange, venue, settlement_currency, "
-                "enabled, fill_mode, allowed_pairs, author_id, webhook_secret_hash) "
+                "enabled, fill_mode, allowed_pairs, author_id, webhook_secret_hash, "
+                "webhook_secret_last4) "
                 "VALUES (:id, :name, 'bybit', 'usdt-m', 'USDT', true, 'PARTIAL', "
-                "ARRAY[:pair], :author, :hash)"
+                "ARRAY[:pair], :author, :hash, 'fxtr')"
             ),
             {
                 "id": strategy_id,

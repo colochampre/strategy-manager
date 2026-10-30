@@ -42,6 +42,7 @@ class FakeRepository:
     def __init__(self, existing: Strategy | None = None) -> None:
         self.inserted: list[Strategy] = []
         self.hashes: dict[UUID, str] = {}
+        self.last4s: dict[UUID, str] = {}
         self._existing = existing
 
     async def get_by_id(self, strategy_id: UUID) -> Strategy | None:
@@ -52,9 +53,12 @@ class FakeRepository:
     async def get_by_id_for_update(self, strategy_id: UUID) -> Strategy | None:
         return await self.get_by_id(strategy_id)
 
-    async def insert(self, strategy: Strategy, webhook_secret_hash: str) -> None:
+    async def insert(
+        self, strategy: Strategy, webhook_secret_hash: str, secret_last4: str
+    ) -> None:
         self.inserted.append(strategy)
         self.hashes[strategy.id] = webhook_secret_hash
+        self.last4s[strategy.id] = secret_last4
         self._existing = strategy
 
     async def list_all(self) -> list[Strategy]:  # pragma: no cover - unused here
@@ -576,6 +580,15 @@ async def test_registering_returns_a_secret_and_stores_only_its_hash() -> None:
         SIGNAL_TYPE: hashlib.sha256(registration.webhook_secret.encode()).hexdigest()
     }
     assert registration.webhook_secret not in repository.hashes.values()
+
+
+async def test_registering_stores_the_last_four_of_the_secret_it_returns() -> None:
+    use_case, repository, _, _, _ = _build()
+
+    registration = await use_case.register(_command())
+
+    assert repository.last4s == {SIGNAL_TYPE: registration.webhook_secret[-4:]}
+    assert len(repository.last4s[SIGNAL_TYPE]) == 4
 
 
 async def test_two_registrations_get_different_secrets() -> None:

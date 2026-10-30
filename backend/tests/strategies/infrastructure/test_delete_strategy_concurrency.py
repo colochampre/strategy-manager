@@ -202,6 +202,7 @@ async def _seed_strategy(factory: Factory) -> UUID:
                 settlement_currency=currency,
                 author_id=OWNER_ID,
                 webhook_secret_hash=secret_hash("fixture-secret"),
+                webhook_secret_last4="cret",
                 enabled=False,
                 fill_mode="PARTIAL",
                 allowed_pairs=["STXUSDT"],

@@ -59,6 +59,7 @@ function strategy(): Strategy {
     allowed_pairs: ["SFPUSDT"],
     uptime: { seconds: 0, first_enabled_at: null, baseline: false },
     visibility: "PRIVATE",
+    secret_last4: "x4F2",
   };
 }
 

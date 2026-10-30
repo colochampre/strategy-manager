@@ -2,7 +2,8 @@
 design AD6; tasks.md D.3).
 
 The author asks for a new secret when the old one leaked or the alert is being
-rebuilt. The hash is replaced and the plain secret is returned once; the old
+rebuilt. The hash and the last four are replaced together and the plain secret is
+returned once; the old
 secret stops authenticating at the webhook from the commit on.
 
 **Another user's strategy is a strategy that does not exist** (AD8): the caller hands
@@ -25,6 +26,7 @@ from strategy_manager.strategies.application.update_strategy import (
 from strategy_manager.strategies.domain.webhook_secret import (
     hash_webhook_secret,
     new_webhook_secret,
+    webhook_secret_last4,
 )
 
 
@@ -48,6 +50,8 @@ class RegenerateWebhookSecret:
             )
 
         secret = new_webhook_secret()
-        await self._repository.replace_webhook_secret_hash(strategy_id, hash_webhook_secret(secret))
+        await self._repository.replace_webhook_secret(
+            strategy_id, hash_webhook_secret(secret), webhook_secret_last4(secret)
+        )
         await self._commit.commit()
         return secret

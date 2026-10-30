@@ -158,6 +158,7 @@ def _strategy_row(strategy_id: UUID, *, archived: bool = False) -> StrategyRow:
         settlement_currency=currency,
         author_id=OWNER_ID,
         webhook_secret_hash=secret_hash("fixture-secret"),
+        webhook_secret_last4="cret",
         enabled=False,
         fill_mode="PARTIAL",
         allowed_pairs=["STXUSDT"],

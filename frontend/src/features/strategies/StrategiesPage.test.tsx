@@ -39,6 +39,7 @@ function strategy(overrides: Record<string, unknown> = {}) {
     allowed_pairs: ["SOLUSDT"],
     uptime: { seconds: 12 * DAY_S + 3600, first_enabled_at: "2026-09-18T10:00:00Z", baseline: false },
     visibility: "PRIVATE",
+    secret_last4: "x4F2",
     ...overrides,
   };
 }

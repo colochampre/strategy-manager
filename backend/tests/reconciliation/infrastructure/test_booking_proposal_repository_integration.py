@@ -171,9 +171,9 @@ async def _seed_discrepancy(
         text(
             "INSERT INTO strategies "
             "(id, name, exchange, venue, settlement_currency, enabled, fill_mode, author_id, "
-            "webhook_secret_hash) "
+            "webhook_secret_hash, webhook_secret_last4) "
             "VALUES (:id, :name, :exchange, :venue, :settlement_currency, true, 'PARTIAL', "
-            ":author, 'fixture')"
+            ":author, 'fixture', 'fxtr')"
         ),
         {
             "id": strategy_id,

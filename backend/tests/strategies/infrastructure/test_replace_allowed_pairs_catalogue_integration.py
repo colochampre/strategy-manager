@@ -77,6 +77,7 @@ async def _seed(
                 name=f"strategy-{strategy_id}",
                 author_id=OWNER_ID,
                 webhook_secret_hash=secret_hash("fixture-secret"),
+                webhook_secret_last4="cret",
                 enabled=enabled,
                 fill_mode="PARTIAL",
                 allowed_pairs=pairs,

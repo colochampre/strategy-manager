@@ -10,7 +10,10 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 from strategy_manager.strategies.domain.strategy import AllocationPolicy, FillMode, Strategy
-from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStrategyRepository
+from strategy_manager.strategies.infrastructure.repository import (
+    AuthorStrategyRepository,
+    SqlAlchemyStrategyRepository,
+)
 from tests.owner import OWNER_ID, secret_hash, seed_user
 
 pytestmark = pytest.mark.integration
@@ -35,7 +38,7 @@ async def test_insert_then_get_by_id_round_trips_the_strategy(
 
     async with pg_session_factory() as session:
         repository = SqlAlchemyStrategyRepository(session)
-        await repository.insert(_strategy(strategy_id), secret_hash("round-trip"))
+        await repository.insert(_strategy(strategy_id), secret_hash("round-trip"), "trip")
         await session.commit()
 
     async with pg_session_factory() as session:
@@ -60,7 +63,7 @@ async def test_a_registered_strategy_round_trips_its_author(
     async with pg_session_factory() as session:
         author = await seed_user(session, f"author-{strategy_id}@example.com")
         await SqlAlchemyStrategyRepository(session).insert(
-            _strategy(strategy_id, author), secret_hash("author")
+            _strategy(strategy_id, author), secret_hash("author"), "thor"
         )
         await session.commit()
 
@@ -100,11 +103,77 @@ async def test_insert_stores_the_hash_it_is_given(
     strategy_id = uuid4()
     async with pg_session_factory() as session:
         await SqlAlchemyStrategyRepository(session).insert(
-            _strategy(strategy_id), secret_hash("stored")
+            _strategy(strategy_id), secret_hash("stored"), "ored"
         )
         await session.commit()
 
     assert await _stored_hash(pg_session_factory, strategy_id) == secret_hash("stored")
+
+
+async def _stored_last4(factory: async_sessionmaker[AsyncSession], strategy_id: UUID) -> str:
+    async with factory() as session:
+        return str(
+            await session.scalar(
+                text("SELECT webhook_secret_last4 FROM strategies WHERE id = :id"),
+                {"id": strategy_id},
+            )
+        )
+
+
+async def test_insert_stores_the_last_four_it_is_given(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    strategy_id = uuid4()
+    async with pg_session_factory() as session:
+        await SqlAlchemyStrategyRepository(session).insert(
+            _strategy(strategy_id), secret_hash("stored"), "wxyz"
+        )
+        await session.commit()
+
+    assert await _stored_last4(pg_session_factory, strategy_id) == "wxyz"
+
+
+async def test_replacing_the_secret_changes_the_hash_and_the_last_four_together(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    strategy_id = uuid4()
+    async with pg_session_factory() as session:
+        await SqlAlchemyStrategyRepository(session).insert(
+            _strategy(strategy_id), secret_hash("before"), "fore"
+        )
+        await session.commit()
+
+    async with pg_session_factory() as session:
+        await SqlAlchemyStrategyRepository(session).replace_webhook_secret(
+            strategy_id, secret_hash("after"), "fter"
+        )
+        await session.commit()
+
+    assert await _stored_hash(pg_session_factory, strategy_id) == secret_hash("after")
+    assert await _stored_last4(pg_session_factory, strategy_id) == "fter"
+
+
+async def test_the_authors_last_fours_are_theirs_alone(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """``secret_last4s`` answers the author's own strategies; an id that is another
+    author's or none at all is absent, so it cannot tell the two apart."""
+    mine, theirs, missing = uuid4(), uuid4(), uuid4()
+    async with pg_session_factory() as session:
+        author = await seed_user(session, f"author-{mine}@example.com")
+        repository = SqlAlchemyStrategyRepository(session)
+        await repository.insert(_strategy(mine, author), secret_hash("mine"), "mine")
+        await repository.insert(_strategy(theirs), secret_hash("theirs"), "eirs")
+        await session.commit()
+
+    async with pg_session_factory() as session:
+        found = await AuthorStrategyRepository(session, author).secret_last4s(
+            [mine, theirs, missing]
+        )
+        none = await AuthorStrategyRepository(session, author).secret_last4s([])
+
+    assert found == {mine: "mine"}
+    assert none == {}
 
 
 async def test_replacing_the_hash_changes_only_the_hash(
@@ -113,15 +182,15 @@ async def test_replacing_the_hash_changes_only_the_hash(
     strategy_id = uuid4()
     async with pg_session_factory() as session:
         await SqlAlchemyStrategyRepository(session).insert(
-            _strategy(strategy_id), secret_hash("before")
+            _strategy(strategy_id), secret_hash("before"), "fore"
         )
         await session.commit()
     async with pg_session_factory() as session:
         before = await SqlAlchemyStrategyRepository(session).get_by_id(strategy_id)
 
     async with pg_session_factory() as session:
-        await SqlAlchemyStrategyRepository(session).replace_webhook_secret_hash(
-            strategy_id, secret_hash("after")
+        await SqlAlchemyStrategyRepository(session).replace_webhook_secret(
+            strategy_id, secret_hash("after"), "fter"
         )
         await session.commit()
 
@@ -142,8 +211,8 @@ async def test_replacing_the_hash_of_a_missing_row_raises(
 ) -> None:
     async with pg_session_factory() as session:
         with pytest.raises(LookupError):
-            await SqlAlchemyStrategyRepository(session).replace_webhook_secret_hash(
-                uuid4(), secret_hash("nobody")
+            await SqlAlchemyStrategyRepository(session).replace_webhook_secret(
+                uuid4(), secret_hash("nobody"), "ody!"
             )
 
 
@@ -155,7 +224,7 @@ async def test_no_strategy_read_carries_the_hash(
     strategy_id = uuid4()
     async with pg_session_factory() as session:
         await SqlAlchemyStrategyRepository(session).insert(
-            _strategy(strategy_id), secret_hash("hidden")
+            _strategy(strategy_id), secret_hash("hidden"), "dden"
         )
         await session.commit()
 
@@ -171,3 +240,5 @@ async def test_no_strategy_read_carries_the_hash(
     for read in reads:
         assert secret_hash("hidden") not in repr(read)
         assert not hasattr(read, "webhook_secret_hash")
+        assert not hasattr(read, "webhook_secret_last4")
+        assert not hasattr(read, "secret_last4")

@@ -40,6 +40,7 @@ function strategy(overrides: Partial<Strategy> = {}): Strategy {
     allowed_pairs: ["ETHUSDT"],
     uptime: { seconds: 0, first_enabled_at: null, baseline: false },
     visibility: "PRIVATE",
+    secret_last4: "x4F2",
     ...overrides,
   };
 }
@@ -263,7 +264,8 @@ describe("StrategyDetailPage", () => {
 
     const message = screen.getByRole("group", { name: en.strategies.webhook.messageLabel });
     expect(JSON.parse(message.textContent ?? "")).toMatchObject({ signal_type: ID });
-    expect(screen.getByText(`/webhook/tradingview?secret=${en.strategies.webhook.secretPlaceholder}`)).toBeInTheDocument();
+    // The strategy's `secret_last4` ("x4F2" in this file's fixture), after the mask.
+    expect(screen.getByLabelText(en.strategies.webhook.urlLabel)).toHaveTextContent("/webhook/tradingview?secret=***x4F2");
     const deleteButton = screen.getByRole("button", { name: i18n.t("strategies.delete.button") });
     expect(message.compareDocumentPosition(deleteButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
@@ -445,13 +447,37 @@ describe("StrategyDetailPage", () => {
     const slider = within(settings).queryByRole("slider", { name: en.strategies.detail.share.label });
     expect(slider).toBeInTheDocument();
 
-    const [title, first] = Array.from(settings.children) as [HTMLElement, HTMLElement];
-    expect(title).toBe(within(settings).getByRole("heading", { level: 2, name: en.strategies.detail.settings }));
+    const [header, first] = Array.from(settings.children) as [HTMLElement, HTMLElement];
+    expect(header).toContainElement(within(settings).getByRole("heading", { level: 2, name: en.strategies.detail.settings }));
     expect(first).toContainElement(slider);
     expect(within(settings).getByRole("textbox")).toHaveValue("37.5");
     const pairs = within(settings).getByRole("list", { name: en.strategies.pairs.selected });
     expect(first).not.toContainElement(pairs);
     expect(first.compareDocumentPosition(pairs) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("test_the_visibility_shares_the_settings_heading_row_above_every_other_setting", async () => {
+    renderPage(strategy({ subscription: subscriptionOf(ID, "37.5") }));
+    await heading("ETH Breakout");
+
+    const settings = screen.getByRole("complementary", { name: en.strategies.detail.settings });
+    const header = settings.children[0] as HTMLElement;
+    expect(en.strategies.detail.settings).toBe("Strategy settings");
+    expect(header).toContainElement(within(settings).getByRole("heading", { level: 2, name: "Strategy settings" }));
+    expect(header).toContainElement(within(settings).getByRole("combobox", { name: en.strategies.visibility.label }));
+  });
+
+  it.each([
+    ["PRIVATE", "lucide-lock", "lucide-globe"],
+    ["PUBLIC", "lucide-globe", "lucide-lock"],
+  ] as const)("test_a_%s_strategy_shows_its_icon_beside_the_visibility", async (visibility, shown, hidden) => {
+    renderPage({ ...strategy({ subscription: subscriptionOf(ID, "37.5") }), visibility });
+    await heading("ETH Breakout");
+
+    const select = screen.getByRole("combobox", { name: en.strategies.visibility.label });
+    const field = select.parentElement as HTMLElement;
+    expect(field.querySelector(`svg.${shown}`)).not.toBeNull();
+    expect(field.querySelector(`svg.${hidden}`)).toBeNull();
   });
 
   it("test_no_text_of_the_pages_header_line_contains_the_share_or_per_trade", async () => {

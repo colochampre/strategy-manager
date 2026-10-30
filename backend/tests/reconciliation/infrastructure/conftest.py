@@ -173,6 +173,7 @@ async def seed_strategy(
                 settlement_currency=settlement_currency,
                 author_id=author_id,
                 webhook_secret_hash=secret_hash("fixture-secret"),
+                webhook_secret_last4="cret",
                 enabled=enabled,
                 fill_mode=fill_mode,
             )

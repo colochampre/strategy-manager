@@ -7,13 +7,15 @@ import type { Copied } from "@/features/strategies/CopyAction";
 import { IssuedWebhookUrl } from "@/features/strategies/IssuedWebhookUrl";
 import { RegenerateSecretDialog } from "@/features/strategies/RegenerateSecretDialog";
 import { webhookMessage } from "@/features/strategies/webhook-message";
-import { webhookUrl } from "@/features/strategies/webhook-url";
+import { SECRET_MASK, webhookUrl } from "@/features/strategies/webhook-url";
 import { useRegenerateWebhookSecret } from "@/shared/api/strategies";
 import { useWebhookOrigin } from "@/shared/api/webhook-origin";
 import { copyText } from "@/shared/lib/clipboard";
 
 interface WebhookMessageProps {
   strategyId: string;
+  /** The last four characters of the strategy's secret, which the API serves: the rest cannot be read back. */
+  secretLast4: string;
   /** An archived strategy's secret cannot be regenerated: the API refuses every change to one. */
   archived: boolean;
 }
@@ -21,21 +23,21 @@ interface WebhookMessageProps {
 /**
  * "Connect a TradingView alert": the webhook URL and the alert message for one strategy.
  *
- * The URL carries a placeholder where the strategy's secret goes. The secret is stored only as a hash, so
- * this panel can never read it back: the one time it is drawn is the moment it is issued, by creating the
- * strategy or by "Regenerate secret" here, and that view (`IssuedWebhookUrl`) says it will not be shown
- * again. Regenerating asks first, because the old secret stops working at once. The new secret lives in
+ * The URL carries the strategy's secret masked, as an API key is: `***` and the last four characters, which
+ * the API keeps apart. The secret itself is stored only as a hash, so this panel can never read it back: the
+ * one time it is drawn is the moment it is issued, by creating the strategy or by "Regenerate secret" here,
+ * and that view (`IssuedWebhookUrl`) says it will not be shown again. Regenerating asks first, because the old secret stops working at once. The new secret lives in
  * the one mutation result, which leaves the cache when this view is left or "Done" is pressed; nothing
  * here writes it to storage, to a query key or to the console.
  *
- * Keyed by strategy: moving to another strategy's page starts from the placeholder rather than carrying a
+ * Keyed by strategy: moving to another strategy's page starts from the mask rather than carrying a
  * secret across.
  */
-export function WebhookMessage({ strategyId, archived }: WebhookMessageProps) {
-  return <WebhookMessageView key={strategyId} strategyId={strategyId} archived={archived} />;
+export function WebhookMessage({ strategyId, secretLast4, archived }: WebhookMessageProps) {
+  return <WebhookMessageView key={strategyId} strategyId={strategyId} secretLast4={secretLast4} archived={archived} />;
 }
 
-function WebhookMessageView({ strategyId, archived }: WebhookMessageProps) {
+function WebhookMessageView({ strategyId, secretLast4, archived }: WebhookMessageProps) {
   const { t } = useTranslation();
   const headingId = useId();
   const urlLabelId = useId();
@@ -48,7 +50,7 @@ function WebhookMessageView({ strategyId, archived }: WebhookMessageProps) {
   // only a settled answer says why there is no host.
   const hostRead = useWebhookOrigin();
   const origin = hostRead.status === "success" ? hostRead.data : null;
-  const url = webhookUrl(origin, t("strategies.webhook.secretPlaceholder"));
+  const url = webhookUrl(origin, SECRET_MASK);
   const hostNote = hostRead.status === "error" ? "hostError" : hostRead.status === "success" && origin === null ? "hostUnset" : null;
   // Built once per render: what the element prints is what its button is given, with no second assembly.
   const message = webhookMessage(strategyId);
@@ -82,6 +84,7 @@ function WebhookMessageView({ strategyId, archived }: WebhookMessageProps) {
               className="min-w-0 grow break-all rounded-md border border-rule bg-panel px-3.5 py-3 font-mono text-xs text-ink-2"
             >
               {url}
+              <span className="tracking-wider text-ink">{secretLast4}</span>
             </code>
             <button
               type="button"
@@ -93,6 +96,7 @@ function WebhookMessageView({ strategyId, archived }: WebhookMessageProps) {
               {t("strategies.webhook.regenerate")}
             </button>
           </div>
+          <p className="text-xs text-ink-3">{t("strategies.webhook.maskHint")}</p>
           {hostNote !== null && <p className="text-xs text-ink-3">{t(`strategies.webhook.${hostNote}`)}</p>}
         </div>
       )}

@@ -1062,19 +1062,28 @@ The strategy page shows the webhook URL with the secret masked by its last four 
 **Defaults, stated rather than asked:**
 - The API names the field `secret_last4`, never with `webhook_secret` in it: the PR D sweep forbids that name in every answer but the two that issue a secret. The column is `strategies.webhook_secret_last4`.
 - 0034 backfills every existing strategy with the last four of today's `WEBHOOK_SECRET`, computed in Python from the setting as 0033 did, and refuses when strategies exist and the setting is empty or shorter than four characters. It is `NOT NULL`, with a CHECK on four characters.
-- The header's Copy message copies the masked URL, as it copied the placeholder.
+- ~~The header's Copy message copies the masked URL, as it copied the placeholder.~~ Wrong premise, corrected 2026-10-30: Copy message copies the alert's JSON, which holds no secret, and since D.6 the header has no Copy URL; nothing copies the masked URL.
 - The deploy needs no stop: 0034 only adds a column the running code does not select, so it migrates with both services up, then both restart and pps.6 runs.
 
 **Risk:** item 1 (0034 backfills from a setting); item 2 (characters of a secret reach an API answer). It gets an independent verifier before the PR.
 
-- [ ] H.1 Store and serve the last four (backend).
+- [x] H.1 Store and serve the last four (backend).
   - 0034, with tests on real PostgreSQL through `migrated_database(name, "0033")`: the backfill equals the setting's last four; the refusals; `NOT NULL` and the CHECK; the downgrade drops the column and the upgrade runs again.
   - `RegisterStrategy` and `RegenerateWebhookSecret` write the hash and the last four together through one helper; the repository takes both and still keeps them out of the domain read model's other uses; `StrategyView` carries `secret_last4`.
   - Regenerating changes it; another user still gets the same 404; no log line carries it with the rest of the secret.
   - The PR D sweep still holds: no answer carries the secret, its hash or a `webhook_secret` name outside the issuing routes; it gains: the list and `GET /{id}` carry exactly the last four of the strategy's current secret, and nothing longer.
-- [ ] H.2 The panel masks with the last four (EN/ES).
+- [x] H.2 The panel masks with the last four (EN/ES).
   - The header's webhook URL shows `***` and the last four in place of the secret, styled as the credentials' last-four hint; the hint text says what the four characters are for; Copy message copies the masked URL.
   - The `<your secret>` / `<su secreto>` placeholder goes.
+- **Evidence for H.1 and H.2 (2026-10-30, one Sonnet writer, both tasks as one behaviour):**
+  - `0034_webhook_secret_last4.py`: backfills the setting's last four in Python, then `NOT NULL` and `ck_strategies_webhook_secret_last4_length`; refuses, naming nothing secret, when strategies exist and the setting is shorter than four characters. `webhook_secret_last4` in `strategies/domain/webhook_secret.py` is the one helper; register and regenerate write hash and last four together (`replace_webhook_secret(id, hash, last4)`, renamed from `replace_webhook_secret_hash`). `StrategyView.secret_last4` is read through a separate author-scoped query (`AuthorStrategyRepository.secret_last4s`), so no domain `Strategy` carries it.
+  - Panel: `Strategy.secret_last4` (the guard requires exactly four characters); `WebhookMessage` draws `***` and the four in the same classes as the credentials' `KeyHint`, with a hint line in EN and ES; the placeholder is gone; regenerate invalidates the strategy reads on success so the new four show.
+  - RED on assertions before the code: the helper (`'' == 'wxyz'`), the register, repository and regenerate tests (`'????' == 'wxyz'`), 25 `WebhookMessage` tests, the guard and the invalidation tests. The 0034 tests, which cannot fail on an assertion before the revision exists, by mutations seen red and restored: backfill from the first four; the refusal weakened to an empty setting only; the CHECK loosened. Passed at once and then mutated: the reads' exactly-four test and the sweep (a constant in `StrategyView.of`), the author scope of `secret_last4s` (filter removed), three panel tests.
+  - Raw strategy inserts in about 20 test files gained the column (sentinels `"cret"`, `"fxtr"`), and 16 panel fixtures `secret_last4`.
+  - Writer's checks: ruff over `src`, `tests` and 0034 clean; mypy 0; the 0033 and 0034 migration tests, `tests/strategies`, the sweep and 17 other touched files exit 0; `npm run lint` 0; `npm test` 104 files, 2901 passed.
+  - Owner's request after seeing the page (2026-10-30), done inline by the parent: "prefiero que esté arriba de todo, compartiendo el ancho con el titulo 'Settings of this strategy'. De paso acortar dicho titulo a simplemente 'Settings' o 'Strategy settings'. Agregale al desplegable un icono tipo mundo 🌐 para public y candado para private." The visibility select now shares the settings heading's row, above the share; the heading reads "Strategy settings" / "Ajustes de la estrategia"; the select draws the selected value's `lucide-react` icon (`Lock` private, `Globe` public), in the create dialog too. Beside the heading the label and the hint are kept for screen readers and the hint shows on hover, so the select fits the row. RED on assertions before the code (the heading's text, then no icon for either value); `npm run lint` 0, `npm test` 104 files, 2904 passed.
+  - Found on the way: the docstring line the parent added to 0033 in `dc8e0f7` broke ruff's E501, and reached `main` because ruff was not rerun after that edit. Rewrapped here (the first rewrap still overflowed by one character; the gate caught it).
+  - Gate (parent): mypy 0, full pytest exit 0 with no failing test; ruff 1 on that rewrap, fixed, then ruff 0. Frontend lint 0, 2904 passed.
 - [ ] H.3 Rehearsal and deploy (owner-run): a fresh backup, 0034 rehearsed on a throwaway restore with a downgrade to 0033 and a second upgrade; then pull, migrate with the services up, restart both, pps.6. Every query a script runs is exercised locally first (PR D's lesson).
 - [ ] H.D Gate, independent verifier, then push and PR on the owner's word, merge, deploy, delivery log.
 

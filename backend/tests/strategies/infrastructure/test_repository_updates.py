@@ -58,7 +58,7 @@ async def test_listing_is_ordered_by_name_so_it_is_stable(
     async with pg_session_factory() as session:
         repository = SqlAlchemyStrategyRepository(session)
         for name in ("SOL 4h", "AAVE 4h", "BAT v1.3"):
-            await repository.insert(_strategy(name), secret_hash("listed"))
+            await repository.insert(_strategy(name), secret_hash("listed"), "sted")
         await session.commit()
 
     async with pg_session_factory() as session:
@@ -80,7 +80,9 @@ async def test_update_writes_the_mutable_fields(
     strategy = _strategy("original", enabled=False)
 
     async with pg_session_factory() as session:
-        await SqlAlchemyStrategyRepository(session).insert(strategy, secret_hash("original"))
+        await SqlAlchemyStrategyRepository(session).insert(
+            strategy, secret_hash("original"), "inal"
+        )
         await session.commit()
 
     changed = Strategy(
@@ -119,7 +121,7 @@ async def test_update_cannot_move_a_strategy_to_another_pool(
     strategy = _strategy("spot strategy", venue=Venue.SPOT, currency=Currency.USDT)
 
     async with pg_session_factory() as session:
-        await SqlAlchemyStrategyRepository(session).insert(strategy, secret_hash("spot"))
+        await SqlAlchemyStrategyRepository(session).insert(strategy, secret_hash("spot"), "spot")
         await session.commit()
 
     moved = Strategy(

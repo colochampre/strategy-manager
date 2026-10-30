@@ -34,6 +34,7 @@ function strategy({ allocation_percent = "30", ...overrides }: Partial<Strategy>
     allowed_pairs: ["ETHUSDT"],
     uptime: { seconds: 0, first_enabled_at: null, baseline: false },
     visibility: "PRIVATE",
+    secret_last4: "x4F2",
     ...overrides,
   };
 }

@@ -122,8 +122,9 @@ async def _seed(
             text(
                 "INSERT INTO strategies (id, name, exchange, venue, settlement_currency, "
                 "enabled, fill_mode, allowed_pairs, author_id, webhook_secret_hash, "
-                "archived_at) VALUES (:id, :name, 'bybit', 'usdt-m', 'USDT', false, "
-                "'PARTIAL', ARRAY['STXUSDT'], :author, :hash, "
+                "webhook_secret_last4, archived_at) "
+                "VALUES (:id, :name, 'bybit', 'usdt-m', 'USDT', false, "
+                "'PARTIAL', ARRAY['STXUSDT'], :author, :hash, :last4, "
                 "CASE WHEN :archived THEN now() END)"
             ),
             {
@@ -131,6 +132,7 @@ async def _seed(
                 "name": f"strategy-{strategy_id}",
                 "author": author,
                 "hash": secret_hash(secret),
+                "last4": secret[-4:],
                 "archived": archived,
             },
         )
@@ -143,6 +145,18 @@ async def _stored_hash(engine: AsyncEngine, strategy_id: UUID) -> str:
             (
                 await conn.execute(
                     text("SELECT webhook_secret_hash FROM strategies WHERE id = :id"),
+                    {"id": strategy_id},
+                )
+            ).scalar_one()
+        )
+
+
+async def _stored_last4(engine: AsyncEngine, strategy_id: UUID) -> str:
+    async with engine.connect() as conn:
+        return str(
+            (
+                await conn.execute(
+                    text("SELECT webhook_secret_last4 FROM strategies WHERE id = :id"),
                     {"id": strategy_id},
                 )
             ).scalar_one()
@@ -219,6 +233,36 @@ async def test_no_read_of_the_strategy_returns_the_secret_or_the_hash(
         assert "webhook_secret" not in read.text
 
 
+async def test_creating_stores_and_answers_the_last_four_of_the_secret_it_issues(
+    client: AsyncClient, engine: AsyncEngine
+) -> None:
+    strategy_id = uuid4()
+
+    created = await client.post(
+        "/api/strategies", json=_create_body(strategy_id), headers=ADMIN_HEADERS
+    )
+
+    secret = created.json()["webhook_secret"]
+    assert created.json()["secret_last4"] == secret[-4:]
+    assert await _stored_last4(engine, strategy_id) == secret[-4:]
+
+
+async def test_the_reads_carry_exactly_the_last_four_of_the_current_secret(
+    client: AsyncClient, engine: AsyncEngine, admin_id: UUID
+) -> None:
+    strategy_id = await _seed(engine, author=admin_id)
+
+    one = await client.get(f"/api/strategies/{strategy_id}", headers=ADMIN_HEADERS)
+    listed = await client.get("/api/strategies", headers=ADMIN_HEADERS)
+
+    assert one.json()["secret_last4"] == OLD_SECRET[-4:]
+    assert [row["secret_last4"] for row in listed.json()] == [OLD_SECRET[-4:]]
+    for read in (one, listed):
+        # One character more than the four would already be a longer tail of the secret
+        # (six, because a UUID in the body could by chance spell the five).
+        assert OLD_SECRET[-6:] not in read.text
+
+
 async def test_the_secret_issued_at_creation_opens_the_webhook(
     client: AsyncClient, engine: AsyncEngine
 ) -> None:
@@ -253,6 +297,18 @@ async def test_regenerating_answers_a_new_secret_once_and_replaces_the_hash(
     secret = response.json()["webhook_secret"]
     assert secret != OLD_SECRET
     assert await _stored_hash(engine, strategy_id) == secret_hash(secret)
+
+
+async def test_regenerating_replaces_the_last_four_with_the_new_secrets(
+    client: AsyncClient, engine: AsyncEngine, admin_id: UUID
+) -> None:
+    strategy_id = await _seed(engine, author=admin_id)
+
+    secret = (await _regenerate(client, strategy_id)).json()["webhook_secret"]
+
+    assert await _stored_last4(engine, strategy_id) == secret[-4:]
+    one = await client.get(f"/api/strategies/{strategy_id}", headers=ADMIN_HEADERS)
+    assert one.json()["secret_last4"] == secret[-4:]
 
 
 async def test_the_old_secret_is_refused_at_the_webhook_and_the_new_one_opens_it(
@@ -298,6 +354,7 @@ async def test_another_authors_strategy_answers_404_like_a_missing_one(
     assert refused.json() == {"detail": f"no strategy registered under id {theirs}"}
     assert absent.json() == {"detail": f"no strategy registered under id {missing}"}
     assert await _stored_hash(engine, theirs) == secret_hash(OLD_SECRET)
+    assert await _stored_last4(engine, theirs) == OLD_SECRET[-4:]
     assert (await _webhook(client, theirs, OLD_SECRET)).status_code == 200
 
 
@@ -382,6 +439,9 @@ async def test_no_log_line_carries_a_secret_or_a_hash(
         await _stored_hash(engine, created_id),
         await _stored_hash(engine, seeded_id),
         secret_hash(OLD_SECRET),
+        # The four characters are no more to be logged than the rest of the secret.
+        created.json()["secret_last4"],
+        await _stored_last4(engine, seeded_id),
     ]
     assert any("d3-canary" in record.getMessage() for record in caplog.records), (
         "the capture saw nothing, so nothing was proven"

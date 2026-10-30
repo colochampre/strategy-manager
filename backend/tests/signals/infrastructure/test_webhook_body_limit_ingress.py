@@ -158,9 +158,10 @@ async def strategy_id(engine: AsyncEngine) -> UUID:
         await conn.execute(
             text(
                 "INSERT INTO strategies (id, name, exchange, venue, settlement_currency, "
-                "enabled, fill_mode, allowed_pairs, author_id, webhook_secret_hash) "
+                "enabled, fill_mode, allowed_pairs, author_id, webhook_secret_hash, "
+                "webhook_secret_last4) "
                 "VALUES (:id, :name, 'bybit', 'usdt-m', 'USDT', true, 'PARTIAL', "
-                "ARRAY['STXUSDT'], :author, :hash)"
+                "ARRAY['STXUSDT'], :author, :hash, 'fxtr')"
             ),
             {
                 "id": registered,

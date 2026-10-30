@@ -42,12 +42,16 @@ class StrategyRow(Base):
     """Mirrors the ``strategies`` table created by migration ``0003``,
     extended with ``author_id`` by migration ``0030`` and with the secret hash,
     the visibility and the per-author name by ``0033``, which also dropped
-    ``allocation_percent``."""
+    ``allocation_percent``, and with the secret's last four by ``0034``."""
 
     __tablename__ = "strategies"
     __table_args__ = (
         CheckConstraint("venue IN ('spot', 'usdt-m', 'coin-m')", name="ck_strategies_venue"),
         CheckConstraint("visibility IN ('PUBLIC', 'PRIVATE')", name="ck_strategies_visibility"),
+        CheckConstraint(
+            "char_length(webhook_secret_last4) = 4",
+            name="ck_strategies_webhook_secret_last4_length",
+        ),
         UniqueConstraint("author_id", "name", name="ux_strategies_author_name"),
         Index("ix_strategies_author_id", "author_id"),
     )
@@ -69,6 +73,9 @@ class StrategyRow(Base):
     # SHA-256 hex of the strategy's webhook secret (migration 0033). The domain
     # ``Strategy`` never carries it: only the repository's insert and replace touch it.
     webhook_secret_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    # The secret's last four characters (migration 0034), for the panel's mask. Like the
+    # hash it is read only by the repository's own query, never by ``_to_domain``.
+    webhook_secret_last4: Mapped[str] = mapped_column(Text, nullable=False)
     visibility: Mapped[str] = mapped_column(
         Text, nullable=False, server_default=text("'PRIVATE'")
     )
