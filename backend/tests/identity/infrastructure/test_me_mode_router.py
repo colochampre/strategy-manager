@@ -12,6 +12,7 @@ TradingView sends it, the attempt and the ledger as the venue does.
 """
 
 import asyncio
+import logging
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -54,7 +55,8 @@ from tests.owner import seed_reservation_row, seed_user
 pytestmark = pytest.mark.integration
 
 WAIT_SECONDS = 5.0
-GARBAGE = b"\x00not-a-real-ciphertext\xff"
+CHANGE_LOGGER = "strategy_manager.identity.application.change_mode"
+GARBAGE =b"\x00not-a-real-ciphertext\xff"
 CONFIRMED_AT = datetime(2026, 10, 1, tzinfo=UTC)
 
 
@@ -346,6 +348,48 @@ async def test_going_to_simulation_while_flat_changes_the_mode(
     assert response.status_code == 200
     assert response.json()["mode"] == "SIMULATION"
     assert await world.stored_mode() == "SIMULATION"
+
+
+def _change_lines(caplog: pytest.LogCaptureFixture) -> list[logging.LogRecord]:
+    return [record for record in caplog.records if record.name == CHANGE_LOGGER]
+
+
+async def test_a_change_leaves_a_line_naming_the_user_and_the_new_mode(
+    client: AsyncClient,
+    factory: async_sessionmaker[AsyncSession],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """It decides where the user's next signal goes, so it does not pass in silence."""
+    world = await _user(factory, ADMIN_EMAIL, "LIVE")
+
+    with caplog.at_level(logging.INFO, logger=CHANGE_LOGGER):
+        response = await client.post(
+            "/api/me/mode", headers=ADMIN_HEADERS, json={"mode": "SIMULATION"}
+        )
+
+    assert response.status_code == 200
+    lines = _change_lines(caplog)
+    assert len(lines) == 1
+    assert lines[0].levelno == logging.INFO
+    assert str(world.user_id) in lines[0].getMessage()
+    assert "SIMULATION" in lines[0].getMessage()
+
+
+async def test_a_refused_change_claims_nothing_in_the_log(
+    client: AsyncClient,
+    factory: async_sessionmaker[AsyncSession],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    world = await _user(factory, ADMIN_EMAIL, "LIVE")
+    await world.reservation(status="PENDING", symbol="STXUSDT.P")
+
+    with caplog.at_level(logging.INFO, logger=CHANGE_LOGGER):
+        response = await client.post(
+            "/api/me/mode", headers=ADMIN_HEADERS, json={"mode": "SIMULATION"}
+        )
+
+    assert response.status_code == 409
+    assert _change_lines(caplog) == []
 
 
 @pytest.mark.parametrize("status", ["PENDING", "SUBMITTED"])

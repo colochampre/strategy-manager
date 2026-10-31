@@ -18,6 +18,7 @@ opening that went first, and every later one sees the new mode. This use case
 takes no pool advisory lock, so it cannot invert the lock order.
 """
 
+import logging
 from collections.abc import Sequence
 from enum import StrEnum
 from uuid import UUID
@@ -29,6 +30,8 @@ from strategy_manager.identity.application.ports import (
     UserRepositoryPort,
 )
 from strategy_manager.shared.domain.mode import Mode
+
+logger = logging.getLogger(__name__)
 
 
 class ModeRefusal(StrEnum):
@@ -75,3 +78,4 @@ class ChangeMode:
 
         await self._users.set_mode(user_id, mode)
         await self._commit.commit()
+        logger.info("User %s set their mode to %s", user_id, mode.value)

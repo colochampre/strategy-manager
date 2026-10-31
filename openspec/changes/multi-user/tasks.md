@@ -1239,6 +1239,24 @@ The rule: a delivery opens LIVE only if `.env` `DRY_RUN` is false and the user's
   - The panel goes after the API here, unlike a panel-only deploy: the new bundle refuses an `/api/me` without `mode`.
 - [ ] E.D Gate, independent verifier, then push and PR on the owner's word, merge, deploy, delivery log.
 
+### Independent verification (2026-10-30)
+
+An Opus verifier read head `a4f42a6` against `ddf8262`. **No blockers.** E.1 to E.7 pass, and so do E.8's scripts. Its probes ran on real PostgreSQL: the migration's cases, and an opening queued on the pool lock while a flip lands, which raises `ModeChangedError` and reserves nothing. Not checked: the panel in a browser, the VPS branch of the scripts, production's data, and a signal through `build_worker_runner` in simulation with the brake off.
+
+Closed after the report:
+- **A4, a mode change left no line.** `ChangeMode` now logs at INFO after the commit, naming the user and the mode: it decides where the user's next signal goes. RED on an assertion, four mutations killed. A first version logged at WARNING on the belief that the API configures no logging; `shared/infrastructure/api_logging.py` shows it does, and INFO is where a changed share and a deleted strategy already go.
+- **A2, a closed allocation with real and rehearsal fills.** The guard reads it flat, but the scan now counts real fills alone, so it reads as a position to compare with the venue. It needs both kinds on one allocation, which production may not hold. `rehearse_0035.sh` counts them and ends with a REVIEW line when any exist.
+- **A9, the deploy's edges.** A failed backup now stops with the state in words. A guard refusal starts the API, so a webhook is not lost, and leaves the worker stopped. A service that is not active ends in `STOP`, never in `done`.
+
+Recorded, not changed:
+- **A1.** 0035's "open" nets quantity alone, while the guard also subtracts base-currency fees and calls an unsplittable symbol open. Both failures are loud, and the rehearsal meets either before production.
+- **A3.** A symbol `base_currency_of` cannot split reads open for ever, so it blocks going to simulation and counts as unclosable. It is the guard's stated rule; production's symbols split.
+- **A5, close before PR F or PR G.** `/reconciliation/confirmed` is whole-system for the admin, but `dry_run` comes from the admin alone, so an admin in simulation with nothing real sees nothing of another user's discrepancies. The Telegram reminder remains. E.6 asks for this value, and it has no reach while the owner is the only user.
+- **A6, close before PR F.** Saving a read-only key does not check exposure, so a user holding a real position can supersede their key, and `find_unclosable` then refuses the next start for everyone.
+- **A7.** A `LIVE` `PENDING` reservation retried inside its 30s TTL after a restart places for real under the brake. Line 1118 says the order follows the reservation, so this is by the rule, though decision 14 reads narrower.
+- **A8.** The in-lock key refusal on a reverse continuation omits the "close executed" note the pre-lock refusal carries.
+- **Deploy window.** E.2 renamed `dry_run` on `/api/me`, and the old bundle requires it, so between the restart and pps.6 a fresh load shows the signed-out gate. The other order is worse: the new bundle refuses the old answer. pps.6 follows the deploy at once.
+
 ## PR F-G
 
 Planned in `design.md`, "Delivery". Their tasks are written when the previous PR is merged, so each starts from what production actually is. The signals' `status`, `outcome_reason`, `outcome_detail` and `decided_at` stay, because they hold the strategy-level refusals (C.7). Advisory N1 (Leave with a queued opening) must be closed before PR F.
