@@ -1232,12 +1232,12 @@ The rule: a delivery opens LIVE only if `.env` `DRY_RUN` is false and the user's
   - The rehearsal labels of positions and trades ("Dry run") are separate keys and were left alone: this task names the badge.
   - RED on assertions: 22 tests failed against a minimal badge and a stub `changeMode`, never on an import. Twenty-seven mutations in `mutate_e7.ps1`, all killed and restored in the end. Two survived the first run and were rerun alone in `mutate_e7b.ps1` after the fix. "Any status read as a refusal" was a real hole, closed by a test of a 500 naming a refusal. "The click sends" sat in `showModal`, which jsdom lacks, so it proved nothing; moved to a line that runs, it was killed.
   - Gate: `npm run lint` 0, full `vitest run` 106 files and 2949 tests, both on the final tree. Backend not run: nothing there changed. **Not seen in a browser:** `vite.fixture.config.ts` does not answer `/api/me`, so the badge and the dialog have only been checked by tests. The owner looks at both after the deploy.
-- [ ] E.8 Rehearsal and deploy (owner-run): a fresh backup; 0035 rehearsed on a throwaway restore with a downgrade to 0034 and a second upgrade, checking every reservation's mode against its fills and that the owner is `LIVE`; both services stopped for the migration, away from a 4h candle close; pps.6. Every query a script runs is exercised locally first.
+- [x] E.8 Rehearsal and deploy (owner-run): a fresh backup; 0035 rehearsed on a throwaway restore with a downgrade to 0034 and a second upgrade, checking every reservation's mode against its fills and that the owner is `LIVE`; both services stopped for the migration, away from a 4h candle close; pps.6. Every query a script runs is exercised locally first.
   - **Prepared, not run (2026-10-30):** `rehearse_0035.sh` and `deploy_0035.sh` in the session scratchpad, driven locally by `rehearse_local_0035.py`, `LOCAL RESULT: ok`. Three scenarios on a copy of the dev database at 0034, seeded with a real open, a simulated open, a closed mixed and an empty reservation: one user with a key passes both, downgrade included; the key gone, the rehearsal stops at 0034 with nothing written and the deploy stops at 0035 with the services stopped; a second user, the rehearsal passes and the downgrade is refused. The guard's first local run refused a seeded closed allocation on a coin-m symbol that `base_currency_of` cannot split: that is the guard's stated rule, and the seed moved to `BTCUSDT`.
   - `backend/scripts/check_mode_guard.py` runs the worker's own guard, so the check on the restored backup is the check that decides, not a second reading of "open". The rehearsal runs it on the copy before production is touched, and the deploy runs it again after migrating.
   - The deploy adds two things the task does not name: a backup taken with both services stopped, since the rehearsal's is minutes old by then, and a refusal to start within 5 minutes after or 15 before a 4h close. `deploy_0035.sh` carries a placeholder for the merge commit. A failed migration or a refusal after stopping leaves both services stopped: the pulled code needs 0035, and old code cannot write `reservations.mode`.
   - The panel goes after the API here, unlike a panel-only deploy: the new bundle refuses an `/api/me` without `mode`.
-- [ ] E.D Gate, independent verifier, then push and PR on the owner's word, merge, deploy, delivery log.
+- [x] E.D Gate, independent verifier, then push and PR on the owner's word, merge, deploy, delivery log.
 
 ### Independent verification (2026-10-30)
 
@@ -1256,6 +1256,22 @@ Recorded, not changed:
 - **A7.** A `LIVE` `PENDING` reservation retried inside its 30s TTL after a restart places for real under the brake. Line 1118 says the order follows the reservation, so this is by the rule, though decision 14 reads narrower.
 - **A8.** The in-lock key refusal on a reverse continuation omits the "close executed" note the pre-lock refusal carries.
 - **Deploy window.** E.2 renamed `dry_run` on `/api/me`, and the old bundle requires it, so between the restart and pps.6 a fresh load shows the signed-out gate. The other order is worse: the new bundle refuses the old answer. pps.6 follows the deploy at once.
+
+### PR E's delivery
+
+PR #91 merged 2026-10-31 15:59 UTC as `c9b7ec08164e`, with a merge commit. No dependency changed.
+
+**PR E's deploy, 2026-10-31** (owner-run):
+1. Pull as `strategy` to `c9b7ec08164e`, then `rehearse_0035.sh` on a fresh backup, `/root/sm_pre0035_20261031_1626.dump`. The owner reported its last line: "done. production untouched, still at 0034". The script reaches that line only past every check, the guard's exit 0 on the copy among them. The rest of the output was not pasted, so the one line that prints after it, the REVIEW on closed mixed allocations, is not on record as absent.
+2. pps.6 built before the deploy, so that only the link was left to move after the restart: the owner built `c9b7ec08164e`, SHA-256 `12d6fb021aeed2186ec960a52e5bffa5259839fc8e2e1fcba90b1c115f46aafb`, and the copy reached 100%.
+3. `deploy_0035.sh`, 33 minutes into the 4h candle, 2026-10-31 16:33 UTC. Both services stopped, backup `/root/sm_pre0035_deploy_20261031_1633.dump`, 0034 to 0035. Six scheduled jobs stayed `PENDING`, none of them a signal's. Every existing user reads `LIVE`. Reservations: `LIVE FILLED 9`, `SIMULATION FILLED 6`. Guard: no open allocation, one trade-capable key, exit 0. Both services active, and the webhook answers 401 with no secret.
+4. pps.6's VPS block: `/root/panel-c9b7ec08164e.tgz: OK`, `readable`, `bundle:   c9b7ec08164e`, `checkout: c9b7ec08164e`.
+5. The panel, read by the owner: "Todo ok". The badge and the dialog have now been seen in a browser. The handover said to cancel the dialog, not confirm it, so `POST /api/me/mode` is not known to have run in production.
+
+**Read from that output:**
+- The API read `failed`, not `inactive`, right after `systemctl stop`. It started normally and answers, so nothing was left down. No earlier deploy script printed the state after a stop, so this may be old. Reading it is open.
+- The deploy's "WARNING/ERROR lines" listed two INFO lines: its `grep` matches " ERROR " inside the text of `operator alerts are on: ERROR and above are forwarded`. It found no real warning or error. The list was noise, not a finding.
+- `open allocations: {}` means the ledger holds no open position, so the SFP opening of 2026-10-30 had already closed in the ledger by the deploy. Only a closing fill nets an allocation to zero. Whether a signal made that close, by the strategy's hash and with one delivery, is PR D's open check, and it is still to be read from production.
 
 ## PR F-G
 
