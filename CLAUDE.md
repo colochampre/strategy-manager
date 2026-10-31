@@ -209,7 +209,10 @@ the vault. Anything that still describes two keys is stale.
   is refused up front, before any capital is reserved, and again inside the pool
   lock (`EXCHANGE_KEY_READ_ONLY`, or `EXCHANGE_HAS_NO_KEY` when there is none). A
   simulated opening needs no key that can trade. A key with withdraw permission
-  is refused outright.
+  is refused outright. And it is refused (`EXCHANGE_HOLDS_REAL_EXPOSURE`) while
+  its user holds anything real on that exchange: it would supersede the key that
+  closes it, and the worker does not start on a real open allocation with no
+  key that can trade.
 - **How capability is known differs by exchange.** Bybit's is read from the
   venue when the key is saved. Binance's cannot be read from the VPS, so the
   owner confirms it (decisions 24 and 30).

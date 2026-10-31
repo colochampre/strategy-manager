@@ -35,6 +35,7 @@ export type SaveRefusal =
   | "permissionsUnavailable"
   | "venueUnreachable"
   | "concurrentSave"
+  | "holdsRealExposure"
   | "confirmationRequired"
   | "confirmationNotApplicable"
   | "notServed"
@@ -109,13 +110,14 @@ export function useCredentials() {
   });
 }
 
-/** The seven outcomes the save route answers with, and the refusal each one is. */
+/** The eight outcomes the save route answers with, and the refusal each one is. */
 const REFUSAL_BY_OUTCOME: ReadonlyMap<string, SaveRefusal> = new Map<string, SaveRefusal>([
   ["KEY_REJECTED", "keyRejected"],
   ["WITHDRAW_PERMISSION", "withdrawPermission"],
   ["PERMISSIONS_UNAVAILABLE", "permissionsUnavailable"],
   ["VENUE_UNREACHABLE", "venueUnreachable"],
   ["CONCURRENT_SAVE", "concurrentSave"],
+  ["EXCHANGE_HOLDS_REAL_EXPOSURE", "holdsRealExposure"],
   ["CONFIRMATION_REQUIRED", "confirmationRequired"],
   ["CONFIRMATION_NOT_APPLICABLE", "confirmationNotApplicable"],
 ]);

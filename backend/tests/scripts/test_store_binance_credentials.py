@@ -299,6 +299,7 @@ async def test_a_master_key_problem_is_found_before_the_secret_prompt(
         (SaveOutcome.KEY_REJECTED, "binance rejected the key (code -2015)"),
         (SaveOutcome.VENUE_UNREACHABLE, "binance could not be read (HTTP 503)"),
         (SaveOutcome.CONCURRENT_SAVE, "another save for binance was stored first"),
+        (SaveOutcome.EXCHANGE_HOLDS_REAL_EXPOSURE, "binance holds real exposure on ['STXUSDT']"),
     ],
 )
 async def test_a_refusal_exits_1_names_the_outcome_and_says_nothing_was_stored(

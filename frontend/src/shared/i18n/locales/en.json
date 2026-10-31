@@ -662,6 +662,7 @@
         "permissionsUnavailable": "{{exchange}} did not say what this key is allowed to do, so it was not saved. Try again in a moment.",
         "venueUnreachable": "{{exchange}} could not be reached, so the key was not checked and not saved. Nothing is known to be wrong with it. Try again.",
         "concurrentSave": "Another save for {{exchange}} finished first, so this one was not stored. The card shows the key that is stored now. Check it before saving again.",
+        "holdsRealExposure": "You hold something real on {{exchange}}, and a key that cannot trade could not close it, so this key was not saved. Close what is open, or enter a key that can trade.",
         "confirmationRequired": "The key was not saved, and nothing was sent to {{exchange}}, because a confirmation is missing:",
         "confirmationRequiredUnlisted": "The key was not saved, and nothing was sent to {{exchange}}, because a confirmation is missing. Tick both and enter the key again.",
         "confirmationNotApplicable": "The panel sent a confirmation that {{exchange}} does not take, so the key was not saved. Reload the page and enter the key again.",

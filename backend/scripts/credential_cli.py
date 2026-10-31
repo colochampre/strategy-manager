@@ -45,11 +45,13 @@ from strategy_manager.accounts.infrastructure.credential_vault import SqlAlchemy
 from strategy_manager.accounts.infrastructure.key_inspectors.registry import (
     KeyInspectorRegistry,
 )
+from strategy_manager.execution.infrastructure.live_exposure import SqlAlchemyLiveExposure
 from strategy_manager.shared.config import get_settings
 from strategy_manager.shared.db import engine, session_factory
 from strategy_manager.shared.domain.errors import InvariantViolation
 from strategy_manager.shared.infrastructure.clock import SystemClock
 from strategy_manager.shared.infrastructure.crypto import EnvelopeCipher
+from strategy_manager.strategies.infrastructure.pool_lock_adapter import PoolLockAdapter
 
 LABEL = "default"
 
@@ -81,6 +83,10 @@ _WHAT_TO_DO = {
     SaveOutcome.CONCURRENT_SAVE: (
         "Another save for this exchange was stored first. Check which key is "
         "active before running this again."
+    ),
+    SaveOutcome.EXCHANGE_HOLDS_REAL_EXPOSURE: (
+        "A key that cannot trade could not close what this user holds on the "
+        "exchange. Close it first, or give a key that can trade."
     ),
 }
 
@@ -193,7 +199,13 @@ async def vault_saver(
             async with session_factory() as session:
                 vault = SqlAlchemyCredentialVault(session, cipher, clock)
                 result = await SaveCredential(
-                    inspectors, vault, SqlAlchemyCapitalPoolWriter(session), session, clock
+                    inspectors,
+                    vault,
+                    SqlAlchemyCapitalPoolWriter(session),
+                    session,
+                    clock,
+                    PoolLockAdapter(session),
+                    SqlAlchemyLiveExposure(session),
                 ).execute(user_id, credential, confirmations)
                 if isinstance(result, Saved):
                     # Prove the round trip before reporting success: a credential

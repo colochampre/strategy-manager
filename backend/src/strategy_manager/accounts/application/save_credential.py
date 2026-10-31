@@ -10,15 +10,23 @@ The steps run in this order, and the order is the safety property:
    owner's to fix, the second is worth retrying by hand.
 3. ``evaluate_key``: pure policy over what the venue said and what the owner
    confirmed.
-4. Store with supersede. ``validated_at`` and each confirmation's timestamp are
+4. A key that cannot trade is refused while the user holds something real on the
+   exchange (tasks.md A6). Saving supersedes the key that closes it, and the worker
+   refuses to start on a real open allocation with no key that can trade, for every
+   user. The pool lock comes first, the same one ``AllocateCapital`` takes, then the
+   read, and the store stays inside it: an opening either committed before the read
+   or finds this key when it takes the lock. After the venue call, because a lock is
+   never held across exchange latency. A key that can trade skips this step: nothing
+   it supersedes leaves a position without a key.
+5. Store with supersede. ``validated_at`` and each confirmation's timestamp are
    stamped from the clock in ONE reading, so they are the same instant and
    ``evaluate_key`` stays pure. A rotation deactivates the previous row and
    keeps it; nothing about the previous key is inherited.
-5. Enable the exchange's one futures pool (decision 21), in the SAME transaction
+6. Enable the exchange's one futures pool (decision 21), in the SAME transaction
    and only once the store succeeded. ``KNOWN_FUTURES_POOLS`` names the pool;
    an existing row's ``min_order_size`` is never touched. A refusal, a venue
    failure or a lost race never reaches this step, so the pool stays as it was.
-6. Commit.
+7. Commit.
 
 The result is typed. ``Saved`` carries the last four characters and the facts
 recorded; ``SaveRefused`` carries the outcome, a detail that names tokens or
@@ -44,6 +52,8 @@ from strategy_manager.accounts.application.ports import (
     CommitPort,
     CredentialWriterPort,
     KeyInspectorRegistryPort,
+    PoolLockPort,
+    RealExposurePort,
 )
 from strategy_manager.accounts.domain.errors import (
     ConcurrentCredentialSave,
@@ -77,6 +87,7 @@ class SaveOutcome(StrEnum):
     CONFIRMATION_REQUIRED = "CONFIRMATION_REQUIRED"
     CONFIRMATION_NOT_APPLICABLE = "CONFIRMATION_NOT_APPLICABLE"
     CONCURRENT_SAVE = "CONCURRENT_SAVE"
+    EXCHANGE_HOLDS_REAL_EXPOSURE = "EXCHANGE_HOLDS_REAL_EXPOSURE"
 
 
 @dataclass(frozen=True, slots=True)
@@ -111,12 +122,16 @@ class SaveCredential:
         pools: CapitalPoolWriterPort,
         commit: CommitPort,
         clock: ClockPort,
+        pool_lock: PoolLockPort,
+        exposure: RealExposurePort,
     ) -> None:
         self._inspectors = inspectors
         self._writer = writer
         self._pools = pools
         self._commit = commit
         self._clock = clock
+        self._pool_lock = pool_lock
+        self._exposure = exposure
 
     async def execute(
         self,
@@ -145,6 +160,20 @@ class SaveCredential:
         verdict = evaluate_key(exchange, snapshot, confirmations)
         if isinstance(verdict, KeyRefused):
             return self._refused(exchange, verdict)
+
+        if not verdict.trade_capable:
+            pool = known_pool_for(exchange)
+            await self._pool_lock.acquire(
+                user_id, exchange, pool.venue.value, pool.settlement_currency.value
+            )
+            held = await self._exposure.symbols_on(user_id, exchange)
+            if held:
+                return self._refused_with(
+                    exchange,
+                    SaveOutcome.EXCHANGE_HOLDS_REAL_EXPOSURE,
+                    f"this key cannot trade and {exchange} holds real exposure on "
+                    f"{sorted(held)}; the key that closes it stays",
+                )
 
         facts = self._stamp(verdict)
         try:

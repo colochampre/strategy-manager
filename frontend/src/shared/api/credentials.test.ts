@@ -261,6 +261,7 @@ describe("saveCredential, every refusal by the outcome or the status", () => {
     [422, "PERMISSIONS_UNAVAILABLE", "permissionsUnavailable"],
     [502, "VENUE_UNREACHABLE", "venueUnreachable"],
     [409, "CONCURRENT_SAVE", "concurrentSave"],
+    [409, "EXCHANGE_HOLDS_REAL_EXPOSURE", "holdsRealExposure"],
     [422, "CONFIRMATION_NOT_APPLICABLE", "confirmationNotApplicable"],
   ])("a %i %s is %s", async (status, outcome, reason) => {
     answer(status, { outcome, detail: "text the panel never shows" });

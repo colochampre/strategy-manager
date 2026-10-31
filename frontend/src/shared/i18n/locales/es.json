@@ -661,6 +661,7 @@
         "permissionsUnavailable": "{{exchange}} no indicó qué puede hacer esta clave, así que no se guardó. Inténtelo de nuevo en un momento.",
         "venueUnreachable": "No se pudo contactar con {{exchange}}, así que la clave no se comprobó ni se guardó. No se sabe que haya nada mal en ella. Inténtelo de nuevo.",
         "concurrentSave": "Otro guardado de {{exchange}} terminó primero, así que este no se almacenó. La tarjeta muestra la clave que está guardada ahora. Compruébela antes de guardar de nuevo.",
+        "holdsRealExposure": "Usted tiene algo real en {{exchange}}, y una clave que no puede operar no podría cerrarlo, así que esta clave no se guardó. Cierre lo que esté abierto o ingrese una clave que pueda operar.",
         "confirmationRequired": "La clave no se guardó y no se envió nada a {{exchange}}, porque falta una confirmación:",
         "confirmationRequiredUnlisted": "La clave no se guardó y no se envió nada a {{exchange}}, porque falta una confirmación. Marque las dos y vuelva a introducir la clave.",
         "confirmationNotApplicable": "El panel envió una confirmación que {{exchange}} no admite, así que la clave no se guardó. Recargue la página y vuelva a introducir la clave.",

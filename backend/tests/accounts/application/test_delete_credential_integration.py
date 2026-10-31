@@ -62,6 +62,7 @@ from strategy_manager.allocation.infrastructure.advisory_lock import PgAdvisoryL
 from strategy_manager.allocation.infrastructure.repository import (
     SqlAlchemyReservationRepository,
 )
+from strategy_manager.execution.infrastructure.live_exposure import SqlAlchemyLiveExposure
 from strategy_manager.ledger.domain.ledger_entry import LedgerEntry
 from strategy_manager.ledger.infrastructure.repository import SqlAlchemyLedgerRepository
 from strategy_manager.shared.domain.money import Currency, Exchange, Money, Venue
@@ -493,6 +494,8 @@ async def test_replacing_a_key_rotation_never_runs_this_precondition_even_with_e
             SqlAlchemyCapitalPoolWriter(session),
             session,
             clock,
+            PoolLockAdapter(session),
+            SqlAlchemyLiveExposure(session),
         ).execute(
             OWNER_ID,
             ExchangeCredential(

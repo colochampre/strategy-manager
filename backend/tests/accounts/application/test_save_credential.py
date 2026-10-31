@@ -57,7 +57,9 @@ from strategy_manager.accounts.infrastructure.credential_vault import (
     SqlAlchemyCredentialVault,
 )
 from strategy_manager.accounts.infrastructure.models import CapitalPoolRow, ExchangeCredentialRow
+from strategy_manager.execution.infrastructure.live_exposure import SqlAlchemyLiveExposure
 from strategy_manager.shared.infrastructure.crypto import MASTER_KEY_BYTES, EnvelopeCipher
+from strategy_manager.strategies.infrastructure.pool_lock_adapter import PoolLockAdapter
 from tests.accounts.fakes import (
     BINANCE_KEY,
     BINANCE_SECRET,
@@ -69,8 +71,10 @@ from tests.accounts.fakes import (
     READ_ONLY_SNAPSHOT,
     TRADING_SNAPSHOT,
     TRANSFER_SNAPSHOT,
+    FixedRealExposure,
     RecordingCommit,
     RecordingInspector,
+    RecordingPoolLock,
     RecordingPoolWriter,
     RecordingWriter,
     TickingClock,
@@ -101,18 +105,23 @@ class Harness:
         pools: RecordingPoolWriter | None = None,
         events: list[str] | None = None,
         user_id: UUID = OWNER_ID,
+        real: tuple[str, ...] = (),
     ) -> None:
         self.user_id = user_id
         self.inspector = inspector
         self.writer = writer or RecordingWriter(events=events)
         self.pools = pools or RecordingPoolWriter(events=events)
         self.commit = RecordingCommit(events)
+        self.lock = RecordingPoolLock(events)
+        self.exposure = FixedRealExposure(real, events)
         self.use_case = SaveCredential(
             registry_for(inspector),
             as_writer(self.writer),
             as_pools(self.pools),
             self.commit,
             clock or TickingClock(),
+            self.lock,
+            self.exposure,
         )
 
     async def save(
@@ -159,6 +168,81 @@ async def test_venue_unreachable_reported_distinctly_502() -> None:
     assert h.inspector.calls == ["bybit"]
     assert h.writer.stored == []
     assert h.commit.commits == 0
+
+
+# --------------------------------------------------------------------------
+# A key that cannot trade, over something real (tasks.md A6, E2.4)
+# --------------------------------------------------------------------------
+
+
+async def test_a_key_that_cannot_trade_is_refused_while_the_user_holds_something_real() -> None:
+    """It would supersede the key that closes that position, and the worker refuses
+    to start on a real open allocation with no key that can trade, for everyone."""
+    events: list[str] = []
+    h = Harness(
+        RecordingInspector(READ_ONLY_SNAPSHOT), events=events, real=("BTCUSDT", "STXUSDT")
+    )
+
+    result = _refused(await h.save(bybit_credential()))
+
+    assert result.outcome is SaveOutcome.EXCHANGE_HOLDS_REAL_EXPOSURE
+    assert "BTCUSDT" in result.detail
+    assert "STXUSDT" in result.detail
+    assert events == ["lock", "exposure"]
+    assert h.exposure.asked == [(OWNER_ID, "bybit")]
+    assert h.writer.stored == []
+    assert h.pools.enabled == []
+    assert h.commit.commits == 0
+
+
+async def test_the_lock_is_the_users_pool_on_that_exchange() -> None:
+    h = Harness(RecordingInspector(READ_ONLY_SNAPSHOT))
+
+    _saved(await h.save(bybit_credential()))
+
+    assert h.lock.acquired == [(OWNER_ID, "bybit", "usdt-m", "USDT")]
+
+
+async def test_a_key_that_cannot_trade_over_nothing_real_saves_inside_the_lock() -> None:
+    events: list[str] = []
+    h = Harness(RecordingInspector(READ_ONLY_SNAPSHOT), events=events)
+
+    saved = _saved(await h.save(bybit_credential()))
+
+    assert events == ["lock", "exposure", "store", "enable", "commit"]
+    assert saved.warnings == ("READ_ONLY_KEY",)
+
+
+async def test_a_key_that_can_trade_never_asks_whatever_is_held() -> None:
+    h = Harness(RecordingInspector(TRADING_SNAPSHOT), real=("BTCUSDT",))
+
+    _saved(await h.save(bybit_credential()))
+
+    assert h.lock.acquired == []
+    assert h.exposure.asked == []
+
+
+async def test_the_venue_is_asked_before_the_lock_is_taken() -> None:
+    """A lock is never held across exchange latency."""
+    h = Harness(RecordingInspector(error=VenueUnreachable("bybit could not be read (HTTP 503)")))
+
+    _refused(await h.save(bybit_credential()))
+
+    assert h.lock.acquired == []
+
+
+async def test_a_refusal_over_something_real_logs_one_warning(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    h = Harness(RecordingInspector(READ_ONLY_SNAPSHOT), real=("BTCUSDT",))
+
+    with caplog.at_level(logging.DEBUG, logger=LOGGER):
+        await h.save(bybit_credential())
+
+    [record] = caplog.records
+    assert record.levelno == logging.WARNING
+    assert "bybit" in record.getMessage()
+    assert "EXCHANGE_HOLDS_REAL_EXPOSURE" in record.getMessage()
 
 
 # --------------------------------------------------------------------------
@@ -445,6 +529,8 @@ def _real_use_case(
         SqlAlchemyCapitalPoolWriter(session),
         session,
         clock,
+        PoolLockAdapter(session),
+        SqlAlchemyLiveExposure(session),
     )
 
 
@@ -888,6 +974,8 @@ async def test_first_key_saved_for_exchange_enables_its_pool_same_transaction(
             SqlAlchemyCapitalPoolWriter(session),
             observing,
             clock,
+            PoolLockAdapter(session),
+            SqlAlchemyLiveExposure(session),
         )
         _saved(await use_case.execute(OWNER_ID, binance_credential(), BOTH))
 
@@ -1039,6 +1127,8 @@ async def test_a_pool_write_that_fails_leaves_no_credential_committed(
             _FailingPools(),
             session,
             clock,
+            PoolLockAdapter(session),
+            SqlAlchemyLiveExposure(session),
         )
         with pytest.raises(RuntimeError, match="pool write failed"):
             await use_case.execute(OWNER_ID, bybit_credential(), NEITHER)
