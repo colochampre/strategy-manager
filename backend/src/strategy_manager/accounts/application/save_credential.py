@@ -172,7 +172,7 @@ class SaveCredential:
                     exchange,
                     SaveOutcome.EXCHANGE_HOLDS_REAL_EXPOSURE,
                     f"this key cannot trade and {exchange} holds real exposure on "
-                    f"{sorted(held)}; the key that closes it stays",
+                    f"{sorted(held)}; it could not close them",
                 )
 
         facts = self._stamp(verdict)

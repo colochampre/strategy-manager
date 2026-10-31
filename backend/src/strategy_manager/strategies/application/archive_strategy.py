@@ -251,8 +251,8 @@ class ArchiveStrategy:
 def _holder_names(holders: list[UUID], author_id: UUID) -> list[str]:
     """Who still holds exposure, for the refusal and its log: the author as
     ``author``, anyone else by the first eight characters of their id and never by
-    e-mail. An empty list means exposure no live subscriber holds (an in-flight
-    attempt, or a subscription that has ended)."""
+    e-mail. An empty list means exposure no live subscriber holds: it belongs to a
+    subscription that has ended."""
     return [
         "author" if holder == author_id else f"user {str(holder)[:8]}"
         for holder in sorted(holders, key=str)

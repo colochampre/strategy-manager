@@ -21,7 +21,11 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from strategy_manager.ledger.application.read_symbol_holdings import ReadSymbolHoldings
 from strategy_manager.ledger.infrastructure.repository import SqlAlchemyLedgerRepository
 from strategy_manager.shared.infrastructure.clock import SystemClock
+from strategy_manager.strategies.application.ports import SubscriberPool
 from strategy_manager.strategies.infrastructure.pool_lock_adapter import PoolLockAdapter
+from strategy_manager.strategies.infrastructure.subscribers_adapter import (
+    StrategySubscribersAdapter,
+)
 from strategy_manager.subscriptions.application.end_leaving import (
     EndFlatLeaving,
     EndLeavingSubscription,
@@ -343,6 +347,55 @@ async def test_exposure_is_read_in_the_order_it_moves(
         adapter = OpenAllocationAdapter(session, ledger, ReadSymbolHoldings(ledger))
 
         assert await adapter.holds_open_allocation(user_id, strategy_id, MARKET)
+
+
+async def test_the_order_in_flight_is_read_before_the_ledger(
+    pg_session_factory: Factory,  # noqa: F811
+) -> None:
+    """The case the reservation does not answer first: the sweeper already expired it.
+    Reading the ledger before the attempt, a settle committing in between leaves the
+    fill unseen and the attempt gone, on the very path this read exists for."""
+    user_id, strategy_id, _ = await _subscriber(pg_session_factory)
+    reservation_id = await _reservation(
+        pg_session_factory, user_id, strategy_id, status="EXPIRED"
+    )
+    attempt_id = uuid4()
+    await seed_execution_attempt(
+        pg_session_factory, attempt_id=attempt_id, reservation_id=reservation_id, symbol="STXUSDT"
+    )
+
+    async with pg_session_factory() as session:
+        ledger = _SettlesAfterTheLedgerRead(session, pg_session_factory, attempt_id)
+        adapter = OpenAllocationAdapter(session, ledger, ReadSymbolHoldings(ledger))
+
+        assert await adapter.holds_open_allocation(user_id, strategy_id, MARKET)
+
+
+async def test_an_archive_names_the_holder_of_an_order_in_flight(
+    pg_session_factory: Factory,  # noqa: F811
+) -> None:
+    """The archive's refusal asks the same question, so it now says who holds this
+    order. It used to refuse with nobody named: the exposure read saw the attempt."""
+    user_id, strategy_id, subscription_id = await _subscriber(
+        pg_session_factory, status="ACTIVE"
+    )
+    reservation_id = await _reservation(
+        pg_session_factory, user_id, strategy_id, status="EXPIRED"
+    )
+    await seed_execution_attempt(
+        pg_session_factory, attempt_id=uuid4(), reservation_id=reservation_id, symbol="STXUSDT"
+    )
+    pool_id = (await seeds.row_of(pg_session_factory, subscription_id)).pool_id
+
+    async with pg_session_factory() as session:
+        ledger = SqlAlchemyLedgerRepository(session)
+        adapter = StrategySubscribersAdapter(session, ledger, ReadSymbolHoldings(ledger))
+
+        held = await adapter.holders(
+            strategy_id, [SubscriberPool(pool_id=pool_id, user_id=user_id, pool=MARKET)]
+        )
+
+    assert held == [user_id]
 
 
 async def test_the_listing_names_the_strategys_market(

@@ -328,7 +328,8 @@ class StrategySubscribersPort(Protocol):
     ) -> list[UUID]:
         """The subscribers (a subset of ``subscribers``, by user) that still hold
         an open allocation of the strategy: a position the ledger holds under any
-        spelling of its symbol, or a reservation still holding capital."""
+        spelling of its symbol, a reservation still holding capital, or an opening
+        order still in flight."""
         ...
 
     async def end_all(self, strategy_id: UUID, now: datetime) -> int:

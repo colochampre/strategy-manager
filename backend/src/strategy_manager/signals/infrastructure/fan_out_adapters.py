@@ -105,11 +105,16 @@ class SqlAlchemySubscribers:
         ]
 
     async def _holds(self, user_id: UUID, strategy_id: UUID, symbol: str, pool: PoolKey) -> bool:
-        """This user's open allocation of the strategy on THIS symbol, the question
-        ``OpenAllocationAdapter`` asks for every symbol: the ledger's allocations
-        (per allocation, never netted across them, under every spelling of the
-        symbol), and a reservation of the user still holding capital. A reservation
-        carries no symbol, so it is matched through the signal that opened it."""
+        """This user's open allocation of the strategy on THIS symbol: the ledger's
+        allocations (per allocation, never netted across them, under every spelling
+        of the symbol), and a reservation of the user still holding capital. A
+        reservation carries no symbol, so it is matched through the signal that
+        opened it.
+
+        ``OpenAllocationAdapter`` asks one more thing, an opening order in flight under
+        an expired reservation. This does not, and a close arriving then reaches
+        nobody: delivering it would not help, since there is no fill yet to close
+        (tasks.md, PR E2's advisories)."""
         held = await self._holdings.symbol_holdings(user_id, pool, symbol)
         if any(allocation.strategy_id == strategy_id for allocation in held):
             return True

@@ -86,7 +86,8 @@ class OpenAllocationPort(Protocol):
         self, user_id: UUID, strategy_id: UUID, market: Market
     ) -> bool:
         """Whether this user still has exposure from this strategy on the market:
-        a position the ledger holds, or a reservation still holding capital."""
+        a position the ledger holds, a reservation still holding capital, or an
+        opening order still in flight."""
         ...
 
 
