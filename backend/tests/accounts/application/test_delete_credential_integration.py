@@ -87,6 +87,7 @@ from tests.accounts.pool_seed import (
     set_strategy_enabled,
 )
 from tests.allocation.fakes import (
+    ActiveSubscription,
     AlwaysEnabledPool,
     AnyKeyTrades,
     FixedUserMode,
@@ -678,6 +679,7 @@ def _allocator(session: AsyncSession, policy: Any, commit: Any) -> AllocateCapit
         pool_status=AlwaysEnabledPool(),
         user_mode=FixedUserMode(),
         trade_capability=AnyKeyTrades(),
+        subscription_state=ActiveSubscription(),
     )
 
 

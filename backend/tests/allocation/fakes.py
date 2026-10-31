@@ -19,6 +19,23 @@ class RecordingSkipRecorder:
         self.calls.append((signal_id, reason, detail))
 
 
+@dataclass
+class ActiveSubscription:
+    """``DeliverySubscriptionPort`` for tests that are not about leaving: the
+    subscription takes openings unless ``active`` says otherwise. ``asked`` records
+    the delivery of each call and ``events`` is shared with the fakes around it, so
+    a test can prove the read came after the lock."""
+
+    active: bool = True
+    asked: list[UUID] = field(default_factory=list)
+    events: list[str] = field(default_factory=list)
+
+    async def is_active(self, delivery_id: UUID) -> bool:
+        self.asked.append(delivery_id)
+        self.events.append("subscription_state")
+        return self.active
+
+
 class AlwaysEnabledPool:
     """``PoolStatusPort`` for tests that are not about the pool flag: the pool
     is never reported disabled, so ``AllocateCapital`` behaves as it did before

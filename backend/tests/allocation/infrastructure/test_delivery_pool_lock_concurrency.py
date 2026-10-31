@@ -38,7 +38,12 @@ from strategy_manager.strategies.application.policy_adapter import StrategyPolic
 from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStrategyRepository
 from tests.accounts.application.test_delete_credential_integration import FixedClock
 from tests.accounts.pool_seed import POOL, seed_signal, seed_strategy
-from tests.allocation.fakes import AnyKeyTrades, FixedUserMode, RecordingSkipRecorder
+from tests.allocation.fakes import (
+    ActiveSubscription,
+    AnyKeyTrades,
+    FixedUserMode,
+    RecordingSkipRecorder,
+)
 from tests.ledger.infrastructure.conftest import (  # noqa: F401
     pg_engine,
     pg_session_factory,
@@ -112,6 +117,7 @@ async def _allocate(
             pool_status=SqlAlchemyPoolStatus(session),
             user_mode=FixedUserMode(),
             trade_capability=AnyKeyTrades(),
+            subscription_state=ActiveSubscription(),
         )
         return await use_case.allocate(command)
 

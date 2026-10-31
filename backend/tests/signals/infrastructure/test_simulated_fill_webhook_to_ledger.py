@@ -224,6 +224,39 @@ def _fee(quantity: Decimal, price: Decimal, rate: Decimal) -> Decimal:
     return (quantity * price * rate).quantize(Decimal("1e-18"))
 
 
+async def test_an_opening_queued_when_its_subscription_ended_opens_nothing(stack: Stack) -> None:
+    """Through the worker's real wiring (tasks.md N1, E2.2): the fan-out delivered,
+    the subscription ended before the delivery ran, and no position appears for a
+    close that would never reach it."""
+    strategy_id = stack.strategies["bybit"]
+    signal_id = await stack.alert(BYBIT_POOL, action="buy", position_size="10", price=OPEN_PRICE)
+    assert await stack.runner.run_once()  # type: ignore[attr-defined]
+    async with stack.factory() as session:
+        await session.execute(
+            text("UPDATE subscriptions SET status = 'ENDED', ended_at = now() "
+                 "WHERE strategy_id = :id"),
+            {"id": strategy_id},
+        )
+        await session.commit()
+
+    await stack.drain()
+
+    assert await _rows(stack.factory, strategy_id) == []
+    async with stack.factory() as session:
+        [delivery] = (
+            await session.execute(
+                select(SignalDeliveryRow).where(SignalDeliveryRow.signal_id == signal_id)
+            )
+        ).scalars()
+        reservations = (
+            await session.execute(
+                select(ReservationRow).where(ReservationRow.signal_id == signal_id)
+            )
+        ).all()
+    assert (delivery.status, delivery.outcome_reason) == ("REJECTED", "SUBSCRIPTION_NOT_ACTIVE")
+    assert reservations == []
+
+
 async def test_the_opening_row_is_priced_at_the_stored_alert_price_exactly(
     stack: Stack,
 ) -> None:

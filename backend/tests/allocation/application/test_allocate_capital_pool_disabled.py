@@ -36,6 +36,7 @@ from tests.allocation.application.test_allocate_capital import (
     _enabled_snapshot,
 )
 from tests.allocation.fakes import (
+    ActiveSubscription,
     AnyKeyTrades,
     FixedUserMode,
     RecordingPoolStatus,
@@ -101,6 +102,7 @@ def _rig(*, disabled: bool) -> _Rig:
         pool_status=pool_status,
         user_mode=FixedUserMode(),
         trade_capability=AnyKeyTrades(),
+        subscription_state=ActiveSubscription(),
     )
     return _Rig(use_case, strategy_id, pool_status, reservations, recorder)
 

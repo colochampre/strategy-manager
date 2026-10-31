@@ -78,6 +78,7 @@ from strategy_manager.strategies.infrastructure.models import StrategyRow
 from strategy_manager.strategies.infrastructure.pool_lock_adapter import PoolLockAdapter
 from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStrategyRepository
 from tests.allocation.fakes import (
+    ActiveSubscription,
     AlwaysEnabledPool,
     AnyKeyTrades,
     FixedUserMode,
@@ -321,6 +322,7 @@ async def test_allocation_wins_lock_first_archive_then_refused_sees_live_reserva
                 pool_status=AlwaysEnabledPool(),
                 user_mode=FixedUserMode(),
                 trade_capability=AnyKeyTrades(),
+                subscription_state=ActiveSubscription(),
             )
             allocate_result["value"] = await use_case.allocate(command)
 
@@ -407,6 +409,7 @@ async def test_archive_wins_lock_first_allocation_in_lock_reread_sees_archived_s
                 pool_status=AlwaysEnabledPool(),
                 user_mode=FixedUserMode(),
                 trade_capability=AnyKeyTrades(),
+                subscription_state=ActiveSubscription(),
             )
             allocate_result["value"] = await use_case.allocate(command)
 
@@ -522,6 +525,7 @@ async def test_archive_takes_pool_lock_before_row_lock_no_deadlock_with_inflight
                 pool_status=AlwaysEnabledPool(),
                 user_mode=FixedUserMode(),
                 trade_capability=AnyKeyTrades(),
+                subscription_state=ActiveSubscription(),
             )
             try:
                 allocate_result["value"] = await use_case.allocate(command)

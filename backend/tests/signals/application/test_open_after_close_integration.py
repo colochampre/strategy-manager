@@ -100,6 +100,7 @@ from strategy_manager.subscriptions.infrastructure.repository import (
     SqlAlchemySubscriptionRepository,
 )
 from tests.allocation.fakes import (
+    ActiveSubscription,
     AlwaysEnabledPool,
     AnyKeyTrades,
     FixedUserMode,
@@ -513,6 +514,7 @@ async def test_the_open_waits_for_the_close_to_settle_then_grants_the_freed_bala
             pool_status=AlwaysEnabledPool(),
             user_mode=FixedUserMode(),
             trade_capability=AnyKeyTrades(),
+            subscription_state=ActiveSubscription(),
         )
         place_order = PlaceOrder(
             reservations=ReservationGatewayAdapter(reservation_repository),

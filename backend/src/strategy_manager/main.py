@@ -71,6 +71,9 @@ from strategy_manager.allocation.infrastructure.advisory_lock import PgAdvisoryL
 from strategy_manager.allocation.infrastructure.allocation_mode import (
     SqlAlchemyAllocationMode,
 )
+from strategy_manager.allocation.infrastructure.delivery_subscription import (
+    SqlAlchemyDeliverySubscription,
+)
 from strategy_manager.allocation.infrastructure.lock_key_invariant import (
     PoolLockKeyCollisionError,
     assert_pool_lock_keys_distinct,
@@ -551,6 +554,7 @@ def _build_process_delivery(
         pool_status=SqlAlchemyPoolStatus(session),
         user_mode=user_mode,
         trade_capability=trade_capability,
+        subscription_state=SqlAlchemyDeliverySubscription(session),
     )
 
     place_order = PlaceOrder(

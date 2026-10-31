@@ -58,6 +58,7 @@ from strategy_manager.strategies.infrastructure.subscribers_adapter import (
 )
 from strategy_manager.subscriptions.infrastructure.models import SubscriptionRow
 from tests.allocation.fakes import (
+    ActiveSubscription,
     AlwaysEnabledPool,
     AnyKeyTrades,
     FixedUserMode,
@@ -362,6 +363,7 @@ async def test_an_opening_in_a_subscribers_pool_waits_for_archive_and_is_then_re
                 pool_status=AlwaysEnabledPool(),
                 user_mode=FixedUserMode(),
                 trade_capability=AnyKeyTrades(),
+                subscription_state=ActiveSubscription(),
             )
             outcome["value"] = await use_case.allocate(command)
 
