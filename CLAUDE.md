@@ -62,6 +62,13 @@ Each module has `domain/`, `application/`, `infrastructure/`.
 These exist because this system moves real money.
 
 1. **`DRY_RUN` defaults to true.** No test may require a real API credential.
+   It is a brake for everyone, not the mode. The mode belongs to the user, and a
+   reservation records the one it opened in: an opening is real only with the
+   brake off AND the user in `LIVE`, and its order, settle and close follow the
+   reservation, never the brake. So a real position closes for real under the
+   brake, and a key is needed for that: the worker refuses to start on a real
+   open allocation with no trade-capable key on its exchange
+   (`scripts/check_mode_guard.py` runs that guard by hand).
 2. **Every signal carries an idempotency key.** A duplicated webhook without one
    is a doubled position.
 3. **The webhook endpoint never executes trades.** TradingView cancels any
