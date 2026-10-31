@@ -6,12 +6,12 @@ Sequential PRs A-G (`design.md`, "Delivery"), each cut from `main`. Every PR shi
 
 ## Production now
 
-- 2026-10-30: main `d75e5a4`, panel bundle `d75e5a488cc6`, alembic `0033`, certifi `2026.10.23`.
+- 2026-10-30: main `ddf8262`, panel bundle `ddf82629b572`, alembic `0034`, certifi `2026.10.23`.
 - `DRY_RUN=false`.
 - Access admits only the owner. The API verifies the Access assertion itself; `ADMIN_API_TOKEN` is gone from `.env`.
 - `users` holds one row, the owner's, created by their first `/api/me`. Every owned row is that user's, and every strategy's `author_id` is theirs.
 - Every strategy is traded through its author's subscription: 3 `ACTIVE` at 30 % and 3 `ENDED` (archived) at 5 %. Each of the 54 signals has one delivery. `strategies.allocation_percent` is gone (0033).
-- Every strategy is `PRIVATE` and has its own webhook secret hash, today the hash of the old global `WEBHOOK_SECRET`, so the TradingView alerts kept their URL. None has been regenerated. `GET /api/webhook-secret` no longer exists.
+- Every strategy is `PRIVATE` and has its own webhook secret hash, today the hash of the old global `WEBHOOK_SECRET`, so the TradingView alerts kept their URL. None had been regenerated at 0034 (it refuses otherwise), so each holds that secret's last four. `GET /api/webhook-secret` no longer exists.
 - The worker reports one enabled pool and one sealed key, Binance's.
 
 ## Delivery log
@@ -24,6 +24,7 @@ Sequential PRs A-G (`design.md`, "Delivery"), each cut from `main`. Every PR shi
 | #87 | Outside this change: certifi 2026.7.22 -> 2026.10.23, which drops the distrusted `emSign ECC Root CA - G3` (eMudhra, Mozilla bug 2083449), and `tests/shared/test_tls_trust.py` to pin it | `7f67fc3` (parents `5632e76`, `39ea058`) | 2026-10-27. Pull as `strategy`; `uv sync --locked` swapped only certifi; both services restarted, both active. The venv's httpx context read `2026.10.23 113 False` (version, distinct root names, G3 present). No WARNING or ERROR in 15 minutes of both journals. No panel step. |
 | #88 | PR C: subscriptions and fan-out, one delivery per eligible subscription, migrations 0031 and 0032 | `214db9b` (parents `7f67fc3`, `b2f1999`) | 2026-10-29, see "PR C's delivery" |
 | #89 | PR D: a webhook secret per strategy (stored as a hash, shown once), authoring for any user scoped to them, private strategies, migration 0033 | `d75e5a4` (parents `214db9b`, `541bd16`) | 2026-10-30, see "PR D's delivery" |
+| #90 | PR D2: the webhook secret masked with its last four characters, the visibility beside the settings heading, migration 0034 | `ddf8262` (parents `d75e5a4`, `e8e636c`) | 2026-10-30, see "PR D2's delivery" |
 
 ## PR A: identity from Cloudflare Access
 
@@ -1094,9 +1095,168 @@ The strategy page shows the webhook URL with the secret masked by its last four 
     3. The mask draws the four without percent-encoding, while the shown-once URL encodes the secret. Cosmetic, and only for a setting with characters that are not URL-safe.
     4. A refetch that fails after every retry following a regenerate swaps the page to its error branch and loses the shown-once secret. A failed background refetch did the same at baseline.
     5. Stale wording: this task line (fixed), some `WebhookMessage` test names still say "placeholder", an odd wrap in `regenerate_webhook_secret.py`'s docstring; `_view` and `list_strategies` index `last4s[id]`, so a delete racing the read answers 500 rather than 404.
-- [ ] H.3 Rehearsal and deploy (owner-run): a fresh backup, 0034 rehearsed on a throwaway restore with a downgrade to 0033 and a second upgrade; then pull, migrate with the services up, restart both, pps.6. Every query a script runs is exercised locally first (PR D's lesson).
-- [ ] H.D Gate, independent verifier, then push and PR on the owner's word, merge, deploy, delivery log.
+- [x] H.3 Rehearsal and deploy (owner-run): a fresh backup, 0034 rehearsed on a throwaway restore with a downgrade to 0033 and a second upgrade; then pull, migrate with the services up, restart both, pps.6. Every query a script runs is exercised locally first (PR D's lesson).
+- [x] H.D Gate, independent verifier, then push and PR on the owner's word, merge, deploy, delivery log.
 
-## PR E-G
+### PR D2's delivery
 
-Planned in `design.md`, "Delivery". Their tasks are written when the previous PR is merged, so each starts from what production actually is. PR E's mode columns take migration 0035, because PR D2's 0034 holds the secret's last four and PR D's 0033 holds the secret hash, the visibility and the drop of `strategies.allocation_percent`. The signals' `status`, `outcome_reason`, `outcome_detail` and `decided_at` stay, because they hold the strategy-level refusals (C.7). Advisory N1 (Leave with a queued opening) must be closed before PR F.
+**Before the handover (2026-10-30).** `rehearse_0034.sh` and `deploy_0034.sh` ran whole against the local PostgreSQL, with the service commands stubbed in the deploy's local mode, on a copy of the dev database brought to 0033 with a throwaway secret: both exit 0. With one strategy given a hash of its own, both stopped with exit 1 and the copy stayed at 0033. Both scripts check for such a strategy before the backup or the migration, so a refusal changes nothing.
+
+**PR D2's deploy, 2026-10-30** (owner-run):
+1. Pull as `strategy` to `ddf8262`; `rehearse_0034.sh`; `deploy_0034.sh`, which migrates with both services up and restarts both. The owner reported the steps done and pasted only the panel block's output, so these outputs are not recorded. What confirms them: the panel shows `***` and four characters, which only the restarted code at 0034 can serve.
+2. pps.6: built by the assistant from a detached worktree of `origin/main` at `ddf82629b572`, `npm ci` 0, build 0, 22 entries, SHA-256 `253e482844d0a546136b5e64013a98194d2d206c2ff4c5d7f280c5c6837f14c9`; the owner's block printed `/root/panel-ddf82629b572.tgz: OK`, `readable`, `bundle:   ddf82629b572` and `checkout: ddf82629b572`.
+3. The panel, read by the owner: "El panel muestra correctamente la URL enmascarada y la visibilidad al lado del titulo con su icono". This also closes PR D's open point about the visibility on the strategy page.
+
+**The first real signal after PR C (read by the owner, 2026-10-30):** `SFPUSDT.P` buy received 2026-10-30 12:00:03 UTC: one ACTIVE subscription, one delivery `PROCESSED`, one reservation `FILLED` at 322.89, one attempt `FILLED`, 12 fills. The signal's own `status` reads `ACCEPTED`, as designed since C.7: after a fan-out that delivered, the outcome lives on the delivery. This closes PR C's check for an opening.
+
+**Still open:** that signal predates PR D's deploy (the owner reported it at about 14:48 UTC), so it authenticated with the old global secret. The first signal after that deploy must authenticate through the strategy's hash with the alert's unchanged URL and make exactly one delivery. The close of this SFP position is the likely first one, and it also proves a close's delivery. A wrong secret answers a 401 and logs nothing, so a close that TradingView fired and the panel never shows must be raised at once: the position would stay open.
+
+## PR E: the mode belongs to the user (AD7, decisions 6, 7, 13, 14, 26)
+
+Written 2026-10-30, after PR D2's deploy, from a read-only map of today's code. Branch `feat/multi-user-mode`, cut from `main` `ddf8262`.
+
+The rule: a delivery opens LIVE only if `.env` `DRY_RUN` is false and the user's `mode` is `LIVE`; otherwise it opens in simulation, against the user's real balance. The mode is recorded on the reservation at open, and everything after that (the order, its settle, the close) follows the reservation, never the brake or the user's current mode. Production must trade exactly as before: the owner is `LIVE` and `DRY_RUN=false`.
+
+**What the map found, which the design did not say:**
+- No column records a mode today. "Rehearsal" is only the `fake-fill-` and `fake-order-` prefixes.
+- `exchange_for(session, user_id)` is entered before a job reads its reservation, so a job cannot yet pick an adapter by the recorded mode. A REVERSE can need two modes in one job: the close's and the reopening's.
+- A close never reads its reservation row; a recorded mode needs its own read there.
+- `FakeVenueBook` is one process-wide book keyed `(exchange, market)` and seeded from every ledger row, and the fakes exist only under `DRY_RUN=true`. `tradable_pools` is computed once, from either the fakes or the live classes.
+- `balance.sync`, the on-demand balance refresh and the vault self-test already use the real key whatever the mode. Nothing there changes.
+- A scan compares the ledger with the venue, and the ledger holds `fake-fill-` rows, so scanning a user with simulated positions would report the rehearsal itself as a discrepancy.
+
+**Defaults, stated rather than asked:**
+- `users.mode` is `LIVE | SIMULATION`, `NOT NULL`, default `SIMULATION` (decision 6). 0035 sets existing users to `LIVE` when `DRY_RUN=false` at migration, else `SIMULATION`, read from the setting as 0033 read the secret.
+- `reservations.mode` is `NOT NULL` with **no default**: a writer that forgets it fails loudly instead of recording a wrong mode. Backfill, per reservation: any `fake-` fill or order and no real one is `SIMULATION`; any real fill or order is `LIVE`; no evidence (no order ever reached a venue) takes the mode the users get. 0035 refuses, writing nothing, when an **open** allocation holds both real and fake fills; a closed one is `LIVE`, since real money moved.
+- Under the brake the server refuses any mode change (409 `MODE_BRAKE_ON`), as the badge cannot be clicked.
+- `/api/me` gains `mode` and replaces `dry_run` with `dry_run_brake`; the panel is its only reader. `/health` stays as it is, for monitoring. The keyed exchanges AD11 lists on `/api/me` wait for PR F, which is what reads them.
+- Under the brake reconciliation stays skipped as it is today. With the brake off it skips users in simulation with nothing real open, and it compares only real fills with the venue.
+- The startup guard keeps checking mismatches, now between a reservation's recorded mode and its fills, and it gains AD7's refusal: a real open allocation whose user has no active trade-capable key.
+- 0035 needs both services **stopped**: running code inserts reservations without `mode`.
+
+**Risk:** item 1 (0035 backfills what decides a real close); item 3 (`/api/me`'s shape); item 4 (the race between a flip and an opening). It gets an independent verifier before the PR.
+
+- [x] E.1 The columns (backend).
+  - `Mode` in the domain, and a pure `effective_mode(brake, user_mode)`: `LIVE` only for brake off and `LIVE`.
+  - 0035 with tests on real PostgreSQL through `migrated_database(name, "0034")`: each backfill case, the refusal, the CHECKs, a new user's default, a reservation without a mode refused, downgrade and a second upgrade. The test seeds both `DRY_RUN` values.
+  - The nine test files that insert reservations by hand gain the column.
+- **Evidence for E.1 and E.4's allocation half (2026-10-30, the parent for 0035 and `Mode`, one Sonnet writer for the rest, the parent for the pools panel):**
+  - `Mode` and `effective_mode` in `shared/domain/mode.py`, since allocation, execution and identity all read them. RED on an assertion first (`LIVE is SIMULATION`, the stub ignored the brake).
+  - 0035 cannot fail on an assertion before the revision exists, so by mutations seen red and restored: real evidence loses to simulated; closing orders, orders, or fake orders not read as evidence; no refusal; the refusal ignoring the net; users not backfilled; the brake ignored; users defaulting to `LIVE`; the column left nullable; each CHECK gone; the downgrade not refusing. A fourteenth mutation meant for "no evidence is always `LIVE`" produced invalid SQL, so it proved nothing; "the brake ignored" covers that rule.
+  - `Reservation.mode` is required with no default and `User.mode` required; `UserModePort`, with `SqlAlchemyUserMode(session, brake=...)` reading `FOR SHARE`, is called right after the pool advisory lock; `sum_active` takes the mode (decision 26).
+  - The writer did not work test-first: adding required fields breaks every fixture with constructor errors. Its tests are proven by mutations seen red and restored: the mode hard-coded in `AllocateCapital`; the read moved before `acquire`; `sum_active` without the mode filter (`PARTIAL is FULL`, `130 == 100`); the brake ignored; `FOR SHARE` removed. That last one fails on the recorded mode, not on `not task.done()`: without `FOR SHARE` the opening still blocks on the foreign key's `FOR KEY SHARE` at the insert, having read the old mode. So the recorded mode is what pins it.
+  - Found on the way: `GET /api/pools` calls `sum_active`. It now takes the user's effective mode, so the panel shows what the next opening would get (decision 26). RED on an assertion first (`300 == 7`, with the mode fixed to `LIVE`).
+  - `test_0029_users.py` asserts the head schema's `users` columns, so it gains `mode`.
+  - Gate: ruff 0, mypy 0, full pytest with that one test failing and nothing else (a first run was stopped by the machine's low memory); the test fixed and its file rerun.
+- [x] E.2 The user's mode (`POST /api/me/mode`).
+  - `GET /api/me` answers `mode` and `dry_run_brake`.
+  - `POST /api/me/mode` takes the user row `FOR UPDATE`. To `LIVE`: 409 `MODE_LIVE_NEEDS_TRADE_KEY` without an active trade-capable key on some exchange. To `SIMULATION`: 409 `MODE_SIMULATION_NEEDS_FLAT` and the list by symbol, while the user holds a live reservation, a live open allocation or a SUBMITTED live attempt. Either way 409 `MODE_BRAKE_ON` under the brake. Each user changes only their own.
+  - Moving to `LIVE` with simulated positions open succeeds (decision 26).
+- **Evidence for E.2 (2026-10-30, the parent, inline):**
+  - `ChangeMode` in `identity/application/`; `SqlAlchemyLiveExposure` in `execution/infrastructure/`; `holds_trade_capable_key` on the vault adapter. RED on assertions first (`404 == 409`, the old `/api/me` body), against a stub reader so the test module could import.
+  - `/api/me` answers the stored mode, not the effective one: the panel says "forced by the brake" from the two values together.
+  - `expires_at` is not read: a reservation the sweeper has not reached may still have a worker placing its order. A SUBMITTED attempt counts with or without an order id.
+  - The reads run reservation, attempt, ledger, in the order exposure moves. Settling commits fills and terminal status together (TXN-B2), so whatever left one read has reached the next. The opposite order could read a user with a real position as flat; a test pins the order.
+  - The lock test holds `FOR SHARE` with a reservation uncommitted, sees `not task.done()`, commits, and the change answers 409 naming the symbol.
+  - Fourteen mutations seen red and restored: no row lock; ledger read first; the reservation's mode ignored, its user, or SUBMITTED; the attempt's mode ignored, its user, or a closing attempt missed; rehearsal fills counted; no market key; the key's user, activity, or trade capability ignored; the brake ignored. The attempt's user survived the first run, so the test that another user's exposure refuses nobody gained a SUBMITTED attempt.
+  - Gate: ruff 0, mypy 0, full pytest with one test failing and nothing else: the secret sweep asks every new write route for a real body. It gained one and its file was rerun.
+  - `frontend/src/shared/api/me.ts` still reads `dry_run` until E.7, so the panel on this branch is not deployable before then.
+- [x] E.3 Adapters by mode (no behaviour change for a `LIVE` owner).
+  - `exchange_for(session, user_id, mode)`: `LIVE` loads that user's vault key, `SIMULATION` returns that user's fake. The fakes exist whatever the brake. `LIVE` can never return a fake, nor `SIMULATION` a live adapter; a test pins each.
+  - `FakeVenueBook` keyed by user, seeded only from `fake-fill-` rows. Two users in simulation on one symbol keep separate nets.
+  - `tradable_pools` per mode; `venue_net_position_reader_for` takes the mode.
+- **Evidence for E.3 (2026-10-30, the parent, inline):**
+  - `ExchangesByMode` is the one place a mode becomes adapters; `SimulatedVenues` keeps one book and one set of fakes per user for the life of the process, because a fake holds its placed orders in memory and place and settle are separate jobs. `LIVE` handed a fake, or `SIMULATION` handed a live adapter, raises `InvariantViolation`; each direction has its own test.
+  - A `LIVE` owner runs as before by construction: until E.4 and E.5 every job takes `job_mode`, which is `LIVE` with the brake off, and `tradable_by_mode[LIVE]` is the old set. Under the brake each user now has their own book, seeded from `fake-fill-` rows only. `net_positions_by_symbol` gained `rehearsal_only`; `distinct_users_for_pool` lost its last reader and went.
+  - The fakes are built at startup whatever the brake, so the unrated warning and `log_simulated_exchange_startup` now run with the brake off too, with wording that still says "dry run". E.6 changes that wording.
+  - `DryRunTradeCapability` did not go here: its replacement reads the mode in the pre-check, which is E.4's. The bullet moved there.
+  - RED on assertions first, with two exceptions proven by mutation instead. `test_two_users_never_share_a_fake` passed at once against the stub, so "every user shares one set" proves it. The ledger test failed first on a `TypeError` for the new keyword, not on an assertion, so "the filter is dropped" and "a substring test instead of a prefix" prove it.
+  - Ten mutations seen red and restored: a user's venues not kept; every user sharing one set; a book seeded from the first user's ledger; the wrong adapter not refused, in both directions and in each one alone; the modes swapped; an unknown owner getting a fake; the rehearsal filter dropped; a substring test instead of a prefix. The seeding mutation survived the first run, since the test only asked the first user; it now asks both.
+  - Gate: ruff 0, mypy 0, full pytest with one test failing and nothing else (a first run was stopped by the machine's low memory): `test_booking_prepare_wiring.py` cuts `main.py`'s source at `async def exchange_for`, which is now `live_adapters_for`. The marker changed and its file was rerun.
+- [x] E.4 An opening records its mode.
+  - Done with E.1: `AllocateCapital` takes the user row `FOR SHARE` after the pool advisory lock and before the reservation write, computes the effective mode, and writes it on the reservation.
+  - Done with E.1: `sum_active` counts only that mode (decision 26).
+  - `DryRunTradeCapability` goes (moved from E.3): simulation needs no trade-capable key, LIVE does, for that exchange.
+  - LIVE with no trade-capable key on that exchange refuses in the lock too, with the existing reason: a flip can land after the pre-checks. If the mode decided in the lock differs from the one the pre-checks used, nothing is reserved and the delivery runs again.
+  - `PlaceOrder` picks its adapter from the reservation.
+  - Lock-hold harness on real PostgreSQL: a flip to simulation waits for an opening in flight (`not task.done()`); an opening that starts after the flip runs in simulation; a real reservation never appears after the flat check passed.
+- **Evidence for E.4 (2026-10-30, the parent, inline):**
+  - Built in two steps so tests could fail on assertions rather than on constructors: first the plumbing with no behaviour (`AllocateCommand.pre_checked_mode`, `CurrentModePort`, `ModeExchangesPort`, `ReservationSnapshot.mode`, `for_job`), then the tests in red, then the logic.
+  - One read per pass: `handle` and `open_now` each read the mode once, plainly, before any lock, and that read is what `pre_checked_mode` carries. A `FOR SHARE` there would invert the lock order. `AllocateCapital` compares its own in-lock read with it and raises `ModeChangedError`: nothing is reserved, no outcome is recorded, the rollback releases the lock and `WorkerRunner` runs the job again. It subclasses `DomainError`, and the only `except DomainError` in `src` wraps the balance read, which runs after this check.
+  - `DryRunTradeCapability` is gone: `TradeCapability` moved to `shared/domain` with `key_refusal`, so the pre-check and the lock give the same code and text. The key is asked about only `if mode is Mode.LIVE`, before the lock and again inside it.
+  - `open_now` gained the tradable check it never had, for the mode of that moment, and its refusal says the close executed. `tradable_pools` is now a map by mode in `ProcessDelivery`.
+  - `PlaceOrder` asks `for_mode(reservation.mode)` after the expiry check. `ExchangesByMode.for_job` opens each mode the first time it is asked, once, and closes it with the job, so a simulated job decrypts nothing. `exchanges` stays only for `ClosePosition`, until E.5.
+  - RED on assertions first, for every behaviour above. Two tests pass against the old code by nature and rest on mutations: the flip waiting for an opening in flight, and an opening after the flip.
+  - Nineteen mutations seen red and restored: the mismatch check gone, or in one direction only; the key asked in simulation; the in-lock key refusal gone, or not recorded; the pre-check taking a row lock; the lock read taking none; the brake ignored; tradable always `LIVE` in `handle`, in `open_now` and in the refusal's text; the close note lost in `open_now` and in `_reject`; `pre_checked_mode` always `LIVE`; the pre-check asking the key in simulation; `PlaceOrder` always `LIVE`; every mode of a job opening `LIVE`; no reuse of a mode; the snapshot's mode as text. No survivors.
+  - Gate: ruff 0, mypy 0, full pytest 0, after the last source change. Frontend not run, nothing there changed.
+- [x] E.5 Everything after an opening follows the reservation.
+  - `ClosePosition` reads the mode of the reservation it closes; `settle` learns it from the attempt's reservation before building its adapter; `CloseOrphans` per allocation. A job builds an adapter only once it knows the mode.
+  - A REVERSE whose close and reopening differ in mode uses each one's adapter. Under the brake, a real allocation closes for real (decision 14), and a simulated position closes in simulation after the user went live (decision 26).
+  - The tradable check for a close goes by the allocation's mode, not the user's: since E.4 `handle` asks the user's current mode for every signal, so a live user closing a simulated position on a simulation-only pool would be refused.
+  - `exchanges` leaves `_build_process_delivery`. `job_mode` stays in `main.py` for the startup warning about unserved pools only, until E.6.
+  - Added to this unit: the Existing-Position Guard compares a holding with the venue of its own mode. Comparing with one side would raise a false GHOST, an ERROR alert and a refusal, for a user who went live holding a simulated position, and the reverse under the brake.
+- **Evidence for E.5 (2026-10-30, the parent, inline):**
+  - One read, `AllocationModePort.mode_of(user_id, allocation_id)`, a plain read of the reservation scoped to its user; an allocation it cannot find raises instead of defaulting to a side. `ClosePosition`, `SettleExecution`, `HoldingGuard` and `handle` all use it.
+  - `settle` asks after the not-SUBMITTED return, and a close with nothing recorded builds nothing. Asking the wrong side would answer "not found", and that releases a position that exists.
+  - `HoldingGuard` splits the pool's holdings by allocation mode. Each mode has its own strategy net, pool net and venue read, so a long in one mode and a short in the other do not cancel out. A refusal in one mode closes nothing in the other. A flat market asks no mode.
+  - `handle` goes by the allocation only when a close half exists with a reservation to read. An OPEN delivery goes by the user whatever the subscription's latest reservation ran in, and a close with nothing to close goes by the user and on to its own refusal.
+  - `CloseOrphans` needed no change: it closes each allocation through `ClosePosition`.
+  - `venue_readers_by_mode` hands the guard both registries. A real reader decrypts only if its pool is read, so a job on a simulated holding opens no key.
+  - RED on assertions for every unit test. `test_a_reverse_closes_on_the_side_it_opened_on_and_reopens_on_the_users_side` runs both directions through the real `_build_process_delivery`, with the position opened by the flow and the user's side moved under it (going live, decision 26; the brake pulled, decision 14). It passed at once and rests on mutations.
+  - Two existing tests were simulated positions seeded `LIVE`, which correctly went to a live side with no key; they now seed `SIMULATION`. The stubs in `test_main_job_owner_keys.py` never asked for a mode, so they now ask, and a job that asks for none signs nothing.
+  - Eighteen mutations seen red and restored: the close and the settle always `LIVE` or always `SIMULATION`, in unit and through the flow; the settle asking before its status check; the guard on one venue, either way; holdings not split by mode; a refusal not winning; a mode asked for a flat market; the strategy net across modes; a close going by the user; an open going by the allocation; `mode_of` without its user filter, and taking a row lock; the readers swapped; the delivery job handing one side for both. "An open goes by the allocation" survived the first run, and `test_an_opening_goes_by_the_users_mode_whatever_its_last_allocation_ran_in` was added for it. No survivors.
+  - Gate: ruff 0, mypy 0, full pytest 0, after the last change. Frontend not run, nothing there changed.
+- [x] E.6 Reconciliation and the startup guard.
+  - The scan and booking skip a simulated user with nothing real open, and compare only real fills with the venue, so a live user's leftover simulated position is no discrepancy. `/reconciliation/confirmed`'s `dry_run` reads true for such a user.
+  - The startup guard as stated above, naming users by id and how many allocations each holds, and no longer refusing `DRY_RUN=true` with real allocations open.
+  - The worker's log and alert wording stop saying one mode for the whole process.
+- **Evidence for E.6 (2026-10-30, the parent, inline):**
+  - The guard judges each open allocation and in-flight attempt against the mode its reservation recorded, so the brake has no say. MIXED offends whatever was recorded. `find_unclosable` refuses a real open allocation whose user has no active trade-capable key on its exchange, in any pool, enabled or not, and names the user by full id with the count per exchange. `assert_dry_run_matches_ledger` is now `assert_modes_match_ledger`.
+  - `net_positions_by_symbol` takes a required `mode`: `SIMULATION` is the rehearsal prefix, `LIVE` its negation. There is no whole-pool read left. `ReadSymbolPositions` reads `LIVE`, so an allocation holding both counts its real fills only, and a discrepancy's allocation ids come from real fills too, which keeps simulated allocations out of booking.
+  - `SqlAlchemyReconciledUsers` decides who is compared with the venue: mode `LIVE`, or `SqlAlchemyLiveExposure` not empty, or a discrepancy still open. **The third condition is the parent's decision, not in this task's text:** a venue position the ledger reads as flat is something real the exposure read cannot see, and only another scan can clear it, so scanning stops once it is clean rather than the moment the mode changes.
+  - The filter runs before the key check, so a simulated user makes no warning noise. Both handlers stay under `if not settings.dry_run`. `/reconciliation/confirmed` is still admin-only and whole-system, and its `dry_run` is `settings.dry_run or` the signed-in admin is not reconciled. It takes `current_user` now, so a first visit creates the admin's row and a later one may mark them seen, as on every scoped route.
+  - Wording: `_log_vault_self_test` lost its `dry_run` and speaks for both modes; a live opening is refused now, it no longer reserves and fails. The simulated-exchange lines stop saying "dry run". The unserved warning asks both sides and names each ("The live side (...)"), so a Pionex pool warns twice and a Bybit spot pool once. `job_mode` is gone.
+  - RED on assertions: the guard's domain tests, the real-only read (it summed the simulated fills), the markets filter and its wiring, `/reconciliation/confirmed`'s `dry_run`, the unserved and simulated-exchange wording. The vault wording first failed on a `TypeError` for the removed argument; the signature went first and it was then seen red on `balance.sync`. **Two sets passed at once and rest on mutations:** `test_reconciled_users_integration.py`, whose class was written before its tests, against the strict order, and the reader's `test_each_row_carries_what_its_reservation_recorded`.
+  - Thirty-seven mutations in `mutate_e6.ps1`, all killed and restored: mismatch judged by one fixed side, position and order, each way; mixed not refused; unclosable counting a simulated allocation, or matching the key by user only or exchange only; the guard ignoring either finding; a superseded or read-only key counting; the reader's mode and user constant; the real read inverted, widened or asked for the simulated book, and the simulated book seeded from real fills; reconciled ignoring its mode, exposure or discrepancy, a resolved or foreign discrepancy counting, `among` answering everyone; the filter dropped or asked after the key; either handler ignoring it; confirmed ignoring the brake or the user, or not handing it on; one side of the unserved warning, or the wrong name. Two wiring asserts were added before the run so the handler and wrong-name mutations had something to fail: `pool_set.by_key, active, reconciled, warn=...` in each handler, and both side names in the Pionex test.
+  - Gate: ruff 0, mypy 0, full pytest with one test failing and nothing else: `test_main_pool_reload.py` cuts `main.py`'s source at `tradable_pools`, the line this unit removed. The marker changed to `simulated_venues = SimulatedVenues(` and its file was rerun, green. Frontend not run, nothing there changed.
+  - **Deploy risk for E.8:** the new guard refuses to start the worker on any real open allocation whose user has no active trade-capable key on that exchange. The Pionex key is off and the Bybit key was deleted on 2026-10-21, so an old open real allocation on either, a stranded Pionex position for instance, would stop the worker at deploy. The rehearsal on the restored backup must run this exact check before production restarts.
+- [x] E.7 The panel (EN/ES).
+  - The badge reads `/api/me`: Simulation or Live for this user, clickable, with a confirmation; moving to Live says real orders will be placed. With the brake on it shows that simulation is forced for everyone and cannot be clicked. Each 409 is shown in words, and the flat refusal lists the symbols.
+  - Discrepancies and the nav badge read the per-user value.
+- **Evidence for E.7 (2026-10-30, the parent, inline):**
+  - `DryRunBadge` is now `ModeBadge`, with `ModeDialog` beside it. The brake on shows "Simulation forced" as a plain status with its sentence as a title, whatever the user's own mode; off, "Simulation" in amber or "Live" in the gain colour are buttons. A pending or failed read stays neutral and cannot be clicked, as before.
+  - The dialog keeps `DeleteKeyDialog`'s safeguards: the click that opens it sends nothing, `Cancel` has the focus, and nothing closes it in flight. It stands apart from the badge, so a `MODE_BRAKE_ON` refusal stays on screen after the read it triggered has turned the button into the forced badge. The words are the panel's own, never the server's.
+  - `useChangeMode` reads `me` again and waits for it on every settled attempt but a 401, and invalidates `/reconciliation/confirmed`, whose `dry_run` follows the mode. `useMe` refreshes every minute, the freshness the old badge had from `/health`, so a brake pulled under an open page reaches the badge.
+  - Discrepancies and the nav badge needed no code: they already read `dry_run` from `/reconciliation/confirmed`, which E.6 made per user. Only the page's sentence changed, since "dry run" no longer covers why nothing is compared. The two Settings warnings that said "with dry run off" now say "in live mode".
+  - **A behaviour that moved:** the badge used to show the mode while signed out, because `/health` needs no sign-in. A mode belongs to a user now, so a signed-out page says "Mode unknown". `shared/api/health.ts` had no reader left and went; the `/health` route stays as it is, and `stubApi` still answers it.
+  - The rehearsal labels of positions and trades ("Dry run") are separate keys and were left alone: this task names the badge.
+  - RED on assertions: 22 tests failed against a minimal badge and a stub `changeMode`, never on an import. Twenty-seven mutations in `mutate_e7.ps1`, all killed and restored in the end. Two survived the first run and were rerun alone in `mutate_e7b.ps1` after the fix. "Any status read as a refusal" was a real hole, closed by a test of a 500 naming a refusal. "The click sends" sat in `showModal`, which jsdom lacks, so it proved nothing; moved to a line that runs, it was killed.
+  - Gate: `npm run lint` 0, full `vitest run` 106 files and 2949 tests, both on the final tree. Backend not run: nothing there changed. **Not seen in a browser:** `vite.fixture.config.ts` does not answer `/api/me`, so the badge and the dialog have only been checked by tests. The owner looks at both after the deploy.
+- [ ] E.8 Rehearsal and deploy (owner-run): a fresh backup; 0035 rehearsed on a throwaway restore with a downgrade to 0034 and a second upgrade, checking every reservation's mode against its fills and that the owner is `LIVE`; both services stopped for the migration, away from a 4h candle close; pps.6. Every query a script runs is exercised locally first.
+  - **Prepared, not run (2026-10-30):** `rehearse_0035.sh` and `deploy_0035.sh` in the session scratchpad, driven locally by `rehearse_local_0035.py`, `LOCAL RESULT: ok`. Three scenarios on a copy of the dev database at 0034, seeded with a real open, a simulated open, a closed mixed and an empty reservation: one user with a key passes both, downgrade included; the key gone, the rehearsal stops at 0034 with nothing written and the deploy stops at 0035 with the services stopped; a second user, the rehearsal passes and the downgrade is refused. The guard's first local run refused a seeded closed allocation on a coin-m symbol that `base_currency_of` cannot split: that is the guard's stated rule, and the seed moved to `BTCUSDT`.
+  - `backend/scripts/check_mode_guard.py` runs the worker's own guard, so the check on the restored backup is the check that decides, not a second reading of "open". The rehearsal runs it on the copy before production is touched, and the deploy runs it again after migrating.
+  - The deploy adds two things the task does not name: a backup taken with both services stopped, since the rehearsal's is minutes old by then, and a refusal to start within 5 minutes after or 15 before a 4h close. `deploy_0035.sh` carries a placeholder for the merge commit. A failed migration or a refusal after stopping leaves both services stopped: the pulled code needs 0035, and old code cannot write `reservations.mode`.
+  - The panel goes after the API here, unlike a panel-only deploy: the new bundle refuses an `/api/me` without `mode`.
+- [ ] E.D Gate, independent verifier, then push and PR on the owner's word, merge, deploy, delivery log.
+
+### Independent verification (2026-10-30)
+
+An Opus verifier read head `a4f42a6` against `ddf8262`. **No blockers.** E.1 to E.7 pass, and so do E.8's scripts. Its probes ran on real PostgreSQL: the migration's cases, and an opening queued on the pool lock while a flip lands, which raises `ModeChangedError` and reserves nothing. Not checked: the panel in a browser, the VPS branch of the scripts, production's data, and a signal through `build_worker_runner` in simulation with the brake off.
+
+Closed after the report:
+- **A4, a mode change left no line.** `ChangeMode` now logs at INFO after the commit, naming the user and the mode: it decides where the user's next signal goes. RED on an assertion, four mutations killed. A first version logged at WARNING on the belief that the API configures no logging; `shared/infrastructure/api_logging.py` shows it does, and INFO is where a changed share and a deleted strategy already go.
+- **A2, a closed allocation with real and rehearsal fills.** The guard reads it flat, but the scan now counts real fills alone, so it reads as a position to compare with the venue. It needs both kinds on one allocation, which production may not hold. `rehearse_0035.sh` counts them and ends with a REVIEW line when any exist.
+- **A9, the deploy's edges.** A failed backup now stops with the state in words. A guard refusal starts the API, so a webhook is not lost, and leaves the worker stopped. A service that is not active ends in `STOP`, never in `done`.
+
+Recorded, not changed:
+- **A1.** 0035's "open" nets quantity alone, while the guard also subtracts base-currency fees and calls an unsplittable symbol open. Both failures are loud, and the rehearsal meets either before production.
+- **A3.** A symbol `base_currency_of` cannot split reads open for ever, so it blocks going to simulation and counts as unclosable. It is the guard's stated rule; production's symbols split.
+- **A5, close before PR F or PR G.** `/reconciliation/confirmed` is whole-system for the admin, but `dry_run` comes from the admin alone, so an admin in simulation with nothing real sees nothing of another user's discrepancies. The Telegram reminder remains. E.6 asks for this value, and it has no reach while the owner is the only user.
+- **A6, close before PR F.** Saving a read-only key does not check exposure, so a user holding a real position can supersede their key, and `find_unclosable` then refuses the next start for everyone.
+- **A7.** A `LIVE` `PENDING` reservation retried inside its 30s TTL after a restart places for real under the brake. Line 1118 says the order follows the reservation, so this is by the rule, though decision 14 reads narrower.
+- **A8.** The in-lock key refusal on a reverse continuation omits the "close executed" note the pre-lock refusal carries.
+- **Deploy window.** E.2 renamed `dry_run` on `/api/me`, and the old bundle requires it, so between the restart and pps.6 a fresh load shows the signed-out gate. The other order is worse: the new bundle refuses the old answer. pps.6 follows the deploy at once.
+
+## PR F-G
+
+Planned in `design.md`, "Delivery". Their tasks are written when the previous PR is merged, so each starts from what production actually is. The signals' `status`, `outcome_reason`, `outcome_detail` and `decided_at` stay, because they hold the strategy-level refusals (C.7). Advisory N1 (Leave with a queued opening) must be closed before PR F.

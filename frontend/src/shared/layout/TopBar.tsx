@@ -3,8 +3,8 @@ import { useTranslation } from "react-i18next";
 import { useLocation } from "react-router";
 
 import { useMe } from "@/shared/api/me";
-import { DryRunBadge } from "@/shared/layout/DryRunBadge";
 import { ExchangeTabs } from "@/shared/layout/ExchangeTabs";
+import { ModeBadge } from "@/shared/layout/ModeBadge";
 import { isExchangeScoped } from "@/shared/scope/exchange-store";
 
 /**
@@ -30,7 +30,7 @@ export function TopBar() {
           {email !== undefined && (
             <span className="hidden max-w-56 truncate text-xs text-ink-3 lg:inline">{email}</span>
           )}
-          <DryRunBadge />
+          <ModeBadge />
           <button
             type="button"
             onClick={toggleLanguage}

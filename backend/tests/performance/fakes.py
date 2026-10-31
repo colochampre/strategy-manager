@@ -1,7 +1,7 @@
 """In-memory stand-ins for ``performance`` ports."""
 
 import asyncio
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from datetime import datetime
 from uuid import UUID
 
@@ -110,6 +110,14 @@ class FixedClock:
 
     def now(self) -> datetime:
         return self._now
+
+
+class NoTradeCapableKeys:
+    """The guard's other input, with nobody holding a key: the strictest answer,
+    for a test that the guard accepts a state."""
+
+    async def trade_capable_keys(self) -> Collection[tuple[UUID, str]]:
+        return ()
 
 
 class FakeOpenStateReader:

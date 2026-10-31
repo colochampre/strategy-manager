@@ -6,7 +6,7 @@ the adapter — ``FillRecorderPort``/``FillRecord`` are implemented by
 implemented against the ``reservations`` table ``allocation`` already owns.
 """
 
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
@@ -22,6 +22,7 @@ from strategy_manager.execution.domain.mode_origin import (
 from strategy_manager.execution.domain.order import OrderSide
 from strategy_manager.execution.domain.placeable import PlaceableOrder
 from strategy_manager.shared.domain.errors import DomainError
+from strategy_manager.shared.domain.mode import Mode
 
 
 class ExchangeError(DomainError):
@@ -221,6 +222,15 @@ class ExchangeRegistryPort(Protocol):
     def for_pool(self, exchange: str, venue: str) -> ExchangePort: ...
 
 
+class ModeExchangesPort(Protocol):
+    """One job's exchanges, by the mode a reservation recorded (multi-user design
+    AD7). A job asks once it knows the mode, so a job that learns it from its row
+    builds nothing before reading that row, and one that needs both modes, a
+    REVERSE whose close and reopening differ, gets each one's adapters."""
+
+    async def for_mode(self, mode: Mode) -> ExchangeRegistryPort: ...
+
+
 @dataclass(frozen=True, slots=True)
 class ReservationSnapshot:
     """What ``ExecuteReservation`` needs to know about the reservation it is
@@ -236,6 +246,7 @@ class ReservationSnapshot:
     settlement_currency: str
     amount: Decimal
     status: str
+    mode: Mode
     expires_at: datetime
 
 
@@ -437,7 +448,8 @@ class SettleOutcomeRecorderPort(Protocol):
 
 class ModeOriginReaderPort(Protocol):
     """What the ledger and the attempt table hold, seen by ORIGIN (rehearsal
-    or live), for the ``DRY_RUN`` mode guard (owner decision 28).
+    or live) beside the recorded mode, for the startup mode guard (owner
+    decision 28).
 
     Every pool is covered, enabled or not: a position stays open at a venue
     whether or not anyone still trades the pool it sits in.
@@ -452,4 +464,13 @@ class ModeOriginReaderPort(Protocol):
         """Attempts still waiting for ``execution.settle`` whose order the
         exchange already accepted. An attempt with no ``exchange_order_id``
         yet is not returned: its origin is not recorded anywhere."""
+        ...
+
+
+class TradeCapableKeysPort(Protocol):
+    """Who can place an order where, for the startup guard's refusal of a real
+    position nothing can close (multi-user design AD7)."""
+
+    async def trade_capable_keys(self) -> Collection[tuple[UUID, str]]:
+        """Every ``(user, exchange)`` whose active key can trade."""
         ...

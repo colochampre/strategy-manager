@@ -26,6 +26,8 @@ from uuid import UUID
 from strategy_manager.execution.domain.fill import REHEARSAL_ORDER_ID_PREFIX
 from strategy_manager.execution.domain.mode_origin import InFlightAttemptOrigin, LedgerGroup
 from strategy_manager.performance.domain.open_position import FillAggregate
+from strategy_manager.shared.domain.mode import Mode
+from tests.owner import OWNER_ID
 
 SEED = 20261013
 STATES = 300
@@ -67,6 +69,8 @@ class GeneratedAllocation:
         return [
             LedgerGroup(
                 allocation_id=self.allocation_id,
+                user_id=OWNER_ID,
+                mode=Mode.SIMULATION if fill.rehearsal else Mode.LIVE,
                 strategy_name=self.strategy_name,
                 exchange="bybit",
                 venue="usdt-m",
@@ -221,6 +225,7 @@ def _in_flight(rng: random.Random) -> InFlightAttemptOrigin:
     order_id = f"{REHEARSAL_ORDER_ID_PREFIX}{attempt_id}" if rehearsal else f"ORDER-{attempt_id}"
     return InFlightAttemptOrigin(
         attempt_id=attempt_id,
+        mode=Mode.SIMULATION if rehearsal else Mode.LIVE,
         strategy_name=rng.choice(("Alpha", "Beta", "Gamma")),
         exchange="bybit",
         venue="usdt-m",

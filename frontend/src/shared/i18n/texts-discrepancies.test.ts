@@ -92,8 +92,8 @@ const TEXTS: ReadonlyArray<readonly [string, string, string]> = [
   ],
   [
     "discrepancies.read.dryRun",
-    "The comparison with the venue does not run in dry run, so nothing is checked here.",
-    "La comparación con el exchange no se ejecuta en modo simulación, así que aquí no se verifica nada.",
+    "Nothing is compared with the venue for you: you are in simulation with nothing real, or the brake is on.",
+    "No se compara nada con el exchange para usted: está en simulación sin nada real, o el freno está activo.",
   ],
   // The kind in words (the four verdicts of the classification ladder) and the two reasons that replace it.
   [

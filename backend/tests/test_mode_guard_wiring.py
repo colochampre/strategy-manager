@@ -17,20 +17,19 @@ from strategy_manager import main, worker
 
 
 def test_the_worker_runs_the_guard_before_it_builds_the_composition_root() -> None:
-    """Before ``build_worker_runner`` because that is where the adapter is
-    chosen from ``DRY_RUN`` and where ``WorkerRunner`` is created: a refusal
-    after it would already have registered handlers, and one after the
-    seeding would already have queued jobs for the wrong mode."""
+    """Before ``build_worker_runner`` because that is where ``WorkerRunner`` is
+    created: a refusal after it would already have registered handlers, and one
+    after the seeding would already have queued jobs."""
     source = inspect.getsource(worker._run_worker)
 
-    assert "assert_dry_run_matches_ledger(dry_run=settings.dry_run)" in source
-    assert source.index("assert_dry_run_matches_ledger") < source.index(
+    assert "await assert_modes_match_ledger()" in source
+    assert source.index("assert_modes_match_ledger") < source.index(
         "build_worker_runner("
     )
-    assert source.index("assert_dry_run_matches_ledger") < source.index(
+    assert source.index("assert_modes_match_ledger") < source.index(
         "_seed_recurring_chains(settings)"
     )
-    assert source.index("assert_dry_run_matches_ledger") < source.index("run_forever")
+    assert source.index("assert_modes_match_ledger") < source.index("run_forever")
 
 
 def test_the_guard_runs_inside_the_alert_bridge() -> None:
@@ -45,7 +44,7 @@ def test_the_guard_runs_inside_the_alert_bridge() -> None:
     )
     # ``_run_worker`` is the only caller, so nothing can run the guard outside
     # the ``operator_alerts`` context.
-    assert "assert_dry_run_matches_ledger" not in source
+    assert "assert_modes_match_ledger" not in source
 
 
 def test_a_refusal_is_not_swallowed_on_the_way_out_of_the_worker() -> None:
@@ -61,7 +60,8 @@ def test_a_refusal_is_not_swallowed_on_the_way_out_of_the_worker() -> None:
 
 
 def test_the_composition_root_wires_the_sql_reader_to_the_use_case() -> None:
-    source = inspect.getsource(main.assert_dry_run_matches_ledger)
+    source = inspect.getsource(main.assert_modes_match_ledger)
 
     assert "SqlAlchemyModeOriginReader" in source
+    assert "VaultTradeCapabilityAdapter" in source
     assert "assert_mode_matches_ledger" in source

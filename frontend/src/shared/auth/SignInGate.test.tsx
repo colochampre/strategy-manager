@@ -7,8 +7,8 @@ import en from "@/shared/i18n/locales/en.json";
 import es from "@/shared/i18n/locales/es.json";
 import { jsonResponse, renderAt } from "@/test/harness";
 
-const ADMIN = { email: "owner@example.com", is_admin: true, dry_run: true };
-const USER = { email: "someone@example.com", is_admin: false, dry_run: true };
+const ADMIN = { email: "owner@example.com", is_admin: true, mode: "LIVE", dry_run_brake: false };
+const USER = { email: "someone@example.com", is_admin: false, mode: "SIMULATION", dry_run_brake: false };
 
 function answerMe(response: () => Promise<Response>) {
   const fetchMock = vi.fn((url: string) =>

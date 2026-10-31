@@ -47,7 +47,9 @@ from strategy_manager.signals.infrastructure.models import SignalDeliveryRow
 from strategy_manager.signals.infrastructure.outcome_repository import (
     SqlAlchemyDeliveryOutcomeAdapter,
 )
+from tests.execution.fakes import OneRegistry
 from tests.owner import OWNER_ID, ensure_delivery
+from tests.signals.fakes import in_both_modes
 from tests.signals.infrastructure.conftest import (
     seed_execution_attempt,
     seed_reservation,
@@ -266,10 +268,10 @@ async def _run_continuation(
             session,
             pools,
             settings,
-            VenueExchangeRegistry([exchange]),
-            frozenset({("bybit", "usdt-m")}),
+            OneRegistry(VenueExchangeRegistry([exchange])),
+            in_both_modes(frozenset({("bybit", "usdt-m")})),
             _RichBalanceReader(),  # type: ignore[arg-type]
-            VenuePositionReaderRegistry([]),
+            in_both_modes(VenuePositionReaderRegistry([])),
         )
         await open_after_close.poll(
             ClaimedJob(

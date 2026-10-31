@@ -18,6 +18,7 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from strategy_manager.execution.application.ports import FillRecord
+from strategy_manager.execution.domain.fill import REHEARSAL_FILL_ID_PREFIX
 from strategy_manager.ledger.application.read_symbol_positions import ReadSymbolPositions
 from strategy_manager.ledger.application.record_fill import RecordFill
 from strategy_manager.ledger.infrastructure.repository import SqlAlchemyLedgerRepository
@@ -130,6 +131,50 @@ async def test_an_open_allocation_is_grouped_under_its_symbol(
     assert positions[0].symbol == "BTCUSDT"
     assert positions[0].net_base == Decimal("0.002")
     assert positions[0].allocation_ids == (allocation_id,)
+
+
+async def test_only_real_fills_are_compared_with_the_venue(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """A live user's leftover simulated position is not on the venue, so it is no
+    discrepancy (AD7, tasks.md E.6). An allocation holding both counts its real
+    fills, and a live id that merely contains the marker is a live id."""
+    factory = pg_session_factory
+    strategy_id, real, attempt_id = await _seed_position(factory)
+    other_strategy_id, simulated, other_attempt_id = await _seed_position(factory)
+
+    def rehearsal() -> str:
+        return f"{REHEARSAL_FILL_ID_PREFIX}{uuid4()}"
+
+    bought = _fill(
+        strategy_id=strategy_id,
+        allocation_id=real,
+        attempt_id=attempt_id,
+        side="BUY",
+        quantity="0.002",
+    )
+    simulated_alone = _fill(
+        strategy_id=other_strategy_id,
+        allocation_id=simulated,
+        attempt_id=other_attempt_id,
+        side="BUY",
+        quantity="0.5",
+    )
+    async with factory() as session:
+        recorder = RecordFill(SqlAlchemyLedgerRepository(session))
+        await recorder.record(bought)
+        await recorder.record(replace(bought, exchange_fill_id=rehearsal()))
+        await recorder.record(replace(simulated_alone, exchange_fill_id=rehearsal()))
+        await recorder.record(
+            replace(bought, exchange_fill_id=f"live-{REHEARSAL_FILL_ID_PREFIX}{uuid4()}")
+        )
+        await session.commit()
+
+    positions = await _read(factory)
+
+    assert [(p.symbol, p.net_base, p.allocation_ids) for p in positions] == [
+        ("BTCUSDT", Decimal("0.004"), (real,))
+    ]
 
 
 async def test_a_fully_closed_allocation_vanishes_from_the_result(

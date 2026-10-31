@@ -11,6 +11,7 @@ from uuid import UUID
 
 from strategy_manager.allocation.domain.pool_key import PoolKey
 from strategy_manager.shared.domain.errors import InvariantViolation
+from strategy_manager.shared.domain.mode import Mode
 
 
 class ReservationStatus(StrEnum):
@@ -62,6 +63,10 @@ class Reservation:
     pool_key: PoolKey
     amount: Decimal
     status: ReservationStatus
+    # The mode this reservation opened in (migration ``0035``, decision 26). Required
+    # and defaultless: a writer that forgets it fails loudly instead of recording a
+    # wrong mode, which is what sends the close of this allocation to a venue.
+    mode: Mode
     expires_at: datetime
     created_at: datetime | None = None
     updated_at: datetime | None = None

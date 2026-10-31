@@ -1,6 +1,5 @@
-"""Integration: ``VaultTradeCapabilityAdapter`` against real PostgreSQL, and the
-``DryRunTradeCapability`` that replaces it under ``DRY_RUN`` (design.md § 4a,
-decisions 18, 20 and 30).
+"""Integration: ``VaultTradeCapabilityAdapter`` against real PostgreSQL (design.md
+§ 4a, decisions 18, 20 and 30).
 
 The adapter sits on the signal path ahead of the pool's advisory lock, so it
 must answer from ONE column read of the active row and never decrypt anything
@@ -20,10 +19,9 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from strategy_manager.accounts.infrastructure.models import ExchangeCredentialRow
 from strategy_manager.accounts.infrastructure.trade_capability_adapter import (
-    DryRunTradeCapability,
     VaultTradeCapabilityAdapter,
 )
-from strategy_manager.signals.application.ports import TradeCapability
+from strategy_manager.shared.domain.trade_capability import TradeCapability
 from tests.owner import OWNER_ID, seed_other_user
 
 pytestmark = pytest.mark.integration
@@ -237,12 +235,3 @@ async def test_a_rotation_answers_from_the_new_active_row_not_the_history(
     )
 
     assert await _answer(pg_session_factory, "bybit") is TradeCapability.READ_ONLY
-
-
-async def test_the_dry_run_adapter_always_answers_trade_capable() -> None:
-    """``DRY_RUN`` places nothing, so no exchange is ever refused for its key:
-    keyless, read-only or otherwise, and whatever name it is asked about."""
-    adapter = DryRunTradeCapability()
-
-    for exchange in ("bybit", "binance", "pionex", "anything"):
-        assert await adapter.capability(OWNER_ID, exchange) is TradeCapability.TRADE_CAPABLE

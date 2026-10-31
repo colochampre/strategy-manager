@@ -3,6 +3,9 @@
 from dataclasses import dataclass, field
 from uuid import UUID
 
+from strategy_manager.shared.domain.mode import Mode
+from strategy_manager.shared.domain.trade_capability import TradeCapability
+
 
 @dataclass
 class RecordingSkipRecorder:
@@ -46,3 +49,56 @@ class RecordingPoolStatus:
         self.calls.append((exchange, venue, settlement_currency))
         self.events.append("pool_status")
         return self.disabled
+
+
+@dataclass
+class FixedUserMode:
+    """``UserModePort`` for tests that are not about the mode: every opening runs
+    in ``mode`` (``LIVE`` by default, what a reservation recorded before the mode
+    existed became). ``users`` and ``events`` record the calls, ``events`` shared
+    with the fakes around it so a test can prove the read came after the lock."""
+
+    mode: Mode = Mode.LIVE
+    events: list[str] = field(default_factory=list)
+    users: list[UUID] = field(default_factory=list)
+
+    async def effective_mode(self, user_id: UUID) -> Mode:
+        self.users.append(user_id)
+        self.events.append("user_mode")
+        return self.mode
+
+    async def current_mode(self, user_id: UUID) -> Mode:
+        self.users.append(user_id)
+        return self.mode
+
+
+@dataclass
+class RecordedModes:
+    """``AllocationModePort``: every allocation opened in ``mode`` (``LIVE`` by
+    default, for tests that are not about the mode), unless ``by_allocation`` names
+    it. ``asked`` records the ``(user, allocation)`` of each call."""
+
+    mode: Mode = Mode.LIVE
+    by_allocation: dict[UUID, Mode] = field(default_factory=dict)
+    asked: list[tuple[UUID, UUID]] = field(default_factory=list)
+
+    async def mode_of(self, user_id: UUID, allocation_id: UUID) -> Mode:
+        self.asked.append((user_id, allocation_id))
+        return self.by_allocation.get(allocation_id, self.mode)
+
+
+@dataclass
+class AnyKeyTrades:
+    """``TradeCapabilityPort`` for tests that are not about the key: every exchange
+    answers ``answer``. ``asked`` records the ``(user, exchange)`` of each call and
+    ``events`` is shared with the fakes around it, so a test can prove the read came
+    after the lock, or never happened."""
+
+    answer: TradeCapability = TradeCapability.TRADE_CAPABLE
+    asked: list[tuple[UUID, str]] = field(default_factory=list)
+    events: list[str] = field(default_factory=list)
+
+    async def capability(self, user_id: UUID, exchange: str) -> TradeCapability:
+        self.asked.append((user_id, exchange))
+        self.events.append("trade_capability")
+        return self.answer

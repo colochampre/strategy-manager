@@ -76,6 +76,7 @@ from strategy_manager.ledger.application.read_symbol_holdings import ReadSymbolH
 from strategy_manager.ledger.application.record_fill import RecordFill
 from strategy_manager.ledger.infrastructure.repository import SqlAlchemyLedgerRepository
 from strategy_manager.shared.application.job import ClaimedJob, Job, JobKind
+from strategy_manager.shared.domain.mode import Mode
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 from strategy_manager.shared.infrastructure.job_queue import PostgresJobQueue
 from strategy_manager.shared.infrastructure.worker_runner import JobHandler, WorkerRunner
@@ -98,10 +99,16 @@ from strategy_manager.subscriptions.infrastructure.adapters import OpenAllocatio
 from strategy_manager.subscriptions.infrastructure.repository import (
     SqlAlchemySubscriptionRepository,
 )
-from tests.allocation.fakes import AlwaysEnabledPool, RecordingSkipRecorder
-from tests.execution.fakes import RecordingOrderOutcomes, RecordingSettleOutcomes
+from tests.allocation.fakes import (
+    AlwaysEnabledPool,
+    AnyKeyTrades,
+    FixedUserMode,
+    RecordedModes,
+    RecordingSkipRecorder,
+)
+from tests.execution.fakes import OneRegistry, RecordingOrderOutcomes, RecordingSettleOutcomes
 from tests.owner import OWNER_ID, ensure_delivery, ensure_pool, seed_snapshot
-from tests.signals.fakes import FakeTradeCapability, RecordingSignalOutcomes
+from tests.signals.fakes import FakeTradeCapability, RecordingSignalOutcomes, in_both_modes
 from tests.signals.infrastructure.conftest import seed_strategy
 from tests.subscriptions.infrastructure import seeds
 
@@ -301,6 +308,7 @@ async def test_the_open_waits_for_the_close_to_settle_then_grants_the_freed_bala
                 ),
                 amount=Decimal("100"),
                 status=ReservationStatus.FILLED,
+                mode=Mode.LIVE,
                 expires_at=START,
             )
         )
@@ -374,7 +382,8 @@ async def test_the_open_waits_for_the_close_to_settle_then_grants_the_freed_bala
     # ---- submit the close for real, through the production use case ----
     async with pg_session_factory() as session:
         close_position = ClosePosition(
-            exchanges=registry,
+            exchanges=OneRegistry(registry),
+            allocation_modes=RecordedModes(),
             attempts=SqlAlchemyExecutionAttemptRepository(session),
             held=ReadHeldBase(SqlAlchemyLedgerRepository(session)),
             queue=PostgresJobQueue(
@@ -477,7 +486,8 @@ async def test_the_open_waits_for_the_close_to_settle_then_grants_the_freed_bala
             in_flight_work=InFlightWorkAdapter(
                 attempts=attempts_repository, reservations=reservation_repository
             ),
-            venue_net_position=NeverCalledVenueNetPosition(),  # type: ignore[arg-type]
+            venue_net_position=in_both_modes(NeverCalledVenueNetPosition()),  # type: ignore[arg-type]
+            allocation_modes=RecordedModes(),
             clock=clock,
             delayed_open_max_signal_age_seconds=600.0,
         )
@@ -501,10 +511,12 @@ async def test_the_open_waits_for_the_close_to_settle_then_grants_the_freed_bala
             reservation_ttl_seconds=30,
             skip_recorder=RecordingSkipRecorder(),
             pool_status=AlwaysEnabledPool(),
+            user_mode=FixedUserMode(),
+            trade_capability=AnyKeyTrades(),
         )
         place_order = PlaceOrder(
             reservations=ReservationGatewayAdapter(reservation_repository),
-            exchanges=registry,
+            exchanges=OneRegistry(registry),
             attempts=attempts_repository,
             queue=PostgresJobQueue(
                 session,
@@ -559,9 +571,11 @@ async def test_the_open_waits_for_the_close_to_settle_then_grants_the_freed_bala
             commit=session,
             closing_attempts=attempts_repository,
             close_orphans=NeverCalledCloseOrphans(),
-            tradable_pools=frozenset({("bybit", "usdt-m")}),
+            tradable_pools=in_both_modes(frozenset({("bybit", "usdt-m")})),
             outcomes=RecordingSignalOutcomes(),
             trade_capability=FakeTradeCapability(),
+            user_mode=FixedUserMode(),
+            allocation_modes=RecordedModes(),
         )
         return handler, open_after_close
 
@@ -569,7 +583,8 @@ async def test_the_open_waits_for_the_close_to_settle_then_grants_the_freed_bala
         async with pg_session_factory() as session:
             settle = SettleExecution(
                 reservations=SqlAlchemyReservationRepository(session),
-                exchanges=registry,
+                exchanges=OneRegistry(registry),
+                allocation_modes=RecordedModes(),
                 attempts=SqlAlchemyExecutionAttemptRepository(session),
                 fill_recorder=RecordFill(SqlAlchemyLedgerRepository(session)),
                 usd_rate_provider=FixedUsdRate(),

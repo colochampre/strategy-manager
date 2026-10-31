@@ -36,7 +36,6 @@ from strategy_manager.execution.application.ports import FillRecord
 from strategy_manager.execution.domain.market_symbol import market_key
 from strategy_manager.execution.infrastructure.models import ExecutionAttemptRow
 from strategy_manager.ledger.application.read_held_base import ReadHeldBase
-from strategy_manager.ledger.application.read_symbol_positions import ReadSymbolPositions
 from strategy_manager.ledger.application.record_fill import RecordFill
 from strategy_manager.ledger.infrastructure.models import LedgerEntryRow
 from strategy_manager.ledger.infrastructure.repository import SqlAlchemyLedgerRepository
@@ -47,6 +46,7 @@ from strategy_manager.performance.infrastructure.allocation_fills_source import 
 )
 from strategy_manager.shared import db as shared_db
 from strategy_manager.shared.config import get_settings
+from strategy_manager.shared.domain.mode import Mode
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 from strategy_manager.shared.infrastructure.clock import SystemClock
 from strategy_manager.signals.domain.outcome import SignalOutcome
@@ -348,9 +348,9 @@ async def test_a_usdt_fee_moves_no_holding(stack: Stack) -> None:
             allocation = await ReadHeldBase(SqlAlchemyLedgerRepository(session)).net_base(
                 OWNER_ID, opened.allocation_id, "STX"
             )
-            positions = await ReadSymbolPositions(
-                SqlAlchemyLedgerRepository(session)
-            ).net_positions_by_symbol(OWNER_ID, pool)
+            positions = await SqlAlchemyLedgerRepository(session).net_positions_by_symbol(
+                OWNER_ID, *pool, mode=Mode.SIMULATION
+            )
         # A fully closed allocation vanishes from the pool-wide read (it HAVING-drops
         # a net of exactly zero), so "flat" is the empty list.
         assert {market_key(position.symbol) for position in positions} <= {"STXUSDT"}
@@ -462,6 +462,7 @@ async def _seed_orphan(
         exchange=pool.exchange.value,
         status="FILLED",
         amount=Decimal("564"),
+        mode="SIMULATION",
     )
     await seed_execution_attempt(
         stack.factory,

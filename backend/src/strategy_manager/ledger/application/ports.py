@@ -19,6 +19,7 @@ from uuid import UUID
 
 from strategy_manager.ledger.domain.ledger_entry import LedgerEntry
 from strategy_manager.reconciliation.domain.positions import LedgerPosition
+from strategy_manager.shared.domain.mode import Mode
 from strategy_manager.signals.domain.holding import HeldAllocation
 
 
@@ -62,7 +63,7 @@ class LedgerSymbolPositionReaderPort(Protocol):
     """
 
     async def net_positions_by_symbol(
-        self, user_id: UUID, exchange: str, venue: str, settlement_currency: str
+        self, user_id: UUID, exchange: str, venue: str, settlement_currency: str, *, mode: Mode
     ) -> list[LedgerPosition]: ...
 
 

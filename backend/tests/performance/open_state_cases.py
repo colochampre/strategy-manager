@@ -17,6 +17,8 @@ from strategy_manager.execution.domain.mode_origin import (
 )
 from strategy_manager.performance.application.ports import PositionFacts, SubmittedOrder
 from strategy_manager.performance.domain.open_position import FillAggregate, PoolLabel
+from strategy_manager.shared.domain.mode import Mode
+from tests.owner import OWNER_ID
 
 POOL = PoolLabel("bybit", "usdt-m", "USDT")
 T0 = datetime(2026, 10, 12, 9, 0, tzinfo=UTC)
@@ -35,6 +37,8 @@ def open_element(
 ) -> OpenAllocationOrigin:
     return OpenAllocationOrigin(
         allocation_id=allocation_id or uuid4(),
+        user_id=OWNER_ID,
+        mode=Mode.LIVE if live else Mode.SIMULATION,
         strategy_name=name,
         exchange=exchange,
         venue=venue,
@@ -59,6 +63,7 @@ def in_flight_element(
     order_id = f"{REHEARSAL_ORDER_ID_PREFIX}{attempt}" if rehearsal else f"ORDER-{attempt}"
     return InFlightAttemptOrigin(
         attempt_id=attempt,
+        mode=Mode.SIMULATION if rehearsal else Mode.LIVE,
         strategy_name=name,
         exchange=exchange,
         venue=venue,

@@ -62,13 +62,15 @@ from strategy_manager.accounts.infrastructure.stale_snapshot_reader import (
     SqlAlchemyStaleSnapshotReader,
 )
 from strategy_manager.accounts.infrastructure.trade_capability_adapter import (
-    DryRunTradeCapability,
     VaultTradeCapabilityAdapter,
 )
 from strategy_manager.allocation.application.allocate_capital import AllocateCapital
 from strategy_manager.allocation.application.expire_reservations import ExpireReservations
 from strategy_manager.allocation.application.sweep_handler import SweepHandler
 from strategy_manager.allocation.infrastructure.advisory_lock import PgAdvisoryLockAdapter
+from strategy_manager.allocation.infrastructure.allocation_mode import (
+    SqlAlchemyAllocationMode,
+)
 from strategy_manager.allocation.infrastructure.lock_key_invariant import (
     PoolLockKeyCollisionError,
     assert_pool_lock_keys_distinct,
@@ -77,6 +79,7 @@ from strategy_manager.allocation.infrastructure.repository import SqlAlchemyRese
 from strategy_manager.allocation.infrastructure.reservation_gateway import (
     ReservationGatewayAdapter,
 )
+from strategy_manager.allocation.infrastructure.user_mode import SqlAlchemyUserMode
 from strategy_manager.execution.application.assert_mode_matches_ledger import (
     assert_mode_matches_ledger,
 )
@@ -84,7 +87,7 @@ from strategy_manager.execution.application.close_position import ClosePosition
 from strategy_manager.execution.application.place_order import PlaceOrder
 from strategy_manager.execution.application.ports import (
     ExchangePort,
-    ExchangeRegistryPort,
+    ModeExchangesPort,
 )
 from strategy_manager.execution.application.settle_execution import SettleExecution
 from strategy_manager.execution.infrastructure.binance_futures_exchange import (
@@ -94,9 +97,7 @@ from strategy_manager.execution.infrastructure.bybit_futures_exchange import (
     BybitFuturesExchangeAdapter,
 )
 from strategy_manager.execution.infrastructure.dry_run_invariant import assert_dry_run_safe
-from strategy_manager.execution.infrastructure.exchange_registry import (
-    VenueExchangeRegistry,
-)
+from strategy_manager.execution.infrastructure.exchanges_by_mode import ExchangesByMode
 from strategy_manager.execution.infrastructure.fake_exchange import FakeExchangeAdapter
 from strategy_manager.execution.infrastructure.fake_venue_book import FakeVenueBook
 from strategy_manager.execution.infrastructure.mode_origin_reader import (
@@ -108,6 +109,7 @@ from strategy_manager.execution.infrastructure.repository import (
 from strategy_manager.execution.infrastructure.simulated_fee_rates import (
     SIMULATED_TAKER_FEE_RATES,
 )
+from strategy_manager.execution.infrastructure.simulated_venues import SimulatedVenues
 from strategy_manager.execution.infrastructure.venue_support import (
     describe_unserved,
     unserved_pools,
@@ -181,6 +183,9 @@ from strategy_manager.reconciliation.infrastructure.in_flight_close_adapter impo
 from strategy_manager.reconciliation.infrastructure.lazy_venue_position_reader import (
     LazyVenuePositionReader,
 )
+from strategy_manager.reconciliation.infrastructure.reconciled_users import (
+    SqlAlchemyReconciledUsers,
+)
 from strategy_manager.reconciliation.infrastructure.repository import (
     SqlAlchemyDiscrepancyRepository,
 )
@@ -206,6 +211,7 @@ from strategy_manager.shared.application.watchdog import AlertChannelPort, Watch
 from strategy_manager.shared.application.watchdog_handler import WatchdogHandler
 from strategy_manager.shared.config import Settings, get_settings
 from strategy_manager.shared.db import engine, session_factory
+from strategy_manager.shared.domain.mode import Mode
 from strategy_manager.shared.domain.money import Currency
 from strategy_manager.shared.infrastructure.access_log import (
     install_access_log_redaction,
@@ -391,7 +397,7 @@ def log_simulated_exchange_startup(fakes: Mapping[str, FakeExchangeAdapter]) -> 
             )
     if alert_priced:
         logger.info(
-            "dry run: the simulated exchange prices each fill at its alert's price "
+            "the simulated exchange prices each fill at its alert's price "
             "and charges the venue's taker fee in USDT (%s)",
             ", ".join(
                 f"{name}={format(fake.fee_rate.normalize(), 'f')}"
@@ -437,10 +443,10 @@ def _build_process_delivery(
     session: AsyncSession,
     pools_by_key: Mapping[tuple[UUID, tuple[str, str, str]], PoolConfig],
     settings: Settings,
-    exchanges: ExchangeRegistryPort,
-    tradable_pools: frozenset[tuple[str, str]],
+    job_exchanges: ModeExchangesPort,
+    tradable_pools: Mapping[Mode, frozenset[tuple[str, str]]],
     balance_refresh_reader: ExchangeBalanceReaderPort,
-    venue_position_readers: VenuePositionReaderRegistryPort,
+    venue_position_readers: Mapping[Mode, VenuePositionReaderRegistryPort],
 ) -> tuple[ProcessDelivery, OpenAfterClose]:
     """Composes ``AllocateCapital`` (slice 4) and ``ExecuteReservation``
     (slice 5) into the ``delivery.process`` job handler (design.md's job
@@ -451,15 +457,15 @@ def _build_process_delivery(
     this runs inside the pool's advisory lock, where a remote call would
     serialize every allocation on that pool behind exchange latency.
 
-    The exchange REGISTRY is passed in rather than built here: which
-    adapters are registered is a ``DRY_RUN`` decision that belongs to the
-    composition root, and the same registry is handed to the
-    ``execution.settle`` handler because placing and settling are two jobs
-    talking about the same order -- on the same venue."""
+    The exchanges are passed in rather than built here: which adapters a job
+    gets depends on the mode, a decision ``ExchangesByMode`` owns, and the job
+    closes what it opened. An opening and a close each learn their mode from
+    the reservation, so a job that builds neither opens nothing."""
 
     strategy_repository = SqlAlchemyStrategyRepository(session)
     signal_repository = SqlAlchemySignalRepository(session)
     reservation_repository = SqlAlchemyReservationRepository(session)
+    allocation_modes = SqlAlchemyAllocationMode(session)
     # Decision 25 (C.7): one outcome adapter on the run's session, so every outcome
     # write is staged on the same unit of work as the commit that decides it. The
     # work of a delivery records on that DELIVERY's row; the signal's own row is
@@ -499,10 +505,14 @@ def _build_process_delivery(
         # Orphan Classification; design.md § S4) -- built from a registry the
         # caller already assembled, exactly like ``balance_refresh`` below
         # reuses ``balance_refresh_reader``.
-        venue_net_position=VenueNetPositionAdapter(
-            venue_position_readers,
-            timeout_seconds=settings.venue_net_position_timeout_seconds,
-        ),
+        venue_net_position={
+            mode: VenueNetPositionAdapter(
+                readers,
+                timeout_seconds=settings.venue_net_position_timeout_seconds,
+            )
+            for mode, readers in venue_position_readers.items()
+        },
+        allocation_modes=allocation_modes,
         clock=SystemClock(),
         delayed_open_max_signal_age_seconds=settings.delayed_open_max_signal_age_seconds,
     )
@@ -524,6 +534,11 @@ def _build_process_delivery(
         fallback_max_age_seconds=settings.balance_snapshot_max_age_seconds,
     )
 
+    user_mode = SqlAlchemyUserMode(session, brake=settings.dry_run)
+    # One column read of the active row, never a decrypt (design.md § 4a). Asked
+    # only for a live opening: a simulated one needs no key that can trade.
+    trade_capability = VaultTradeCapabilityAdapter(session)
+
     allocate_capital = AllocateCapital(
         strategy_policy=strategy_policy,
         pool_balance=pool_balance,
@@ -534,11 +549,13 @@ def _build_process_delivery(
         reservation_ttl_seconds=settings.reservation_ttl_seconds,
         skip_recorder=SignalSkipRecorder(delivery_outcomes),
         pool_status=SqlAlchemyPoolStatus(session),
+        user_mode=user_mode,
+        trade_capability=trade_capability,
     )
 
     place_order = PlaceOrder(
         reservations=ReservationGatewayAdapter(reservation_repository),
-        exchanges=exchanges,
+        exchanges=job_exchanges,
         attempts=SqlAlchemyExecutionAttemptRepository(session),
         queue=_job_queue(session, settings),
         clock=SystemClock(),
@@ -551,7 +568,8 @@ def _build_process_delivery(
     # but nothing else: no reservation gateway, no advisory lock, and its size
     # comes from the ledger rather than from a granted amount and a price.
     close_position = ClosePosition(
-        exchanges=exchanges,
+        exchanges=job_exchanges,
+        allocation_modes=allocation_modes,
         attempts=SqlAlchemyExecutionAttemptRepository(session),
         held=ReadHeldBase(SqlAlchemyLedgerRepository(session)),
         queue=_job_queue(session, settings),
@@ -618,21 +636,15 @@ def _build_process_delivery(
         close_orphans=close_orphans,
         tradable_pools=tradable_pools,
         outcomes=delivery_outcomes,
-        # Decisions 18 and 20 (design.md § 4a): chosen by DRY_RUN like the
-        # exchange adapters. A rehearsal places nothing, so no key is needed
-        # and none can be missing; live, the answer is one column read of the
-        # active row, never a decrypt.
-        trade_capability=(
-            DryRunTradeCapability()
-            if settings.dry_run
-            else VaultTradeCapabilityAdapter(session)
-        ),
+        trade_capability=trade_capability,
+        user_mode=user_mode,
+        allocation_modes=allocation_modes,
     )
     return handler, open_after_close
 
 
 def _build_settle_execution(
-    session: AsyncSession, exchanges: ExchangeRegistryPort
+    session: AsyncSession, exchanges: ModeExchangesPort
 ) -> SettleExecution:
     """Composes the ``execution.settle`` job's use case: ask the exchange what
     the order became, and write it to the append-only ledger."""
@@ -641,6 +653,7 @@ def _build_settle_execution(
             SqlAlchemyReservationRepository(session)
         ),
         exchanges=exchanges,
+        allocation_modes=SqlAlchemyAllocationMode(session),
         attempts=SqlAlchemyExecutionAttemptRepository(session),
         fill_recorder=RecordFill(SqlAlchemyLedgerRepository(session)),
         usd_rate_provider=FixedUsdRateProvider({Currency.USDT: Decimal("1")}),
@@ -894,12 +907,17 @@ def _holds_pool(
 def _reconciliation_markets_per_user(
     by_key: Mapping[tuple[UUID, tuple[str, str, str]], PoolConfig],
     active: frozenset[UserExchange],
+    reconciled: frozenset[UUID],
     *,
     warn: bool,
 ) -> dict[UUID, list[tuple[str, str, str]]]:
     """Each user's markets that reconciliation can read, with THAT user's key
     (multi-user design AD10, tasks.md B.8): the enabled pools of a user on an
     exchange where the user also holds an active key.
+
+    Only ``reconciled`` users (``SqlAlchemyReconciledUsers``): anyone else is in
+    simulation with nothing real, so there is nothing to compare and a missing key
+    is no reason to warn about them.
 
     A venue's net position is an account's, so the same market held by two
     users is two reads, each with its owner's key. A user with a pool but no
@@ -913,6 +931,8 @@ def _reconciliation_markets_per_user(
     for user_id, market in sorted(by_key, key=lambda key: (str(key[0]), key[1])):
         exchange = market[0]
         if exchange not in (BYBIT_EXCHANGE, BINANCE_EXCHANGE):
+            continue
+        if user_id not in reconciled:
             continue
         if (user_id, exchange) not in active:
             unkeyed.add((user_id, exchange))
@@ -1057,13 +1077,14 @@ async def _user_fill_readers(
     return readers
 
 
-async def assert_dry_run_matches_ledger(
+async def assert_modes_match_ledger(
     *,
-    dry_run: bool,
     session_factory_override: async_sessionmaker[AsyncSession] | None = None,
 ) -> None:
-    """Owner decision 28: refuse to start when ``DRY_RUN`` does not match the
-    origin of an open position or an unsettled order in the ledger.
+    """Owner decision 28 and AD7: refuse to start when an open position or an
+    unsettled order disagrees with the mode its reservation recorded, or when a
+    real position's user holds no key that can close it. ``DRY_RUN`` has no say:
+    a real position under the brake is a valid state (decision 14).
 
     Async, so it cannot live inside ``build_worker_runner``: the ledger read
     needs the event loop, and that function is synchronous and is also built by
@@ -1077,7 +1098,8 @@ async def assert_dry_run_matches_ledger(
     factory = session_factory_override or session_factory
     async with factory() as session:
         await assert_mode_matches_ledger(
-            dry_run=dry_run, reader=SqlAlchemyModeOriginReader(session)
+            reader=SqlAlchemyModeOriginReader(session),
+            keys=VaultTradeCapabilityAdapter(session),
         )
 
 
@@ -1145,47 +1167,28 @@ def build_worker_runner(
     # what this system is for. They stay in the repository as the second
     # implementation that proves this port is the right shape.
     registered: tuple[type[ExchangePort], ...] = (
-        (FakeExchangeAdapter,)
-        if settings.dry_run
-        else (BybitFuturesExchangeAdapter, BinanceFuturesExchangeAdapter)
+        BybitFuturesExchangeAdapter,
+        BinanceFuturesExchangeAdapter,
     )
     for adapter in registered:
         assert_dry_run_safe(dry_run=settings.dry_run, exchange=adapter)
 
-    # One fake per configured exchange, not one fake for all of them. The
-    # registry is keyed by (exchange, venue) now, and a single instance
-    # claiming every exchange would route a Binance pool's rehearsal through
-    # the same object as a Bybit one -- the very collapse this key exists to
-    # prevent, rehearsed wrongly.
-    #
-    # Each holds its own placed orders, so place and settle must share the
-    # instance for a given exchange; that is why they are built here, once,
-    # rather than per job.
-    # Process-lifetime, exactly like ``fakes_by_exchange`` below: a DRY_RUN
-    # venue-side net must survive across many ``signal.process`` jobs, not
-    # just one, or every job would seed it fresh and never see a fill from an
-    # earlier one (design.md § S4, DRY_RUN paragraph). Its own ledger reader
-    # opens a short-lived session per call rather than sharing one job's --
-    # there is no job session yet at this point in composition, and each pool
-    # is seeded from it at most once over the life of this process anyway.
-    async def _fake_venue_book_ledger_reader(
-        pool: tuple[str, str, str],
+    # Its ledger reader opens a short-lived session per call rather than sharing
+    # one job's: each pool of each user is seeded at most once over the life of
+    # this process.
+    async def _simulated_book_ledger_reader(
+        user_id: UUID, pool: tuple[str, str, str]
     ) -> list[tuple[str, Decimal]]:
-        # One book per exchange, not per user: it is seeded from every user's
-        # rows on the pool, summed per symbol.
         async with factory() as seed_session:
-            repository = SqlAlchemyLedgerRepository(seed_session)
-            net_by_symbol: dict[str, Decimal] = {}
-            for seed_user in sorted(await repository.distinct_users_for_pool(*pool)):
-                for position in await ReadSymbolPositions(repository).net_positions_by_symbol(
-                    seed_user, pool
-                ):
-                    net_by_symbol[position.symbol] = (
-                        net_by_symbol.get(position.symbol, Decimal("0")) + position.net_base
-                    )
-            return list(net_by_symbol.items())
+            positions = await SqlAlchemyLedgerRepository(seed_session).net_positions_by_symbol(
+                user_id, *pool, mode=Mode.SIMULATION
+            )
+            return [(position.symbol, position.net_base) for position in positions]
 
-    fake_venue_book = FakeVenueBook(_fake_venue_book_ledger_reader)
+    def simulated_exchange(exchange: str, book: FakeVenueBook | None) -> FakeExchangeAdapter:
+        return FakeExchangeAdapter(
+            exchange=exchange, book=book, fee_rate=SIMULATED_TAKER_FEE_RATES[exchange]
+        )
 
     # BYBIT_EXCHANGE and BINANCE_EXCHANGE are unconditional, on top of
     # whatever else the startup pool list names (e.g. Pionex's spot pools):
@@ -1200,35 +1203,37 @@ def build_worker_runner(
     # Decision 45: a simulated exchange exists only for an exchange that has a
     # simulated taker fee rate, and its rate is read BY KEY from the table --
     # never with a default, because a default of zero would charge nothing
-    # without anyone deciding to. Bybit and Binance both have one. Under
-    # DRY_RUN=false nothing is built: the real adapters above are the only
-    # ones registered.
+    # without anyone deciding to. Bybit and Binance both have one.
+    #
+    # They exist whatever the brake: a user in simulation trades on them with the
+    # brake off (AD7). These instances are never traded on. They say what the
+    # simulated side serves and charges, for the log and ``tradable_by_mode``;
+    # each user trades on their own, from the same builder (``SimulatedVenues``).
     fakes_by_exchange = {
-        exchange: FakeExchangeAdapter(
-            exchange=exchange,
-            book=fake_venue_book,
-            fee_rate=SIMULATED_TAKER_FEE_RATES[exchange],
+        exchange: simulated_exchange(exchange, None)
+        for exchange in sorted(
+            {pool.exchange.value for pool in pools} | {BYBIT_EXCHANGE, BINANCE_EXCHANGE}
         )
-        for exchange in {pool.exchange.value for pool in pools} | {
-            BYBIT_EXCHANGE,
-            BINANCE_EXCHANGE,
-        }
-        if settings.dry_run and exchange in SIMULATED_TAKER_FEE_RATES
+        if exchange in SIMULATED_TAKER_FEE_RATES
     }
-    if settings.dry_run:
-        # An exchange with a pool and no rate gets no simulated exchange. It is
-        # reported here, and its signals are refused per signal as untradable
-        # (the unserved-pools warning below covers the pools themselves): a
-        # pool nobody trades is not a reason to stop the pools somebody does.
-        for unrated in sorted(
-            {pool.exchange.value for pool in pools} - set(SIMULATED_TAKER_FEE_RATES)
-        ):
-            logger.warning(
-                "no simulated taker fee rate is defined for '%s': it has no simulated "
-                "exchange in a dry run, so its signals are refused as untradable",
-                unrated,
-            )
-        log_simulated_exchange_startup(fakes_by_exchange)
+    simulated_venues = SimulatedVenues(
+        exchanges=fakes_by_exchange,
+        build=simulated_exchange,
+        ledger_reader=_simulated_book_ledger_reader,
+    )
+    # An exchange with a pool and no rate gets no simulated exchange. It is
+    # reported here, and its signals are refused per signal as untradable
+    # (the unserved-pools warning below covers the pools themselves): a
+    # pool nobody trades is not a reason to stop the pools somebody does.
+    for unrated in sorted(
+        {pool.exchange.value for pool in pools} - set(SIMULATED_TAKER_FEE_RATES)
+    ):
+        logger.warning(
+            "no simulated taker fee rate is defined for '%s': it has no simulated "
+            "exchange, so a user in simulation has its signals refused as untradable",
+            unrated,
+        )
+    log_simulated_exchange_startup(fakes_by_exchange)
 
     # ``venue`` reaches the reservation, the attempt and the ledger row without
     # ever selecting an adapter, so a strategy on a venue this adapter does not
@@ -1242,37 +1247,40 @@ def build_worker_runner(
     # adapter does not serve it -- noise that trains an operator to ignore the
     # one warning that matters.
     #
-    # The two branches ask the same question of genuinely different KINDS of
-    # thing, which is why the answer is computed per branch rather than through
-    # one tuple of adapters. A dry run's fakes are INSTANCES: ``exchange`` is
-    # per instance there, so one fake stands in for each configured exchange.
+    # Both sides run in this process, so each is asked. They answer the same
+    # question of genuinely different KINDS of thing, which is why the answer is
+    # computed per side rather than through one tuple of adapters. The fakes are
+    # INSTANCES: ``exchange`` is per instance there, so one fake stands in for
+    # each configured exchange.
     # The live adapters are CLASSES, because a live one cannot exist at startup
     # -- it needs a decrypted credential and an open socket, and neither belongs
     # here. Both kinds carry ``exchange`` and ``venues``, which is everything
     # this computation reads, so nothing is gained by forcing them together and
     # the pairs come out identical either way.
-    tradable_pools: frozenset[tuple[str, str]] = (
-        frozenset(
+    tradable_by_mode: Mapping[Mode, frozenset[tuple[str, str]]] = {
+        Mode.SIMULATION: frozenset(
             (fake.exchange, venue)
             for fake in fakes_by_exchange.values()
             for venue in fake.venues
-        )
-        if settings.dry_run
-        else frozenset(
+        ),
+        Mode.LIVE: frozenset(
             (adapter.exchange, venue)
             for adapter in registered
             for venue in adapter.venues
-        )
-    )
-    unserved = unserved_pools(served=tradable_pools, pools=pools)
-    if unserved:
-        logger.warning(
-            describe_unserved(
-                served=tradable_pools,
-                by=" + ".join(adapter.__name__ for adapter in registered),
-                unserved=unserved,
+        ),
+    }
+    served_by = {
+        Mode.SIMULATION: f"The simulated side ({FakeExchangeAdapter.__name__})",
+        Mode.LIVE: (
+            f"The live side ({' + '.join(adapter.__name__ for adapter in registered)})"
+        ),
+    }
+    for mode, served in tradable_by_mode.items():
+        unserved = unserved_pools(served=served, pools=pools)
+        if unserved:
+            logger.warning(
+                describe_unserved(served=served, by=served_by[mode], unserved=unserved)
             )
-        )
 
     # Built once at startup so a missing or malformed MASTER_ENCRYPTION_KEY
     # fails here rather than on the first job that needs a credential.
@@ -1386,10 +1394,10 @@ def build_worker_runner(
     # plaintext dies with the call (CLAUDE.md rule 8).
 
     @asynccontextmanager
-    async def exchange_for(
+    async def live_adapters_for(
         session: AsyncSession, user_id: UUID | None
-    ) -> AsyncIterator[ExchangeRegistryPort]:
-        """Every venue ``user_id`` can trade, built fresh for one job.
+    ) -> AsyncIterator[Sequence[ExchangePort]]:
+        """Every venue ``user_id`` can trade for real, built fresh for one job.
 
         ``user_id`` is the job's owner: the author of the strategy whose signal
         or attempt this job works on (multi-user design AD8, tasks.md B.5/B.7).
@@ -1423,12 +1431,8 @@ def build_worker_runner(
         The exit stack is what lets both HTTP clients nest and close in order,
         however many of them were actually opened.
         """
-        if settings.dry_run:
-            yield VenueExchangeRegistry(list(fakes_by_exchange.values()))
-            return
-
         if user_id is None:
-            yield VenueExchangeRegistry([])
+            yield []
             return
 
         vault = SqlAlchemyCredentialVault(session, cipher, SystemClock())
@@ -1460,7 +1464,9 @@ def build_worker_runner(
                 )
                 adapters.append(BinanceFuturesExchangeAdapter(binance_futures))
 
-            yield VenueExchangeRegistry(adapters)
+            yield adapters
+
+    exchanges_by_mode = ExchangesByMode(live=live_adapters_for, simulated=simulated_venues)
 
     @asynccontextmanager
     async def balance_refresh_reader_for(
@@ -1478,7 +1484,7 @@ def build_worker_runner(
         OWN pool's exchange -- which is not known until ``_handle_consumes``
         reads the strategy's policy, well after this context manager has to
         be entered. Building both exchanges' credentials/clients
-        UNCONDITIONALLY here, the way ``exchange_for`` above does for trade
+        UNCONDITIONALLY here, the way ``live_adapters_for`` above does for trade
         clients, would cost a close -- or a signal on the other exchange -- a
         credential problem it never needed. That is exactly the failure mode
         ``_vault_credential`` already exists to prevent for trade clients;
@@ -1557,7 +1563,7 @@ def build_worker_runner(
 
     @asynccontextmanager
     async def venue_net_position_reader_for(
-        session: AsyncSession, user_id: UUID | None
+        session: AsyncSession, user_id: UUID | None, mode: Mode
     ) -> AsyncIterator[VenuePositionReaderRegistryPort]:
         """The registry ``VenueNetPositionAdapter`` asks for the ONE pool the
         Existing-Position Guard's divergent branch actually reads -- built
@@ -1586,13 +1592,17 @@ def build_worker_runner(
         Per user, like ``balance_refresh_reader_for``: the venue position read
         is ``user_id``'s own account, with ``user_id``'s own key.
         """
-        if settings.dry_run:
+        if mode is Mode.SIMULATION:
             yield VenuePositionReaderRegistry(
-                [
+                []
+                if user_id is None
+                else [
                     FakeVenuePositionReader(
-                        exchange=fake.exchange, venues=fake.venues, book=fake_venue_book
+                        exchange=fake.exchange,
+                        venues=fake.venues,
+                        book=simulated_venues.book_of(user_id),
                     )
-                    for fake in fakes_by_exchange.values()
+                    for fake in simulated_venues.exchanges_of(user_id)
                 ]
             )
             return
@@ -1653,6 +1663,19 @@ def build_worker_runner(
                 )
             yield VenuePositionReaderRegistry(readers)
 
+    @asynccontextmanager
+    async def venue_readers_by_mode(
+        session: AsyncSession, user_id: UUID | None
+    ) -> AsyncIterator[Mapping[Mode, VenuePositionReaderRegistryPort]]:
+        """Both of them, since one user can hold in both (decision 26) and which
+        is read is known only per holding. Building them costs nothing: a real
+        reader decrypts only if its pool is actually read."""
+        async with (
+            venue_net_position_reader_for(session, user_id, Mode.LIVE) as live,
+            venue_net_position_reader_for(session, user_id, Mode.SIMULATION) as simulated,
+        ):
+            yield {Mode.LIVE: live, Mode.SIMULATION: simulated}
+
     async def handle_signal_process(job: ClaimedJob) -> None:
         """Fans the signal out to every eligible subscription (AD5, C.5/C.6). It
         places nothing, so it builds no exchange client and decrypts no key: each
@@ -1669,16 +1692,16 @@ def build_worker_runner(
             # unless the author is the subscriber (AD8, C.6).
             owner = await delivery_owner(session, delivery_id)
             async with (
-                exchange_for(session, owner) as exchanges,
+                exchanges_by_mode.for_job(session, owner) as job_exchanges,
                 balance_refresh_reader_for(session, owner) as balance_refresh_reader,
-                venue_net_position_reader_for(session, owner) as venue_position_readers,
+                venue_readers_by_mode(session, owner) as venue_position_readers,
             ):
                 handler, _ = _build_process_delivery(
                     session,
                     pool_set.by_key,
                     settings,
-                    exchanges,
-                    tradable_pools,
+                    job_exchanges,
+                    tradable_by_mode,
                     balance_refresh_reader,
                     venue_position_readers,
                 )
@@ -1718,16 +1741,16 @@ def build_worker_runner(
             owner = await delivery_owner(session, delivery_id)
             job = replace(job, payload={**job.payload, "delivery_id": str(delivery_id)})
             async with (
-                exchange_for(session, owner) as exchanges,
+                exchanges_by_mode.for_job(session, owner) as job_exchanges,
                 balance_refresh_reader_for(session, owner) as balance_refresh_reader,
-                venue_net_position_reader_for(session, owner) as venue_position_readers,
+                venue_readers_by_mode(session, owner) as venue_position_readers,
             ):
                 _, open_after_close = _build_process_delivery(
                     session,
                     pool_set.by_key,
                     settings,
-                    exchanges,
-                    tradable_pools,
+                    job_exchanges,
+                    tradable_by_mode,
                     balance_refresh_reader,
                     venue_position_readers,
                 )
@@ -1745,8 +1768,8 @@ def build_worker_runner(
                     f"execution attempt {attempt_id} has no owner: the attempt, its "
                     "reservation or its strategy is gone"
                 )
-            async with exchange_for(session, owner) as exchanges:
-                await _build_settle_execution(session, exchanges).settle(owner, attempt_id)
+            async with exchanges_by_mode.for_job(session, owner) as job_exchanges:
+                await _build_settle_execution(session, job_exchanges).settle(owner, attempt_id)
 
     async def handle_balance_sync(job: ClaimedJob) -> None:
         """One sync per exchange that has enabled pools AND an active vault
@@ -1897,8 +1920,11 @@ def build_worker_runner(
                 _track_degraded_exchanges(
                     _degraded, configured=coverage.configured, active=active
                 )
+                reconciled = await SqlAlchemyReconciledUsers(session).among(
+                    {owner for owner, _ in pool_set.by_key}
+                )
                 markets_by_user = _reconciliation_markets_per_user(
-                    pool_set.by_key, active, warn=True
+                    pool_set.by_key, active, reconciled, warn=True
                 )
 
             async with AsyncExitStack() as clients:
@@ -1984,10 +2010,13 @@ def build_worker_runner(
                 _track_degraded_exchanges(
                     _degraded, configured=coverage.configured, active=active
                 )
+                reconciled = await SqlAlchemyReconciledUsers(session).among(
+                    {owner for owner, _ in pool_set.by_key}
+                )
                 # The scan already warns about a user without a key; here the
                 # stand-in reader reports it per discrepancy.
                 markets_by_user = _reconciliation_markets_per_user(
-                    pool_set.by_key, active, warn=False
+                    pool_set.by_key, active, reconciled, warn=False
                 )
 
             async with AsyncExitStack() as clients:

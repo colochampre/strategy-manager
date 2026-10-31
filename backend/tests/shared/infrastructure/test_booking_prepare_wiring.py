@@ -217,7 +217,7 @@ def test_binance_balance_sync_signs_with_vault_key() -> None:
     body = source[source.index("async def handle_balance_sync") :]
     body = body[: body.index("async def handle_reservation_sweep")]
     opener = source[source.index("async def _open_balance_reader") :]
-    opener = opener[: opener.index("async def exchange_for")]
+    opener = opener[: opener.index("async def live_adapters_for")]
 
     assert "SqlAlchemyCredentialVault(" in body
     assert "for exchange in (BYBIT_EXCHANGE, BINANCE_EXCHANGE):" in body

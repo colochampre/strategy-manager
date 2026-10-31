@@ -14,11 +14,13 @@ Not built yet:
 
 - **The frontend.** Strategies view, dashboard and settings are still the Vite
   scaffold.
-- **Live trading by default.** `DRY_RUN` defaults to true, so
-  `FakeExchangeAdapter` is what gets registered and nothing reaches an
-  exchange. Live Bybit and Binance futures adapters exist and are registered
-  when `DRY_RUN=false`; the Pionex adapters are complete but deliberately not
-  registered, because Pionex offers no futures order placement over its API.
+- **Live trading by default.** `DRY_RUN` defaults to true, and it is a brake
+  for everyone: every opening runs in simulation against `FakeExchangeAdapter`,
+  while a real position already open still closes for real. With it false, each
+  user's mode decides, and a new user starts in simulation. The live Bybit and
+  Binance futures adapters are always registered; the Pionex adapters are
+  complete but deliberately not registered, because Pionex offers no futures
+  order placement over its API.
 
 See [the archived change](./openspec/changes/archive/2026-08-18-allocation-engine/archive-report.md)
 for what shipped, the decisions behind it, and the known gaps.

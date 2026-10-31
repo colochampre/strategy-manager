@@ -55,6 +55,8 @@ from strategy_manager.signals.infrastructure.order_outcome_recorder import (
 from strategy_manager.signals.infrastructure.outcome_repository import (
     SqlAlchemyDeliveryOutcomeAdapter,
 )
+from tests.allocation.fakes import RecordedModes
+from tests.execution.fakes import OneRegistry
 from tests.owner import OWNER_ID, ensure_delivery
 from tests.signals.infrastructure.conftest import (
     seed_execution_attempt,
@@ -111,8 +113,10 @@ def _place_order(
 ) -> PlaceOrder:
     return PlaceOrder(
         reservations=ReservationGatewayAdapter(SqlAlchemyReservationRepository(session)),
-        exchanges=VenueExchangeRegistry(
-            [exchange or FakeExchangeAdapter(exchange="bybit", fee_rate=Decimal("0"))]
+        exchanges=OneRegistry(
+            VenueExchangeRegistry(
+                [exchange or FakeExchangeAdapter(exchange="bybit", fee_rate=Decimal("0"))]
+            )
         ),
         attempts=SqlAlchemyExecutionAttemptRepository(session),
         queue=PostgresJobQueue(session, clock=_FixedClock()),
@@ -129,7 +133,8 @@ def _close_position(
     session: AsyncSession, commit: _FaultyCommit, exchange: FakeExchangeAdapter
 ) -> ClosePosition:
     return ClosePosition(
-        exchanges=VenueExchangeRegistry([exchange]),
+        exchanges=OneRegistry(VenueExchangeRegistry([exchange])),
+        allocation_modes=RecordedModes(),
         attempts=SqlAlchemyExecutionAttemptRepository(session),
         held=ReadHeldBase(SqlAlchemyLedgerRepository(session)),
         queue=PostgresJobQueue(session, clock=_FixedClock()),

@@ -27,6 +27,7 @@ from strategy_manager.execution.infrastructure.mode_origin_reader import (
 )
 from strategy_manager.ledger.application.record_fill import RecordFill
 from strategy_manager.ledger.infrastructure.repository import SqlAlchemyLedgerRepository
+from strategy_manager.shared.domain.mode import Mode
 from tests.ledger.infrastructure.conftest import (
     seed_execution_attempt,
     seed_reservation,
@@ -59,6 +60,7 @@ async def _seed_allocation(
     settlement_currency: str = "USDT",
     strategy_id: UUID | None = None,
     user_id: UUID = OWNER_ID,
+    mode: str = "LIVE",
 ) -> Allocation:
     signal_id = uuid4()
     allocation_id, attempt_id = uuid4(), uuid4()
@@ -87,6 +89,7 @@ async def _seed_allocation(
         settlement_currency=settlement_currency,
         status="FILLED",
         user_id=user_id,
+        mode=mode,
     )
     await seed_execution_attempt(
         session_factory,
@@ -149,6 +152,37 @@ async def _open_allocations(session_factory: async_sessionmaker[AsyncSession]) -
         return list(await SqlAlchemyModeOriginReader(session).open_allocations())
 
 
+async def test_a_simulated_book_is_seeded_from_rehearsal_fills_only(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """A simulated user's book must not start with their real position in it (AD7,
+    tasks.md E.3): a real close would then read as a ghost in simulation."""
+    factory = pg_session_factory
+    real = await _seed_allocation(factory)
+    await _record(factory, real, side="BUY", quantity="2", rehearsal=False)
+    simulated = await _seed_allocation(factory, strategy_id=real.strategy_id)
+    await _record(factory, simulated, side="BUY", quantity="3", rehearsal=True)
+    # A live id that merely contains the marker is a live id.
+    lookalike = await _seed_allocation(factory, strategy_id=real.strategy_id)
+    await _record(
+        factory,
+        lookalike,
+        side="BUY",
+        quantity="5",
+        rehearsal=False,
+        fill_id=f"live-{REHEARSAL_FILL_ID_PREFIX}1",
+    )
+
+    async with factory() as session:
+        positions = await SqlAlchemyLedgerRepository(session).net_positions_by_symbol(
+            OWNER_ID, "bybit", "usdt-m", "USDT", mode=Mode.SIMULATION
+        )
+
+    assert [(position.symbol, position.net_base) for position in positions] == [
+        ("SOLUSDT.P", Decimal("3"))
+    ]
+
+
 async def _in_flight(session_factory: async_sessionmaker[AsyncSession]) -> list:  # type: ignore[type-arg]
     async with session_factory() as session:
         return list(await SqlAlchemyModeOriginReader(session).in_flight_attempts())
@@ -167,7 +201,9 @@ async def _two_users_with_a_position_and_an_order_each(
         other = await seed_other_user(session)
         await session.commit()
     mine = await _seed_allocation(factory)
-    theirs = await _seed_allocation(factory, strategy_id=mine.strategy_id, user_id=other)
+    theirs = await _seed_allocation(
+        factory, strategy_id=mine.strategy_id, user_id=other, mode="SIMULATION"
+    )
     await _record(factory, mine, side="BUY", quantity="1", rehearsal=False, symbol="SOLUSDT.P")
     await _record(
         factory, theirs, side="BUY", quantity="2", rehearsal=True, symbol="SOLUSDT", user_id=other
@@ -236,6 +272,30 @@ async def test_without_a_user_both_reads_cover_every_user_as_the_workers_startup
 
     assert {row.allocation_id for row in allocations} == {mine.allocation_id, theirs.allocation_id}
     assert {row.attempt_id for row in attempts} == {my_order, their_order}
+
+
+async def test_each_row_carries_what_its_reservation_recorded(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """The guard compares these with the fills and asks a key of this user. A closing
+    attempt reads the mode of the allocation it unwinds."""
+    other, mine, theirs, my_order, their_order = await _two_users_with_a_position_and_an_order_each(
+        pg_session_factory
+    )
+
+    async with pg_session_factory() as session:
+        reader = SqlAlchemyModeOriginReader(session)
+        allocations = await reader.open_allocations()
+        attempts = await reader.in_flight_attempts()
+
+    assert {row.allocation_id: (row.user_id, row.mode) for row in allocations} == {
+        mine.allocation_id: (OWNER_ID, Mode.LIVE),
+        theirs.allocation_id: (other, Mode.SIMULATION),
+    }
+    assert {row.attempt_id: row.mode for row in attempts} == {
+        my_order: Mode.LIVE,
+        their_order: Mode.SIMULATION,
+    }
 
 
 # --- open allocations: the origin of their fills ---------------------------

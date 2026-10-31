@@ -30,6 +30,7 @@ from tests.ledger.infrastructure.conftest import (  # noqa: F401
     pg_engine,
     pg_session_factory,
 )
+from tests.owner import seed_user
 
 pytestmark = pytest.mark.integration
 
@@ -81,8 +82,34 @@ async def test_the_admin_is_told_who_they_are_and_the_brake(
     response = await client.get("/api/me", headers=ADMIN_HEADERS)
 
     assert response.status_code == 200
-    assert response.json() == {"email": ADMIN_EMAIL, "is_admin": True, "dry_run": dry_run}
+    assert response.json() == {
+        "email": ADMIN_EMAIL,
+        "is_admin": True,
+        "mode": "SIMULATION",
+        "dry_run_brake": dry_run,
+    }
     assert await _emails(factory) == [ADMIN_EMAIL]
+
+
+async def test_the_answer_is_the_users_stored_mode_even_under_the_brake(
+    client: AsyncClient,
+    factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The panel says simulation is forced from the two values together, so the
+    mode must not be rewritten into the effective one here."""
+    monkeypatch.setattr(get_settings(), "dry_run", True)
+    async with factory() as session:
+        user_id = await seed_user(session, ADMIN_EMAIL)
+        await session.execute(
+            text("UPDATE users SET mode = 'LIVE' WHERE id = :id"), {"id": user_id}
+        )
+        await session.commit()
+
+    response = await client.get("/api/me", headers=ADMIN_HEADERS)
+
+    assert response.json()["mode"] == "LIVE"
+    assert response.json()["dry_run_brake"] is True
 
 
 async def test_a_new_user_is_created_on_their_first_request_and_is_not_admin(

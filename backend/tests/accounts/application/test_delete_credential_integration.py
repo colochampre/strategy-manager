@@ -86,7 +86,12 @@ from tests.accounts.pool_seed import (
     seed_strategy,
     set_strategy_enabled,
 )
-from tests.allocation.fakes import AlwaysEnabledPool, RecordingSkipRecorder
+from tests.allocation.fakes import (
+    AlwaysEnabledPool,
+    AnyKeyTrades,
+    FixedUserMode,
+    RecordingSkipRecorder,
+)
 from tests.ledger.infrastructure.conftest import (  # noqa: F401
     pg_engine,
     pg_session_factory,
@@ -671,6 +676,8 @@ def _allocator(session: AsyncSession, policy: Any, commit: Any) -> AllocateCapit
         reservation_ttl_seconds=30,
         skip_recorder=RecordingSkipRecorder(),
         pool_status=AlwaysEnabledPool(),
+        user_mode=FixedUserMode(),
+        trade_capability=AnyKeyTrades(),
     )
 
 

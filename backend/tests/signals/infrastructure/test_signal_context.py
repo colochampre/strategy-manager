@@ -16,6 +16,7 @@ from decimal import Decimal
 from uuid import UUID, uuid4
 
 from strategy_manager.allocation.domain.reservation import Reservation, ReservationStatus
+from strategy_manager.shared.domain.mode import Mode
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 from strategy_manager.signals.application.process_signal import Delivery
 from strategy_manager.signals.domain.signal import IdempotencyKey, SignalStatus, WebhookSignal
@@ -141,6 +142,7 @@ def _reservation(reservation_id: UUID, strategy_id: UUID, signal_id: UUID) -> Re
         ),
         amount=Decimal("100"),
         status=ReservationStatus.PENDING,
+        mode=Mode.LIVE,
         expires_at=RECEIVED_AT,
     )
 

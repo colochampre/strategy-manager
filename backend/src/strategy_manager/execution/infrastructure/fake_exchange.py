@@ -288,6 +288,10 @@ class FakeExchangeAdapter:
         return self._fee_rate
 
     @property
+    def book(self) -> FakeVenueBook | None:
+        return self._book
+
+    @property
     def fixed_fill_price(self) -> Decimal | None:
         """The price every order fills at, or ``None`` when each order fills at
         the price of its own alert (the production mode)."""

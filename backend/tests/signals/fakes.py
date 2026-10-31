@@ -4,8 +4,14 @@ tasks.md C.7) and ``TradeCapabilityPort`` (decisions 18 and 20)."""
 from dataclasses import dataclass, field
 from uuid import UUID
 
-from strategy_manager.signals.application.ports import TradeCapability
+from strategy_manager.shared.domain.mode import Mode
+from strategy_manager.shared.domain.trade_capability import TradeCapability
 from strategy_manager.signals.domain.outcome import SignalOutcome
+
+
+def in_both_modes[T](value: T) -> dict[Mode, T]:
+    """``tradable_pools`` or a venue read for a test that is not about the mode."""
+    return {mode: value for mode in Mode}
 
 
 @dataclass

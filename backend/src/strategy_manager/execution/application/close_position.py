@@ -44,9 +44,9 @@ from strategy_manager.execution.application.ports import (
     CloseOrderSpec,
     CommitPort,
     ExchangeError,
-    ExchangeRegistryPort,
     ExecutionAttemptRepositoryPort,
     HeldPositionPort,
+    ModeExchangesPort,
     OrderNotPlaceable,
     OrderOutcomeRecorderPort,
 )
@@ -58,7 +58,11 @@ from strategy_manager.execution.domain.execution_attempt import (
 from strategy_manager.execution.domain.market_symbol import base_currency_of
 from strategy_manager.execution.domain.order import OrderSide
 from strategy_manager.shared.application.job import Job, JobKind
-from strategy_manager.shared.application.ports import ClockPort, JobQueuePort
+from strategy_manager.shared.application.ports import (
+    AllocationModePort,
+    ClockPort,
+    JobQueuePort,
+)
 from strategy_manager.shared.domain.errors import InvariantViolation
 
 logger = logging.getLogger(__name__)
@@ -137,7 +141,8 @@ class ClosePosition:
 
     def __init__(
         self,
-        exchanges: ExchangeRegistryPort,
+        exchanges: ModeExchangesPort,
+        allocation_modes: AllocationModePort,
         attempts: ExecutionAttemptRepositoryPort,
         held: HeldPositionPort,
         queue: JobQueuePort,
@@ -147,6 +152,7 @@ class ClosePosition:
         outcomes: OrderOutcomeRecorderPort,
     ) -> None:
         self._exchanges = exchanges
+        self._allocation_modes = allocation_modes
         self._attempts = attempts
         self._held = held
         self._queue = queue
@@ -176,7 +182,12 @@ class ClosePosition:
         now = self._clock.now()
         client_order_id = str(uuid4())
         attempt_id = uuid4()
-        exchange = self._exchanges.for_pool(command.exchange, command.venue)
+        # The mode the allocation opened in, never the brake or the user's mode of
+        # the moment: a real position closes for real under the brake (decision
+        # 14), and a simulated one in simulation after the user went live (26).
+        mode = await self._allocation_modes.mode_of(command.user_id, command.allocation_id)
+        exchanges = await self._exchanges.for_mode(mode)
+        exchange = exchanges.for_pool(command.exchange, command.venue)
         try:
             order = await exchange.build_close_order(
                 CloseOrderSpec(

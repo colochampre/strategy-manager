@@ -14,9 +14,9 @@ afterEach(async () => {
 const AMBER = /\b(?:bg|text|border|ring|outline|fill|stroke|divide)-decision\b/;
 
 const READ_ONLY_SENTENCE =
-  "This key cannot trade. With dry run off, opening signals for Bybit are refused until you add a key that can trade futures.";
+  "This key cannot trade. In live mode, opening signals for Bybit are refused until you add a key that can trade futures.";
 const DEGRADED_SENTENCE =
-  "No key stored. With dry run off, opening signals for Binance are refused until a key is added.";
+  "No key stored. In live mode, opening signals for Binance are refused until a key is added.";
 const EMPTY_SENTENCE = "No key stored. Add one to read and trade on Binance from here.";
 const NOT_SERVED_SENTENCE =
   "The Pionex key is managed outside this panel, on the server. It cannot be added, replaced or deleted here.";

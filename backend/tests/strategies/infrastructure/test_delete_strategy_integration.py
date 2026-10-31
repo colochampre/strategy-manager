@@ -374,6 +374,7 @@ def _ledger_entry_of(strategy_id: UUID, other: UUID, pool_id: int) -> list[objec
         settlement_currency=currency,
         amount=Decimal("10"),
         status="PENDING",
+        mode="LIVE",
         expires_at=datetime.now(UTC) + timedelta(hours=1),
     )
     attempt_id = uuid4()

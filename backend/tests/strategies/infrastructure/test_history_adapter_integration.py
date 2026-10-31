@@ -182,6 +182,7 @@ def _reservation(
         settlement_currency=currency,
         amount=Decimal("10"),
         status=status,
+        mode="LIVE",
         expires_at=datetime.now(UTC) + timedelta(hours=1),
     )
 

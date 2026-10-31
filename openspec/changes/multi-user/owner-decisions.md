@@ -173,4 +173,10 @@ These come from the owner's own words above. They are not asked again.
     - The last four characters let the author tell which secret an alert carries, for instance after regenerating. They reveal 4 of 43 characters.
     - Existing strategies get the last four of today's `WEBHOOK_SECRET`, as 0033 gave them its hash.
 
+26. **Moving to live is allowed with simulated positions open, and capital is counted per mode (PR E planning, 2026-10-30).** A position closes in the mode it opened in, so a user can go live while simulated positions wait days for their close signal, and the design said nothing about it. The owner chose "Dale, si. Lo que recomendas" to allowing the move and separating the capital, over refusing it until no simulated position is left.
+    - The move takes effect at once. Simulated positions run until they close, in simulation.
+    - `sum_active` counts only reservations of the mode being allocated: a simulated reservation never shrinks a real order, and a real one never shrinks a simulated order. Both read the same real balance (decision 13).
+    - The user can hold real and simulated positions at the same time until the simulated ones close.
+    - The reverse stays as decision 6 says: moving back to simulation is refused while the user holds anything real.
+
 11. **The existing data becomes the owner's (Q10, 2026-10-21; a default, stated rather than asked).** The owner becomes the first user and the admin, and owns today's strategies, keys, pools, ledger and signals. Nothing already recorded changes owner or meaning. The migration that adds the owner column fills it with the owner's user for every existing row. Like every migration, it is rehearsed on a throwaway copy first.

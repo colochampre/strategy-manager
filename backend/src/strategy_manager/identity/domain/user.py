@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from uuid import UUID
 
+from strategy_manager.shared.domain.mode import Mode
+
 
 class InvalidEmailError(ValueError):
     pass
@@ -32,3 +34,6 @@ class User:
     email: str
     created_at: datetime
     last_seen_at: datetime
+    # The user's own mode (migration ``0035``); the brake over everyone is applied
+    # on top of it, never stored here.
+    mode: Mode

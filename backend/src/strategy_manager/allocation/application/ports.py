@@ -15,6 +15,8 @@ from uuid import UUID
 
 from strategy_manager.allocation.domain.lock_key import LockKey
 from strategy_manager.allocation.domain.reservation import Reservation, ReservationStatus
+from strategy_manager.shared.domain.mode import Mode
+from strategy_manager.shared.domain.trade_capability import TradeCapability
 
 
 @dataclass(frozen=True, slots=True)
@@ -137,6 +139,35 @@ class PoolStatusPort(Protocol):
     ) -> bool: ...
 
 
+class UserModePort(Protocol):
+    """The mode an opening runs in for ``user_id``: ``LIVE`` only with the brake
+    off and the user ``LIVE`` (multi-user design AD7, decisions 6 and 14).
+
+    ``AllocateCapital`` calls it inside the pool advisory lock, before anything is
+    decided or written (lock order: advisory lock first, then row locks).
+    Implementations MUST read the user row ``FOR SHARE``: a flip to simulation
+    takes that row ``FOR UPDATE`` after checking the user is flat, so it either
+    waits for this opening to commit or lands first and this opening runs in
+    simulation. Either way a real reservation never appears after the flat check
+    passed. A plain read could see the mode from before the flip.
+
+    The read is committed state of one row, never a remote call."""
+
+    async def effective_mode(self, user_id: UUID) -> Mode: ...
+
+
+class TradeCapabilityPort(Protocol):
+    """Whether ``user_id``'s active key on the exchange can trade, from the value
+    recorded when it was saved (decisions 18 and 20).
+
+    ``AllocateCapital`` asks inside the pool advisory lock, for a LIVE opening:
+    ``DeleteCredential`` deactivates a key under that same lock, and the signal
+    path's own check ran before the wait. MUST be a plain read with no row lock
+    and no remote call."""
+
+    async def capability(self, user_id: UUID, exchange: str) -> TradeCapability: ...
+
+
 class AdvisoryLockPort(Protocol):
     """MUST run on the same session/connection as the reservation write, MUST
     be inside an open transaction, and MUST be released only by that
@@ -159,6 +190,7 @@ class ReservationRepositoryPort(Protocol):
         exchange: str,
         venue: str,
         settlement_currency: str,
+        mode: Mode,
         now: datetime,
     ) -> Decimal: ...
 

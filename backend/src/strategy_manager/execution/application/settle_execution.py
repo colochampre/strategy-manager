@@ -25,11 +25,11 @@ from uuid import UUID
 
 from strategy_manager.execution.application.ports import (
     CommitPort,
-    ExchangeRegistryPort,
     ExecutionAttemptRepositoryPort,
     FillRecord,
     FillRecorderPort,
     LeavingSubscriptionPort,
+    ModeExchangesPort,
     OrderNotFound,
     PoolLockPort,
     ReservationGatewayPort,
@@ -40,7 +40,11 @@ from strategy_manager.execution.domain.execution_attempt import (
     ExecutionStatus,
 )
 from strategy_manager.execution.domain.fill import Fill
-from strategy_manager.shared.application.ports import ClockPort, UsdRateProviderPort
+from strategy_manager.shared.application.ports import (
+    AllocationModePort,
+    ClockPort,
+    UsdRateProviderPort,
+)
 from strategy_manager.shared.domain.money import Currency
 
 logger = logging.getLogger(__name__)
@@ -69,7 +73,8 @@ class SettleExecution:
     def __init__(
         self,
         reservations: ReservationGatewayPort,
-        exchanges: ExchangeRegistryPort,
+        exchanges: ModeExchangesPort,
+        allocation_modes: AllocationModePort,
         attempts: ExecutionAttemptRepositoryPort,
         fill_recorder: FillRecorderPort,
         usd_rate_provider: UsdRateProviderPort,
@@ -83,6 +88,7 @@ class SettleExecution:
         self._leaving = leaving
         self._reservations = reservations
         self._exchanges = exchanges
+        self._allocation_modes = allocation_modes
         self._attempts = attempts
         self._fill_recorder = fill_recorder
         self._usd_rate_provider = usd_rate_provider
@@ -107,8 +113,12 @@ class SettleExecution:
                 status="ALREADY_SETTLED", execution_attempt_id=attempt_id
             )
 
+        # The order went where its allocation's mode sent it. Asking the other side
+        # would answer "not found", and that releases a position that exists.
+        mode = await self._allocation_modes.mode_of(user_id, attempt.allocation_id)
+        exchanges = await self._exchanges.for_mode(mode)
         try:
-            fills = await self._exchanges.for_pool(
+            fills = await exchanges.for_pool(
                 attempt.exchange, attempt.venue
             ).fetch_fills(attempt.client_order_id, attempt.symbol)
         except OrderNotFound:

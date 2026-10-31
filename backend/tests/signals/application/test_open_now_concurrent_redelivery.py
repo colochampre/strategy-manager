@@ -84,6 +84,7 @@ from strategy_manager.execution.infrastructure.repository import (
 from strategy_manager.ledger.application.read_symbol_holdings import ReadSymbolHoldings
 from strategy_manager.ledger.application.record_fill import RecordFill
 from strategy_manager.ledger.infrastructure.repository import SqlAlchemyLedgerRepository
+from strategy_manager.shared.domain.mode import Mode
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 from strategy_manager.signals.application.holding_guard import HoldingGuard
 from strategy_manager.signals.application.process_signal import (
@@ -100,10 +101,16 @@ from strategy_manager.signals.infrastructure.repository import SqlAlchemySignalR
 from strategy_manager.signals.infrastructure.signal_context import SignalContextAdapter
 from strategy_manager.strategies.application.policy_adapter import StrategyPolicyAdapter
 from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStrategyRepository
-from tests.allocation.fakes import AlwaysEnabledPool, RecordingSkipRecorder
-from tests.execution.fakes import RecordingOrderOutcomes
+from tests.allocation.fakes import (
+    AlwaysEnabledPool,
+    AnyKeyTrades,
+    FixedUserMode,
+    RecordedModes,
+    RecordingSkipRecorder,
+)
+from tests.execution.fakes import OneRegistry, RecordingOrderOutcomes
 from tests.owner import OWNER_ID, ensure_delivery, ensure_pool, seed_snapshot
-from tests.signals.fakes import FakeTradeCapability, RecordingSignalOutcomes
+from tests.signals.fakes import FakeTradeCapability, RecordingSignalOutcomes, in_both_modes
 from tests.signals.infrastructure.conftest import seed_strategy
 from tests.subscriptions.infrastructure import seeds
 
@@ -209,9 +216,12 @@ class RaceSyncedReservations:
         exchange: str,
         venue: str,
         settlement_currency: str,
+        mode: Mode,
         now: datetime,
     ) -> Decimal:
-        return await self._inner.sum_active(user_id, exchange, venue, settlement_currency, now)
+        return await self._inner.sum_active(
+            user_id, exchange, venue, settlement_currency, mode, now
+        )
 
     async def insert(self, user_id: UUID, reservation: Reservation) -> None:
         await self._inner.insert(user_id, reservation)
@@ -339,6 +349,7 @@ async def _seed_settled_flat_holding(
                 # reads as in flight -- the deferral branch is not what this
                 # test is about.
                 status=ReservationStatus.FILLED,
+                mode=Mode.LIVE,
                 expires_at=START - timedelta(minutes=30),
             )
         )
@@ -434,7 +445,8 @@ def _build_handler(
             in_flight_work=InFlightWorkAdapter(
                 attempts=attempts_repository, reservations=own_reservations
             ),
-            venue_net_position=NeverCalledVenueNetPosition(),  # type: ignore[arg-type]
+            venue_net_position=in_both_modes(NeverCalledVenueNetPosition()),  # type: ignore[arg-type]
+            allocation_modes=RecordedModes(),
             clock=clock,
             delayed_open_max_signal_age_seconds=600.0,
         ),
@@ -458,10 +470,12 @@ def _build_handler(
             reservation_ttl_seconds=RESERVATION_TTL_SECONDS,
             skip_recorder=RecordingSkipRecorder(),
             pool_status=AlwaysEnabledPool(),
+            user_mode=FixedUserMode(),
+            trade_capability=AnyKeyTrades(),
         ),
         place_order=PlaceOrder(
             reservations=ReservationGatewayAdapter(own_reservations),
-            exchanges=registry,
+            exchanges=OneRegistry(registry),
             attempts=attempts_repository,
             queue=_NullQueue(),  # type: ignore[arg-type]
             clock=clock,
@@ -474,9 +488,11 @@ def _build_handler(
         commit=session,
         closing_attempts=attempts_repository,
         close_orphans=NeverCalledCloseOrphans(),
-        tradable_pools=frozenset({("bybit", "usdt-m")}),
+        tradable_pools=in_both_modes(frozenset({("bybit", "usdt-m")})),
         outcomes=RecordingSignalOutcomes(),
         trade_capability=FakeTradeCapability(),
+        user_mode=FixedUserMode(),
+        allocation_modes=RecordedModes(),
     )
 
 

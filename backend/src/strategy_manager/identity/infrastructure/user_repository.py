@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from strategy_manager.identity.domain.user import User
 from strategy_manager.identity.infrastructure.models import UserRow
+from strategy_manager.shared.domain.mode import Mode
 
 
 class SqlAlchemyUserRepository:
@@ -37,8 +38,22 @@ class SqlAlchemyUserRepository:
             update(UserRow).where(UserRow.id == user_id).values(last_seen_at=now)
         )
 
+    async def lock_for_mode_change(self, user_id: UUID) -> None:
+        await self._session.execute(
+            select(UserRow.id).where(UserRow.id == user_id).with_for_update()
+        )
+
+    async def set_mode(self, user_id: UUID, mode: Mode) -> None:
+        await self._session.execute(
+            update(UserRow).where(UserRow.id == user_id).values(mode=mode.value)
+        )
+
 
 def _to_domain(row: UserRow) -> User:
     return User(
-        id=row.id, email=row.email, created_at=row.created_at, last_seen_at=row.last_seen_at
+        id=row.id,
+        email=row.email,
+        created_at=row.created_at,
+        last_seen_at=row.last_seen_at,
+        mode=Mode(row.mode),
     )

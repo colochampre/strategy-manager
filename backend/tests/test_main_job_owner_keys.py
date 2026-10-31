@@ -26,8 +26,10 @@ from strategy_manager import main
 from strategy_manager.accounts.domain.exchange_credential import ExchangeCredential, KeyFacts
 from strategy_manager.accounts.domain.pool_config import PoolConfig
 from strategy_manager.accounts.infrastructure.credential_vault import SqlAlchemyCredentialVault
+from strategy_manager.execution.application.ports import ModeExchangesPort
 from strategy_manager.shared.application.job import ClaimedJob, JobKind
 from strategy_manager.shared.config import get_settings
+from strategy_manager.shared.domain.mode import Mode
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 from strategy_manager.shared.infrastructure.clock import SystemClock
 from strategy_manager.shared.infrastructure.crypto import MASTER_KEY_BYTES, EnvelopeCipher
@@ -149,11 +151,17 @@ async def test_a_settle_job_trades_with_the_attempts_author_key_never_another_us
     _, attempt_id, other = await _the_other_users_signal(pg_session_factory, recorded.master_key)
 
     class _Settle:
+        def __init__(self, exchanges: ModeExchangesPort) -> None:
+            self._exchanges = exchanges
+
         async def settle(self, user_id: UUID, attempt: UUID) -> None:
+            await self._exchanges.for_mode(Mode.LIVE)
             recorded.settled_as.append(user_id)
             recorded.handled.append(attempt)
 
-    monkeypatch.setattr(main, "_build_settle_execution", lambda session, exchanges: _Settle())
+    monkeypatch.setattr(
+        main, "_build_settle_execution", lambda session, exchanges: _Settle(exchanges)
+    )
     runner = main.build_worker_runner([_BYBIT_POOL], session_factory_override=pg_session_factory)
 
     await runner._handlers[JobKind.EXECUTION_SETTLE](  # noqa: SLF001
@@ -233,11 +241,17 @@ async def test_a_delivery_job_trades_with_the_subscribers_key_never_the_strategy
     )
 
     class _Handler:
+        def __init__(self, exchanges: ModeExchangesPort) -> None:
+            self._exchanges = exchanges
+
         async def handle(self, delivery: UUID, halves: object) -> None:
+            await self._exchanges.for_mode(Mode.LIVE)
             recorded.handled.append((delivery, halves))
 
     monkeypatch.setattr(
-        main, "_build_process_delivery", lambda *args, **kwargs: (_Handler(), None)
+        main,
+        "_build_process_delivery",
+        lambda session, pools, settings, exchanges, *rest: (_Handler(exchanges), None),
     )
     runner = main.build_worker_runner([_BYBIT_POOL], session_factory_override=pg_session_factory)
 
@@ -272,22 +286,32 @@ async def test_a_delivery_job_without_halves_hands_the_handler_none_not_a_defaul
     )
 
     assert recorded.handled == [(delivery_id, None)]
+    # This handler asked for no mode, so nothing was decrypted (E.5): a job opens an
+    # adapter only once it knows which side it runs on.
+    assert recorded.signed_with == []
 
 
 class _Continuation:
     """Stands in for ``OpenAfterClose``: records the job it is polled with and the
-    owner it is polled as."""
+    owner it is polled as, and opens that job's exchanges as an opening would."""
 
-    def __init__(self, seen: _Recorded) -> None:
+    def __init__(self, seen: _Recorded, exchanges: ModeExchangesPort) -> None:
         self._seen = seen
+        self._exchanges = exchanges
 
     async def poll(self, job: ClaimedJob, owner: UUID | None) -> None:
+        await self._exchanges.for_mode(Mode.LIVE)
         self._seen.handled.append((job.payload.get("delivery_id"), owner))
 
 
 def _use_continuation(monkeypatch: pytest.MonkeyPatch, seen: _Recorded) -> None:
     monkeypatch.setattr(
-        main, "_build_process_delivery", lambda *args, **kwargs: (None, _Continuation(seen))
+        main,
+        "_build_process_delivery",
+        lambda session, pools, settings, exchanges, *rest: (
+            None,
+            _Continuation(seen, exchanges),
+        ),
     )
 
 

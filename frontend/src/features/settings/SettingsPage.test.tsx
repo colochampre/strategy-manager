@@ -528,7 +528,7 @@ const PENDING_NOTICE = `${SAVED_NOTICE} The rest of this card appears when the l
 const SAVED_NOTICE_PATTERN = /^Key (ending in \w+ )?saved\./;
 const STALE_LINE ="This list could not be refreshed and may be out of date.";
 const READ_ONLY_BYBIT =
-  "This key cannot trade. With dry run off, opening signals for Bybit are refused until you add a key that can trade futures.";
+  "This key cannot trade. In live mode, opening signals for Bybit are refused until you add a key that can trade futures.";
 const WITHDRAWALS_LABEL = "I confirmed in Binance that this key has withdrawals disabled";
 const FUTURES_LABEL = "I confirmed in Binance that this key has Enable Futures";
 

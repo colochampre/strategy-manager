@@ -209,8 +209,17 @@ def test_reconciliation_scan_gates_on_the_active_key_listing() -> None:
     # registered reader would raise UnservedPoolError), then one ScanPools per
     # user behind the single handler (AD10).
     assert "_reconciliation_markets_per_user(" in body
+    assert "SqlAlchemyReconciledUsers(session).among(" in body
+    assert "pool_set.by_key, active, reconciled, warn=True" in body
     assert "ScanUsers(scans)" in body
     assert "_user_position_readers(" in body
+
+
+def test_the_booking_sweep_skips_the_same_users_as_the_scan() -> None:
+    body = _sliced("async def handle_reconciliation_prepare_booking", "async def handle_jobs_purge")
+
+    assert "SqlAlchemyReconciledUsers(session).among(" in body
+    assert "pool_set.by_key, active, reconciled, warn=False" in body
 
 
 # --- reconciliation per user's pool (multi-user design AD10, tasks.md B.8) ---
@@ -231,10 +240,34 @@ def test_two_users_on_one_market_are_both_scanned() -> None:
     per_user = main._reconciliation_markets_per_user(
         by_key,  # type: ignore[arg-type]
         active,
+        frozenset({OWNER_ID, OTHER_ID}),
         warn=True,
     )
 
     assert per_user == {OWNER_ID: [BYBIT_MARKET], OTHER_ID: [BYBIT_MARKET]}
+
+
+def test_a_simulated_user_with_nothing_real_is_not_scanned(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Skipped before the key is asked for: such a user holds nothing to compare,
+    and a missing key is no reason to warn about them (AD7, tasks.md E.6)."""
+    by_key: dict[tuple[UUID, tuple[str, str, str]], object] = {
+        (OWNER_ID, BYBIT_MARKET): object(),
+        (OTHER_ID, BYBIT_MARKET): object(),
+        (OTHER_ID, BINANCE_MARKET): object(),
+    }
+
+    with caplog.at_level(logging.WARNING, logger="strategy_manager.main"):
+        per_user = main._reconciliation_markets_per_user(
+            by_key,  # type: ignore[arg-type]
+            frozenset({(OWNER_ID, "bybit"), (OTHER_ID, "bybit")}),
+            frozenset({OWNER_ID}),
+            warn=True,
+        )
+
+    assert per_user == {OWNER_ID: [BYBIT_MARKET]}
+    assert caplog.records == []
 
 
 def test_a_user_with_a_pool_but_no_key_is_skipped_with_a_warning_and_the_others_still_scan(
@@ -252,6 +285,7 @@ def test_a_user_with_a_pool_but_no_key_is_skipped_with_a_warning_and_the_others_
         per_user = main._reconciliation_markets_per_user(
             by_key,  # type: ignore[arg-type]
             active,
+            frozenset({OWNER_ID, keyless_binance}),
             warn=True,
         )
 
@@ -274,6 +308,7 @@ def test_the_booking_sweep_does_not_repeat_the_scans_warning(
         per_user = main._reconciliation_markets_per_user(
             by_key,  # type: ignore[arg-type]
             frozenset(),
+            frozenset({OTHER_ID}),
             warn=False,
         )
 

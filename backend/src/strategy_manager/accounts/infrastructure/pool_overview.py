@@ -7,7 +7,8 @@ repository.py), the very query ``AllocateCapital`` runs under the pool lock
 (allocation/application/allocate_capital.py, ``reserved_active``): reservations
 of the pool in PENDING or SUBMITTED whose ``expires_at`` is still in the future.
 Reusing the method means the panel and the allocator cannot disagree about what
-is reserved.
+is reserved. It takes the mode the user's next opening would run in, since capital
+is counted per mode (decision 26).
 
 **Every pool, enabled or not.** ``capital_pools`` is the source of truth for
 which pools exist; a disabled one is listed with ``enabled=false`` so the panel
@@ -42,6 +43,7 @@ from strategy_manager.accounts.infrastructure.models import (
 )
 from strategy_manager.allocation.infrastructure.repository import SqlAlchemyReservationRepository
 from strategy_manager.shared.application.ports import ClockPort
+from strategy_manager.shared.domain.mode import Mode
 
 
 class SqlAlchemyPoolOverview:
@@ -52,7 +54,7 @@ class SqlAlchemyPoolOverview:
         self._clock = clock
         self._max_age = timedelta(seconds=snapshot_max_age_seconds)
 
-    async def list_pools(self, user_id: UUID) -> list[PoolOverview]:
+    async def list_pools(self, user_id: UUID, mode: Mode) -> list[PoolOverview]:
         now = self._clock.now()
         rows = (
             await self._session.execute(
@@ -74,7 +76,7 @@ class SqlAlchemyPoolOverview:
         pools: list[PoolOverview] = []
         for pool, snapshot in rows:
             reserved = await reservations.sum_active(
-                user_id, pool.exchange, pool.venue, pool.settlement_currency, now
+                user_id, pool.exchange, pool.venue, pool.settlement_currency, mode, now
             )
             balance = (
                 None

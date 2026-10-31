@@ -31,6 +31,7 @@ from strategy_manager.allocation.domain.reservation import (
 )
 from strategy_manager.allocation.infrastructure.models import ReservationRow
 from strategy_manager.shared.domain.errors import InvariantViolation
+from strategy_manager.shared.domain.mode import Mode
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 
 _ACTIVE_STATUSES = (ReservationStatus.PENDING.value, ReservationStatus.SUBMITTED.value)
@@ -48,6 +49,7 @@ def _to_domain(row: ReservationRow) -> Reservation:
         ),
         amount=row.amount,
         status=ReservationStatus(row.status),
+        mode=Mode(row.mode),
         expires_at=row.expires_at,
         created_at=row.created_at,
         updated_at=row.updated_at,
@@ -94,16 +96,20 @@ class SqlAlchemyReservationRepository:
         exchange: str,
         venue: str,
         settlement_currency: str,
+        mode: Mode,
         now: datetime,
     ) -> Decimal:
-        """What ``user_id``'s pool on this market has reserved: another user's
-        reservations on the same market hold that user's capital, not this one's."""
+        """What ``user_id``'s pool on this market has reserved IN ``mode``:
+        another user's reservations on the same market hold that user's capital,
+        not this one's, and a simulated reservation never holds real capital nor
+        a real one simulated (decision 26)."""
         result = await self._session.execute(
             select(func.coalesce(func.sum(ReservationRow.amount), 0)).where(
                 ReservationRow.user_id == user_id,
                 ReservationRow.exchange == exchange,
                 ReservationRow.venue == venue,
                 ReservationRow.settlement_currency == settlement_currency,
+                ReservationRow.mode == mode.value,
                 ReservationRow.status.in_(_ACTIVE_STATUSES),
                 ReservationRow.expires_at > now,
             )
@@ -152,6 +158,7 @@ class SqlAlchemyReservationRepository:
                 settlement_currency=reservation.pool_key.settlement_currency.value,
                 amount=reservation.amount,
                 status=reservation.status.value,
+                mode=reservation.mode.value,
                 expires_at=reservation.expires_at,
                 pool_total_at_open=reservation.pool_total_at_open,
             )

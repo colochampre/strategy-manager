@@ -12,6 +12,8 @@ from typing import Protocol
 from uuid import UUID
 
 from strategy_manager.shared.domain.errors import DomainError
+from strategy_manager.shared.domain.mode import Mode
+from strategy_manager.shared.domain.trade_capability import TradeCapability
 from strategy_manager.signals.domain.holding import HeldAllocation
 from strategy_manager.signals.domain.outcome import SignalOutcome
 from strategy_manager.signals.domain.signal import WebhookSignal
@@ -323,30 +325,26 @@ class VenueNetPositionPort(Protocol):
     async def net_position(self, pool: PoolKey, symbol: str) -> Decimal | None: ...
 
 
-class TradeCapability(Enum):
-    """What the signal path knows about an exchange's active key before it
-    lets an OPENING signal through (decisions 18 and 20, design.md § 4a).
+class CurrentModePort(Protocol):
+    """The mode an opening would run in right now: what the pre-checks go by.
 
-    TRADE_CAPABLE: the active key can place orders (or is assumed to under
-    DRY_RUN, where nothing is placed). READ_ONLY: an active key exists but
-    cannot trade. NO_KEY: the exchange has no active key at all -- never
-    keyed, or deleted (decision 22)."""
+    MUST be a plain read, never ``FOR SHARE``: the pre-checks run ahead of the
+    pool's advisory lock, and a row lock taken there would invert the lock order.
+    So the answer can go stale; ``AllocateCapital`` decides the mode in the lock
+    and compares it with this one."""
 
-    TRADE_CAPABLE = "TRADE_CAPABLE"
-    READ_ONLY = "READ_ONLY"
-    NO_KEY = "NO_KEY"
+    async def current_mode(self, user_id: UUID) -> Mode: ...
 
 
 class TradeCapabilityPort(Protocol):
     """Whether an exchange's active key can trade, answered from the value
     recorded when the key was saved -- never from the venue and never by
     decrypting anything, because it sits on the signal path ahead of the
-    pool's advisory lock (design.md § 4a).
+    pool's advisory lock (design.md § 4a). Asked only for a live opening:
+    simulation needs no key that can trade (decision 13).
 
     Implemented by
-    ``accounts.infrastructure.trade_capability_adapter``:
-    ``VaultTradeCapabilityAdapter`` for a live worker and
-    ``DryRunTradeCapability`` under ``DRY_RUN``."""
+    ``accounts.infrastructure.trade_capability_adapter.VaultTradeCapabilityAdapter``."""
 
     async def capability(self, user_id: UUID, exchange: str) -> TradeCapability:
         """``user_id``'s active key on the exchange: the strategy author's, on

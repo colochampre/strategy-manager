@@ -37,8 +37,8 @@ from uuid import UUID, uuid4
 from strategy_manager.execution.application.ports import (
     CommitPort,
     ExchangeError,
-    ExchangeRegistryPort,
     ExecutionAttemptRepositoryPort,
+    ModeExchangesPort,
     OpenOrderSpec,
     OrderNotPlaceable,
     OrderOutcomeRecorderPort,
@@ -102,7 +102,7 @@ class PlaceOrder:
     def __init__(
         self,
         reservations: ReservationGatewayPort,
-        exchanges: ExchangeRegistryPort,
+        exchanges: ModeExchangesPort,
         attempts: ExecutionAttemptRepositoryPort,
         queue: JobQueuePort,
         clock: ClockPort,
@@ -159,7 +159,8 @@ class PlaceOrder:
         # can report. So this call may reach the network -- which is exactly
         # why it happens here, before the transaction's writes, and not
         # inside them.
-        exchange = self._exchanges.for_pool(reservation.exchange, reservation.venue)
+        exchanges = await self._exchanges.for_mode(reservation.mode)
+        exchange = exchanges.for_pool(reservation.exchange, reservation.venue)
         try:
             order = await exchange.build_open_order(
                 OpenOrderSpec(

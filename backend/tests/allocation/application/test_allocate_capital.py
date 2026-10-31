@@ -15,6 +15,7 @@ from strategy_manager.allocation.application.allocate_capital import (
     AllocateCommand,
     CurrencyMismatchError,
     InvalidAllocationRequestError,
+    ModeChangedError,
     UnknownPoolError,
 )
 from strategy_manager.allocation.application.ports import PoolBalance, StrategyPolicySnapshot
@@ -23,9 +24,13 @@ from strategy_manager.allocation.domain.lock_key import LockKey
 from strategy_manager.allocation.domain.pool_key import PoolKey
 from strategy_manager.allocation.domain.reservation import Reservation, ReservationStatus
 from strategy_manager.shared.domain.errors import InvariantViolation
+from strategy_manager.shared.domain.mode import Mode
 from strategy_manager.shared.domain.money import Currency, Exchange, Money, Venue
+from strategy_manager.shared.domain.trade_capability import TradeCapability
 from tests.allocation.fakes import (
     AlwaysEnabledPool,
+    AnyKeyTrades,
+    FixedUserMode,
     RecordingPoolStatus,
     RecordingSkipRecorder,
 )
@@ -102,6 +107,7 @@ class FakeReservationRepository:
     sum_active_return: Decimal = Decimal("0")
     found_for: list[UUID] = field(default_factory=list)
     summed_for: list[UUID] = field(default_factory=list)
+    summed_in: list[Mode] = field(default_factory=list)
     inserted_for: list[UUID] = field(default_factory=list)
 
     async def find_by_signal_id(self, user_id: UUID, signal_id: UUID) -> Reservation | None:
@@ -114,9 +120,11 @@ class FakeReservationRepository:
         exchange: str,
         venue: str,
         settlement_currency: str,
+        mode: Mode,
         now: datetime,
     ) -> Decimal:
         self.summed_for.append(user_id)
+        self.summed_in.append(mode)
         return self.sum_active_return
 
     async def insert(self, user_id: UUID, reservation: Reservation) -> None:
@@ -160,6 +168,9 @@ def _build_use_case(
     reservations: FakeReservationRepository | None = None,
     lock: FakeAdvisoryLock | None = None,
     commit: FakeCommit | None = None,
+    user_mode: FixedUserMode | None = None,
+    trade_capability: AnyKeyTrades | None = None,
+    skip_recorder: RecordingSkipRecorder | None = None,
 ) -> tuple[AllocateCapital, FakeAdvisoryLock, FakeReservationRepository, FakeCommit]:
     lock = lock or FakeAdvisoryLock()
     reservations = reservations or FakeReservationRepository()
@@ -172,8 +183,10 @@ def _build_use_case(
         commit=commit,
         clock=FrozenClock(datetime(2026, 1, 1, tzinfo=UTC)),
         reservation_ttl_seconds=30,
-        skip_recorder=RecordingSkipRecorder(),
+        skip_recorder=skip_recorder or RecordingSkipRecorder(),
         pool_status=AlwaysEnabledPool(),
+        user_mode=user_mode or FixedUserMode(),
+        trade_capability=trade_capability or AnyKeyTrades(),
     )
     return use_case, lock, reservations, commit
 
@@ -198,6 +211,8 @@ async def test_the_pool_read_and_checked_is_the_deliverys_users_not_the_authors(
         reservation_ttl_seconds=30,
         skip_recorder=RecordingSkipRecorder(),
         pool_status=status,
+        user_mode=FixedUserMode(),
+        trade_capability=AnyKeyTrades(),
     )
 
     result = await use_case.allocate(
@@ -207,6 +222,7 @@ async def test_the_pool_read_and_checked_is_the_deliverys_users_not_the_authors(
             requested=Money(amount=Decimal("200"), currency=Currency.USDT),
             user_id=subscriber,
             delivery_id=uuid4(),
+            pre_checked_mode=Mode.LIVE,
         )
     )
 
@@ -234,6 +250,7 @@ async def test_the_pool_lock_taken_is_the_deliverys_users_not_the_authors() -> N
             requested=Money(amount=Decimal("200"), currency=Currency.USDT),
             user_id=subscriber,
             delivery_id=uuid4(),
+            pre_checked_mode=Mode.LIVE,
         )
     )
 
@@ -264,6 +281,7 @@ async def test_the_reservations_read_and_written_are_the_deliverys_users_not_the
             requested=Money(amount=Decimal("200"), currency=Currency.USDT),
             user_id=subscriber,
             delivery_id=delivery_id,
+            pre_checked_mode=Mode.LIVE,
         )
     )
 
@@ -286,6 +304,7 @@ async def test_resume_returns_existing_reservation_without_taking_the_lock() -> 
         ),
         amount=Decimal("200"),
         status=ReservationStatus.PENDING,
+        mode=Mode.LIVE,
         expires_at=datetime(2026, 1, 1, tzinfo=UTC) + timedelta(seconds=30),
     )
     reservations = FakeReservationRepository(existing=existing)
@@ -300,6 +319,7 @@ async def test_resume_returns_existing_reservation_without_taking_the_lock() -> 
             requested=Money(amount=Decimal("200"), currency=Currency.USDT),
             user_id=OWNER_ID,
             delivery_id=uuid4(),
+            pre_checked_mode=Mode.LIVE,
         )
     )
 
@@ -322,6 +342,7 @@ async def test_disabled_strategy_skips_without_taking_the_lock() -> None:
             requested=Money(amount=Decimal("200"), currency=Currency.USDT),
             user_id=OWNER_ID,
             delivery_id=uuid4(),
+            pre_checked_mode=Mode.LIVE,
         )
     )
 
@@ -343,6 +364,7 @@ async def test_unknown_pool_raises() -> None:
                 requested=Money(amount=Decimal("200"), currency=Currency.USDT),
             user_id=OWNER_ID,
             delivery_id=uuid4(),
+            pre_checked_mode=Mode.LIVE,
             )
         )
 
@@ -363,6 +385,7 @@ async def test_currency_mismatch_raises() -> None:
                 requested=Money(amount=Decimal("200"), currency=Currency.BTC),
                 user_id=OWNER_ID,
                 delivery_id=uuid4(),
+                pre_checked_mode=Mode.LIVE,
             )
         )
 
@@ -385,6 +408,7 @@ async def test_non_positive_request_raises() -> None:
                 requested=Money(amount=Decimal("0"), currency=Currency.USDT),
                 user_id=OWNER_ID,
                 delivery_id=uuid4(),
+                pre_checked_mode=Mode.LIVE,
             )
         )
 
@@ -407,6 +431,7 @@ async def test_full_allocation_takes_the_lock_writes_a_reservation_and_commits()
             requested=Money(amount=Decimal("200"), currency=Currency.USDT),
             user_id=OWNER_ID,
             delivery_id=uuid4(),
+            pre_checked_mode=Mode.LIVE,
         )
     )
 
@@ -462,6 +487,8 @@ async def test_in_lock_reread_skips_with_strategy_disabled_when_disabled_after_p
         reservation_ttl_seconds=30,
         skip_recorder=RecordingSkipRecorder(),
         pool_status=AlwaysEnabledPool(),
+        user_mode=FixedUserMode(),
+        trade_capability=AnyKeyTrades(),
     )
 
     with caplog.at_level("WARNING"):
@@ -472,6 +499,7 @@ async def test_in_lock_reread_skips_with_strategy_disabled_when_disabled_after_p
                 requested=Money(amount=Decimal("200"), currency=Currency.USDT),
             user_id=OWNER_ID,
             delivery_id=uuid4(),
+            pre_checked_mode=Mode.LIVE,
             )
         )
 
@@ -523,6 +551,8 @@ async def test_in_lock_reread_skips_with_strategy_archived_when_archived_after_p
         reservation_ttl_seconds=30,
         skip_recorder=RecordingSkipRecorder(),
         pool_status=AlwaysEnabledPool(),
+        user_mode=FixedUserMode(),
+        trade_capability=AnyKeyTrades(),
     )
 
     with caplog.at_level("WARNING"):
@@ -533,6 +563,7 @@ async def test_in_lock_reread_skips_with_strategy_archived_when_archived_after_p
                 requested=Money(amount=Decimal("200"), currency=Currency.USDT),
             user_id=OWNER_ID,
             delivery_id=uuid4(),
+            pre_checked_mode=Mode.LIVE,
             )
         )
 
@@ -579,6 +610,7 @@ async def test_pre_lock_disabled_skip_logs_exactly_one_warning(
                 requested=Money(amount=Decimal("200"), currency=Currency.USDT),
             user_id=OWNER_ID,
             delivery_id=uuid4(),
+            pre_checked_mode=Mode.LIVE,
             )
         )
 
@@ -617,6 +649,7 @@ async def test_decide_skip_no_availability_logs_exactly_one_warning(
                 requested=Money(amount=Decimal("200"), currency=Currency.USDT),
             user_id=OWNER_ID,
             delivery_id=uuid4(),
+            pre_checked_mode=Mode.LIVE,
             )
         )
 
@@ -654,6 +687,7 @@ async def test_decide_skip_insufficient_availability_logs_exactly_one_warning(
                 requested=Money(amount=Decimal("200"), currency=Currency.USDT),
             user_id=OWNER_ID,
             delivery_id=uuid4(),
+            pre_checked_mode=Mode.LIVE,
             )
         )
 
@@ -691,6 +725,7 @@ async def test_decide_skip_below_min_order_size_logs_exactly_one_warning(
                 requested=Money(amount=Decimal("200"), currency=Currency.USDT),
             user_id=OWNER_ID,
             delivery_id=uuid4(),
+            pre_checked_mode=Mode.LIVE,
             )
         )
 
@@ -754,6 +789,8 @@ async def test_reservation_records_in_lock_pool_capital_not_prelock_read() -> No
         reservation_ttl_seconds=30,
         skip_recorder=RecordingSkipRecorder(),
         pool_status=AlwaysEnabledPool(),
+        user_mode=FixedUserMode(),
+        trade_capability=AnyKeyTrades(),
     )
 
     result = await use_case.allocate(
@@ -763,6 +800,7 @@ async def test_reservation_records_in_lock_pool_capital_not_prelock_read() -> No
             requested=Money(amount=Decimal("200"), currency=Currency.USDT),
             user_id=OWNER_ID,
             delivery_id=uuid4(),
+            pre_checked_mode=Mode.LIVE,
         )
     )
 
@@ -791,6 +829,7 @@ async def test_reservation_records_the_total_not_the_available_of_the_pool() -> 
             requested=Money(amount=Decimal("200"), currency=Currency.USDT),
             user_id=OWNER_ID,
             delivery_id=uuid4(),
+            pre_checked_mode=Mode.LIVE,
         )
     )
 
@@ -817,6 +856,7 @@ async def test_a_partial_grant_records_the_pool_total_too() -> None:
             requested=Money(amount=Decimal("200"), currency=Currency.USDT),
             user_id=OWNER_ID,
             delivery_id=uuid4(),
+            pre_checked_mode=Mode.LIVE,
         )
     )
 
@@ -851,6 +891,7 @@ async def test_a_pool_total_of_zero_is_stored_as_none_never_as_zero(
                 requested=Money(amount=Decimal("200"), currency=Currency.USDT),
             user_id=OWNER_ID,
             delivery_id=uuid4(),
+            pre_checked_mode=Mode.LIVE,
             )
         )
 
@@ -875,6 +916,7 @@ async def test_resume_of_retried_allocation_returns_existing_row_unchanged() -> 
         ),
         amount=Decimal("200"),
         status=ReservationStatus.PENDING,
+        mode=Mode.LIVE,
         expires_at=datetime(2026, 1, 1, tzinfo=UTC) + timedelta(seconds=30),
         pool_total_at_open=Decimal("500"),
     )
@@ -900,6 +942,8 @@ async def test_resume_of_retried_allocation_returns_existing_row_unchanged() -> 
         reservation_ttl_seconds=30,
         skip_recorder=RecordingSkipRecorder(),
         pool_status=AlwaysEnabledPool(),
+        user_mode=FixedUserMode(),
+        trade_capability=AnyKeyTrades(),
     )
 
     result = await use_case.allocate(
@@ -909,6 +953,7 @@ async def test_resume_of_retried_allocation_returns_existing_row_unchanged() -> 
             requested=Money(amount=Decimal("200"), currency=Currency.USDT),
             user_id=OWNER_ID,
             delivery_id=uuid4(),
+            pre_checked_mode=Mode.LIVE,
         )
     )
 
@@ -918,3 +963,188 @@ async def test_resume_of_retried_allocation_returns_existing_row_unchanged() -> 
     assert existing.pool_total_at_open == Decimal("500")
     assert balance.reads == 0  # the pool was never read again
     assert lock.acquired == []
+
+
+def _open_command(mode: Mode = Mode.LIVE) -> AllocateCommand:
+    return AllocateCommand(
+        signal_id=uuid4(),
+        strategy_id=uuid4(),
+        requested=Money(amount=Decimal("200"), currency=Currency.USDT),
+        user_id=OWNER_ID,
+        delivery_id=uuid4(),
+        pre_checked_mode=mode,
+    )
+
+
+@pytest.mark.parametrize("mode", [Mode.LIVE, Mode.SIMULATION])
+async def test_the_mode_decided_in_the_lock_is_summed_and_recorded(mode: Mode) -> None:
+    """Decision 26: the reserved total is read for the opening's mode, and the
+    reservation carries it."""
+    use_case, _, reservations, _ = _build_use_case(
+        policy=_enabled_snapshot(),
+        pool_balance=PoolBalance(
+            total=Decimal("1000"), available=Decimal("1000"), min_order_size=Decimal("10")
+        ),
+        user_mode=FixedUserMode(mode),
+    )
+
+    result = await use_case.allocate(_open_command(mode))
+
+    assert result.outcome is DecisionOutcome.FULL
+    assert reservations.summed_in == [mode]
+    assert [r.mode for r in reservations.inserted] == [mode]
+
+
+async def test_the_mode_is_read_after_the_pool_lock_and_before_the_policy_reread() -> None:
+    """Lock order: the advisory lock first, then row locks. The user row is read
+    ``FOR SHARE`` by the real adapter, so reading it before ``acquire`` would
+    take a row lock ahead of the advisory lock. It also precedes the in-lock
+    policy re-read, where the first decision is made."""
+    events: list[str] = []
+
+    class EventLock(FakeAdvisoryLock):
+        async def acquire(self, key: LockKey) -> None:
+            events.append("lock")
+            await super().acquire(key)
+
+    class EventPolicy(FakeStrategyPolicyPort):
+        async def policy_for(self, strategy_id: UUID) -> StrategyPolicySnapshot:
+            events.append("policy")
+            return await super().policy_for(strategy_id)
+
+    use_case = AllocateCapital(
+        strategy_policy=EventPolicy(_enabled_snapshot()),
+        pool_balance=FakePoolBalancePort(
+            PoolBalance(
+                total=Decimal("1000"), available=Decimal("1000"), min_order_size=Decimal("10")
+            )
+        ),
+        lock=EventLock(),
+        reservations=FakeReservationRepository(),
+        commit=FakeCommit(),
+        clock=FrozenClock(datetime(2026, 1, 1, tzinfo=UTC)),
+        reservation_ttl_seconds=30,
+        skip_recorder=RecordingSkipRecorder(),
+        pool_status=AlwaysEnabledPool(),
+        user_mode=FixedUserMode(events=events),
+        trade_capability=AnyKeyTrades(),
+    )
+
+    await use_case.allocate(_open_command())
+
+    assert events == ["policy", "lock", "user_mode", "policy"]
+
+
+_FUNDED = PoolBalance(
+    total=Decimal("1000"), available=Decimal("1000"), min_order_size=Decimal("10")
+)
+
+
+@pytest.mark.parametrize(
+    ("pre_checked", "in_the_lock"),
+    [(Mode.LIVE, Mode.SIMULATION), (Mode.SIMULATION, Mode.LIVE)],
+)
+async def test_a_mode_that_moved_since_the_pre_checks_reserves_nothing_and_decides_nothing(
+    pre_checked: Mode, in_the_lock: Mode
+) -> None:
+    """Tasks.md E.4. The pre-checks ran for another mode, so the delivery runs again
+    from the top: nothing is reserved, and no outcome is recorded, or the retry would
+    find the delivery already decided. The error names both modes, since the
+    worker's log line is the only trace of it."""
+    recorder = RecordingSkipRecorder()
+    use_case, _, reservations, commit = _build_use_case(
+        policy=_enabled_snapshot(),
+        pool_balance=_FUNDED,
+        user_mode=FixedUserMode(in_the_lock),
+        skip_recorder=recorder,
+    )
+    command = _open_command(pre_checked)
+
+    with pytest.raises(ModeChangedError) as raised:
+        await use_case.allocate(command)
+
+    assert reservations.inserted == []
+    assert recorder.calls == []
+    assert commit.committed is False
+    message = str(raised.value)
+    assert pre_checked.value in message
+    assert in_the_lock.value in message
+    assert str(command.delivery_id) in message
+
+
+@pytest.mark.parametrize(
+    ("capability", "code"),
+    [
+        (TradeCapability.READ_ONLY, "EXCHANGE_KEY_READ_ONLY"),
+        (TradeCapability.NO_KEY, "EXCHANGE_HAS_NO_KEY"),
+    ],
+)
+async def test_a_live_opening_whose_key_cannot_trade_is_refused_in_the_lock(
+    capability: TradeCapability, code: str
+) -> None:
+    """A key deleted or replaced after the pre-check: the same reason, read under
+    the lock ``DeleteCredential`` takes. Recorded and committed, or the lock would
+    stay held and the delivery would never leave ACCEPTED."""
+    recorder = RecordingSkipRecorder()
+    keys = AnyKeyTrades(capability)
+    use_case, lock, reservations, commit = _build_use_case(
+        policy=_enabled_snapshot(),
+        pool_balance=_FUNDED,
+        trade_capability=keys,
+        skip_recorder=recorder,
+    )
+    command = _open_command(Mode.LIVE)
+
+    result = await use_case.allocate(command)
+
+    assert result.outcome is DecisionOutcome.SKIP
+    assert result.reservation_id is None
+    assert result.skip_reason == code
+    assert reservations.inserted == []
+    assert commit.committed is True
+    assert len(lock.acquired) == 1
+    assert keys.asked == [(OWNER_ID, "pionex")]
+    assert [(delivery, reason) for delivery, reason, _ in recorder.calls] == [
+        (command.delivery_id, code)
+    ]
+    assert "pionex" in recorder.calls[0][2]
+
+
+async def test_a_simulated_opening_does_not_ask_about_the_key_in_the_lock() -> None:
+    """Decision 13: a simulated opening places nothing, so a user with no key that
+    can trade still opens in simulation."""
+    keys = AnyKeyTrades(TradeCapability.NO_KEY)
+    use_case, _, reservations, _ = _build_use_case(
+        policy=_enabled_snapshot(),
+        pool_balance=_FUNDED,
+        user_mode=FixedUserMode(Mode.SIMULATION),
+        trade_capability=keys,
+    )
+
+    result = await use_case.allocate(_open_command(Mode.SIMULATION))
+
+    assert result.outcome is DecisionOutcome.FULL
+    assert [r.mode for r in reservations.inserted] == [Mode.SIMULATION]
+    assert keys.asked == []
+
+
+async def test_the_key_is_read_after_the_pool_lock() -> None:
+    """``DeleteCredential`` deactivates a key under the pool lock, so a read before
+    the wait would see a key that is gone by the time the lock is held."""
+    events: list[str] = []
+
+    class EventLock(FakeAdvisoryLock):
+        async def acquire(self, key: LockKey) -> None:
+            events.append("lock")
+            await super().acquire(key)
+
+    use_case, _, _, _ = _build_use_case(
+        policy=_enabled_snapshot(),
+        pool_balance=_FUNDED,
+        lock=EventLock(),
+        trade_capability=AnyKeyTrades(events=events),
+    )
+
+    await use_case.allocate(_open_command(Mode.LIVE))
+
+    assert events == ["lock", "trade_capability"]

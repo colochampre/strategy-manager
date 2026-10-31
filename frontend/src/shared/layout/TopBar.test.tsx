@@ -36,8 +36,8 @@ describe("the exchange tabs in the top bar", () => {
       const fetchMock = stubApi(HEALTH);
       renderAt(<TopBar />, path);
 
-      // The mode badge reads /health: once it has answered, the bar has had every chance to ask for the pools.
-      await screen.findByText("Live");
+      // The mode badge reads /api/me: once it has answered, the bar has had every chance to ask for the pools.
+      await screen.findByText(/^(Simulation forced|Mode unknown)$/);
       await waitFor(() => expect(fetchMock.mock.calls.length).toBeGreaterThan(0));
       expect(screen.queryByRole("navigation", { name: "Exchanges" })).not.toBeInTheDocument();
       expect(poolsRequests(fetchMock)).toHaveLength(0);

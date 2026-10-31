@@ -104,9 +104,10 @@ async def _reserve(
     expires_in: timedelta = timedelta(hours=1),
     strategy_id: UUID | None = None,
     user_id: UUID | None = None,
+    mode: str = "SIMULATION",
 ) -> None:
     """A reservation of ``user_id``, by default the signed-in admin's, in that
-    user's pool on the market."""
+    user's pool on the market, in the mode the signed-in admin runs in here."""
     if user_id is None:
         async with factory() as session:
             user_id = await seed_admin(session)
@@ -136,6 +137,7 @@ async def _reserve(
         status=status,
         expires_at=datetime.now(UTC) + expires_in,
         user_id=user_id,
+        mode=mode,
     )
 
 
@@ -208,6 +210,24 @@ async def test_get_pools_reserved_counts_only_live_reservations(
         status="PENDING",
         expires_in=timedelta(seconds=-5),
     )
+
+    response = await client.get("/api/pools", headers=ADMIN_HEADERS)
+
+    bybit = _by_pool(response.json())[("bybit", "usdt-m", "USDT")]
+    assert Decimal(bybit["reserved"]) == Decimal("7")
+    assert Decimal(bybit["allocatable"]) == Decimal("393")
+
+
+async def test_get_pools_reserved_counts_only_the_mode_the_next_opening_runs_in(
+    client: AsyncClient,
+    pg_session_factory: async_sessionmaker[AsyncSession],  # noqa: F811
+) -> None:
+    """Decision 26: the allocator counts one mode, so the panel does too, or it would
+    show less to allocate than the next opening gets. The signed-in admin runs in
+    simulation here."""
+    await _snapshot(pg_session_factory, "bybit", "usdt-m", "USDT", total="500", available="400")
+    await _reserve(pg_session_factory, "bybit", "usdt-m", "USDT", "7", mode="SIMULATION")
+    await _reserve(pg_session_factory, "bybit", "usdt-m", "USDT", "300", mode="LIVE")
 
     response = await client.get("/api/pools", headers=ADMIN_HEADERS)
 
