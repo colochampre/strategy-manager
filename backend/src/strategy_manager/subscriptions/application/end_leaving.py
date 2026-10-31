@@ -9,14 +9,21 @@ before any row lock), so no opening of the user's and no ``Leave`` can interleav
 It stages the change and never commits.
 """
 
+import logging
+from typing import Protocol
 from uuid import UUID
 
 from strategy_manager.shared.application.ports import ClockPort
 from strategy_manager.subscriptions.application.ports import (
+    CommitPort,
+    LeavingSubscriptionsPort,
     OpenAllocationPort,
+    PoolLockPort,
     SubscriptionRepositoryPort,
 )
 from strategy_manager.subscriptions.domain.subscription import SubscriptionStatus
+
+logger = logging.getLogger(__name__)
 
 
 class EndLeavingSubscription:
@@ -50,3 +57,59 @@ class EndLeavingSubscription:
             return False
         await self._subscriptions.update(subscription.end(self._clock.now()))
         return True
+
+
+class EndLeavingPort(Protocol):
+    async def end_if_flat(
+        self,
+        user_id: UUID,
+        strategy_id: UUID,
+        exchange: str,
+        venue: str,
+        settlement_currency: str,
+    ) -> bool: ...
+
+
+class EndFlatLeaving:
+    """The worker's sweep over every user's LEAVING subscriptions (tasks.md N2, E2.3).
+
+    A close ends a LEAVING subscription when it books the last fill. A reservation
+    that ends unfilled, released by a settle or expired by the sweeper, books nothing,
+    so no close ever comes for it, and the subscription would stay LEAVING for good
+    with its user unable to subscribe again.
+
+    Each decision is ``end_if_flat``, under the user's pool lock like every other. The
+    commit after each one gives that lock back, so the sweep holds one at a time and
+    never stalls one user's opening behind another user's decision. The listing is a
+    plain read: a stale row costs one lock and a re-read that changes nothing."""
+
+    def __init__(
+        self,
+        leaving: LeavingSubscriptionsPort,
+        pool_lock: PoolLockPort,
+        end: EndLeavingPort,
+        commit: CommitPort,
+    ) -> None:
+        self._leaving = leaving
+        self._pool_lock = pool_lock
+        self._end = end
+        self._commit = commit
+
+    async def sweep(self) -> int:
+        """Returns how many subscriptions it ended."""
+        ended = 0
+        for subscription in await self._leaving.leaving():
+            exchange, venue, currency = subscription.market
+            await self._pool_lock.acquire(subscription.user_id, exchange, venue, currency)
+            if await self._end.end_if_flat(
+                subscription.user_id, subscription.strategy_id, exchange, venue, currency
+            ):
+                ended += 1
+                logger.info(
+                    "subscription of user %s to strategy %s ended: it left, and nothing "
+                    "of it is held any more",
+                    subscription.user_id,
+                    subscription.strategy_id,
+                )
+            await self._commit.commit()
+        return ended

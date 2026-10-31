@@ -70,6 +70,7 @@ from strategy_manager.accounts.infrastructure.credential_revoker import (
 from strategy_manager.accounts.infrastructure.credential_vault import SqlAlchemyCredentialVault
 from strategy_manager.accounts.infrastructure.key_inspectors.registry import KeyInspectorRegistry
 from strategy_manager.accounts.infrastructure.pool_exposure_adapter import PoolExposureAdapter
+from strategy_manager.execution.infrastructure.live_exposure import SqlAlchemyLiveExposure
 from strategy_manager.identity.domain.user import User
 from strategy_manager.identity.infrastructure.dependencies import current_user
 from strategy_manager.shared.config import get_settings
@@ -113,6 +114,7 @@ OUTCOME_STATUS: dict[SaveOutcome, int] = {
     SaveOutcome.CONFIRMATION_NOT_APPLICABLE: 422,
     SaveOutcome.VENUE_UNREACHABLE: 502,
     SaveOutcome.CONCURRENT_SAVE: 409,
+    SaveOutcome.EXCHANGE_HOLDS_REAL_EXPOSURE: 409,
 }
 
 
@@ -139,6 +141,8 @@ def get_save_credential(session: SessionDep) -> SaveCredential:
         SqlAlchemyCapitalPoolWriter(session),
         session,
         clock,
+        PoolLockAdapter(session),
+        SqlAlchemyLiveExposure(session),
     )
 
 

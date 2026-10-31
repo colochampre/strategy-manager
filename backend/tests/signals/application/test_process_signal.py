@@ -79,6 +79,7 @@ from strategy_manager.signals.domain.holding import HeldAllocation
 from strategy_manager.strategies.infrastructure.pool_lock_adapter import PoolLockAdapter
 from tests.accounts.fakes import BYBIT_KEY, BYBIT_SECRET, TickingClock
 from tests.allocation.fakes import (
+    ActiveSubscription,
     AlwaysEnabledPool,
     AnyKeyTrades,
     FixedUserMode,
@@ -441,6 +442,7 @@ def _allocate_capital(
         pool_status=AlwaysEnabledPool(),
         user_mode=FixedUserMode(mode),
         trade_capability=AnyKeyTrades(),
+        subscription_state=ActiveSubscription(),
     )
 
 

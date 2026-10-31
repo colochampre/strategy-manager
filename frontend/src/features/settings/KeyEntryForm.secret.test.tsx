@@ -75,6 +75,7 @@ const ENDINGS: Ending[] = [
   { name: "PERMISSIONS_UNAVAILABLE", respond: refusal(422, "PERMISSIONS_UNAVAILABLE") },
   { name: "VENUE_UNREACHABLE", respond: refusal(502, "VENUE_UNREACHABLE") },
   { name: "CONCURRENT_SAVE", respond: refusal(409, "CONCURRENT_SAVE") },
+  { name: "EXCHANGE_HOLDS_REAL_EXPOSURE", respond: refusal(409, "EXCHANGE_HOLDS_REAL_EXPOSURE") },
   { name: "CONFIRMATION_REQUIRED", respond: refusal(422, "CONFIRMATION_REQUIRED") },
   { name: "CONFIRMATION_NOT_APPLICABLE", respond: refusal(422, "CONFIRMATION_NOT_APPLICABLE") },
   { name: "a 404", respond: answer(404, { detail: ECHO }) },

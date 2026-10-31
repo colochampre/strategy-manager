@@ -33,7 +33,9 @@ from strategy_manager.accounts.infrastructure.key_inspectors.registry import Key
 from strategy_manager.main import create_app
 from tests.accounts.fakes import (
     NOW,
+    FixedRealExposure,
     RecordingCommit,
+    RecordingPoolLock,
     RecordingPoolWriter,
     RecordingWriter,
     TickingClock,
@@ -88,6 +90,8 @@ async def test_no_log_record_at_any_level_carries_the_key_or_the_secret_on_a_rea
             RecordingPoolWriter(),
             commit,
             TickingClock(),
+            RecordingPoolLock(),
+            FixedRealExposure(),
         )
         app.dependency_overrides[get_save_credential] = lambda: use_case
 

@@ -375,6 +375,11 @@ const REFUSALS: RefusalCase[] = [
     text: "Another save for Bybit finished first, so this one was not stored. The card shows the key that is stored now. Check it before saving again.",
   },
   {
+    reason: "holdsRealExposure",
+    respond: answer(409, { outcome: "EXCHANGE_HOLDS_REAL_EXPOSURE", detail: SERVER_WORDING }),
+    text: "You hold something real on Bybit, and a key that cannot trade could not close it, so this key was not saved. Close what is open, or enter a key that can trade.",
+  },
+  {
     reason: "confirmationRequiredUnlisted",
     respond: answer(422, { outcome: "CONFIRMATION_REQUIRED", detail: SERVER_WORDING, missing: ["not_a_known_name"] }),
     text: "The key was not saved, and nothing was sent to Bybit, because a confirmation is missing. Tick both and enter the key again.",

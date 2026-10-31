@@ -148,6 +148,25 @@ def pg_session_factory(pg_engine: AsyncEngine) -> async_sessionmaker[AsyncSessio
     return async_sessionmaker(pg_engine, class_=AsyncSession, expire_on_commit=False)
 
 
+@pytest.fixture
+async def nobody_is_live(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+) -> AsyncIterator[None]:
+    """For a read over every user. ``users`` outlives the fixtures' truncates, so
+    earlier tests leave live users behind; their modes come back afterwards."""
+    async with pg_session_factory() as session:
+        modes = (await session.execute(text("SELECT id, mode FROM users"))).all()
+        await session.execute(text("UPDATE users SET mode = 'SIMULATION'"))
+        await session.commit()
+    yield
+    async with pg_session_factory() as session:
+        await session.execute(
+            text("UPDATE users SET mode = :mode WHERE id = :id"),
+            [{"id": user_id, "mode": mode} for user_id, mode in modes],
+        )
+        await session.commit()
+
+
 async def seed_strategy(
     session_factory: async_sessionmaker[AsyncSession],
     *,

@@ -102,6 +102,7 @@ from strategy_manager.signals.infrastructure.signal_context import SignalContext
 from strategy_manager.strategies.application.policy_adapter import StrategyPolicyAdapter
 from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStrategyRepository
 from tests.allocation.fakes import (
+    ActiveSubscription,
     AlwaysEnabledPool,
     AnyKeyTrades,
     FixedUserMode,
@@ -472,6 +473,7 @@ def _build_handler(
             pool_status=AlwaysEnabledPool(),
             user_mode=FixedUserMode(),
             trade_capability=AnyKeyTrades(),
+            subscription_state=ActiveSubscription(),
         ),
         place_order=PlaceOrder(
             reservations=ReservationGatewayAdapter(own_reservations),

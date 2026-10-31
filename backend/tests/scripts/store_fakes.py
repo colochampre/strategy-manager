@@ -14,8 +14,10 @@ from strategy_manager.accounts.application.save_credential import SaveCredential
 from strategy_manager.accounts.domain.exchange_credential import ExchangeCredential
 from strategy_manager.accounts.domain.key_policy import OwnerConfirmations
 from tests.accounts.fakes import (
+    FixedRealExposure,
     RecordingCommit,
     RecordingInspector,
+    RecordingPoolLock,
     RecordingPoolWriter,
     RecordingWriter,
     TickingClock,
@@ -70,6 +72,8 @@ class ScriptSession:
             as_pools(self.pools),
             RecordingCommit(),
             TickingClock(),
+            RecordingPoolLock(),
+            FixedRealExposure(),
         )
 
     def prompt(self) -> ExchangeCredential | None:

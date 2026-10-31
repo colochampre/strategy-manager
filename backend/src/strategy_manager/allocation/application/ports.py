@@ -156,6 +156,22 @@ class UserModePort(Protocol):
     async def effective_mode(self, user_id: UUID) -> Mode: ...
 
 
+class DeliverySubscriptionPort(Protocol):
+    """Whether the subscription a delivery serves still takes openings: ``ACTIVE``,
+    neither ``LEAVING`` nor ``ENDED`` (owner decision 4; tasks.md N1, N5, E2.2).
+
+    ``AllocateCapital`` calls it inside the pool advisory lock. ``Leave`` and the
+    archive decide under that same lock, so an opening that waited for them reads
+    what they committed, and one that went first is a live reservation ``Leave``
+    sees, which makes the subscription ``LEAVING``. A plain read suffices for that
+    reason, and a delivery always has its subscription: migration ``0032`` made the
+    link ``NOT NULL``.
+
+    The read is committed state of one row, never a remote call."""
+
+    async def is_active(self, delivery_id: UUID) -> bool: ...
+
+
 class TradeCapabilityPort(Protocol):
     """Whether ``user_id``'s active key on the exchange can trade, from the value
     recorded when it was saved (decisions 18 and 20).

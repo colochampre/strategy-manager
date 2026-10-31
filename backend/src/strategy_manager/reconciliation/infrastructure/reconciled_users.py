@@ -17,7 +17,7 @@ while any of these holds:
 from collections.abc import Iterable
 from uuid import UUID
 
-from sqlalchemy import exists, select
+from sqlalchemy import ColumnElement, exists, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from strategy_manager.execution.infrastructure.live_exposure import SqlAlchemyLiveExposure
@@ -42,17 +42,25 @@ class SqlAlchemyReconciledUsers:
     async def among(self, user_ids: Iterable[UUID]) -> frozenset[UUID]:
         return frozenset([user_id for user_id in user_ids if await self.includes(user_id)])
 
+    async def anyone(self) -> bool:
+        """Whether the scan compares anybody at all. The same three conditions over
+        every user, in a number of statements that does not grow with them: the
+        route that asks is polled every 60 s per open tab."""
+        return (
+            await self._exists(UserRow.mode == Mode.LIVE.value)
+            or bool(await SqlAlchemyLiveExposure(self._session).symbols_of_everyone())
+            or await self._exists(ReconciliationDiscrepancyRow.resolved_at.is_(None))
+        )
+
     async def _is_live(self, user_id: UUID) -> bool:
         mode = await self._session.scalar(select(UserRow.mode).where(UserRow.id == user_id))
         return mode == Mode.LIVE.value
 
     async def _has_open_discrepancy(self, user_id: UUID) -> bool:
-        answer = await self._session.scalar(
-            select(
-                exists().where(
-                    ReconciliationDiscrepancyRow.user_id == user_id,
-                    ReconciliationDiscrepancyRow.resolved_at.is_(None),
-                )
-            )
+        return await self._exists(
+            ReconciliationDiscrepancyRow.user_id == user_id,
+            ReconciliationDiscrepancyRow.resolved_at.is_(None),
         )
-        return bool(answer)
+
+    async def _exists(self, *conditions: ColumnElement[bool]) -> bool:
+        return bool(await self._session.scalar(select(exists().where(*conditions))))

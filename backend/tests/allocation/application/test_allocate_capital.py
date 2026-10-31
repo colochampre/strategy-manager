@@ -28,6 +28,7 @@ from strategy_manager.shared.domain.mode import Mode
 from strategy_manager.shared.domain.money import Currency, Exchange, Money, Venue
 from strategy_manager.shared.domain.trade_capability import TradeCapability
 from tests.allocation.fakes import (
+    ActiveSubscription,
     AlwaysEnabledPool,
     AnyKeyTrades,
     FixedUserMode,
@@ -187,6 +188,7 @@ def _build_use_case(
         pool_status=AlwaysEnabledPool(),
         user_mode=user_mode or FixedUserMode(),
         trade_capability=trade_capability or AnyKeyTrades(),
+        subscription_state=ActiveSubscription(),
     )
     return use_case, lock, reservations, commit
 
@@ -213,6 +215,7 @@ async def test_the_pool_read_and_checked_is_the_deliverys_users_not_the_authors(
         pool_status=status,
         user_mode=FixedUserMode(),
         trade_capability=AnyKeyTrades(),
+        subscription_state=ActiveSubscription(),
     )
 
     result = await use_case.allocate(
@@ -489,6 +492,7 @@ async def test_in_lock_reread_skips_with_strategy_disabled_when_disabled_after_p
         pool_status=AlwaysEnabledPool(),
         user_mode=FixedUserMode(),
         trade_capability=AnyKeyTrades(),
+        subscription_state=ActiveSubscription(),
     )
 
     with caplog.at_level("WARNING"):
@@ -553,6 +557,7 @@ async def test_in_lock_reread_skips_with_strategy_archived_when_archived_after_p
         pool_status=AlwaysEnabledPool(),
         user_mode=FixedUserMode(),
         trade_capability=AnyKeyTrades(),
+        subscription_state=ActiveSubscription(),
     )
 
     with caplog.at_level("WARNING"):
@@ -791,6 +796,7 @@ async def test_reservation_records_in_lock_pool_capital_not_prelock_read() -> No
         pool_status=AlwaysEnabledPool(),
         user_mode=FixedUserMode(),
         trade_capability=AnyKeyTrades(),
+        subscription_state=ActiveSubscription(),
     )
 
     result = await use_case.allocate(
@@ -944,6 +950,7 @@ async def test_resume_of_retried_allocation_returns_existing_row_unchanged() -> 
         pool_status=AlwaysEnabledPool(),
         user_mode=FixedUserMode(),
         trade_capability=AnyKeyTrades(),
+        subscription_state=ActiveSubscription(),
     )
 
     result = await use_case.allocate(
@@ -1028,6 +1035,7 @@ async def test_the_mode_is_read_after_the_pool_lock_and_before_the_policy_reread
         pool_status=AlwaysEnabledPool(),
         user_mode=FixedUserMode(events=events),
         trade_capability=AnyKeyTrades(),
+        subscription_state=ActiveSubscription(),
     )
 
     await use_case.allocate(_open_command())

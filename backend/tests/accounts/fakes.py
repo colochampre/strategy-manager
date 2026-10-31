@@ -151,6 +151,36 @@ class RecordingCommit:
             self._events.append("commit")
 
 
+class RecordingPoolLock:
+    def __init__(self, events: list[str] | None = None) -> None:
+        self.acquired: list[tuple[object, ...]] = []
+        self._events = events
+
+    async def acquire(
+        self, user_id: UUID, exchange: str, venue: str, settlement_currency: str
+    ) -> None:
+        self.acquired.append((user_id, exchange, venue, settlement_currency))
+        if self._events is not None:
+            self._events.append("lock")
+
+
+class FixedRealExposure:
+    """Holds ``symbols`` for everyone it is asked about, and records who was asked."""
+
+    def __init__(
+        self, symbols: tuple[str, ...] = (), events: list[str] | None = None
+    ) -> None:
+        self.asked: list[tuple[UUID, str]] = []
+        self._symbols = symbols
+        self._events = events
+
+    async def symbols_on(self, user_id: UUID, exchange: str) -> tuple[str, ...]:
+        self.asked.append((user_id, exchange))
+        if self._events is not None:
+            self._events.append("exposure")
+        return self._symbols
+
+
 def as_port(inspector: RecordingInspector) -> KeyInspectorPort:
     return inspector
 

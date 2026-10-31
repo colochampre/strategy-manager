@@ -32,6 +32,7 @@ from tests.allocation.application.test_allocate_capital import (
     _enabled_snapshot,
 )
 from tests.allocation.fakes import (
+    ActiveSubscription,
     AlwaysEnabledPool,
     AnyKeyTrades,
     FixedUserMode,
@@ -70,6 +71,7 @@ def _use_case(
         pool_status=AlwaysEnabledPool(),
         user_mode=FixedUserMode(),
         trade_capability=AnyKeyTrades(),
+        subscription_state=ActiveSubscription(),
     )
 
 

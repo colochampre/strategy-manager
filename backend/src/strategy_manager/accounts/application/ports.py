@@ -268,6 +268,14 @@ class PoolLockPort(Protocol):
     ) -> None: ...
 
 
+class RealExposurePort(Protocol):
+    """What this user holds that is real on the exchange, as the symbols it is held
+    on: the one definition of real, ``SqlAlchemyLiveExposure``. A simulated position
+    is not in it, because closing one needs no key."""
+
+    async def symbols_on(self, user_id: UUID, exchange: str) -> Sequence[str]: ...
+
+
 @dataclass(frozen=True, slots=True)
 class ActiveCredential:
     """What is left to say about a key that is about to be deleted. Never the key

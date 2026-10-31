@@ -96,14 +96,19 @@ async def subscription(
 
 
 async def open_allocation(
-    factory: Factory, user_id: UUID, strategy_id: UUID, *, symbol: str = "STXUSDT"
+    factory: Factory,
+    user_id: UUID,
+    strategy_id: UUID,
+    *,
+    symbol: str = "STXUSDT",
+    market: tuple[str, str, str] = MARKET,
 ) -> None:
     """A FILLED reservation and its BUY fill in the user's ledger: a position the
     strategy holds for that user. The alert's spelling is ``STXUSDT.P``; the
     ledger holds the venue's ``STXUSDT`` (``symbol``, when a test needs another
     market)."""
     signal_id, reservation_id, attempt_id = uuid4(), uuid4(), uuid4()
-    exchange, venue, currency = MARKET
+    exchange, venue, currency = market
     await seed_signal(
         factory,
         signal_id=signal_id,
@@ -117,9 +122,19 @@ async def open_allocation(
         signal_id=signal_id,
         status="FILLED",
         user_id=user_id,
+        exchange=exchange,
+        venue=venue,
+        settlement_currency=currency,
     )
     await seed_execution_attempt(
-        factory, attempt_id=attempt_id, reservation_id=reservation_id, symbol=symbol
+        factory,
+        attempt_id=attempt_id,
+        reservation_id=reservation_id,
+        exchange=exchange,
+        venue=venue,
+        settlement_currency=currency,
+        symbol=symbol,
+        status="FILLED",
     )
     async with factory() as session:
         entry_id = uuid4()

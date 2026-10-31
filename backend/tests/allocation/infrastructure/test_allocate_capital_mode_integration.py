@@ -56,7 +56,12 @@ from strategy_manager.shared.domain.money import Currency, Exchange, Money, Venu
 from strategy_manager.shared.infrastructure.clock import SystemClock
 from strategy_manager.strategies.application.policy_adapter import StrategyPolicyAdapter
 from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStrategyRepository
-from tests.allocation.fakes import AlwaysEnabledPool, AnyKeyTrades, RecordingSkipRecorder
+from tests.allocation.fakes import (
+    ActiveSubscription,
+    AlwaysEnabledPool,
+    AnyKeyTrades,
+    RecordingSkipRecorder,
+)
 from tests.allocation.infrastructure.conftest import seed_signal, seed_strategy
 from tests.owner import OWNER_ID, allocate_command, seed_reservation_row
 
@@ -118,6 +123,7 @@ async def _allocate(
             pool_status=AlwaysEnabledPool(),
             user_mode=SqlAlchemyUserMode(session, brake=brake),
             trade_capability=AnyKeyTrades(),
+            subscription_state=ActiveSubscription(),
         )
         return await use_case.allocate(command)
 

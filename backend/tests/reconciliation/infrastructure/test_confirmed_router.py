@@ -410,16 +410,45 @@ async def test_dry_run_is_the_setting_and_the_lists_are_what_the_database_holds(
     assert body["needs_owner_count"] == 1
 
 
-async def test_dry_run_reads_true_for_a_user_the_scan_skips(
-    client: AsyncClient, pg_session_factory: async_sessionmaker[AsyncSession]
-) -> None:
-    """The brake is off, and this user is in simulation with nothing real, so nothing
-    is compared for them (AD7, tasks.md E.6)."""
-    await _set_owner_mode(pg_session_factory, "SIMULATION")
-
+@pytest.mark.usefixtures("nobody_is_live")
+async def test_dry_run_reads_true_when_the_scan_skips_everyone(client: AsyncClient) -> None:
+    """The brake is off, and nobody is live or holds anything real, so nothing is
+    compared for anyone (AD7, tasks.md E.6 and E2.1)."""
     body = (await client.get("/reconciliation/confirmed", headers=ADMIN_HEADERS)).json()
 
     assert body["dry_run"] is True
+
+
+@pytest.mark.usefixtures("nobody_is_live")
+async def test_an_admin_in_simulation_sees_another_users_discrepancy(
+    client: AsyncClient, pg_session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """The route is whole-system, so the admin's own mode says nothing about it
+    (tasks.md A5, E2.1). Read from the admin alone, the panel drew no list here."""
+    async with pg_session_factory() as session:
+        other = await seed_other_user(session)
+        await ensure_pool(session, POOL, user_id=other)
+        await session.commit()
+    await _discrepancy(pg_session_factory, symbol="FFIUSDT", user_id=other)
+
+    body = (await client.get("/reconciliation/confirmed", headers=ADMIN_HEADERS)).json()
+
+    assert body["dry_run"] is False
+    assert body["needs_owner_count"] == 1
+
+
+@pytest.mark.usefixtures("nobody_is_live")
+async def test_dry_run_reads_false_for_an_admin_in_simulation_while_another_user_is_live(
+    client: AsyncClient, pg_session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    async with pg_session_factory() as session:
+        other = await seed_other_user(session)
+        await session.execute(text("UPDATE users SET mode = 'LIVE' WHERE id = :id"), {"id": other})
+        await session.commit()
+
+    body = (await client.get("/reconciliation/confirmed", headers=ADMIN_HEADERS)).json()
+
+    assert body["dry_run"] is False
 
 
 async def test_dry_run_reads_false_for_a_simulated_user_the_scan_still_reads(
@@ -503,6 +532,24 @@ async def test_the_statement_count_is_the_same_for_one_and_for_twenty_open_discr
     # The fourth is the users' e-mails (B.8), one query for every item, and the
     # fifth whether a live user is scanned (E.6).
     assert one == twenty == 5
+
+
+@pytest.mark.usefixtures("nobody_is_live")
+async def test_the_statement_count_does_not_grow_with_the_users_the_scan_skips(
+    client: AsyncClient,
+    pg_session_factory: async_sessionmaker[AsyncSession],
+    pg_engine: AsyncEngine,
+) -> None:
+    before, _ = await _count_statements(client, pg_engine)
+
+    async with pg_session_factory() as session:
+        for _ in range(5):
+            await seed_other_user(session)
+        await session.commit()
+    after, body = await _count_statements(client, pg_engine)
+
+    assert body["dry_run"] is True
+    assert after == before
 
 
 _TABLES = text(

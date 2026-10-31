@@ -48,7 +48,7 @@ from strategy_manager.signals.infrastructure.outcome_repository import (
     SqlAlchemyDeliveryOutcomeAdapter,
 )
 from tests.execution.fakes import OneRegistry
-from tests.owner import OWNER_ID, ensure_delivery
+from tests.owner import OWNER_ID, ensure_author_subscription, ensure_delivery
 from tests.signals.fakes import in_both_modes
 from tests.signals.infrastructure.conftest import (
     seed_execution_attempt,
@@ -168,6 +168,7 @@ async def _seed_reverse(
     )
     # The continuation is seeded for the reverse signal's delivery to the author.
     async with factory() as session:
+        await ensure_author_subscription(session, strategy_id)
         reverse_delivery = await ensure_delivery(
             session, signal_id=reverse_signal, strategy_id=strategy_id
         )

@@ -60,6 +60,7 @@ from strategy_manager.accounts.infrastructure.credentials_router import (
 )
 from strategy_manager.accounts.infrastructure.key_inspectors.bybit import BybitKeyInspector
 from strategy_manager.accounts.infrastructure.pool_exposure_adapter import PoolExposureAdapter
+from strategy_manager.execution.infrastructure.live_exposure import SqlAlchemyLiveExposure
 from strategy_manager.identity.infrastructure.dependencies import UNAUTHORIZED_DETAIL
 from strategy_manager.main import create_app
 from strategy_manager.shared import db as shared_db
@@ -79,8 +80,10 @@ from tests.accounts.fakes import (
     READ_ONLY_SNAPSHOT,
     TRADING_SNAPSHOT,
     TRANSFER_SNAPSHOT,
+    FixedRealExposure,
     RecordingCommit,
     RecordingInspector,
+    RecordingPoolLock,
     RecordingPoolWriter,
     RecordingWriter,
     TickingClock,
@@ -145,9 +148,16 @@ def _use_case(
     writer: RecordingWriter,
     commit: RecordingCommit,
     pools: RecordingPoolWriter | None = None,
+    real: tuple[str, ...] = (),
 ) -> SaveCredential:
     return SaveCredential(
-        registry_for(inspector), writer, pools or RecordingPoolWriter(), commit, TickingClock()
+        registry_for(inspector),
+        writer,
+        pools or RecordingPoolWriter(),
+        commit,
+        TickingClock(),
+        RecordingPoolLock(),
+        FixedRealExposure(real),
     )
 
 
@@ -162,14 +172,16 @@ class Served:
 
 @asynccontextmanager
 async def _serve(
-    inspector: RecordingInspector | None = None, writer: RecordingWriter | None = None
+    inspector: RecordingInspector | None = None,
+    writer: RecordingWriter | None = None,
+    real: tuple[str, ...] = (),
 ) -> AsyncIterator[Served]:
     inspector = inspector or RecordingInspector(TRADING_SNAPSHOT)
     writer = writer or RecordingWriter()
     commit = RecordingCommit()
     pools = RecordingPoolWriter()
     app = without_a_database(create_app())
-    use_case = _use_case(inspector, writer, commit, pools)
+    use_case = _use_case(inspector, writer, commit, pools, real)
     app.dependency_overrides[get_save_credential] = lambda: use_case
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as api:
         yield Served(api, inspector, writer, commit, pools)
@@ -385,6 +397,23 @@ async def test_put_each_refusal_maps_to_its_status_with_one_body_shape(
     assert set(body) == {"outcome", "detail"}
     assert body["outcome"] == outcome.value
     assert body["detail"]
+    assert writer.stored == []
+    assert served.commit.commits == 0
+    _assert_no_secret(response.text)
+
+
+async def test_put_a_key_that_cannot_trade_over_something_real_is_a_409_naming_the_symbol() -> None:
+    writer = RecordingWriter()
+    async with _serve(
+        RecordingInspector(READ_ONLY_SNAPSHOT), writer, real=("STXUSDT",)
+    ) as served:
+        response = await _put_bybit(served)
+
+    assert response.status_code == 409
+    body = response.json()
+    assert set(body) == {"outcome", "detail"}
+    assert body["outcome"] == "EXCHANGE_HOLDS_REAL_EXPOSURE"
+    assert "STXUSDT" in body["detail"]
     assert writer.stored == []
     assert served.commit.commits == 0
     _assert_no_secret(response.text)
@@ -696,6 +725,8 @@ async def _serve_db(
             SqlAlchemyCapitalPoolWriter(session),
             session,
             clock,
+            PoolLockAdapter(session),
+            SqlAlchemyLiveExposure(session),
         )
 
     app.dependency_overrides[shared_db.get_session] = _session

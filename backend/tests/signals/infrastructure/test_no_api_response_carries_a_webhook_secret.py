@@ -46,11 +46,13 @@ from strategy_manager.accounts.infrastructure.capital_pool_writer import (
 )
 from strategy_manager.accounts.infrastructure.credential_vault import SqlAlchemyCredentialVault
 from strategy_manager.accounts.infrastructure.credentials_router import get_save_credential
+from strategy_manager.execution.infrastructure.live_exposure import SqlAlchemyLiveExposure
 from strategy_manager.main import create_app
 from strategy_manager.shared import db as shared_db
 from strategy_manager.shared.config import get_settings
 from strategy_manager.shared.infrastructure.crypto import MASTER_KEY_BYTES, EnvelopeCipher
 from strategy_manager.strategies.infrastructure.pair_catalog_router import get_pair_catalog
+from strategy_manager.strategies.infrastructure.pool_lock_adapter import PoolLockAdapter
 from tests.accounts.fakes import (
     NOW,
     TRADING_SNAPSHOT,
@@ -302,6 +304,8 @@ async def test_no_api_response_carries_a_secret_or_a_hash_except_the_two_that_is
             SqlAlchemyCapitalPoolWriter(session),
             session,
             clock,
+            PoolLockAdapter(session),
+            SqlAlchemyLiveExposure(session),
         )
 
     app.dependency_overrides[get_save_credential] = _save_credential

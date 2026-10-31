@@ -48,8 +48,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from strategy_manager.identity.domain.user import User
-from strategy_manager.identity.infrastructure.dependencies import current_user, require_admin
+from strategy_manager.identity.infrastructure.dependencies import require_admin
 from strategy_manager.identity.infrastructure.models import UserRow
 from strategy_manager.reconciliation.application.market_key import market_key
 from strategy_manager.reconciliation.application.ports import DiscrepancyRecord
@@ -284,14 +283,15 @@ def _discrepancy_body(item: ConfirmedDiscrepancy, user_email: str) -> ConfirmedD
 async def read_confirmed(
     session: SessionDep,
     settings: Annotated[Settings, Depends(get_settings)],
-    user: Annotated[User, Depends(current_user)],
 ) -> ConfirmedBody:
     """Read-only, whole-system, no parameter (owner decision 66 Q6). Serves
     what the database holds with ``dry_run`` beside it (note N3), which is true
-    under the brake and for a user the scan skips (AD7, tasks.md E.6): nothing is
-    being compared for either. The panel decides what to draw then."""
+    under the brake and when the scan skips every user (AD7, tasks.md E.6): nothing
+    is being compared for anyone then. It is never the reader's own state: an admin
+    in simulation still answers for everyone else's discrepancies (tasks.md E2.1).
+    The panel decides what to draw."""
 
-    dry_run = settings.dry_run or not await SqlAlchemyReconciledUsers(session).includes(user.id)
+    dry_run = settings.dry_run or not await SqlAlchemyReconciledUsers(session).anyone()
     reading = await ReadConfirmed(
         discrepancies=SqlAlchemyDiscrepancyRepository(session),
         proposals=SqlAlchemyBookingProposalRepository(session),

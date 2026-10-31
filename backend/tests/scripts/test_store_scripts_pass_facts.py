@@ -83,6 +83,15 @@ def test_the_shared_saver_hands_save_credential_the_real_pool_writer_on_the_same
     assert "SqlAlchemyCredentialVault(session, cipher, clock)" in source
 
 
+def test_the_shared_saver_refuses_what_the_api_refuses_on_the_same_session() -> None:
+    """A script is not a way around the refusal of a key that cannot trade: its lock
+    and its read are the API's, on the session that stores the key (tasks.md A6)."""
+    source = (_SCRIPTS_DIR / "credential_cli.py").read_text(encoding="utf-8")
+
+    assert "PoolLockAdapter(session)" in source
+    assert "SqlAlchemyLiveExposure(session)" in source
+
+
 def test_the_pionex_script_is_not_folded_and_never_touches_a_pool() -> None:
     """Pionex is outside ``KNOWN_FUTURES_POOLS``: it offers no futures order
     placement, and its script seals directly."""

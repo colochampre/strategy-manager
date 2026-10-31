@@ -27,6 +27,7 @@ from strategy_manager.shared.infrastructure.clock import SystemClock
 from strategy_manager.strategies.application.policy_adapter import StrategyPolicyAdapter
 from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStrategyRepository
 from tests.allocation.fakes import (
+    ActiveSubscription,
     AlwaysEnabledPool,
     AnyKeyTrades,
     FixedUserMode,
@@ -69,6 +70,7 @@ def _build_allocate_capital(session: AsyncSession, balance: Decimal) -> Allocate
         pool_status=AlwaysEnabledPool(),
         user_mode=FixedUserMode(),
         trade_capability=AnyKeyTrades(),
+        subscription_state=ActiveSubscription(),
     )
 
 
@@ -172,6 +174,7 @@ async def test_the_reservation_is_the_deliverys_users_in_their_pool_and_ignores_
             pool_status=AlwaysEnabledPool(),
             user_mode=FixedUserMode(),
             trade_capability=AnyKeyTrades(),
+            subscription_state=ActiveSubscription(),
         )
         result = await use_case.allocate(command)
 

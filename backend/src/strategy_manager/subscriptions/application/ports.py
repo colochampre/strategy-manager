@@ -25,6 +25,22 @@ class StrategyMarket:
     visibility: Visibility
 
 
+@dataclass(frozen=True, slots=True)
+class LeavingSubscription:
+    """A LEAVING subscription and the market its pool lock is keyed by."""
+
+    user_id: UUID
+    strategy_id: UUID
+    market: Market
+
+
+class LeavingSubscriptionsPort(Protocol):
+    async def leaving(self) -> list[LeavingSubscription]:
+        """Every user's LEAVING subscription, read plainly: each is decided again
+        under its user's pool lock."""
+        ...
+
+
 class SubscriptionRepositoryPort(Protocol):
     async def insert(self, subscription: Subscription) -> None:
         """Raises ``AlreadySubscribed`` when the user's live subscription to the
@@ -70,7 +86,8 @@ class OpenAllocationPort(Protocol):
         self, user_id: UUID, strategy_id: UUID, market: Market
     ) -> bool:
         """Whether this user still has exposure from this strategy on the market:
-        a position the ledger holds, or a reservation still holding capital."""
+        a position the ledger holds, a reservation still holding capital, or an
+        opening order still in flight."""
         ...
 
 

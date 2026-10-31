@@ -35,7 +35,7 @@ from strategy_manager.signals.infrastructure.outcome_repository import (
 from strategy_manager.signals.infrastructure.skip_recorder import SignalSkipRecorder
 from strategy_manager.strategies.application.policy_adapter import StrategyPolicyAdapter
 from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStrategyRepository
-from tests.allocation.fakes import AnyKeyTrades, FixedUserMode
+from tests.allocation.fakes import ActiveSubscription, AnyKeyTrades, FixedUserMode
 from tests.owner import OWNER_ID, ensure_delivery
 from tests.signals.application.test_process_signal import (
     SpyAdvisoryLock,
@@ -160,6 +160,7 @@ def _allocate_capital_on(session: AsyncSession, balance: Decimal) -> AllocateCap
         pool_status=SqlAlchemyPoolStatus(session),
         user_mode=FixedUserMode(),
         trade_capability=AnyKeyTrades(),
+        subscription_state=ActiveSubscription(),
     )
 
 

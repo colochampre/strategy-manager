@@ -26,6 +26,7 @@ from strategy_manager.shared.infrastructure.clock import SystemClock
 from strategy_manager.strategies.application.policy_adapter import StrategyPolicyAdapter
 from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStrategyRepository
 from tests.allocation.fakes import (
+    ActiveSubscription,
     AlwaysEnabledPool,
     AnyKeyTrades,
     FixedUserMode,
@@ -65,6 +66,7 @@ def build_allocate_capital(session: AsyncSession, lock: AdvisoryLockPort) -> All
         pool_status=AlwaysEnabledPool(),
         user_mode=FixedUserMode(),
         trade_capability=AnyKeyTrades(),
+        subscription_state=ActiveSubscription(),
     )
 
 

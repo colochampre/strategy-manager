@@ -1,5 +1,7 @@
 """``SqlAlchemyLiveExposure``: what a user holds that is real, by market, for the
-flat check behind ``POST /api/me/mode`` (decision 6).
+flat check behind ``POST /api/me/mode`` (decision 6). Reconciliation also asks it
+over every user, whether anything real exists at all (tasks.md E2.1), and saving a
+key that cannot trade asks it for one exchange (tasks.md E2.4).
 
 Real means one of three things, and each covers a moment the others miss:
 
@@ -51,26 +53,42 @@ class SqlAlchemyLiveExposure:
         self._session = session
 
     async def symbols(self, user_id: UUID) -> Sequence[str]:
+        return await self._symbols(user_id)
+
+    async def symbols_of_everyone(self) -> Sequence[str]:
+        return await self._symbols(None)
+
+    async def symbols_on(self, user_id: UUID, exchange: str) -> Sequence[str]:
+        return await self._symbols(user_id, exchange)
+
+    async def _symbols(
+        self, user_id: UUID | None, exchange: str | None = None
+    ) -> Sequence[str]:
         spellings: set[str] = set()
-        spellings.update(await self._reserved(user_id))
-        spellings.update(await self._submitted(user_id))
-        spellings.update(await self._open(user_id))
+        spellings.update(await self._reserved(user_id, exchange))
+        spellings.update(await self._submitted(user_id, exchange))
+        spellings.update(await self._open(user_id, exchange))
         return sorted({market_key(spelling) for spelling in spellings})
 
-    async def _reserved(self, user_id: UUID) -> Sequence[str]:
+    async def _reserved(self, user_id: UUID | None, exchange: str | None) -> Sequence[str]:
+        owner = () if user_id is None else (ReservationRow.user_id == user_id,)
+        on_exchange = () if exchange is None else (ReservationRow.exchange == exchange,)
         result = await self._session.execute(
             select(SignalRow.symbol)
             .select_from(ReservationRow)
             .join(SignalRow, SignalRow.id == ReservationRow.signal_id)
             .where(
-                ReservationRow.user_id == user_id,
+                *owner,
+                *on_exchange,
                 ReservationRow.mode == Mode.LIVE.value,
                 ReservationRow.status.in_(_UNFINISHED),
             )
         )
         return result.scalars().all()
 
-    async def _submitted(self, user_id: UUID) -> Sequence[str]:
+    async def _submitted(self, user_id: UUID | None, exchange: str | None) -> Sequence[str]:
+        owner = () if user_id is None else (ExecutionAttemptRow.user_id == user_id,)
+        on_exchange = () if exchange is None else (ExecutionAttemptRow.exchange == exchange,)
         result = await self._session.execute(
             select(ExecutionAttemptRow.symbol)
             .join(
@@ -82,18 +100,19 @@ class SqlAlchemyLiveExposure:
                 ),
             )
             .where(
-                ExecutionAttemptRow.user_id == user_id,
+                *owner,
+                *on_exchange,
                 ExecutionAttemptRow.status == ExecutionStatus.SUBMITTED.value,
                 ReservationRow.mode == Mode.LIVE.value,
             )
         )
         return result.scalars().all()
 
-    async def _open(self, user_id: UUID) -> Sequence[str]:
+    async def _open(self, user_id: UUID | None, exchange: str | None) -> Sequence[str]:
         allocations = await SqlAlchemyModeOriginReader(self._session).open_allocations(user_id)
         return [
             spelling
             for allocation in allocations
-            if allocation.holds_live_fill
+            if allocation.holds_live_fill and exchange in (None, allocation.exchange)
             for spelling in allocation.symbol.split(SPELLING_SEPARATOR)
         ]

@@ -22,6 +22,7 @@ from uuid import UUID, uuid4
 from strategy_manager.allocation.application.ports import (
     AdvisoryLockPort,
     CommitPort,
+    DeliverySubscriptionPort,
     PoolBalancePort,
     PoolStatusPort,
     ReservationRepositoryPort,
@@ -57,6 +58,10 @@ STRATEGY_ARCHIVED_SKIP_REASON = "STRATEGY_ARCHIVED"
 # can enable one while a delete holds the lock -- so neither reason above
 # covers it, and reserving here would hold capital against a keyless exchange.
 POOL_DISABLED_SKIP_REASON = "POOL_DISABLED"
+# Owner decision 4 (tasks.md N1, N5): the delivery's subscription left while this
+# opening was queued. ``Leave`` counts holdings and live reservations, so a queued
+# delivery is neither, and opening it would strand a position no close reaches.
+SUBSCRIPTION_NOT_ACTIVE_SKIP_REASON = "SUBSCRIPTION_NOT_ACTIVE"
 
 
 class UnknownPoolError(DomainError):
@@ -126,6 +131,7 @@ class AllocateCapital:
         pool_status: PoolStatusPort,
         user_mode: UserModePort,
         trade_capability: TradeCapabilityPort,
+        subscription_state: DeliverySubscriptionPort,
     ) -> None:
         self._strategy_policy = strategy_policy
         self._pool_balance = pool_balance
@@ -138,6 +144,7 @@ class AllocateCapital:
         self._pool_status = pool_status
         self._user_mode = user_mode
         self._trade_capability = trade_capability
+        self._subscription_state = subscription_state
 
     async def allocate(self, command: AllocateCommand) -> AllocationResult:
         # The reservations are the DELIVERY's user's (multi-user design AD5 and
@@ -248,6 +255,29 @@ class AllocateCapital:
                 granted=Decimal("0"),
                 reservation_id=None,
                 skip_reason=skip_reason,
+            )
+
+        # A user's own action, so an INFO and not a WARNING. It MUST follow
+        # ``acquire``: ``Leave`` takes this lock, so whichever goes first is
+        # authoritative. A ``Leave`` that went first is read here, and an opening
+        # that went first is a live reservation that ``Leave`` then sees.
+        if not await self._subscription_state.is_active(command.delivery_id):
+            detail = (
+                f"in-lock re-check skips signal {command.signal_id}, delivery "
+                f"{command.delivery_id} of strategy {command.strategy_id}: "
+                f"{SUBSCRIPTION_NOT_ACTIVE_SKIP_REASON}, the subscription left while this "
+                f"opening was queued; no capital reserved"
+            )
+            logger.info("%s", detail)
+            await self._skip_recorder.record_skip(
+                command.delivery_id, SUBSCRIPTION_NOT_ACTIVE_SKIP_REASON, detail
+            )
+            await self._commit.commit()
+            return AllocationResult(
+                outcome=DecisionOutcome.SKIP,
+                granted=Decimal("0"),
+                reservation_id=None,
+                skip_reason=SUBSCRIPTION_NOT_ACTIVE_SKIP_REASON,
             )
 
         # W1: the pool flag, re-read from committed state now that the lock is
