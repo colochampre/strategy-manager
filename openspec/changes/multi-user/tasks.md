@@ -1275,6 +1275,19 @@ PR #91 merged 2026-10-31 15:59 UTC as `c9b7ec08164e`, with a merge commit. No de
 
 **The first signal after PR D (read by the owner, 2026-10-31):** `SFPUSDT.P` sell received 2026-10-31 01:10:03 UTC, position size 0, after PR D's and PR D2's deploys: one ACTIVE subscription, one delivery `PROCESSED`. The opening's allocation went from 12 fills to 25, so 13 closing fills, and it nets to zero. An accepted signal passed ingress, which by then authenticates only by the strategy's hash, with the alert's URL unchanged. This closes the check left open under PR D2's delivery, for a close's delivery too.
 
+## PR E2: what must close before PR F
+
+Branch `fix/multi-user-before-public-list`, cut from `main` at `c9b7ec0`; it carries PR E's delivery record. No migration. The owner's word, 2026-10-31: "Dale, arrancá con los cuatro".
+
+- [x] E2.1 A5: the `dry_run` of `/reconciliation/confirmed` is whole-system, as the route is. True only under the brake, or when the scan reconciles nobody.
+  - `SqlAlchemyReconciledUsers.anyone()` applies the same three conditions over every user. The first version asked user by user; `test_the_statement_count_is_the_same_for_one_and_for_twenty_open_discrepancies` caught one statement more, and the route is polled every 60 s per tab, so it now takes a fixed number of statements. `SqlAlchemyLiveExposure` gained `symbols_of_everyone()` rather than a second definition of "real", and `symbols(user_id)` keeps a required argument, so a caller of the flat check cannot read everyone's by forgetting the user.
+  - The route no longer depends on `current_user`: the router's `require_admin` is what guards it, and the reader's identity no longer decides anything.
+  - RED on three assertions before the fix, two on the route and one on `anyone()` with a stub returning False. Eleven mutations in `mutate_a5.ps1`, all killed and restored. `users` outlives the fixtures' truncates, so tests over every user use the new `nobody_is_live` fixture, which restores each mode afterwards.
+- [ ] E2.2 N1 and N5: an opening reads the subscription inside the pool lock `Leave` takes, and one that is not `ACTIVE` reserves nothing. Proved on real PostgreSQL with the lock-hold harness, in both orders.
+- [ ] E2.3 N2: a `LEAVING` subscription left with nothing, because its reservation was released unfilled, ends. PR F's Subscribe/Leave puts this within any user's reach.
+- [ ] E2.4 A6: `SaveCredential` refuses a key that cannot trade while the user holds something real on that exchange, read inside the pool lock and after the venue call, as `DeleteCredential` does. The panel shows the refusal in words.
+- [ ] E2.D Gate, independent verifier (E2.2 is concurrency and E2.4 a guard), then push and PR on the owner's word, merge, deploy (pull, restart both services away from a 4h close, pps.6), delivery log.
+
 ## PR F-G
 
 Planned in `design.md`, "Delivery". Their tasks are written when the previous PR is merged, so each starts from what production actually is. The signals' `status`, `outcome_reason`, `outcome_detail` and `decided_at` stay, because they hold the strategy-level refusals (C.7). Advisory N1 (Leave with a queued opening) must be closed before PR F.

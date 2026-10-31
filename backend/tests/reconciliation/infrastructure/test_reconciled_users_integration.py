@@ -215,3 +215,69 @@ async def test_among_answers_only_the_reconciled_ones(pg_session_factory: Factor
         answer = await SqlAlchemyReconciledUsers(session).among([live, exposed, simulated])
 
     assert answer == {live, exposed}
+
+
+async def _anyone(factory: Factory) -> bool:
+    async with factory() as session:
+        return await SqlAlchemyReconciledUsers(session).anyone()
+
+
+@pytest.mark.usefixtures("nobody_is_live")
+async def test_anyone_is_false_when_the_scan_skips_every_user(pg_session_factory: Factory) -> None:
+    await _user(pg_session_factory)
+
+    assert await _anyone(pg_session_factory) is False
+
+
+@pytest.mark.usefixtures("nobody_is_live")
+async def test_anyone_is_true_for_one_reconciled_user_among_the_skipped(
+    pg_session_factory: Factory,
+) -> None:
+    await _user(pg_session_factory)
+    exposed = await _user(pg_session_factory)
+    await _position(pg_session_factory, exposed, mode="LIVE")
+
+    assert await _anyone(pg_session_factory) is True
+
+
+@pytest.mark.usefixtures("nobody_is_live")
+async def test_anyone_counts_a_simulated_position_as_nothing(pg_session_factory: Factory) -> None:
+    user_id = await _user(pg_session_factory)
+    await _position(pg_session_factory, user_id, mode="SIMULATION")
+
+    assert await _anyone(pg_session_factory) is False
+
+
+@pytest.mark.usefixtures("nobody_is_live")
+async def test_anyone_counts_a_real_opening_on_its_way(pg_session_factory: Factory) -> None:
+    user_id = await _user(pg_session_factory)
+    await _reservation(pg_session_factory, user_id, status="SUBMITTED", mode="LIVE")
+
+    assert await _anyone(pg_session_factory) is True
+
+
+@pytest.mark.usefixtures("nobody_is_live")
+async def test_anyone_counts_a_real_attempt_still_submitted(pg_session_factory: Factory) -> None:
+    user_id = await _user(pg_session_factory)
+    _, reservation_id = await _reservation(
+        pg_session_factory, user_id, status="FILLED", mode="LIVE"
+    )
+    await seed_execution_attempt(
+        pg_session_factory,
+        attempt_id=uuid4(),
+        reservation_id=reservation_id,
+        status="SUBMITTED",
+    )
+
+    assert await _anyone(pg_session_factory) is True
+
+
+@pytest.mark.usefixtures("nobody_is_live")
+async def test_anyone_counts_an_open_discrepancy_but_not_a_resolved_one(
+    pg_session_factory: Factory,
+) -> None:
+    await _discrepancy(pg_session_factory, await _user(pg_session_factory), resolved=True)
+    assert await _anyone(pg_session_factory) is False
+
+    await _discrepancy(pg_session_factory, await _user(pg_session_factory))
+    assert await _anyone(pg_session_factory) is True
