@@ -16,7 +16,9 @@ enqueuing its own successor on every run. Two consequences drive the code below:
 The chain still dies if a job exhausts ``max_attempts`` — the sweeper stops and
 nothing raises. That is a monitoring concern this change does not solve; the
 mitigation is that nothing depends on the sweep for *correctness*
-(``sum_active`` already excludes expired reservations), only for bookkeeping.
+(``sum_active`` already excludes expired reservations), only for bookkeeping. The
+same holds for the LEAVING subscriptions it ends: a LEAVING one opens nothing, so a
+sweep that stopped leaves one waiting, and costs no capital.
 
 That same fact is why ``interval_seconds`` is a SCHEDULING interval the caller
 chooses, and pointedly not the worker's poll interval. It was the poll interval
@@ -40,15 +42,24 @@ class SweepPort(Protocol):
     async def sweep(self) -> SweepResult: ...
 
 
+class EndFlatLeavingPort(Protocol):
+    """Ends the LEAVING subscriptions left holding nothing, declared here for the
+    same reason."""
+
+    async def sweep(self) -> int: ...
+
+
 class SweepHandler:
     def __init__(
         self,
         expire_reservations: SweepPort,
+        end_flat_leaving: EndFlatLeavingPort,
         queue: JobQueuePort,
         clock: ClockPort,
         interval_seconds: float,
     ) -> None:
         self._expire_reservations = expire_reservations
+        self._end_flat_leaving = end_flat_leaving
         self._queue = queue
         self._clock = clock
         self._interval_seconds = interval_seconds
@@ -56,6 +67,9 @@ class SweepHandler:
     async def handle(self, job: ClaimedJob) -> SweepResult:
         del job  # the sweep is global; the claimed job carries no payload
         result = await self._expire_reservations.sweep()
+        # After the expiry, so a reservation expired just now ends its subscription
+        # in this run. Before the successor, for reason 1 above.
+        await self._end_flat_leaving.sweep()
         await self._queue.enqueue(
             Job(
                 kind=JobKind.RESERVATION_SWEEP,

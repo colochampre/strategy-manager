@@ -119,7 +119,11 @@ async def open_allocation(
         user_id=user_id,
     )
     await seed_execution_attempt(
-        factory, attempt_id=attempt_id, reservation_id=reservation_id, symbol=symbol
+        factory,
+        attempt_id=attempt_id,
+        reservation_id=reservation_id,
+        symbol=symbol,
+        status="FILLED",
     )
     async with factory() as session:
         entry_id = uuid4()

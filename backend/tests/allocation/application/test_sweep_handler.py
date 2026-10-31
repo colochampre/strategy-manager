@@ -57,6 +57,18 @@ class StubExpireReservations:
         return SweepResult(expired=self._expired)
 
 
+class StubEndFlatLeaving:
+    def __init__(self, raises: Exception | None = None) -> None:
+        self._raises = raises
+        self.sweeps = 0
+
+    async def sweep(self) -> int:
+        self.sweeps += 1
+        if self._raises is not None:
+            raise self._raises
+        return 0
+
+
 def _claimed_job() -> ClaimedJob:
     return ClaimedJob(
         id=uuid4(), kind=JobKind.RESERVATION_SWEEP, payload={}, attempts=1, max_attempts=5
@@ -65,10 +77,12 @@ def _claimed_job() -> ClaimedJob:
 
 def _build(
     expire: StubExpireReservations,
+    leaving: StubEndFlatLeaving | None = None,
 ) -> tuple[SweepHandler, SpyQueue]:
     queue = SpyQueue()
     handler = SweepHandler(
         expire_reservations=expire,  # type: ignore[arg-type]
+        end_flat_leaving=leaving if leaving is not None else StubEndFlatLeaving(),
         queue=queue,
         clock=FrozenClock(NOW),
         interval_seconds=INTERVAL,
@@ -120,6 +134,51 @@ async def test_a_failing_sweep_does_not_re_enqueue() -> None:
     with pytest.raises(RuntimeError):
         await handler.handle(_claimed_job())
 
+    assert queue.enqueued == []
+
+
+async def test_leaving_subscriptions_are_ended_after_the_expiry_and_before_the_successor() -> None:
+    """Expiry first, so a reservation expired in this run ends its subscription in
+    this run. The successor last, as for the expiry: a sweep that failed halfway
+    enqueues nothing."""
+    order: list[str] = []
+
+    class Expire(StubExpireReservations):
+        async def sweep(self) -> SweepResult:
+            order.append("expire")
+            return await super().sweep()
+
+    class Leaving(StubEndFlatLeaving):
+        async def sweep(self) -> int:
+            order.append("leaving")
+            return await super().sweep()
+
+    class Queue(SpyQueue):
+        async def enqueue(self, job: Job) -> object:
+            order.append("successor")
+            return await super().enqueue(job)
+
+    handler = SweepHandler(
+        expire_reservations=Expire(),  # type: ignore[arg-type]
+        end_flat_leaving=Leaving(),
+        queue=Queue(),
+        clock=FrozenClock(NOW),
+        interval_seconds=INTERVAL,
+    )
+
+    await handler.handle(_claimed_job())
+
+    assert order == ["expire", "leaving", "successor"]
+
+
+async def test_a_failing_leaving_sweep_does_not_re_enqueue() -> None:
+    leaving = StubEndFlatLeaving(raises=RuntimeError("db down"))
+    handler, queue = _build(StubExpireReservations(), leaving)
+
+    with pytest.raises(RuntimeError):
+        await handler.handle(_claimed_job())
+
+    assert leaving.sweeps == 1
     assert queue.enqueued == []
 
 

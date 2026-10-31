@@ -318,8 +318,14 @@ from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStra
 from strategy_manager.strategies.infrastructure.router import (
     router as strategies_router,
 )
-from strategy_manager.subscriptions.application.end_leaving import EndLeavingSubscription
-from strategy_manager.subscriptions.infrastructure.adapters import OpenAllocationAdapter
+from strategy_manager.subscriptions.application.end_leaving import (
+    EndFlatLeaving,
+    EndLeavingSubscription,
+)
+from strategy_manager.subscriptions.infrastructure.adapters import (
+    OpenAllocationAdapter,
+    SqlAlchemyLeavingSubscriptions,
+)
 from strategy_manager.subscriptions.infrastructure.repository import (
     SqlAlchemySubscriptionRepository,
 )
@@ -674,15 +680,19 @@ def _build_settle_execution(
         # ``AllocateCapital`` takes) and ends a LEAVING subscription whose last
         # open allocation it books, in the same transaction.
         pool_lock=PoolLockAdapter(session),
-        leaving=EndLeavingSubscription(
-            SqlAlchemySubscriptionRepository(session),
-            OpenAllocationAdapter(
-                session,
-                SqlAlchemyLedgerRepository(session),
-                ReadSymbolHoldings(SqlAlchemyLedgerRepository(session)),
-            ),
-            SystemClock(),
+        leaving=_end_leaving(session),
+    )
+
+
+def _end_leaving(session: AsyncSession) -> EndLeavingSubscription:
+    return EndLeavingSubscription(
+        SqlAlchemySubscriptionRepository(session),
+        OpenAllocationAdapter(
+            session,
+            SqlAlchemyLedgerRepository(session),
+            ReadSymbolHoldings(SqlAlchemyLedgerRepository(session)),
         ),
+        SystemClock(),
     )
 
 
@@ -1878,6 +1888,12 @@ def build_worker_runner(
                     reservations=SqlAlchemyReservationRepository(session),
                     clock=SystemClock(),
                     commit=session,
+                ),
+                end_flat_leaving=EndFlatLeaving(
+                    SqlAlchemyLeavingSubscriptions(session),
+                    PoolLockAdapter(session),
+                    _end_leaving(session),
+                    session,
                 ),
                 queue=_job_queue(session, settings),
                 clock=SystemClock(),
