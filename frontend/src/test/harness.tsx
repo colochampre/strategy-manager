@@ -393,6 +393,8 @@ export function failsOnceThenHolds(answer: unknown) {
 
 /**
  * Routes the endpoints the shell touches; everything else is a loud failure.
+ * `health` answers `GET /health`, which the panel no longer asks: the badge reads `GET /api/me`. A test that
+ * needs another mode or the brake released answers `/api/me` itself, through `extra`.
  * The second argument is retired: it answered the booking route, which the panel no longer
  * calls (owner decision 66), and is kept, ignored, only so that the callers that pass `[]` there
  * still compile; a request to that route is now recorded in `unexpected`.
@@ -429,7 +431,7 @@ export function stubApi(
     if (url.endsWith("/api/me")) {
       return Promise.resolve(
         signedIn
-          ? jsonResponse({ email: SIGNED_IN_EMAIL, is_admin: true, dry_run: true })
+          ? jsonResponse({ email: SIGNED_IN_EMAIL, is_admin: true, mode: "SIMULATION", dry_run_brake: true })
           : jsonResponse({ detail: "unauthorized" }, 401),
       );
     }

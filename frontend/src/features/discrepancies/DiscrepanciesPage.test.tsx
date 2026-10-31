@@ -16,7 +16,7 @@ const HEALTH = { kind: "ok", body: { status: "ok", dry_run: false } } as const;
 const ALL_CLEAR = "Nothing needs you. The venue agrees with the ledger on every confirmed comparison.";
 const NO_BOOKING = "No booking in the last 30 days.";
 const FAILED = "Discrepancies could not be read, so this page cannot say whether anything needs you.";
-const DRY_RUN = "The comparison with the venue does not run in dry run, so nothing is checked here.";
+const DRY_RUN = "Nothing is compared with the venue for you: you are in simulation with nothing real, or the brake is on.";
 
 function mountPage(confirmed: ConfirmedStub, path = "/discrepancies") {
   const fetchMock = stubApi(HEALTH, [], undefined, {}, undefined, {}, undefined, undefined, confirmed);

@@ -19,10 +19,35 @@
     }
   },
   "status": {
-    "dryRun": "Dry run",
+    "simulation": "Simulation",
+    "forced": "Simulation forced",
     "live": "Live",
     "checking": "Checking mode",
     "unknown": "Mode unknown"
+  },
+  "mode": {
+    "forcedHint": "The brake is on: everyone is in simulation until it is released.",
+    "change": "Mode: {{mode}}. Change it",
+    "toLive": {
+      "title": "Go live?",
+      "body": "Real orders will be placed on your exchanges with your capital, from the next opening signal on.",
+      "note": "Simulated positions you hold stay simulated, and close in simulation.",
+      "confirm": "Go live"
+    },
+    "toSimulation": {
+      "title": "Move to simulation?",
+      "body": "Openings will be simulated against your real balance. No real order is placed for them.",
+      "note": "This needs nothing real held.",
+      "confirm": "Move to simulation"
+    },
+    "cancel": "Cancel",
+    "pending": "Changing…",
+    "errors": {
+      "brakeOn": "The brake is on: everyone is in simulation until it is released, so the mode cannot change.",
+      "needsKey": "Going live needs an active key that can trade. Add one in Settings.",
+      "notFlat": "Going to simulation needs nothing real held. Still open:",
+      "unknown": "The mode could not be changed. Try again."
+    }
   },
   "notFound": {
     "title": "Page not found",
@@ -56,7 +81,7 @@
       "time": "{{time}} UTC",
       "refresh": "Read again",
       "stale": "Could not be refreshed since {{time}} UTC.",
-      "dryRun": "The comparison with the venue does not run in dry run, so nothing is checked here."
+      "dryRun": "Nothing is compared with the venue for you: you are in simulation with nothing real, or the brake is on."
     },
     "kind": {
       "NO_MATCHING_ALLOCATION": "The venue holds a position no strategy opened.",
@@ -604,8 +629,8 @@
       "confirmedInfo": "About what you confirmed",
       "confirmedHint": "\"Confirmed\" is what you told this panel on that day. {{exchange}} does not let the panel check what a key may do, so orders are sent on your confirmation. If the key cannot trade futures, {{exchange}} rejects the first live order and you get a Telegram alert. Nothing checks the withdrawal setting.",
       "unrecordedHint": "Stored before the system recorded how a key was checked. Enter it again to have it checked.",
-      "readOnly": "This key cannot trade. With dry run off, opening signals for {{exchange}} are refused until you add a key that can trade futures.",
-      "degraded": "No key stored. With dry run off, opening signals for {{exchange}} are refused until a key is added.",
+      "readOnly": "This key cannot trade. In live mode, opening signals for {{exchange}} are refused until you add a key that can trade futures.",
+      "degraded": "No key stored. In live mode, opening signals for {{exchange}} are refused until a key is added.",
       "empty": "No key stored. Add one to read and trade on {{exchange}} from here.",
       "emptyNotServed": "No key stored.",
       "notServed": "The {{exchange}} key is managed outside this panel, on the server. It cannot be added, replaced or deleted here.",

@@ -58,8 +58,8 @@ describe("App", () => {
     const button = await screen.findByRole("button", { name: "Sign in again" });
     expect(button).toHaveClass("bg-gain");
     expect(button.parentElement).toHaveClass("border-rule", "bg-panel");
-    // The dry-run badge is the amber "needs your decision" role.
-    expect(await screen.findByText("Dry run")).toHaveClass("text-decision");
+    // Signed out, the badge names no mode.
+    expect(await screen.findByText("Mode unknown")).toHaveClass("text-ink-3");
 
     const removed = /(?:^|\s)(?:bg|text|border)-(?:surface-\d+|edge|ink-(?:100|300|500)|accent|profit|idle)(?:\s|$|\/)/;
     for (const el of Array.from(container.querySelectorAll("[class]"))) {

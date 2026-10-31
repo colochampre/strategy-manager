@@ -68,7 +68,7 @@ const AMBER_ALLOWED = [
   "features/strategies/TradeDetailDialog.tsx",
   "features/strategies/TradesTable.tsx",
   "shared/credentials/KeyMark.tsx",
-  "shared/layout/DryRunBadge.tsx",
+  "shared/layout/ModeBadge.tsx",
 ];
 
 describe("the amber decision colour", () => {
@@ -91,7 +91,7 @@ describe("the amber decision colour", () => {
       "features/strategies/TradeDetailDialog.tsx",
       "features/strategies/TradesTable.tsx",
       "shared/credentials/KeyMark.tsx",
-      "shared/layout/DryRunBadge.tsx",
+      "shared/layout/ModeBadge.tsx",
     ]);
   });
 });

@@ -67,7 +67,7 @@ describe("which routes show the tabs", () => {
     renderAt(<AppRoutes />, "/settings");
 
     await screen.findByRole("heading", { level: 1, name: "Settings" });
-    await screen.findByText("Dry run");
+    await screen.findByText("Simulation forced");
     expect(screen.queryByRole("navigation", { name: "Exchanges" })).not.toBeInTheDocument();
   });
 
@@ -196,7 +196,7 @@ describe("pools loading and failure", () => {
     renderAt(<AppRoutes />, "/");
 
     expect(await screen.findAllByRole("navigation", { name: "Sections" })).toHaveLength(2);
-    expect(await screen.findByText("Dry run")).toBeInTheDocument();
+    expect(await screen.findByText("Simulation forced")).toBeInTheDocument();
   });
 
   it("renders no tab when the pool list is empty, without failing", async () => {

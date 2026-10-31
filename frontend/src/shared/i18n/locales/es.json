@@ -19,10 +19,35 @@
     }
   },
   "status": {
-    "dryRun": "Modo simulación",
+    "simulation": "Simulación",
+    "forced": "Simulación forzada",
     "live": "En vivo",
     "checking": "Comprobando modo",
     "unknown": "Modo desconocido"
+  },
+  "mode": {
+    "forcedHint": "El freno está activo: todos operan en simulación hasta que se libere.",
+    "change": "Modo: {{mode}}. Cambiarlo",
+    "toLive": {
+      "title": "¿Operar en vivo?",
+      "body": "Se colocarán órdenes reales en sus exchanges con su capital, a partir de la próxima señal de apertura.",
+      "note": "Las posiciones simuladas que tenga siguen simuladas y se cierran en simulación.",
+      "confirm": "Operar en vivo"
+    },
+    "toSimulation": {
+      "title": "¿Pasar a simulación?",
+      "body": "Las aperturas se simularán sobre su saldo real. No se coloca ninguna orden real por ellas.",
+      "note": "Para esto no debe tener nada real abierto.",
+      "confirm": "Pasar a simulación"
+    },
+    "cancel": "Cancelar",
+    "pending": "Cambiando…",
+    "errors": {
+      "brakeOn": "El freno está activo: todos operan en simulación hasta que se libere, así que el modo no puede cambiar.",
+      "needsKey": "Para operar en vivo necesita una clave activa que pueda operar. Agregue una en Configuración.",
+      "notFlat": "Para pasar a simulación no debe tener nada real abierto. Siguen abiertas:",
+      "unknown": "No se pudo cambiar el modo. Inténtelo de nuevo."
+    }
   },
   "notFound": {
     "title": "Página no encontrada",
@@ -56,7 +81,7 @@
       "time": "{{time}} UTC",
       "refresh": "Leer de nuevo",
       "stale": "No se pudo actualizar desde las {{time}} UTC.",
-      "dryRun": "La comparación con el exchange no se ejecuta en modo simulación, así que aquí no se verifica nada."
+      "dryRun": "No se compara nada con el exchange para usted: está en simulación sin nada real, o el freno está activo."
     },
     "kind": {
       "NO_MATCHING_ALLOCATION": "El exchange tiene una posición que ninguna estrategia abrió.",
@@ -603,8 +628,8 @@
       "confirmedInfo": "Sobre lo que usted confirmó",
       "confirmedHint": "«Confirmado» es lo que usted indicó a este panel ese día. {{exchange}} no permite que el panel compruebe qué puede hacer una clave, así que las órdenes se envían con su confirmación. Si la clave no puede operar futuros, {{exchange}} rechaza la primera orden real y usted recibe una alerta de Telegram. Nada comprueba el ajuste de retiros.",
       "unrecordedHint": "Se guardó antes de que el sistema registrara cómo se comprobaba una clave. Vuelva a introducirla para que se compruebe.",
-      "readOnly": "Esta clave no puede operar. Con el modo simulación desactivado, las señales de apertura de {{exchange}} se rechazan hasta que usted agregue una clave que pueda operar futuros.",
-      "degraded": "No hay ninguna clave guardada. Con el modo simulación desactivado, las señales de apertura de {{exchange}} se rechazan hasta que se agregue una clave.",
+      "readOnly": "Esta clave no puede operar. En modo en vivo, las señales de apertura de {{exchange}} se rechazan hasta que usted agregue una clave que pueda operar futuros.",
+      "degraded": "No hay ninguna clave guardada. En modo en vivo, las señales de apertura de {{exchange}} se rechazan hasta que se agregue una clave.",
       "empty": "No hay ninguna clave guardada. Agregue una para leer y operar en {{exchange}} desde aquí.",
       "emptyNotServed": "No hay ninguna clave guardada.",
       "notServed": "La clave de {{exchange}} se gestiona fuera de este panel, en el servidor. No se puede agregar, reemplazar ni eliminar desde aquí.",

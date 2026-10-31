@@ -97,82 +97,15 @@ describe("navigation", () => {
   });
 });
 
-describe("DryRunBadge", () => {
-  it("test_dry_run_badge_reads_health_dry_run_field", async () => {
-    stubApi({ kind: "ok", body: { status: "ok", dry_run: true } });
-    renderShell();
-
-    expect(await screen.findByText("Dry run")).toBeInTheDocument();
-    expect(screen.queryByText("Live")).not.toBeInTheDocument();
-  });
-
-  it("reads /health without a credential header and without the /api prefix", async () => {
-    const fetchMock = stubApi({ kind: "ok", body: { status: "ok", dry_run: true } });
-    renderShell();
-
-    await screen.findByText("Dry run");
-    const call = fetchMock.mock.calls.find(([url]) => String(url).endsWith("/health"));
-    expect(String(call?.[0])).toBe("/health");
-    expect(new Headers(call?.[1]?.headers).has("Authorization")).toBe(false);
-  });
-
-  it("says Live, in the gain colour, when the server reports dry_run false", async () => {
+describe("the mode badge in the shell", () => {
+  it("names no mode while signed out: a mode belongs to a user", async () => {
+    lock();
     stubApi({ kind: "ok", body: { status: "ok", dry_run: false } });
     renderShell();
 
-    const badge = await screen.findByText("Live");
-    expect(badge).toHaveClass("text-gain");
-    expect(badge).toHaveClass("border-gain");
-    expect(badge).not.toHaveClass("text-loss");
-    expect(badge).not.toHaveClass("border-loss");
-    expect(screen.queryByText("Dry run")).not.toBeInTheDocument();
-  });
-
-  it("shows a neutral checking state while /health is loading, never Live", () => {
-    stubApi({ kind: "pending" });
-    renderShell();
-
-    const badge = screen.getByText("Checking mode");
-    expect(badge).toHaveClass("text-ink-3");
-    expect(screen.queryByText("Live")).not.toBeInTheDocument();
-    expect(screen.queryByText("Dry run")).not.toBeInTheDocument();
-  });
-
-  it("shows Mode unknown, never Live, when /health fails on the network", async () => {
-    stubApi({ kind: "network-error" });
-    renderShell();
-
-    const badge = await screen.findByText("Mode unknown");
-    expect(badge).toHaveClass("text-ink-3");
-    expect(screen.queryByText("Live")).not.toBeInTheDocument();
-    expect(screen.queryByText("Dry run")).not.toBeInTheDocument();
-  });
-
-  it("shows Mode unknown on a 500", async () => {
-    stubApi({ kind: "status", status: 500, body: { status: "ok", dry_run: false } });
-    renderShell();
-
     expect(await screen.findByText("Mode unknown")).toBeInTheDocument();
-    expect(screen.queryByText("Live")).not.toBeInTheDocument();
-  });
-
-  it("shows Mode unknown on a body without a boolean dry_run", async () => {
-    for (const body of [{ status: "ok" }, { status: "ok", dry_run: "false" }, null]) {
-      stubApi({ kind: "ok", body });
-      const view = renderShell();
-      expect(await screen.findByText("Mode unknown")).toBeInTheDocument();
-      expect(screen.queryByText("Live")).not.toBeInTheDocument();
-      view.unmount();
-    }
-  });
-
-  it("is visible while signed out, because /health needs no sign-in", async () => {
-    lock();
-    stubApi({ kind: "ok", body: { status: "ok", dry_run: true } });
-    renderShell();
-
-    expect(await screen.findByText("Dry run")).toBeInTheDocument();
     expect(await screen.findByRole("button", { name: "Sign in again" })).toBeInTheDocument();
+    expect(screen.queryByText("Live")).not.toBeInTheDocument();
   });
 });
 
@@ -267,7 +200,8 @@ describe("layout contract", () => {
       for (const key of ["overview", "strategies", "settings"] as const) {
         expect(locale.nav[key]).toBeTruthy();
       }
-      expect(locale.status.dryRun).toBeTruthy();
+      expect(locale.status.simulation).toBeTruthy();
+      expect(locale.status.forced).toBeTruthy();
       expect(locale.status.live).toBeTruthy();
       expect(locale.status.checking).toBeTruthy();
       expect(locale.status.unknown).toBeTruthy();
