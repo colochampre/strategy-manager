@@ -1109,7 +1109,7 @@ The strategy page shows the webhook URL with the secret masked by its last four 
 
 **The first real signal after PR C (read by the owner, 2026-10-30):** `SFPUSDT.P` buy received 2026-10-30 12:00:03 UTC: one ACTIVE subscription, one delivery `PROCESSED`, one reservation `FILLED` at 322.89, one attempt `FILLED`, 12 fills. The signal's own `status` reads `ACCEPTED`, as designed since C.7: after a fan-out that delivered, the outcome lives on the delivery. This closes PR C's check for an opening.
 
-**Still open:** that signal predates PR D's deploy (the owner reported it at about 14:48 UTC), so it authenticated with the old global secret. The first signal after that deploy must authenticate through the strategy's hash with the alert's unchanged URL and make exactly one delivery. The close of this SFP position is the likely first one, and it also proves a close's delivery. A wrong secret answers a 401 and logs nothing, so a close that TradingView fired and the panel never shows must be raised at once: the position would stay open.
+**Still open:** that signal predates PR D's deploy (the owner reported it at about 14:48 UTC), so it authenticated with the old global secret. The first signal after that deploy must authenticate through the strategy's hash with the alert's unchanged URL and make exactly one delivery. The close of this SFP position is the likely first one, and it also proves a close's delivery. A wrong secret answers a 401 and logs nothing, so a close that TradingView fired and the panel never shows must be raised at once: the position would stay open. **Closed 2026-10-31**, under PR E's delivery.
 
 ## PR E: the mode belongs to the user (AD7, decisions 6, 7, 13, 14, 26)
 
@@ -1269,9 +1269,11 @@ PR #91 merged 2026-10-31 15:59 UTC as `c9b7ec08164e`, with a merge commit. No de
 5. The panel, read by the owner: "Todo ok". The badge and the dialog have now been seen in a browser. The handover said to cancel the dialog, not confirm it, so `POST /api/me/mode` is not known to have run in production.
 
 **Read from that output:**
-- The API read `failed`, not `inactive`, right after `systemctl stop`. It started normally and answers, so nothing was left down. No earlier deploy script printed the state after a stop, so this may be old. Reading it is open.
+- The API read `failed`, not `inactive`, right after `systemctl stop`. Read from production with `check_api_stop.sh`: `code=exited, status=143/n/a`, `Failed with result 'exit-code'`, no exception in the window, `SuccessExitStatus=` empty, `NRestarts=0`. 143 is 128 + 15, the SIGTERM the stop itself sends, and an exit code that systemd is not told is a success reads as a failure. Not a defect, and the unit stays as it is: no earlier deploy script printed the state after a stop, so this was never seen rather than new.
 - The deploy's "WARNING/ERROR lines" listed two INFO lines: its `grep` matches " ERROR " inside the text of `operator alerts are on: ERROR and above are forwarded`. It found no real warning or error. The list was noise, not a finding.
-- `open allocations: {}` means the ledger holds no open position, so the SFP opening of 2026-10-30 had already closed in the ledger by the deploy. Only a closing fill nets an allocation to zero. Whether a signal made that close, by the strategy's hash and with one delivery, is PR D's open check, and it is still to be read from production.
+- `open allocations: {}` means the ledger holds no open position, so the SFP opening of 2026-10-30 had already closed by the deploy.
+
+**The first signal after PR D (read by the owner, 2026-10-31):** `SFPUSDT.P` sell received 2026-10-31 01:10:03 UTC, position size 0, after PR D's and PR D2's deploys: one ACTIVE subscription, one delivery `PROCESSED`. The opening's allocation went from 12 fills to 25, so 13 closing fills, and it nets to zero. An accepted signal passed ingress, which by then authenticates only by the strategy's hash, with the alert's URL unchanged. This closes the check left open under PR D2's delivery, for a close's delivery too.
 
 ## PR F-G
 
