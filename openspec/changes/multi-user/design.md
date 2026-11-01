@@ -290,8 +290,8 @@ The fakes stay process-lifetime, as today.
 - **Test rule.** Each endpoint gets one cross-user test: user B requests user A's resource by id and receives 404, and no row changes. This is the check that catches a missing filter. The gate cannot.
 
 **Public reads** are the one deliberate exception:
-- the strategy list and a strategy's public page (decision 9);
-- the author's aggregates, which only the author receives (decision 10: a count, the live count, and the sum per settlement currency, never per subscriber).
+- the strategy list and a strategy's public page (decision 9), which carry the live count and the capital sum (decision 30);
+- the author's total of subscribers, which only the author receives (decision 10).
 
 ### AD9. The worker works per (user, exchange)
 
@@ -354,7 +354,7 @@ Sequential PRs, each cut from `main`. Every PR ships while Access admits only th
 | D | AD6 per-strategy secret, authoring for any user, private strategies (decision 21) | rehearse 0033 |
 | D2 | The secret's last four on the strategy page (decision 25) | rehearse 0034 |
 | E | AD7 mode per user and the badge | rehearse 0035 |
-| F | Public strategy list (decision 9, OQ3), author aggregates (decision 10), admin users list (decision 8) | none |
+| F | Author display name (decision 27), public strategy list (decision 9, OQ3), author aggregates (decision 10), admin users list (decision 8) | rehearse 0036 |
 | G | Readiness: D.1-D.4 below | open the Access policy, turn on seat expiration |
 
 **Readiness tasks before sign-up opens:**
@@ -365,6 +365,7 @@ Sequential PRs, each cut from `main`. Every PR ships while Access admits only th
   - rule 4: the lock is keyed by pool, which includes the user;
   - "one key per exchange" becomes per user;
   - the credentials section.
+- **D.5.** The public record is checked against the venue's price (decision 29), so an author cannot post prices that never existed.
 
 Every PR follows strict TDD and the gate. Concurrency (AD7's mode race, AD5's per-pool lock) is proven on real PostgreSQL with the lock-hold harness.
 

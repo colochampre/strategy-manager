@@ -11,7 +11,7 @@ Sequential PRs A-G (`design.md`, "Delivery"), each cut from `main`. Every PR shi
 - Access admits only the owner. The API verifies the Access assertion itself; `ADMIN_API_TOKEN` is gone from `.env`.
 - `users` holds one row, the owner's, created by their first `/api/me`. Every owned row is that user's, and every strategy's `author_id` is theirs.
 - Every strategy is traded through its author's subscription: 3 `ACTIVE` at 30 % and 3 `ENDED` (archived) at 5 %. Each signal has one delivery (58 of each at PR E's rehearsal). `strategies.allocation_percent` is gone (0033). The owner reads `LIVE` (0035).
-- Every strategy is `PRIVATE` and has its own webhook secret hash, today the hash of the old global `WEBHOOK_SECRET`, so the TradingView alerts kept their URL. None had been regenerated at 0034 (it refuses otherwise), so each holds that secret's last four. `GET /api/webhook-secret` no longer exists.
+- Every strategy has its own webhook secret hash, today the hash of the old global `WEBHOOK_SECRET`, so the TradingView alerts kept their URL. The active strategies are `PUBLIC`: the owner's word, 2026-11-01, not read from the database. 0033 started them `PRIVATE`. None had been regenerated at 0034 (it refuses otherwise), so each holds that secret's last four. `GET /api/webhook-secret` no longer exists.
 - The worker reports one enabled pool and one sealed key, Binance's.
 
 ## Delivery log
@@ -1324,6 +1324,41 @@ PR #92 merged 2026-10-31 19:45 UTC as `44099dd99af1`, with a merge commit. No mi
 
 **Not seen in production:** none of the four behaviours has run there. Production has no `LEAVING` subscription, so the sweep's new step has nothing to end; nobody saved a read-only key, and sealing one is forbidden, so the refusal and its panel copy stay proven by tests only; and no signal has arrived since the deploy, so the first opening is the first run of the read inside the lock.
 
-## PR F-G
+## PR F: the author's name, the public list, the admin's users list
 
-Planned in `design.md`, "Delivery". Their tasks are written when the previous PR is merged, so each starts from what production actually is. The signals' `status`, `outcome_reason`, `outcome_detail` and `decided_at` stay, because they hold the strategy-level refusals (C.7). What had to close before PR F (N1, N2, N5, A5, A6) closed in PR E2.
+Branch `feat/multi-user-public-list`, cut from `main` at `44099dd`; it carries PR E2's delivery record. Migration 0036. Planned from the code at `44099dd` and decisions 27 to 30, taken 2026-11-01. What had to close before PR F (N1, N2, N5, A5, A6) closed in PR E2. The signals' `status`, `outcome_reason`, `outcome_detail` and `decided_at` stay, because they hold the strategy-level refusals (C.7).
+
+**What the code has today:**
+- Every strategy read is scoped to its author. No route shows a `PUBLIC` strategy to anyone else, and only `Subscribe` and `UpdateStrategy` read `visibility`.
+- `POST /api/subscriptions`, `POST /{id}/leave` and `PATCH /{id}` are open to any signed-in user. The panel only calls the PATCH.
+- `SignInGate` renders the shell for the admin only.
+- Nothing computes a round trip from signals. An opening or a closing is not stored: `PositionTransition.classify` derives it from `position_size`, and `find_prior` walks one (strategy, exact symbol) by `received_at`, whatever the status.
+- `users.last_seen_at` exists, and its docstring names this list as its reader. Key coverage is readable from the API (`read_key_coverage`); a key that does not open or a failing balance sync is known to the worker alone.
+
+**Decided in planning, not asked of the owner:**
+- A strategy is on the public list and has a public page when it is `PUBLIC`, not archived, and its author has a name. Otherwise the public page answers 404 to everyone, its author included, who has their own page.
+- Age is `strategies.created_at`.
+- Someone trades live when their subscription is `ACTIVE` and their effective mode is `LIVE`. `LEAVING` opens nothing, so it does not count. Under the brake the live count is 0 and the capital is absent.
+- The record, per (strategy, symbol), over every stored signal in the order of `find_prior`:
+  - from flat, a nonzero `position_size` opens at that signal's price, and its sign is the side;
+  - to zero, it closes;
+  - a sign flip closes and opens at the same price, so one closed trade and a new open;
+  - a change that keeps the sign, and zero to zero, are skipped and leave the entry as it is. `classify` raises on them; a public read does not;
+  - a long returns `exit / entry - 1`, a short `1 - exit / entry`;
+  - an open trade counts for nothing.
+- `SignInGate` stays until PR G. Access is the door and this is the second lock, and it should open with the readiness work, not before it. PR F's pages for other users are tested at component level, and the admin reads them in the panel.
+- The admin list's "degraded" means what the database can say: an enabled pool with no active key. It is labelled so. Last sign-in is `last_seen_at`, at most a minute stale. Open positions come from `open_allocations(None)` and its fold, not from a count that only approximates them.
+- A name is 3 to 30 characters once trimmed, holds no `@`, and is unique on `lower()`. It can change, and it cannot be emptied, because a `PUBLIC` strategy rests on it.
+
+- [ ] F.1 The display name, backend (decision 27). 0036 adds `users.display_name`, nullable, with its check and its unique index on `lower()`. `PUT /api/me/display-name` answers 200, 409 `DISPLAY_NAME_TAKEN`, or 422. `/api/me` returns it. `RegisterStrategy` and `UpdateStrategy` refuse turning public with no name, 409 `AUTHOR_HAS_NO_DISPLAY_NAME`. A strategy already `PUBLIC` with an unnamed author is not refused anything: its other settings can be edited. The route joins both sweeps.
+- [ ] F.2 The display name, panel. A form in Settings, the header shows the name and the e-mail until there is one (decision 17), and the visibility control shows the refusal in words. EN and ES (usted).
+- [ ] F.3 The public record, pure domain: `performance/domain/public_record.py` builds closed trades from a strategy's signals by the rules above and adds them up by decision 28. Trades of one UTC day are summed and `compound` does the rest. `daily_returns` is bound to `ClosedTrade`, so it is not reused as it stands. Each rule gets its test, REVERSE and the skipped changes included, and a symbol in each spelling keeps its own chain, as `find_prior` does.
+- [ ] F.4 Public reads. `GET /api/public/strategies` and `GET /api/public/strategies/{id}`: name, author's name, exchange, venue, settlement currency, age, closed trades, return (labelled unleveraged and before fees), live count, capital (decision 30). A new cross-user read port, in `performance/application` with no import from the ledger. The statement count is the same for one strategy and for twenty, as in E2.1. A body is an explicit list, so no `author_id`, e-mail, secret hint or subscriber row can reach it, and a test pins that. Both routes join both sweeps. Cross-user: B gets 404 on A's `PRIVATE` strategy, on an archived one, and on one with an unnamed author, and no row changes.
+- [ ] F.5 The author's total: `subscribers` and `live_subscribers` on `GET /api/strategies`, scoped as that route is (decision 10).
+- [ ] F.6 The panel's strategies: "My subscriptions", "Explore" and "Authored" (AD11), the public page, and Subscribe and Leave with a share. The subscribe step says the capital joins a public sum (decision 30). With no key on that exchange a user can browse and not subscribe (decision 13), and the refusal is in words. EN and ES (usted).
+- [ ] F.7 The admin's users list (decision 8). `admin/application`, `GET /api/admin/users` under `require_admin`: e-mail, name, mode, exchanges with a key and whether any is degraded, subscriptions, open positions, last seen. No amounts and no performance, pinned by a test. The statement count does not grow per user. Panel page, and Discrepancies and Users show only when `is_admin` (AD11).
+- [ ] F.D Gate, independent verifier (a migration, and a read that crosses users on purpose), `rehearse_0036.sh` on a fresh backup, which also prints `visibility` by archived state, since `PUBLIC` in "Production now" is the owner's word, and its deploy script, every query exercised locally. Then push and PR on the owner's word, merge, deploy, pps.6, the owner chooses their name, delivery log.
+
+## PR G
+
+Planned in `design.md`, "Delivery": readiness D.1 to D.5, `SignInGate` opens, the Access policy opens, seat expiration turns on. Its tasks are written when PR F is merged. D.5 is the price check of decision 29. Advisory A3 of PR E2 is still open and needs its design before sign-up opens: it reaches any subscriber.
