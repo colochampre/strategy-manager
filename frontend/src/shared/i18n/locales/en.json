@@ -222,7 +222,8 @@
         "PUBLIC": "Public"
       },
       "hint": "Other users cannot subscribe to a private strategy. Subscribers it already has keep it.",
-      "saveFailed": "The visibility was not saved. Try again."
+      "saveFailed": "The visibility was not saved. Try again.",
+      "needsName": "Choose your name in Settings first: a public strategy shows its author."
     },
     "new": {
       "open": "New strategy",
@@ -596,6 +597,19 @@
   },
   "settings": {
     "title": "Settings",
+    "name": {
+      "title": "Your name",
+      "intro": "Other users see this name beside your public strategies. They never see your e-mail.",
+      "label": "Display name",
+      "hint": "3 to 30 characters, with no @. You can change it later, but not remove it.",
+      "missing": "Until you choose a name, a strategy cannot turn public and your public strategies stay off the public list.",
+      "save": "Save name",
+      "saving": "Saving…",
+      "saved": "Name saved.",
+      "taken": "That name is taken. Choose another.",
+      "invalid": "That name is not valid: 3 to 30 characters, with no @ and no invisible characters.",
+      "failed": "The name was not saved. Try again."
+    },
     "keys": {
       "title": "Exchange keys",
       "intro": "One key per exchange. Keys are encrypted on the server and never shown again; you only see the last four characters.",

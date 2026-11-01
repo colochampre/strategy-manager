@@ -15,7 +15,8 @@ import { isExchangeScoped } from "@/shared/scope/exchange-store";
 export function TopBar() {
   const { t, i18n } = useTranslation();
   const scoped = isExchangeScoped(useLocation().pathname);
-  const email = useMe().data?.email;
+  const me = useMe().data;
+  const signedInAs = me?.displayName ?? me?.email;
 
   const toggleLanguage = () => {
     void i18n.changeLanguage(i18n.resolvedLanguage === "es" ? "en" : "es");
@@ -27,8 +28,8 @@ export function TopBar() {
         <span className="font-display text-base font-semibold text-ink">{t("app.name")}</span>
         {scoped && <ExchangeTabs className="hidden lg:flex" />}
         <div className="ml-auto flex min-w-0 items-center gap-3">
-          {email !== undefined && (
-            <span className="hidden max-w-56 truncate text-xs text-ink-3 lg:inline">{email}</span>
+          {signedInAs !== undefined && (
+            <span className="hidden max-w-56 truncate text-xs text-ink-3 lg:inline">{signedInAs}</span>
           )}
           <ModeBadge />
           <button

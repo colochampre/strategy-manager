@@ -100,9 +100,10 @@ describe("the page's structure", () => {
     stub(ok(storedKey("bybit")));
     mountPage();
     await cardsDrawn();
+    await screen.findByRole("heading", { level: 2, name: "Your name" });
 
     const outline = screen.getAllByRole("heading").map((heading) => `${heading.tagName} ${headingName(heading)}`);
-    expect(outline).toEqual(["H1 Settings", "H2 Exchange keys", "H3 Bybit"]);
+    expect(outline).toEqual(["H1 Settings", "H2 Your name", "H2 Exchange keys", "H3 Bybit"]);
   });
 
   it("draws the cards as a list, one item per exchange, each holding its article", async () => {
@@ -323,7 +324,7 @@ describe("the page's own states", () => {
 });
 
 describe("what the page reads", () => {
-  it("reads exactly GET /credentials and GET /pools, and no request is unexpected", async () => {
+  it("reads exactly GET /credentials, GET /me and GET /pools, and no request is unexpected", async () => {
     const fetchMock = stub(ok(storedKey("bybit")));
     mountPage();
     await cardsDrawn();
@@ -332,7 +333,7 @@ describe("what the page reads", () => {
     const requests = fetchMock.mock.calls.map(
       ([url, init]) => `${init?.method ?? "GET"} ${String(url).replace(/^.*\/api/, "")}`,
     );
-    expect([...new Set(requests)].sort()).toEqual(["GET /credentials", "GET /pools"]);
+    expect([...new Set(requests)].sort()).toEqual(["GET /credentials", "GET /me", "GET /pools"]);
     expect(fetchMock.unexpected).toEqual([]);
   });
 });
@@ -622,7 +623,11 @@ function expectNoEnglishSettingsText() {
 
 const noteIn = (card: HTMLElement, text: string) => within(card).queryByText(text);
 const bybitCard = () => screen.getByRole("article", { name: "Bybit" });
-const statusRegion = () => screen.queryAllByRole("status");
+/** The regions that tell of a key. The name's section tells of its own save, from its own region. */
+const statusRegion = () => {
+  const nameSection = screen.queryByRole("region", { name: /^(Your name|Su nombre)$/ });
+  return screen.queryAllByRole("status").filter((region) => !nameSection?.contains(region));
+};
 
 describe("the end of a save that worked (task 13.5.10)", () => {
   it("test_the_form_closes_on_the_answer", async () => {

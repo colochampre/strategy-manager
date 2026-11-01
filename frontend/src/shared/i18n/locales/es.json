@@ -222,7 +222,8 @@
         "PUBLIC": "Pública"
       },
       "hint": "Otros usuarios no pueden suscribirse a una estrategia privada. Los suscriptores que ya tiene la conservan.",
-      "saveFailed": "La visibilidad no se guardó. Inténtelo de nuevo."
+      "saveFailed": "La visibilidad no se guardó. Inténtelo de nuevo.",
+      "needsName": "Primero elija su nombre en Configuración: una estrategia pública muestra a su autor."
     },
     "new": {
       "open": "Nueva estrategia",
@@ -595,6 +596,19 @@
     "pionex": "Pionex"
   },
   "settings": {
+    "name": {
+      "title": "Su nombre",
+      "intro": "Otros usuarios ven este nombre junto a sus estrategias públicas. Nunca ven su e-mail.",
+      "label": "Nombre visible",
+      "hint": "De 3 a 30 caracteres, sin @. Puede cambiarlo después, pero no quitarlo.",
+      "missing": "Hasta que elija un nombre, una estrategia no puede pasar a pública y las que ya lo son no aparecen en la lista pública.",
+      "save": "Guardar nombre",
+      "saving": "Guardando…",
+      "saved": "Nombre guardado.",
+      "taken": "Ese nombre ya está en uso. Elija otro.",
+      "invalid": "Ese nombre no es válido: de 3 a 30 caracteres, sin @ y sin caracteres invisibles.",
+      "failed": "El nombre no se guardó. Inténtelo de nuevo."
+    },
     "keys": {
       "title": "Claves de los exchanges",
       "intro": "Una clave por exchange. Las claves se cifran en el servidor y no se vuelven a mostrar; solo se ven los últimos cuatro caracteres.",

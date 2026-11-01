@@ -13,6 +13,7 @@ interface VisibilityControlProps {
 function refusal(error: unknown): string {
   if (error instanceof ApiError) {
     if (error.status === 409 && error.code === "STRATEGY_ARCHIVED") return "strategies.detail.share.archived";
+    if (error.status === 409 && error.code === "AUTHOR_HAS_NO_DISPLAY_NAME") return "strategies.visibility.needsName";
     if (error.status === 404) return "strategies.detail.share.gone";
   }
   return "strategies.visibility.saveFailed";

@@ -572,6 +572,25 @@ describe("the new-strategy dialog", () => {
     expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
 
+  it("keeps the dialog open and sends the author to Settings when they have no name (409)", async () => {
+    const api = creationApi(() =>
+      jsonResponse({ detail: { error: "AUTHOR_HAS_NO_DISPLAY_NAME", message: "no name" } }, 409),
+    );
+    stubApi(HEALTH, [], POOLS, {}, api.route);
+    renderAt(<AppRoutes />, "/strategies");
+    await screen.findByText(en.strategies.empty);
+    openDialog();
+
+    fill("Delta");
+    await choose(["STXUSDT"]);
+    fireEvent.click(submitButton());
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Choose your name in Settings first: a public strategy shows its author.",
+    );
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+  });
+
   it("keeps the dialog open and says so when the pool is refused (422)", async () => {
     const api = creationApi(() => jsonResponse({ detail: "pool unavailable" }, 422));
     stubApi(HEALTH, [], POOLS, {}, api.route);
