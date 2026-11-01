@@ -6,11 +6,11 @@ Sequential PRs A-G (`design.md`, "Delivery"), each cut from `main`. Every PR shi
 
 ## Production now
 
-- 2026-10-30: main `ddf8262`, panel bundle `ddf82629b572`, alembic `0034`, certifi `2026.10.23`.
+- 2026-11-01: main `44099dd`, panel bundle `44099dd99af1`, alembic `0035`, certifi `2026.10.23`.
 - `DRY_RUN=false`.
 - Access admits only the owner. The API verifies the Access assertion itself; `ADMIN_API_TOKEN` is gone from `.env`.
 - `users` holds one row, the owner's, created by their first `/api/me`. Every owned row is that user's, and every strategy's `author_id` is theirs.
-- Every strategy is traded through its author's subscription: 3 `ACTIVE` at 30 % and 3 `ENDED` (archived) at 5 %. Each of the 54 signals has one delivery. `strategies.allocation_percent` is gone (0033).
+- Every strategy is traded through its author's subscription: 3 `ACTIVE` at 30 % and 3 `ENDED` (archived) at 5 %. Each signal has one delivery (58 of each at PR E's rehearsal). `strategies.allocation_percent` is gone (0033). The owner reads `LIVE` (0035).
 - Every strategy is `PRIVATE` and has its own webhook secret hash, today the hash of the old global `WEBHOOK_SECRET`, so the TradingView alerts kept their URL. None had been regenerated at 0034 (it refuses otherwise), so each holds that secret's last four. `GET /api/webhook-secret` no longer exists.
 - The worker reports one enabled pool and one sealed key, Binance's.
 
@@ -25,6 +25,8 @@ Sequential PRs A-G (`design.md`, "Delivery"), each cut from `main`. Every PR shi
 | #88 | PR C: subscriptions and fan-out, one delivery per eligible subscription, migrations 0031 and 0032 | `214db9b` (parents `7f67fc3`, `b2f1999`) | 2026-10-29, see "PR C's delivery" |
 | #89 | PR D: a webhook secret per strategy (stored as a hash, shown once), authoring for any user scoped to them, private strategies, migration 0033 | `d75e5a4` (parents `214db9b`, `541bd16`) | 2026-10-30, see "PR D's delivery" |
 | #90 | PR D2: the webhook secret masked with its last four characters, the visibility beside the settings heading, migration 0034 | `ddf8262` (parents `d75e5a4`, `e8e636c`) | 2026-10-30, see "PR D2's delivery" |
+| #91 | PR E: the mode belongs to the user, the mode badge and dialog, migration 0035 | `c9b7ec0` (parents `ddf8262`, `70d5026`) | 2026-10-31, see "PR E's delivery" |
+| #92 | PR E2: what must close before PR F, no migration | `44099dd` (parents `c9b7ec0`, `7ef2468`) | 2026-11-01, see "PR E2's delivery" |
 
 ## PR A: identity from Cloudflare Access
 
@@ -1300,7 +1302,7 @@ Branch `fix/multi-user-before-public-list`, cut from `main` at `c9b7ec0`; it car
   - "Real" stays one definition: `SqlAlchemyLiveExposure.symbols_on(user_id, exchange)`. A simulated reservation refuses nothing, because closing it needs no key. The script path (`credential_cli.py`) carries the same lock and read and its own guidance line.
   - Panel: `holdsRealExposure` in `credentials.ts`, EN and ES copy (usted), the secret test's list of endings.
   - Tests: six in `test_save_credential.py`, `test_save_key_over_real_exposure_integration.py` (each kind of exposure, each kind on another exchange, another user, the route's own wiring, the save seen waiting for an opening that holds the lock), one on the 409 in `test_credentials_router.py`, one source pin for the script. RED on assertions against skeletons. Fourteen mutations in `mutate_a6.ps1`, all killed and restored, after adding the tests that the wiring and the per-exchange filters did not have yet.
-- [ ] E2.D Gate, independent verifier (E2.2 is concurrency and E2.4 a guard), then push and PR on the owner's word, merge, deploy (pull, restart both services away from a 4h close, pps.6), delivery log.
+- [x] E2.D Gate, independent verifier (E2.2 is concurrency and E2.4 a guard), then push and PR on the owner's word, merge, deploy (pull, restart both services away from a 4h close, pps.6), delivery log.
   - Independent verifier (Opus, 2026-10-31, `c9b7ec0..e74b117`): E2.1 to E2.4 met, no blockers. It traced the lock order through sweep, `Leave`, allocate, closing settle, archive and save, and a probe with a raise midway kept the earlier ending, left the failing item `LEAVING` and freed that user's lock.
 
 ### PR E2's advisories
@@ -1311,6 +1313,17 @@ Branch `fix/multi-user-before-public-list`, cut from `main` at `c9b7ec0`; it car
 - A4, recorded: an opening attempt stuck `SUBMITTED` keeps a subscription `LEAVING` with no line from the sweep; the watchdog reports the exhausted job, not the subscription. A skip in `open_now` does not carry decision 26's "close half executed" wording, as every other `AllocateCapital` skip at the base. `find_unclosable` goes by recorded mode and `_open` by `holds_live_fill`: they differ only for a `LIVE` reservation holding only rehearsal fills. The refusal detail that claimed "the key that closes it stays" was false for a user with no key that trades, and was reworded.
 - Not checked by the verifier: `vault_saver` end to end (its session factory binds the dev database, so the script's wiring has only a source pin), and multi-worker concurrency, which it reasoned about because `WorkerRunner` is one loop. The counts of mutations and the RED claims above come from scripts in the session scratchpad, not in the repository.
 
+### PR E2's delivery
+
+PR #92 merged 2026-10-31 19:45 UTC as `44099dd99af1`, with a merge commit. No migration, no dependency changed, 65 files, six of them in `frontend/`.
+
+**PR E2's deploy, 2026-11-01** (owner-run):
+1. pps.6 built before the deploy: `44099dd99af1`, SHA-256 `5928dd5e6561c419708aa621d669984d5a9653a99deb487e79d80874f0d56a55`, copied to the VPS.
+2. `deploy_e2.sh`, 100 minutes into the 4h candle, 2026-11-01 01:40 UTC (the script's own time, `02:40:31`, is the VPS's clock, one hour ahead). Alembic `0035` before and after. Subscriptions before: `ACTIVE 3`, `ENDED 3`. Fast-forward `c9b7ec0..44099dd`, checkout `44099dd99af1`. Both services active, the webhook answers 401 with no secret, one live `reservation.sweep`, and no WARNING or ERROR line since the restart. That grep now leaves out the alert line that was noise at PR E.
+3. pps.6's VPS block: `/root/panel-44099dd99af1.tgz: OK`, `readable`, `bundle:   44099dd99af1`, `checkout: 44099dd99af1`.
+
+**Not seen in production:** none of the four behaviours has run there. Production has no `LEAVING` subscription, so the sweep's new step has nothing to end; nobody saved a read-only key, and sealing one is forbidden, so the refusal and its panel copy stay proven by tests only; and no signal has arrived since the deploy, so the first opening is the first run of the read inside the lock.
+
 ## PR F-G
 
-Planned in `design.md`, "Delivery". Their tasks are written when the previous PR is merged, so each starts from what production actually is. The signals' `status`, `outcome_reason`, `outcome_detail` and `decided_at` stay, because they hold the strategy-level refusals (C.7). Advisory N1 (Leave with a queued opening) must be closed before PR F.
+Planned in `design.md`, "Delivery". Their tasks are written when the previous PR is merged, so each starts from what production actually is. The signals' `status`, `outcome_reason`, `outcome_detail` and `decided_at` stay, because they hold the strategy-level refusals (C.7). What had to close before PR F (N1, N2, N5, A5, A6) closed in PR E2.
