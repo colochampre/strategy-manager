@@ -599,13 +599,14 @@
     "title": "Settings",
     "name": {
       "title": "Your name",
+      "info": "About your name",
       "intro": "Other users see this name beside your public strategies. They never see your e-mail.",
       "label": "Display name",
       "hint": "3 to 30 characters, with no @. You can change it later, but not remove it.",
       "missing": "Until you choose a name, a strategy cannot turn public and your public strategies stay off the public list.",
       "save": "Save name",
       "saving": "Saving…",
-      "saved": "Name saved.",
+      "saved": "Saved",
       "taken": "That name is taken. Choose another.",
       "invalid": "That name is not valid: 3 to 30 characters, with no @ and no invisible characters.",
       "failed": "The name was not saved. Try again."

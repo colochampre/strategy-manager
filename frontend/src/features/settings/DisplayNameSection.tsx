@@ -3,12 +3,14 @@ import { useId, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 
 import { useChooseDisplayName, useMe, type ChooseDisplayNameResult } from "@/shared/api/me";
+import { InfoButton, InfoText, useInfoDisclosure } from "@/shared/ui/InfoDisclosure";
+import { ReportSection } from "@/shared/ui/ReportSection";
 import { StatusButton } from "@/shared/ui/StatusButton";
 
 const FIELD =
-  "min-h-11 w-full max-w-sm rounded-md border border-rule bg-ground px-3 text-sm text-ink focus-visible:outline-2 focus-visible:outline-gain";
+  "min-h-11 min-w-0 flex-1 rounded-md border border-rule bg-ground px-3 text-sm text-ink focus-visible:outline-2 focus-visible:outline-gain sm:max-w-xs";
 const SAVE =
-  "min-h-11 rounded-md border border-gain bg-gain px-3.5 text-sm font-medium text-ground disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gain";
+  "min-h-11 shrink-0 rounded-md bg-gain px-3 text-sm font-medium text-ground hover:opacity-90 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gain";
 
 function refusalKey(result: ChooseDisplayNameResult | undefined): string | null {
   switch (result?.kind) {
@@ -33,15 +35,20 @@ export function DisplayNameSection() {
   const me = useMe().data;
   const choose = useChooseDisplayName();
   const [draft, setDraft] = useState<string | null>(null);
+  const info = useInfoDisclosure();
   const headingId = useId();
-  const hintId = useId();
+  const fieldId = useId();
 
   if (me === undefined) return null;
 
   const stored = me.displayName;
   const value = draft ?? stored ?? "";
   const canSave = value.trim() !== "" && value.trim() !== stored && !choose.isPending;
+  const saved = choose.data?.kind === "chosen";
   const refusal = refusalKey(choose.data);
+  const saveText = t("settings.name.save");
+  const savingText = t("settings.name.saving");
+  const savedText = t("settings.name.saved");
 
   const edit = (next: string) => {
     setDraft(next);
@@ -59,44 +66,50 @@ export function DisplayNameSection() {
   };
 
   return (
-    <section aria-labelledby={headingId} className="flex flex-col gap-2">
-      <h2 id={headingId} className="font-display text-lg font-semibold text-ink">
-        {t("settings.name.title")}
-      </h2>
-      <p className="max-w-[78ch] text-sm text-ink-2">{t("settings.name.intro")}</p>
-      {stored === null && <p className="max-w-[78ch] text-sm text-ink-2">{t("settings.name.missing")}</p>}
-      <form onSubmit={submit} noValidate className="flex flex-col gap-2">
-        <label className="flex flex-col gap-1 text-[13px] text-ink-2">
-          {t("settings.name.label")}
-          <input
-            type="text"
-            value={value}
-            onChange={(event) => edit(event.target.value)}
-            autoComplete="off"
-            aria-describedby={hintId}
-            className={FIELD}
-          />
-        </label>
-        <p id={hintId} className="max-w-[78ch] text-[13px] text-ink-3">
-          {t("settings.name.hint")}
-        </p>
-        <div>
-          <StatusButton
-            texts={[t("settings.name.save"), t("settings.name.saving")]}
-            shown={choose.isPending ? t("settings.name.saving") : t("settings.name.save")}
-            message={choose.data?.kind === "chosen" ? t("settings.name.saved") : null}
-            submit
-            disabled={!canSave}
-            icon={Save}
-            className={SAVE}
-          />
+    <ReportSection>
+      <section aria-labelledby={headingId} className="flex flex-col gap-3">
+        <div className="flex items-center">
+          <h2 id={headingId} className="font-display text-base font-semibold text-ink">
+            {t("settings.name.title")}
+          </h2>
+          <InfoButton disclosure={info} label={t("settings.name.info")} />
         </div>
-      </form>
-      {refusal !== null && (
-        <p role="alert" className="text-sm text-loss">
-          {t(refusal)}
-        </p>
-      )}
-    </section>
+        <InfoText disclosure={info}>
+          <p className="text-xs text-ink-3">{t("settings.name.intro")}</p>
+          <p className="text-xs text-ink-3">{t("settings.name.hint")}</p>
+          {stored === null && <p className="text-xs text-ink-3">{t("settings.name.missing")}</p>}
+        </InfoText>
+        <form onSubmit={submit} noValidate className="flex flex-col gap-1.5">
+          <label htmlFor={fieldId} className="text-[13px] text-ink-2">
+            {t("settings.name.label")}
+          </label>
+          <div className="flex items-center gap-2">
+            <input
+              id={fieldId}
+              type="text"
+              value={value}
+              onChange={(event) => edit(event.target.value)}
+              autoComplete="off"
+              aria-describedby={info.textId}
+              className={FIELD}
+            />
+            <StatusButton
+              texts={[saveText, savingText, savedText]}
+              shown={choose.isPending ? savingText : saved ? savedText : saveText}
+              message={saved ? savedText : null}
+              submit
+              disabled={!canSave}
+              icon={Save}
+              className={SAVE}
+            />
+          </div>
+        </form>
+        {refusal !== null && (
+          <p role="alert" className="text-sm text-loss">
+            {t(refusal)}
+          </p>
+        )}
+      </section>
+    </ReportSection>
   );
 }

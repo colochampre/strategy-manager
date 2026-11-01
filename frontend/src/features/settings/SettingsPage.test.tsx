@@ -497,7 +497,7 @@ describe("the toggles and the open form (task 13.5.8)", () => {
     expect(toggleOf("Binance")).toHaveFocus();
   });
 
-  it("disables every button of the page while any save is in flight", async () => {
+  it("disables every button of the keys while any save is in flight", async () => {
     const pending = new Promise<Response>(() => undefined);
     const extra: ExtraRoute = (url, init) =>
       url.endsWith("/credentials/bybit") && init?.method === "PUT" ? pending : undefined;
@@ -511,7 +511,8 @@ describe("the toggles and the open form (task 13.5.8)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Check and save" }));
 
     await waitFor(() => expect(fetchMock.mock.calls.some(([, init]) => init?.method === "PUT")).toBe(true));
-    const buttons = screen.getAllByRole("button");
+    // The name is a write of its own that races nothing here, and an information button only reads.
+    const buttons = within(screen.getByRole("region", { name: "Exchange keys" })).getAllByRole("button");
     expect(buttons.length).toBeGreaterThanOrEqual(4);
     for (const button of buttons) expect(button, button.outerHTML).toBeDisabled();
   });

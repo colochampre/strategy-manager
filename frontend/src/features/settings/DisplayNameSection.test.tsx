@@ -37,6 +37,12 @@ function setup(stored: string | null, outcome: Response | Promise<Response> | "s
 
 const field = () => screen.findByLabelText("Display name") as Promise<HTMLInputElement>;
 const saveButton = () => screen.findByRole("button", { name: "Save name" });
+const savedButton = () => screen.findByRole("button", { name: "Saved" });
+const openInfo = async () => fireEvent.click(await screen.findByRole("button", { name: "About your name" }));
+
+const INTRO = "Other users see this name beside your public strategies. They never see your e-mail.";
+const HINT = "3 to 30 characters, with no @. You can change it later, but not remove it.";
+const MISSING = "Until you choose a name, a strategy cannot turn public and your public strategies stay off the public list.";
 
 beforeEach(() => {
   unlock();
@@ -54,33 +60,37 @@ describe("the display name, in Settings", () => {
 
     expect((await field()).value).toBe("Ana");
     expect(await saveButton()).toBeDisabled();
-    expect(screen.queryByText(/Until you choose a name/)).toBeNull();
+    await openInfo();
+    expect(screen.queryByText(MISSING)).toBeNull();
   });
 
-  it("says what is missing while there is no name", async () => {
+  it("sits in the frame of a report section, with the field and its button on one line", async () => {
     setup(null);
+    const input = await field();
 
-    expect((await field()).value).toBe("");
-    expect(await saveButton()).toBeDisabled();
-    expect(
-      screen.getByText(
-        "Until you choose a name, a strategy cannot turn public and your public strategies stay off the public list.",
-      ),
-    ).toBeInTheDocument();
+    expect(input.closest('[data-testid="report-section"]')).not.toBeNull();
+    expect(input.parentElement).toContainElement(await saveButton());
   });
 
-  it("says what the name is for and that the e-mail stays private", async () => {
+  it("keeps its explanations closed until the information button opens them", async () => {
     setup(null);
-
     await field();
+    const info = screen.getByRole("button", { name: "About your name" });
 
-    expect(
-      screen.getByText("Other users see this name beside your public strategies. They never see your e-mail."),
-    ).toBeInTheDocument();
-    expect(screen.getByText("3 to 30 characters, with no @. You can change it later, but not remove it.")).toBeInTheDocument();
+    expect(info).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText(INTRO)).toBeNull();
+    expect(screen.queryByText(HINT)).toBeNull();
+    expect(screen.queryByText(MISSING)).toBeNull();
+
+    fireEvent.click(info);
+
+    expect(info).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByText(INTRO)).toBeInTheDocument();
+    expect(screen.getByText(HINT)).toBeInTheDocument();
+    expect(screen.getByText(MISSING)).toBeInTheDocument();
   });
 
-  it("sends the name, says it was saved, and shows the one the server stored", async () => {
+  it("sends the name, says it was saved on its button, and shows the one the server stored", async () => {
     const { sent } = setup(null);
     const input = await field();
 
@@ -88,11 +98,24 @@ describe("the display name, in Settings", () => {
     fireEvent.click(await saveButton());
 
     await waitFor(() => expect(sent).toEqual([{ display_name: "Ana" }]));
-    expect(await screen.findByText("Name saved.")).toBeInTheDocument();
+    expect(await savedButton()).toBeDisabled();
     expect(screen.queryByRole("alert")).toBeNull();
-    await waitFor(() => expect(screen.queryByText(/Until you choose a name/)).toBeNull());
+    await openInfo();
+    await waitFor(() => expect(screen.queryByText(MISSING)).toBeNull());
     expect((await field()).value).toBe("Ana");
-    expect(await saveButton()).toBeDisabled();
+  });
+
+  it("offers to save again once the saved name is edited", async () => {
+    setup(null);
+    const input = await field();
+    fireEvent.change(input, { target: { value: "Ana" } });
+    fireEvent.click(await saveButton());
+    await savedButton();
+
+    fireEvent.change(input, { target: { value: "Anita" } });
+
+    expect(await saveButton()).toBeEnabled();
+    expect(screen.queryByRole("button", { name: "Saved" })).toBeNull();
   });
 
   it("says it was saved from a region that was already there, so it is announced", async () => {
@@ -104,7 +127,7 @@ describe("the display name, in Settings", () => {
     fireEvent.change(input, { target: { value: "Ana" } });
     fireEvent.click(await saveButton());
 
-    await waitFor(() => expect(region).toHaveTextContent("Name saved."));
+    await waitFor(() => expect(region).toHaveTextContent("Saved"));
   });
 
   it("shows the name as the server stored it, not as it was typed", async () => {
@@ -132,7 +155,7 @@ describe("the display name, in Settings", () => {
     fireEvent.submit(form);
     answer(jsonResponse(ME));
 
-    expect(await screen.findByText("Name saved.")).toBeInTheDocument();
+    await savedButton();
     expect(sent).toHaveLength(1);
   });
 
@@ -201,7 +224,7 @@ describe("the display name, in Settings", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent(text);
     expect(input.value).toBe("Ana");
-    expect(screen.queryByText("Name saved.")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Saved" })).toBeNull();
   });
 
   it("drops a refusal as soon as the name is edited", async () => {
@@ -221,6 +244,7 @@ describe("the display name, in Settings", () => {
     setup(null);
 
     await screen.findByLabelText("Nombre visible");
+    fireEvent.click(screen.getByRole("button", { name: "Sobre su nombre" }));
 
     expect(screen.getByRole("heading", { name: "Su nombre" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Guardar nombre" })).toBeInTheDocument();

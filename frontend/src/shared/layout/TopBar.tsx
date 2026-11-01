@@ -29,7 +29,7 @@ export function TopBar() {
         {scoped && <ExchangeTabs className="hidden lg:flex" />}
         <div className="ml-auto flex min-w-0 items-center gap-3">
           {signedInAs !== undefined && (
-            <span className="hidden max-w-56 truncate text-xs text-ink-3 lg:inline">{signedInAs}</span>
+            <span className="hidden max-w-56 truncate text-sm font-medium text-ink lg:inline">{signedInAs}</span>
           )}
           <ModeBadge />
           <button

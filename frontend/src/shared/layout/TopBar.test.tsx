@@ -49,6 +49,12 @@ describe("who is signed in, in the top bar", () => {
 
     expect(await screen.findByText("owner@example.com")).toBeInTheDocument();
   });
+
+  it("reads as a name, not as a caption", async () => {
+    signedInAs("Ana");
+
+    expect(await screen.findByText("Ana")).toHaveClass("text-sm", "text-ink");
+  });
 });
 
 describe("the exchange tabs in the top bar", () => {

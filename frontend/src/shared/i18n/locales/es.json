@@ -598,13 +598,14 @@
   "settings": {
     "name": {
       "title": "Su nombre",
+      "info": "Sobre su nombre",
       "intro": "Otros usuarios ven este nombre junto a sus estrategias públicas. Nunca ven su e-mail.",
       "label": "Nombre visible",
       "hint": "De 3 a 30 caracteres, sin @. Puede cambiarlo después, pero no quitarlo.",
       "missing": "Hasta que elija un nombre, una estrategia no puede pasar a pública y las que ya lo son no aparecen en la lista pública.",
       "save": "Guardar nombre",
       "saving": "Guardando…",
-      "saved": "Nombre guardado.",
+      "saved": "Guardado",
       "taken": "Ese nombre ya está en uso. Elija otro.",
       "invalid": "Ese nombre no es válido: de 3 a 30 caracteres, sin @ y sin caracteres invisibles.",
       "failed": "El nombre no se guardó. Inténtelo de nuevo."
