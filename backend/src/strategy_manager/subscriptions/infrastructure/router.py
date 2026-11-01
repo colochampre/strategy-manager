@@ -40,12 +40,13 @@ from strategy_manager.subscriptions.application.errors import (
 )
 from strategy_manager.subscriptions.application.leave import Leave
 from strategy_manager.subscriptions.application.list_subscriptions import ListSubscriptions
+from strategy_manager.subscriptions.application.ports import HeldSubscription
 from strategy_manager.subscriptions.application.subscribe import Subscribe
 from strategy_manager.subscriptions.domain.subscription import Subscription
 from strategy_manager.subscriptions.infrastructure.adapters import (
     OpenAllocationAdapter,
+    SqlAlchemyEnabledUserPools,
     SqlAlchemyStrategyLookup,
-    SqlAlchemyUserPools,
 )
 from strategy_manager.subscriptions.infrastructure.repository import (
     SqlAlchemySubscriptionRepository,
@@ -97,6 +98,30 @@ class SubscriptionView(BaseModel):
         )
 
 
+class HeldSubscriptionView(SubscriptionView):
+    """A live subscription and what names its strategy to the user who holds it."""
+
+    strategy_name: str
+    author_name: str | None
+    authored: bool
+    exchange: str
+    venue: str
+    settlement_currency: str
+
+    @classmethod
+    def of_held(cls, held: HeldSubscription) -> "HeldSubscriptionView":
+        exchange, venue, settlement_currency = held.market
+        return cls(
+            **SubscriptionView.of(held.subscription).model_dump(),
+            strategy_name=held.strategy_name,
+            author_name=held.author_name,
+            authored=held.authored,
+            exchange=exchange,
+            venue=venue,
+            settlement_currency=settlement_currency,
+        )
+
+
 def _conflict(code: str, message: str) -> HTTPException:
     return HTTPException(status_code=409, detail={"error": code, "message": message})
 
@@ -108,7 +133,7 @@ async def subscribe(
     use_case = Subscribe(
         subscriptions=SqlAlchemySubscriptionRepository(session),
         strategies=SqlAlchemyStrategyLookup(session),
-        pools=SqlAlchemyUserPools(session),
+        pools=SqlAlchemyEnabledUserPools(session),
         commit=session,
         clock=SystemClock(),
     )
@@ -134,6 +159,15 @@ async def list_subscriptions(session: SessionDep, user: CurrentUserDep) -> list[
         user.id
     )
     return [SubscriptionView.of(subscription) for subscription in subscriptions]
+
+
+@router.get("/held", response_model=list[HeldSubscriptionView])
+async def list_held(session: SessionDep, user: CurrentUserDep) -> list[HeldSubscriptionView]:
+    """The signed-in user's ACTIVE and LEAVING subscriptions, each with its strategy's
+    name, author and market, public or not: a subscriber keeps what they hold when
+    it turns private (decision 21). One statement, whatever their number."""
+    held = await SqlAlchemySubscriptionRepository(session).held(user.id)
+    return [HeldSubscriptionView.of_held(subscription) for subscription in held]
 
 
 @router.post("/{subscription_id}/leave", response_model=SubscriptionView)

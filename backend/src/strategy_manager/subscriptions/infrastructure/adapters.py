@@ -71,6 +71,31 @@ class SqlAlchemyUserPools:
         return None if found is None else int(found)
 
 
+class SqlAlchemyEnabledUserPools:
+    """Implements ``UserPoolPort`` for a new subscription: only a pool with a key
+    behind it. Deleting a key disables its pool and keeps the row, so a row says
+    nothing about a key (decision 13). Registering a strategy keeps
+    ``SqlAlchemyUserPools``, which has its own check of the pool."""
+
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def pool_id(self, user_id: UUID, market: Market) -> int | None:
+        exchange, venue, currency = market
+        found = (
+            await self._session.execute(
+                select(CapitalPoolRow.id).where(
+                    CapitalPoolRow.user_id == user_id,
+                    CapitalPoolRow.exchange == exchange,
+                    CapitalPoolRow.venue == venue,
+                    CapitalPoolRow.settlement_currency == currency,
+                    CapitalPoolRow.enabled.is_(True),
+                )
+            )
+        ).scalar_one_or_none()
+        return None if found is None else int(found)
+
+
 class SqlAlchemyLeavingSubscriptions:
     """Implements ``LeavingSubscriptionsPort``.
 

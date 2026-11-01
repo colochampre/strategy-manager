@@ -813,10 +813,9 @@ async def test_the_route_issues_the_same_number_of_statements_for_the_stored_sha
     pg_engine: AsyncEngine,  # noqa: F811
     pg_session_factory: Factory,  # noqa: F811
 ) -> None:
-    """Nothing per step. An asked share reads the strategy, then the pool with its
-    snapshot, and the share itself is arithmetic, not another query. A share NOT
-    asked for is the caller's subscription's (C.6), so it costs the one read that
-    finds it, and still nothing per step."""
+    """Nothing per step. Either way it reads the strategy, the caller's subscription,
+    which decides who the route reaches (F.6), and the pool with its snapshot. The
+    share itself is arithmetic, not another query."""
     strategy_id = await _strategy(pg_session_factory)
     await _synced(pg_session_factory)
 
@@ -825,8 +824,8 @@ async def test_the_route_issues_the_same_number_of_statements_for_the_stored_sha
     with _captured_sql(pg_engine) as for_an_asked_share:
         await _preview(client, strategy_id, share="12.34")
 
-    assert len(for_the_stored_share) == len(for_an_asked_share) + 1
-    assert len(for_an_asked_share) == 2
+    assert len(for_the_stored_share) == len(for_an_asked_share)
+    assert len(for_an_asked_share) == 3
     assert all(
         statement.lstrip().upper().startswith("SELECT")
         for statement in for_the_stored_share + for_an_asked_share

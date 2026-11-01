@@ -709,6 +709,17 @@ async def get_strategy_events(
     return [EnablementEventView.of(event) for event in events]
 
 
+def _reaches_preview(
+    strategy: Strategy, user: User, subscription: Subscription | None
+) -> bool:
+    """Who the preview answers: the author, whoever holds a live subscription, which
+    outlasts a turn to private (decision 21), and anyone who may subscribe. Every
+    figure in it is from the reader's own pool, and the market is on the public page."""
+    if strategy.author_id == user.id or subscription is not None:
+        return True
+    return strategy.visibility is Visibility.PUBLIC and strategy.archived_at is None
+
+
 @router.get("/{strategy_id}/share-preview", response_model=SharePreviewBody)
 async def preview_share(
     strategy_id: UUID,
@@ -730,8 +741,12 @@ async def preview_share(
     one): one ERROR naming the strategy and the pool, and a fixed 500. A pool with
     no snapshot, or a stale one, is a normal answer and logs nothing.
     """
-    strategy = await _own(session, user).get_by_id(strategy_id)
-    if strategy is None:
+    strategy = await SqlAlchemyStrategyRepository(session).get_by_id(strategy_id)
+    held = await SqlAlchemySubscriptionRepository(session).live_for_strategies(
+        user.id, [strategy_id]
+    )
+    subscription = held.get(strategy_id)
+    if strategy is None or not _reaches_preview(strategy, user, subscription):
         raise HTTPException(status_code=404, detail="no such strategy")
     policy = strategy.policy
     pool = PoolKey(policy.exchange, policy.venue, policy.settlement_currency)
@@ -740,10 +755,6 @@ async def preview_share(
     # shown a full share, the default a new subscription starts from (N4).
     previewed = share
     if previewed is None:
-        held = await SqlAlchemySubscriptionRepository(session).live_for_strategies(
-            user.id, [strategy_id]
-        )
-        subscription = held.get(strategy_id)
         previewed = (
             subscription.allocation_percent.value
             if subscription is not None
@@ -755,6 +766,10 @@ async def preview_share(
         # not the author's.
         preview = await use_case.preview(user.id, pool, previewed)
     except UnknownPoolError as exc:
+        # Anyone signed in can ask about a public strategy, so a pool that is not
+        # there is no fault of theirs, and no line for the operator.
+        if strategy.author_id != user.id:
+            raise HTTPException(status_code=404, detail="no such pool") from exc
         logger.error("share preview refused for strategy %s: %s", strategy_id, exc)
         raise HTTPException(status_code=500, detail=SHARE_PREVIEW_FAULT_DETAIL) from exc
     return SharePreviewBody.of(strategy.id, preview)

@@ -48,6 +48,7 @@ SCOPED_TO_THE_SIGNED_IN_USER = {
     ("GET", "/api/positions/open"),
     ("POST", "/api/subscriptions"),
     ("GET", "/api/subscriptions"),
+    ("GET", "/api/subscriptions/held"),
     ("POST", "/api/subscriptions/{subscription_id}/leave"),
     ("PATCH", "/api/subscriptions/{subscription_id}"),
     # Any signed-in user authors (AD8, tasks.md D.4); every strategy read goes
