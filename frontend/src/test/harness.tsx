@@ -302,6 +302,38 @@ export function subscriptionOf(strategyId: string, share = "100", overrides: Par
   };
 }
 
+/** One row of `GET /api/public/strategies`: three closed trades, up 12.5 %, two trading it live with 1500 USDT. */
+export function publicStrategy(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "11111111-1111-4111-8111-111111111111",
+    name: "Alpha",
+    author_name: "Ana",
+    exchange: "bybit",
+    venue: "usdt-m",
+    settlement_currency: "USDT",
+    created_at: "2026-10-01T10:00:00Z",
+    closed_trade_count: 3,
+    unleveraged_return_before_fees: "0.125",
+    live_subscribers: 2,
+    capital: "1500",
+    ...overrides,
+  };
+}
+
+/** One row of `GET /api/subscriptions/held`: the signed-in user's ACTIVE 30 % of "Alpha", by Ana, on Bybit USDT-M. */
+export function heldSubscription(overrides: Record<string, unknown> = {}) {
+  return {
+    ...subscriptionOf("11111111-1111-4111-8111-111111111111", "30"),
+    strategy_name: "Alpha",
+    author_name: "Ana",
+    authored: false,
+    exchange: "bybit",
+    venue: "usdt-m",
+    settlement_currency: "USDT",
+    ...overrides,
+  };
+}
+
 export function unsyncedSharePreview(id: string, exchange = "bybit", venue = "usdt-m", currency = "USDT") {
   return {
     strategy_id: id,
@@ -334,6 +366,8 @@ export function strategyRoute(id: string, name: string, overrides: Record<string
     uptime: { seconds: 0, first_enabled_at: null, baseline: false },
     visibility: "PRIVATE",
     secret_last4: "x4F2",
+    subscribers: 1,
+    live_subscribers: 0,
     ...overrides,
   };
   return (url) => {

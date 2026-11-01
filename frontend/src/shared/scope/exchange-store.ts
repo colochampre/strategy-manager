@@ -48,10 +48,15 @@ export function resolveExchange(options: readonly string[], selected: string | n
   return options[0] ?? null;
 }
 
-/** Overview and Strategies (list and detail) are scoped; Settings and the rest are not. */
-const SCOPED_PATHS = ["/", "/strategies", "/strategies/:strategyId"];
+/**
+ * Overview and the authored strategies (list and detail) are scoped; Settings and the rest are not. Neither is
+ * what crosses exchanges: My subscriptions, and Explore, whose path `:strategyId` would otherwise match.
+ */
+const SCOPED_PATHS = ["/", "/strategies/authored", "/strategies/:strategyId"];
+const EXPLORE_PATH = "/strategies/explore";
 
 export function isExchangeScoped(pathname: string): boolean {
+  if (matchPath({ path: EXPLORE_PATH, end: true }, pathname) !== null) return false;
   return SCOPED_PATHS.some((path) => matchPath({ path, end: true }, pathname) !== null);
 }
 

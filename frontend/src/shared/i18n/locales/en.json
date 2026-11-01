@@ -201,7 +201,88 @@
     "scopeLoading": "Strategies appear once the exchanges have loaded.",
     "scopeError": "Strategies are hidden because the exchanges could not be loaded, so they cannot be filtered.",
     "noExchanges": "No exchange is configured, so there are no strategies to show.",
+    "tabs": {
+      "label": "Strategy lists",
+      "subscriptions": "My subscriptions",
+      "explore": "Explore",
+      "authored": "Authored"
+    },
+    "subscriptions": {
+      "loading": "Loading your subscriptions…",
+      "error": "Your subscriptions could not be loaded.",
+      "empty": "You hold no subscription yet.",
+      "explore": "Browse the public strategies",
+      "yours": "Your strategy",
+      "by": "by {{name}}",
+      "noAuthorName": "author with no name yet",
+      "share": "{{share}} % of your pool per trade",
+      "leaving": "Leaving: it opens nothing more, and it ends when its open position closes.",
+      "changeShare": "Change share",
+      "closeShare": "Close",
+      "leave": "Leave"
+    },
+    "leave": {
+      "confirmTitle": "Leave {{name}}?",
+      "confirmBody": "{{name}} will open nothing more for you. A position you hold stays open and closes with the strategy's next close, and your subscription ends then.",
+      "privateNote": "If this strategy is private, you cannot subscribe again while it stays private.",
+      "cancel": "Cancel",
+      "confirm": "Leave",
+      "pending": "Leaving…",
+      "errors": {
+        "author": "The author of a strategy cannot leave it. Disable or archive it instead.",
+        "notActive": "This subscription is no longer active.",
+        "gone": "This subscription no longer exists.",
+        "generic": "The subscription could not be left. Try again."
+      }
+    },
+    "explore": {
+      "loading": "Loading the public strategies…",
+      "error": "The public strategies could not be loaded.",
+      "empty": "No strategy is public yet.",
+      "brake": "The server's brake is on: nobody trades live, so no capital is shown."
+    },
+    "public": {
+      "back": "All public strategies",
+      "loading": "Loading the strategy…",
+      "notFound": "This strategy is not on the public list.",
+      "error": "The strategy could not be loaded.",
+      "by": "by {{name}}",
+      "age": "age",
+      "ageDays_one": "{{count}} day",
+      "ageDays_other": "{{count}} days",
+      "trades": "closed trades",
+      "return": "return, unleveraged, before fees",
+      "live": "trading it live",
+      "capital": "capital",
+      "returnInfo": "How this return is read",
+      "returnHint": "Read from the strategy's signals, not from anyone's fills. The trades of one UTC day are summed and the days are compounded, each trade taken as if the whole capital were on it. No leverage and no fees are counted, so nobody's real result matches it exactly.",
+      "capitalInfo": "What this capital is",
+      "capitalHint": "The capital assigned by everyone trading it live, its author included: each one's share of the latest balance of their pool. It is capital assigned, not capital in use, and the same money can stand behind several strategies."
+    },
+    "subscribe": {
+      "title": "Subscribe",
+      "reading": "Reading your place in this strategy…",
+      "readFailed": "Your pools and subscriptions could not be read, so this strategy cannot be subscribed to right now.",
+      "yours": "You are the author of this strategy.",
+      "openYours": "Open your strategy",
+      "held": "You are subscribed with {{share}} % of your pool per trade.",
+      "manage": "Manage it in My subscriptions",
+      "needsKey": "To subscribe you need a key on {{exchange}}. You can browse this strategy without one.",
+      "addKey": "Add a key in Settings",
+      "publicSum": "While you trade this strategy live, the capital you assign joins the public sum shown on this page, beside the number of people trading it.",
+      "submit": "Subscribe",
+      "pending": "Subscribing…",
+      "refused": {
+        "needsKey": "You have no key on this strategy's exchange. Add one in Settings to subscribe.",
+        "already": "You are already subscribed to this strategy.",
+        "archived": "This strategy is archived and takes no subscribers.",
+        "gone": "This strategy no longer takes subscribers.",
+        "failed": "The subscription was not saved. Try again."
+      }
+    },
     "row": {
+      "subscribers_one": "{{count}} subscriber, {{live}} live",
+      "subscribers_other": "{{count}} subscribers, {{live}} live",
       "archived": "Archived",
       "enable": "Enable {{name}}",
       "neverEnabled": "never enabled",

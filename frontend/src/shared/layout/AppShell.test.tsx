@@ -365,7 +365,7 @@ describe("the Discrepancies item and its badge", () => {
     expect(screen.queryByRole("navigation", { name: "Exchanges" })).not.toBeInTheDocument();
     discrepancies.unmount();
 
-    for (const path of ["/", "/strategies"]) {
+    for (const path of ["/", "/strategies/authored"]) {
       stubConfirmed({ kind: "ok", body: needing(2) });
       const view = renderAt(<AppRoutes />, path);
       expect(await screen.findAllByRole("navigation", { name: "Exchanges" })).toHaveLength(2);

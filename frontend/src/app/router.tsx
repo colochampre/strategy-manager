@@ -3,6 +3,10 @@ import { Route, Routes } from "react-router";
 import { DiscrepanciesPage } from "@/features/discrepancies/DiscrepanciesPage";
 import { OverviewPage } from "@/features/overview/OverviewPage";
 import { SettingsPage } from "@/features/settings/SettingsPage";
+import { ExplorePage } from "@/features/strategies/ExplorePage";
+import { MySubscriptionsPage } from "@/features/strategies/MySubscriptionsPage";
+import { PublicStrategyPage } from "@/features/strategies/PublicStrategyPage";
+import { StrategiesLayout } from "@/features/strategies/StrategiesLayout";
 import { StrategiesPage } from "@/features/strategies/StrategiesPage";
 import { StrategyDetailPage } from "@/features/strategies/StrategyDetailPage";
 import { AppShell } from "@/shared/layout/AppShell";
@@ -18,7 +22,12 @@ export function AppRoutes() {
     <Routes>
       <Route element={<AppShell />}>
         <Route index element={<OverviewPage />} />
-        <Route path="strategies" element={<StrategiesPage />} />
+        <Route path="strategies" element={<StrategiesLayout />}>
+          <Route index element={<MySubscriptionsPage />} />
+          <Route path="explore" element={<ExplorePage />} />
+          <Route path="authored" element={<StrategiesPage />} />
+        </Route>
+        <Route path="strategies/explore/:strategyId" element={<PublicStrategyPage />} />
         <Route path="strategies/:strategyId" element={<StrategyDetailPage />} />
         <Route path="discrepancies" element={<DiscrepanciesPage />} />
         <Route path="settings" element={<SettingsPage />} />

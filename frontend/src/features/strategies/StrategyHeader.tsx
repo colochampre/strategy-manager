@@ -17,7 +17,7 @@ interface StrategyHeaderProps {
 export function BackToStrategies() {
   const { t } = useTranslation();
   return (
-    <Link to="/strategies" className="font-mono text-xs text-ink-3 hover:text-ink-2">
+    <Link to="/strategies/authored" className="font-mono text-xs text-ink-3 hover:text-ink-2">
       <span aria-hidden="true">← </span>
       {t("strategies.detail.back")}
     </Link>
@@ -66,6 +66,9 @@ export function StrategyHeader({ strategy }: StrategyHeaderProps) {
       <p className="font-mono text-xs text-ink-2">
         {`${strategy.exchange} · ${strategy.venue} · ${strategy.settlement_currency} · `}
         <UptimeSummary uptime={strategy.uptime} />
+      </p>
+      <p data-testid="strategy-subscribers" className="font-mono text-xs text-ink-2">
+        {t("strategies.row.subscribers", { count: strategy.subscribers, live: strategy.live_subscribers })}
       </p>
       <div id={panelId} className="mt-2">
         {open && <WebhookMessage strategyId={strategy.id} secretLast4={strategy.secret_last4} archived={archived} />}

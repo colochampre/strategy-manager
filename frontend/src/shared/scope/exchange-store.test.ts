@@ -188,14 +188,25 @@ describe("persistence", () => {
 });
 
 describe("scoped routes", () => {
-  it.each(["/", "/strategies", "/strategies/", "/strategies/5b0c7a52-6f43-4d6e-9c1c-0c2f3f3f2a11"])(
+  it.each(["/", "/strategies/authored", "/strategies/authored/", "/strategies/5b0c7a52-6f43-4d6e-9c1c-0c2f3f3f2a11"])(
     "%s is exchange-scoped",
     (path) => {
       expect(isExchangeScoped(path)).toBe(true);
     },
   );
 
-  it.each(["/settings", "/settings/", "/nope", "/strategies/a/b", "/no/such/page"])(
+  it.each([
+    "/settings",
+    "/settings/",
+    "/nope",
+    "/strategies/a/b",
+    "/no/such/page",
+    "/strategies",
+    "/strategies/",
+    "/strategies/explore",
+    "/strategies/explore/",
+    "/strategies/explore/5b0c7a52-6f43-4d6e-9c1c-0c2f3f3f2a11",
+  ])(
     "%s is not exchange-scoped",
     (path) => {
       expect(isExchangeScoped(path)).toBe(false);

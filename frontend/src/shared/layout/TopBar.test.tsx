@@ -58,7 +58,7 @@ describe("who is signed in, in the top bar", () => {
 });
 
 describe("the exchange tabs in the top bar", () => {
-  it.each(["/", "/strategies", "/strategies/5b0c7a52-6f43-4d6e-9c1c-0c2f3f3f2a11"])(
+  it.each(["/", "/strategies/authored", "/strategies/5b0c7a52-6f43-4d6e-9c1c-0c2f3f3f2a11"])(
     "are drawn on %s, twice: in the bar and as the row below it",
     async (path) => {
       stubApi(HEALTH);

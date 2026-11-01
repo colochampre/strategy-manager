@@ -40,6 +40,8 @@ function strategy(overrides: Record<string, unknown> = {}) {
     uptime: { seconds: 12 * DAY_S + 3600, first_enabled_at: "2026-09-18T10:00:00Z", baseline: false },
     visibility: "PRIVATE",
     secret_last4: "x4F2",
+    subscribers: 1,
+    live_subscribers: 0,
     ...overrides,
   };
 }
@@ -105,10 +107,22 @@ afterEach(() => {
 });
 
 describe("the strategies list", () => {
+  it.each([
+    [3, 2, "3 subscribers, 2 live"],
+    [1, 0, "1 subscriber, 0 live"],
+  ])("tells its author who holds it: %i and %i live read as %s", async (subscribers, live, text) => {
+    const api = strategiesApi([strategy({ subscribers, live_subscribers: live })]);
+    stubApi(HEALTH, [], POOLS, {}, api.route);
+    renderAt(<AppRoutes />, "/strategies/authored");
+
+    const row = await screen.findByTestId("strategy-row");
+    expect(within(row).getByTestId("strategy-subscribers")).toHaveTextContent(text);
+  });
+
   it("draws an aria-hidden Plus left of New strategy and leaves its name as it was", async () => {
     const api = strategiesApi([strategy()]);
     stubApi(HEALTH, [], POOLS, {}, api.route);
-    renderAt(<AppRoutes />, "/strategies");
+    renderAt(<AppRoutes />, "/strategies/authored");
     await screen.findByText("Alpha");
 
     const button = screen.getByRole("button", { name: en.strategies.new.open });
@@ -123,7 +137,7 @@ describe("the strategies list", () => {
   it("test_archived_excluded_by_default_toggle_shows_them", async () => {
     const api = strategiesApi([strategy(), ARCHIVED]);
     stubApi(HEALTH, [], POOLS, {}, api.route);
-    renderAt(<AppRoutes />, "/strategies");
+    renderAt(<AppRoutes />, "/strategies/authored");
 
     expect(await screen.findByText("Alpha")).toBeInTheDocument();
     expect(screen.queryByText("Old Beta")).not.toBeInTheDocument();
@@ -145,7 +159,7 @@ describe("the strategies list", () => {
   it("test_row_shows_name_pool_enabled_toggle_uptime_trades_pnl_return", async () => {
     const api = strategiesApi([strategy({ allowed_pairs: ["ETHUSDT", "BTCUSDT"] })]);
     stubApi(HEALTH, [], POOLS, {}, api.route);
-    renderAt(<AppRoutes />, "/strategies");
+    renderAt(<AppRoutes />, "/strategies/authored");
 
     const row = await screen.findByTestId("strategy-row");
     expect(within(row).getByRole("link", { name: "Alpha" })).toHaveAttribute(
@@ -168,7 +182,7 @@ describe("the strategies list", () => {
   it("test_the_strategies_list_shows_no_rows_share", async () => {
     const api = strategiesApi([strategy({ subscription: subscriptionOf("11111111-1111-4111-8111-111111111111", "37.5") })]);
     stubApi(HEALTH, [], POOLS, {}, api.route);
-    renderAt(<AppRoutes />, "/strategies");
+    renderAt(<AppRoutes />, "/strategies/authored");
 
     const row = await screen.findByTestId("strategy-row");
     await waitFor(() => expect(within(row).getByTestId("strategy-trades")).toHaveTextContent("7"));
@@ -181,7 +195,7 @@ describe("the strategies list", () => {
   it("shows the venue alone, with no trailing separator, when a strategy has no allowed pairs", async () => {
     const api = strategiesApi([strategy({ allowed_pairs: [] })]);
     stubApi(HEALTH, [], POOLS, {}, api.route);
-    renderAt(<AppRoutes />, "/strategies");
+    renderAt(<AppRoutes />, "/strategies/authored");
 
     const row = await screen.findByTestId("strategy-row");
     expect(within(row).getByTestId("strategy-pool").textContent).toBe("usdt-m");
@@ -193,7 +207,7 @@ describe("the strategies list", () => {
       uptime: { seconds: 0, first_enabled_at: null, baseline: false },
     });
     stubApi(HEALTH, [], POOLS, {}, strategiesApi([never]).route);
-    renderAt(<AppRoutes />, "/strategies");
+    renderAt(<AppRoutes />, "/strategies/authored");
 
     const row = await screen.findByTestId("strategy-row");
     expect(within(row).getByRole("switch")).toHaveAttribute("aria-checked", "false");
@@ -203,7 +217,7 @@ describe("the strategies list", () => {
   it("says 'at least' when the first activation is only a baseline", async () => {
     const baseline = strategy({ uptime: { seconds: 3 * DAY_S, first_enabled_at: "2026-09-29T00:00:00Z", baseline: true } });
     stubApi(HEALTH, [], POOLS, {}, strategiesApi([baseline]).route);
-    renderAt(<AppRoutes />, "/strategies");
+    renderAt(<AppRoutes />, "/strategies/authored");
 
     expect(await screen.findByTestId("strategy-uptime")).toHaveTextContent("active at least 3 days");
   });
@@ -211,7 +225,7 @@ describe("the strategies list", () => {
   it("lists only the selected exchange's strategies, and follows a tab switch", async () => {
     const other = strategy({ id: "33333333-3333-4333-8333-333333333333", name: "Gamma", exchange: "binance", venue: "usdt-m" });
     stubApi(HEALTH, [], POOLS, {}, strategiesApi([strategy(), other]).route);
-    renderAt(<AppRoutes />, "/strategies");
+    renderAt(<AppRoutes />, "/strategies/authored");
 
     expect(await screen.findByText("Alpha")).toBeInTheDocument();
     expect(screen.queryByText("Gamma")).not.toBeInTheDocument();
@@ -224,7 +238,7 @@ describe("the strategies list", () => {
 
   it("says so when the exchange has no strategies", async () => {
     stubApi(HEALTH, [], POOLS, {}, strategiesApi([]).route);
-    renderAt(<AppRoutes />, "/strategies");
+    renderAt(<AppRoutes />, "/strategies/authored");
 
     expect(await screen.findByText(en.strategies.empty)).toBeInTheDocument();
   });
@@ -233,7 +247,7 @@ describe("the strategies list", () => {
     stubApi(HEALTH, [], POOLS, {}, (url) =>
       /\/strategies(\?|$)/.test(url) ? Promise.resolve(jsonResponse({ detail: "boom" }, 500)) : undefined,
     );
-    renderAt(<AppRoutes />, "/strategies");
+    renderAt(<AppRoutes />, "/strategies/authored");
 
     expect(await screen.findByRole("alert")).toHaveTextContent(en.strategies.error);
     expect(screen.queryByText(en.strategies.empty)).not.toBeInTheDocument();
@@ -243,7 +257,7 @@ describe("the strategies list", () => {
     stubApi(HEALTH, [], POOLS, {}, (url) =>
       /\/strategies(\?|$)/.test(url) ? Promise.resolve(jsonResponse({ items: [] })) : undefined,
     );
-    renderAt(<AppRoutes />, "/strategies");
+    renderAt(<AppRoutes />, "/strategies/authored");
 
     expect(await screen.findByRole("alert")).toHaveTextContent(en.strategies.error);
   });
@@ -251,7 +265,7 @@ describe("the strategies list", () => {
   it("shows no strategy until the exchange scope is known", async () => {
     const api = strategiesApi([strategy()]);
     stubApi(HEALTH, [], { kind: "pending" }, {}, api.route);
-    renderAt(<AppRoutes />, "/strategies");
+    renderAt(<AppRoutes />, "/strategies/authored");
 
     expect(await screen.findByText(en.strategies.scopeLoading)).toBeInTheDocument();
     expect(screen.queryByText("Alpha")).not.toBeInTheDocument();
@@ -260,7 +274,7 @@ describe("the strategies list", () => {
   it("blanks only a row's figures when its report fails, and says so", async () => {
     const api = strategiesApi([strategy()], () => Promise.resolve(jsonResponse({ detail: "boom" }, 500)));
     stubApi(HEALTH, [], POOLS, {}, api.route);
-    renderAt(<AppRoutes />, "/strategies");
+    renderAt(<AppRoutes />, "/strategies/authored");
 
     const row = await screen.findByTestId("strategy-row");
     expect(await within(row).findByText(en.strategies.row.performanceError)).toBeInTheDocument();
@@ -277,7 +291,7 @@ describe("the strategies list", () => {
       );
     const api = strategiesApi([strategy()], olderApi);
     stubApi(HEALTH, [], POOLS, {}, api.route);
-    renderAt(<AppRoutes />, "/strategies");
+    renderAt(<AppRoutes />, "/strategies/authored");
 
     const row = await screen.findByTestId("strategy-row");
     expect(await within(row).findByText(en.strategies.row.performanceError)).toBeInTheDocument();
@@ -289,7 +303,7 @@ describe("the enable switch", () => {
   it("sends the opposite value and shows the answer", async () => {
     const api = strategiesApi([strategy()]);
     stubApi(HEALTH, [], POOLS, {}, api.route);
-    renderAt(<AppRoutes />, "/strategies");
+    renderAt(<AppRoutes />, "/strategies/authored");
     const row = await screen.findByTestId("strategy-row");
 
     fireEvent.click(within(row).getByRole("switch"));
@@ -305,7 +319,7 @@ describe("the enable switch", () => {
     stubApi(HEALTH, [], POOLS, {}, (url, init) =>
       init?.method === "PATCH" ? Promise.resolve(jsonResponse({ detail: "no" }, 409)) : api.route(url, init),
     );
-    renderAt(<AppRoutes />, "/strategies");
+    renderAt(<AppRoutes />, "/strategies/authored");
     const row = await screen.findByTestId("strategy-row");
 
     fireEvent.click(within(row).getByRole("switch"));
@@ -333,7 +347,7 @@ describe("the list's figures line up from row to row (12f.10.30b)", () => {
       );
     });
     stubApi(HEALTH, [], POOLS, {}, api.route);
-    renderAt(<AppRoutes />, "/strategies");
+    renderAt(<AppRoutes />, "/strategies/authored");
     const rows = await screen.findAllByTestId("strategy-row");
     await waitFor(() => expect(within(rows[0] as HTMLElement).getByTestId("strategy-pnl")).toHaveTextContent("+1,235.25"));
     await waitFor(() => expect(within(rows[1] as HTMLElement).getByTestId("strategy-pnl")).toHaveTextContent("+988.80"));
@@ -375,7 +389,7 @@ describe("the list's figures line up from row to row (12f.10.30b)", () => {
   it("a row whose report failed keeps the same three tracks for its message", async () => {
     const api = strategiesApi([strategy()], () => Promise.resolve(jsonResponse({ detail: "boom" }, 500)));
     stubApi(HEALTH, [], POOLS, {}, api.route);
-    renderAt(<AppRoutes />, "/strategies");
+    renderAt(<AppRoutes />, "/strategies/authored");
 
     const row = await screen.findByTestId("strategy-row");
     const message = await within(row).findByText(en.strategies.row.performanceError);
@@ -393,7 +407,7 @@ describe("the list's figures line up from row to row (12f.10.30b)", () => {
       );
     };
     stubApi(HEALTH, [], POOLS, {}, strategiesApi([strategy()], unreadable).route);
-    renderAt(<AppRoutes />, "/strategies");
+    renderAt(<AppRoutes />, "/strategies/authored");
 
     const row = await screen.findByTestId("strategy-row");
     const message = await within(row).findByText(en.strategies.row.performanceError);
@@ -421,7 +435,7 @@ describe("the open-state figures on the page", () => {
   it("sits between the title row and the list", async () => {
     const api = strategiesApi([strategy()]);
     stubApi(HEALTH, [], POOLS, {}, api.route);
-    renderAt(<AppRoutes />, "/strategies");
+    renderAt(<AppRoutes />, "/strategies/authored");
 
     await screen.findByTestId("strategy-row");
     await waitFor(() => expect(screen.queryByText(en.positions.state.figures.open + ":")).toBeInTheDocument());
@@ -435,7 +449,7 @@ describe("the open-state figures on the page", () => {
   it("is not drawn, and asks for nothing, before the exchange scope is known", async () => {
     const api = strategiesApi([strategy()]);
     const fetchMock = stubApi(HEALTH, [], { kind: "pending" }, {}, api.route);
-    renderAt(<AppRoutes />, "/strategies");
+    renderAt(<AppRoutes />, "/strategies/authored");
 
     expect(await screen.findByText(en.strategies.scopeLoading)).toBeInTheDocument();
     expect(screen.queryByText(en.positions.state.figures.open + ":")).not.toBeInTheDocument();
@@ -446,7 +460,7 @@ describe("the open-state figures on the page", () => {
   it("is not drawn, and asks for nothing, when no exchange exists", async () => {
     const api = strategiesApi([]);
     const fetchMock = stubApi(HEALTH, [], { kind: "ok", body: [] }, {}, api.route);
-    renderAt(<AppRoutes />, "/strategies");
+    renderAt(<AppRoutes />, "/strategies/authored");
 
     expect(await screen.findByText(en.strategies.noExchanges)).toBeInTheDocument();
     expect(screen.queryByText(en.positions.state.figures.open + ":")).not.toBeInTheDocument();
@@ -508,7 +522,7 @@ describe("the Strategies page shows nothing of another exchange", () => {
   async function mountPage(body: unknown) {
     const api = strategiesApi([binanceStrategy, bybitStrategy]);
     const fetchMock = stubApi(HEALTH, [], POOLS, {}, api.route, {}, undefined, { kind: "ok", body });
-    renderAt(<AppRoutes />, "/strategies");
+    renderAt(<AppRoutes />, "/strategies/authored");
     // The scope starts on the first exchange (bybit); the owner moves to binance first.
     await screen.findByText("Bybit Strat");
     fireEvent.click(screen.getAllByRole("button", { name: "Binance" })[0] as HTMLElement);

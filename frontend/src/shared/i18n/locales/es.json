@@ -201,7 +201,88 @@
     "scopeLoading": "Las estrategias aparecen cuando se hayan cargado los exchanges.",
     "scopeError": "Las estrategias están ocultas porque no se pudieron cargar los exchanges, así que no se pueden filtrar.",
     "noExchanges": "No hay ningún exchange configurado, así que no hay estrategias que mostrar.",
+    "tabs": {
+      "label": "Listas de estrategias",
+      "subscriptions": "Mis suscripciones",
+      "explore": "Explorar",
+      "authored": "Mis estrategias"
+    },
+    "subscriptions": {
+      "loading": "Cargando sus suscripciones…",
+      "error": "No se pudieron cargar sus suscripciones.",
+      "empty": "Todavía no tiene ninguna suscripción.",
+      "explore": "Ver las estrategias públicas",
+      "yours": "Su estrategia",
+      "by": "de {{name}}",
+      "noAuthorName": "autor todavía sin nombre",
+      "share": "{{share}} % de su pool por operación",
+      "leaving": "Saliendo: ya no abre nada más y termina cuando se cierre su posición abierta.",
+      "changeShare": "Cambiar la cuota",
+      "closeShare": "Cerrar",
+      "leave": "Salir"
+    },
+    "leave": {
+      "confirmTitle": "¿Salir de {{name}}?",
+      "confirmBody": "{{name}} ya no abrirá nada más para usted. Una posición que tenga abierta sigue abierta y se cierra con el próximo cierre de la estrategia, y entonces termina su suscripción.",
+      "privateNote": "Si esta estrategia es privada, no podrá volver a suscribirse mientras siga siéndolo.",
+      "cancel": "Cancelar",
+      "confirm": "Salir",
+      "pending": "Saliendo…",
+      "errors": {
+        "author": "El autor de una estrategia no puede salir de ella. Puede desactivarla o archivarla.",
+        "notActive": "Esta suscripción ya no está activa.",
+        "gone": "Esta suscripción ya no existe.",
+        "generic": "No se pudo salir de la suscripción. Inténtelo de nuevo."
+      }
+    },
+    "explore": {
+      "loading": "Cargando las estrategias públicas…",
+      "error": "No se pudieron cargar las estrategias públicas.",
+      "empty": "Todavía no hay ninguna estrategia pública.",
+      "brake": "El freno del servidor está activo: nadie opera en vivo, así que no se muestra capital."
+    },
+    "public": {
+      "back": "Todas las estrategias públicas",
+      "loading": "Cargando la estrategia…",
+      "notFound": "Esta estrategia no está en la lista pública.",
+      "error": "No se pudo cargar la estrategia.",
+      "by": "de {{name}}",
+      "age": "antigüedad",
+      "ageDays_one": "{{count}} día",
+      "ageDays_other": "{{count}} días",
+      "trades": "operaciones cerradas",
+      "return": "rendimiento, sin apalancamiento y antes de comisiones",
+      "live": "operando en vivo",
+      "capital": "capital",
+      "returnInfo": "Cómo se calcula este rendimiento",
+      "returnHint": "Se calcula con las señales de la estrategia, no con las operaciones de ningún usuario. Las operaciones de un mismo día UTC se suman y los días se componen, y cada operación se toma como si todo el capital estuviera en ella. No cuenta apalancamiento ni comisiones, así que el resultado real de nadie coincide exactamente.",
+      "capitalInfo": "Qué es este capital",
+      "capitalHint": "El capital que asignan todos los que la operan en vivo, incluido su autor: la cuota de cada uno sobre el último saldo de su pool. Es capital asignado, no capital en uso, y el mismo dinero puede respaldar varias estrategias."
+    },
+    "subscribe": {
+      "title": "Suscribirse",
+      "reading": "Leyendo su lugar en esta estrategia…",
+      "readFailed": "No se pudieron leer sus pools y suscripciones, así que por ahora no puede suscribirse a esta estrategia.",
+      "yours": "Usted es el autor de esta estrategia.",
+      "openYours": "Abrir su estrategia",
+      "held": "Está suscrito con el {{share}} % de su pool por operación.",
+      "manage": "Administrarla en Mis suscripciones",
+      "needsKey": "Para suscribirse necesita una clave en {{exchange}}. Puede ver esta estrategia sin ella.",
+      "addKey": "Agregar una clave en Ajustes",
+      "publicSum": "Mientras opere esta estrategia en vivo, el capital que asigne se suma a la cifra pública que se muestra en esta página, junto a la cantidad de personas que la operan.",
+      "submit": "Suscribirse",
+      "pending": "Suscribiendo…",
+      "refused": {
+        "needsKey": "No tiene una clave en el exchange de esta estrategia. Agregue una en Ajustes para suscribirse.",
+        "already": "Ya está suscrito a esta estrategia.",
+        "archived": "Esta estrategia está archivada y no acepta suscriptores.",
+        "gone": "Esta estrategia ya no acepta suscriptores.",
+        "failed": "La suscripción no se guardó. Inténtelo de nuevo."
+      }
+    },
     "row": {
+      "subscribers_one": "{{count}} suscriptor, {{live}} en vivo",
+      "subscribers_other": "{{count}} suscriptores, {{live}} en vivo",
       "archived": "Archivada",
       "enable": "Activar {{name}}",
       "neverEnabled": "nunca activada",
