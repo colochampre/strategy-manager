@@ -27,6 +27,7 @@ from strategy_manager.strategies.infrastructure.author_subscription_adapter impo
 from strategy_manager.strategies.infrastructure.enablement_log import SqlAlchemyEnablementLog
 from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStrategyRepository
 from tests.owner import OWNER_ID, seed_other_user
+from tests.strategies.author_names import FixedAuthorNames
 from tests.strategies.infrastructure.conftest import (  # noqa: F401
     pg_engine,
     pg_session_factory,
@@ -61,6 +62,7 @@ def _use_case(session: AsyncSession) -> RegisterStrategy:
         enablement_log=SqlAlchemyEnablementLog(session),
         clock=SystemClock(),
         author_subscriptions=SqlAlchemyAuthorSubscription(session),
+        author_names=FixedAuthorNames(),
     )
 
 

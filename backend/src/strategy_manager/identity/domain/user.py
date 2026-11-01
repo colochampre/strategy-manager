@@ -37,3 +37,5 @@ class User:
     # The user's own mode (migration ``0035``); the brake over everyone is applied
     # on top of it, never stored here.
     mode: Mode
+    # None until the user chooses one (migration ``0036``, decision 27).
+    display_name: str | None = None

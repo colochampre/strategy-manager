@@ -78,6 +78,7 @@ from strategy_manager.strategies.infrastructure.models import StrategyRow
 from strategy_manager.strategies.infrastructure.pool_lock_adapter import PoolLockAdapter
 from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStrategyRepository
 from tests.owner import OWNER_ID, ensure_delivery, ensure_pool, secret_hash
+from tests.strategies.author_names import FixedAuthorNames
 from tests.strategies.wiring import real_subscribers
 
 pytestmark = pytest.mark.integration
@@ -678,6 +679,7 @@ async def test_archived_strategy_patch_refused_409_strategy_archived(
             commit=session,  # type: ignore[arg-type]
             enablement_log=SqlAlchemyEnablementLog(session),
             clock=FixedClock(),  # type: ignore[arg-type]
+            author_names=FixedAuthorNames(),
         )
         with pytest.raises(StrategyArchived):
             await use_case.update(UpdateCommand(strategy_id=strategy_id, name="renamed"))
@@ -717,6 +719,7 @@ async def test_enabling_archived_strategy_refused_enabled_unchanged(
             commit=session,  # type: ignore[arg-type]
             enablement_log=SqlAlchemyEnablementLog(session),
             clock=FixedClock(),  # type: ignore[arg-type]
+            author_names=FixedAuthorNames(),
         )
         with pytest.raises(StrategyArchived):
             await use_case.update(UpdateCommand(strategy_id=strategy_id, enabled=True))

@@ -11,7 +11,8 @@ unmerged: the panel says "forced by the brake" from the two together, which an
 effective mode alone could not.
 
 ``POST /me/mode`` changes the signed-in user's mode and nobody else's: the route
-takes no user id. Its rules are ``ChangeMode``'s.
+takes no user id. Its rules are ``ChangeMode``'s. ``PUT /me/display-name`` is the
+same for their name, under ``ChooseDisplayName``'s rules.
 
 The answers name a person, so they are never cached (``NoStoreMiddleware`` in
 ``main.create_app``).
@@ -33,6 +34,9 @@ from strategy_manager.identity.application.change_mode import (
     ModeChangeRefusedError,
     ModeRefusal,
 )
+from strategy_manager.identity.application.choose_display_name import ChooseDisplayName
+from strategy_manager.identity.application.ports import DisplayNameTakenError
+from strategy_manager.identity.domain.display_name import InvalidDisplayNameError
 from strategy_manager.identity.domain.user import User
 from strategy_manager.identity.infrastructure.dependencies import current_user, is_admin
 from strategy_manager.identity.infrastructure.user_repository import SqlAlchemyUserRepository
@@ -57,6 +61,7 @@ class MeBody(BaseModel):
     is_admin: bool
     mode: Mode
     dry_run_brake: bool
+    display_name: str | None
 
     @classmethod
     def of(cls, user: User, settings: Settings) -> "MeBody":
@@ -65,11 +70,16 @@ class MeBody(BaseModel):
             is_admin=is_admin(user.email, settings),
             mode=user.mode,
             dry_run_brake=settings.dry_run,
+            display_name=user.display_name,
         )
 
 
 class ChangeModeBody(BaseModel):
     mode: Mode
+
+
+class DisplayNameBody(BaseModel):
+    display_name: str
 
 
 @router.get("", response_model=MeBody)
@@ -103,3 +113,27 @@ async def change_mode(
             },
         ) from exc
     return MeBody.of(replace(user, mode=body.mode), settings)
+
+
+@router.put("/display-name", response_model=MeBody)
+async def choose_display_name(
+    body: DisplayNameBody,
+    user: CurrentUserDep,
+    settings: SettingsDep,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> MeBody:
+    use_case = ChooseDisplayName(SqlAlchemyUserRepository(session), session)
+    try:
+        name = await use_case.execute(user.id, body.display_name)
+    except InvalidDisplayNameError as exc:
+        raise HTTPException(
+            status_code=422, detail={"error": "DISPLAY_NAME_INVALID", "message": str(exc)}
+        ) from exc
+    except DisplayNameTakenError as exc:
+        # Nothing of who holds it: their account is theirs to reveal.
+        await session.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail={"error": "DISPLAY_NAME_TAKEN", "message": "That name is taken."},
+        ) from exc
+    return MeBody.of(replace(user, display_name=name), settings)

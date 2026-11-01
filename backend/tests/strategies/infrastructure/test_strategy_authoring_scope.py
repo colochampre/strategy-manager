@@ -90,6 +90,8 @@ async def world(
     who is not."""
     async with pg_session_factory() as session:
         await session.execute(text("TRUNCATE strategy_enablement_events"))
+        # ``users`` outlives the truncates, and a name is what decides turning public.
+        await session.execute(text("UPDATE users SET display_name = NULL"))
         admin_id = await seed_admin(session)
         other_id = await _seed_other(session)
         for user_id in (admin_id, other_id):

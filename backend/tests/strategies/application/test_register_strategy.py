@@ -11,7 +11,7 @@ import pytest
 
 from strategy_manager.shared.domain.errors import DomainError
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
-from strategy_manager.strategies.application.ports import PoolKey
+from strategy_manager.strategies.application.ports import AuthorHasNoDisplayName, PoolKey
 from strategy_manager.strategies.application.register_strategy import (
     PoolNotAvailable,
     RegisterCommand,
@@ -28,7 +28,13 @@ from strategy_manager.strategies.domain.pair_catalog import (
     PairCatalogUnavailable,
     UnknownPairs,
 )
-from strategy_manager.strategies.domain.strategy import AllocationPercent, FillMode, Strategy
+from strategy_manager.strategies.domain.strategy import (
+    AllocationPercent,
+    FillMode,
+    Strategy,
+    Visibility,
+)
+from tests.strategies.author_names import FixedAuthorNames
 
 FIXED_NOW = datetime(2026, 9, 25, 12, 0, 0, tzinfo=UTC)
 
@@ -168,6 +174,7 @@ def _build(
     catalog: FakeCatalog | None = None,
     subscriptions: list[SpyAuthorSubscriptions] | None = None,
     failure: Exception | None = None,
+    author_names: FixedAuthorNames | None = None,
 ) -> tuple[RegisterStrategy, FakeRepository, SpyCommit, SpyEnablementLog, FixedClock]:
     """``subscriptions``, when given, receives the spy the use case was built with."""
     repository = FakeRepository(existing)
@@ -185,8 +192,38 @@ def _build(
         enablement_log=log,  # type: ignore[arg-type]
         clock=clock,  # type: ignore[arg-type]
         author_subscriptions=spy,
+        author_names=author_names or FixedAuthorNames(),
     )
     return use_case, repository, commit, log, clock
+
+
+async def test_a_strategy_is_not_registered_public_before_its_author_has_a_name() -> None:
+    """Decision 27. Nothing is written, so the refusal leaves no strategy behind."""
+    use_case, repository, commit, _, _ = _build(author_names=FixedAuthorNames(named=False))
+
+    with pytest.raises(AuthorHasNoDisplayName):
+        await use_case.register(_command(visibility=Visibility.PUBLIC))
+
+    assert repository.inserted == []
+    assert commit.commits == 0
+
+
+async def test_a_strategy_is_registered_public_once_its_author_has_a_name() -> None:
+    names = FixedAuthorNames()
+    use_case, repository, _, _, _ = _build(author_names=names)
+
+    await use_case.register(_command(visibility=Visibility.PUBLIC))
+
+    assert repository.inserted[0].visibility is Visibility.PUBLIC
+    assert names.asked == [AUTHOR_ID]
+
+
+async def test_a_private_strategy_needs_no_name() -> None:
+    use_case, repository, _, _, _ = _build(author_names=FixedAuthorNames(named=False))
+
+    await use_case.register(_command())
+
+    assert repository.inserted[0].visibility is Visibility.PRIVATE
 
 
 async def test_the_id_is_the_one_supplied_and_never_generated() -> None:
@@ -284,6 +321,7 @@ async def test_the_pools_checked_are_the_authors_never_another_users() -> None:
         enablement_log=SpyEnablementLog(),  # type: ignore[arg-type]
         clock=FixedClock(FIXED_NOW),  # type: ignore[arg-type]
         author_subscriptions=SpyAuthorSubscriptions(commit),
+        author_names=FixedAuthorNames(),
     )
 
     with pytest.raises(PoolNotAvailable, match="Enabled pools are none"):
@@ -418,6 +456,7 @@ async def test_creation_writes_no_event_and_first_enable_writes_the_first_one() 
         commit=register_commit,  # type: ignore[arg-type]
         enablement_log=log,  # type: ignore[arg-type]
         clock=clock,  # type: ignore[arg-type]
+        author_names=FixedAuthorNames(),
     )
     await update_use_case.update(UpdateCommand(strategy_id=strategy.id, enabled=True))
 

@@ -72,6 +72,7 @@ from strategy_manager.strategies.infrastructure.pool_lock_adapter import PoolLoc
 from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStrategyRepository
 from tests.owner import OWNER_ID, ensure_delivery, ensure_pool, secret_hash, seed_owner
 from tests.pg_head_schema import migrated_head_database
+from tests.strategies.author_names import FixedAuthorNames
 from tests.strategies.wiring import real_subscribers
 
 pytestmark = pytest.mark.integration
@@ -526,6 +527,7 @@ async def test_a_deleted_id_registers_again_with_no_event_and_zero_uptime(
             enablement_log=SqlAlchemyEnablementLog(session),
             clock=_Clock(),  # type: ignore[arg-type]
             author_subscriptions=SqlAlchemyAuthorSubscription(session),
+            author_names=FixedAuthorNames(),
         ).register(
             RegisterCommand(
                 strategy_id=strategy_id,

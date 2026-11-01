@@ -23,6 +23,10 @@ class IdentityUnavailableError(Exception):
     token."""
 
 
+class DisplayNameTakenError(Exception):
+    """Another user holds this name, ignoring case. It says nothing about who."""
+
+
 class IdentityVerifierPort(Protocol):
     """Turns the request's Access assertion into the e-mail it vouches for.
 
@@ -49,6 +53,10 @@ class UserRepositoryPort(Protocol):
         ...
 
     async def set_mode(self, user_id: UUID, mode: Mode) -> None: ...
+
+    async def set_display_name(self, user_id: UUID, name: str) -> None:
+        """Raises ``DisplayNameTakenError`` when another user holds ``name``."""
+        ...
 
 
 class TradeKeysPort(Protocol):

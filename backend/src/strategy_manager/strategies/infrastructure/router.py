@@ -69,7 +69,10 @@ from strategy_manager.strategies.application.delete_strategy import (
     DeleteStrategy,
     StrategyHasHistory,
 )
-from strategy_manager.strategies.application.ports import PairCatalogPort
+from strategy_manager.strategies.application.ports import (
+    AuthorHasNoDisplayName,
+    PairCatalogPort,
+)
 from strategy_manager.strategies.application.regenerate_webhook_secret import (
     RegenerateWebhookSecret,
 )
@@ -99,6 +102,7 @@ from strategy_manager.strategies.domain.pair_catalog import (
     UnknownPairs,
 )
 from strategy_manager.strategies.domain.strategy import FillMode, Strategy, Visibility
+from strategy_manager.strategies.infrastructure.author_names import SqlAlchemyAuthorNames
 from strategy_manager.strategies.infrastructure.author_subscription_adapter import (
     SqlAlchemyAuthorSubscription,
 )
@@ -467,6 +471,12 @@ def _pair_refusal(
     return HTTPException(status_code=409, detail={"error": PAIRS_CHANGED, "message": str(exc)})
 
 
+def _no_display_name(exc: AuthorHasNoDisplayName) -> HTTPException:
+    return HTTPException(
+        status_code=409, detail={"error": "AUTHOR_HAS_NO_DISPLAY_NAME", "message": str(exc)}
+    )
+
+
 def get_register_strategy(session: SessionDep, pairs: PairCatalogDep) -> RegisterStrategy:
     """The real wiring. The catalogue comes from ``get_pair_catalog``, so a test
     overrides ONE dependency and no router test reaches a venue."""
@@ -478,6 +488,7 @@ def get_register_strategy(session: SessionDep, pairs: PairCatalogDep) -> Registe
         enablement_log=SqlAlchemyEnablementLog(session),
         clock=SystemClock(),
         author_subscriptions=SqlAlchemyAuthorSubscription(session),
+        author_names=SqlAlchemyAuthorNames(session),
     )
 
 
@@ -562,6 +573,8 @@ async def register_strategy(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except EmptyAllowedPairs as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except AuthorHasNoDisplayName as exc:
+        raise _no_display_name(exc) from exc
     except (UnknownPairs, PairCatalogNotServed, PairCatalogUnavailable) as exc:
         raise _pair_refusal(exc) from exc
     except IntegrityError as exc:
@@ -755,6 +768,7 @@ async def update_strategy(
         commit=session,
         enablement_log=SqlAlchemyEnablementLog(session),
         clock=SystemClock(),
+        author_names=SqlAlchemyAuthorNames(session),
     )
     try:
         strategy = await use_case.update(
@@ -772,6 +786,8 @@ async def update_strategy(
         raise HTTPException(
             status_code=409, detail={"error": "STRATEGY_ARCHIVED", "message": str(exc)}
         ) from exc
+    except AuthorHasNoDisplayName as exc:
+        raise _no_display_name(exc) from exc
     except IntegrityError as exc:
         if not is_name_conflict(exc):
             raise

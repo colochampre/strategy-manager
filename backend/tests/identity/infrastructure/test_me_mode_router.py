@@ -266,6 +266,7 @@ async def test_going_live_with_a_trade_capable_key_changes_the_mode(
         "is_admin": True,
         "mode": "LIVE",
         "dry_run_brake": False,
+        "display_name": None,
     }
     assert await world.stored_mode() == "LIVE"
 

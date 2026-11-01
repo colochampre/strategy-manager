@@ -116,6 +116,7 @@ _BODIES: dict[tuple[str, str], dict[str, Any]] = {
     },
     ("PATCH", "/api/subscriptions/{subscription_id}"): {"allocation_percent": "40"},
     ("POST", "/api/me/mode"): {"mode": "SIMULATION"},
+    ("PUT", "/api/me/display-name"): {"display_name": "The sweep's author"},
 }
 
 
