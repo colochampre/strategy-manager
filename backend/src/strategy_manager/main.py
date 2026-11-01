@@ -133,6 +133,9 @@ from strategy_manager.performance.infrastructure.open_positions_router import (
 from strategy_manager.performance.infrastructure.performance_router import (
     router as performance_router,
 )
+from strategy_manager.performance.infrastructure.public_strategies_router import (
+    router as public_strategies_router,
+)
 from strategy_manager.reconciliation.application.announce_needs_owner import AnnounceNeedsOwner
 from strategy_manager.reconciliation.application.approve_booking import ApproveBooking
 from strategy_manager.reconciliation.application.auto_book_pending import AutoBookPending
@@ -2296,6 +2299,7 @@ def create_app() -> FastAPI:
     api_router.include_router(pools_router)
     api_router.include_router(performance_router)
     api_router.include_router(open_positions_router)
+    api_router.include_router(public_strategies_router)
     api_router.include_router(webhook_origin_router)
     api_router.include_router(credentials_router)
     api_router.include_router(me_router)

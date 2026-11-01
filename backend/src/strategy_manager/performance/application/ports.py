@@ -19,6 +19,8 @@ from strategy_manager.performance.domain.open_position import (
     PoolLabel,
 )
 from strategy_manager.performance.domain.operation import OperationFill, PricingFacts
+from strategy_manager.performance.domain.public_capital import LiveSeat
+from strategy_manager.performance.domain.public_record import RecordSignal
 
 
 @dataclass(frozen=True, slots=True)
@@ -151,3 +153,41 @@ class ConfirmedDisagreementSourcePort(Protocol):
     once. It reads no venue and writes nothing."""
 
     async def confirmed_open(self, user_id: UUID) -> Sequence[DiscrepancyRow]: ...
+
+
+@dataclass(frozen=True, slots=True)
+class PublicListing:
+    """What anyone may read of a strategy on the public list. It is the whole of
+    what leaves the strategy and author rows: no id of the author, no e-mail, no
+    secret and no setting."""
+
+    strategy_id: UUID
+    name: str
+    author_name: str
+    exchange: str
+    venue: str
+    settlement_currency: str
+    created_at: datetime
+
+
+class PublicStrategiesSourcePort(Protocol):
+    """The one read that crosses users on purpose (tasks.md F.4). It takes no
+    user, and it answers only strategies on the public list: ``PUBLIC``, not
+    archived, with a named author. A strategy that is not on it is absent, from
+    ``listing`` as well, so a caller cannot reach one by its id.
+
+    Each method is ONE statement however many strategies it is asked about. A
+    strategy with no signal or no seat is absent from those two answers.
+    """
+
+    async def listings(self) -> Sequence[PublicListing]: ...
+
+    async def listing(self, strategy_id: UUID) -> PublicListing | None: ...
+
+    async def signals(
+        self, strategy_ids: Sequence[UUID]
+    ) -> Mapping[UUID, Sequence[RecordSignal]]: ...
+
+    async def live_seats(
+        self, strategy_ids: Sequence[UUID]
+    ) -> Mapping[UUID, Sequence[LiveSeat]]: ...
