@@ -7,7 +7,22 @@
     "overview": "Overview",
     "strategies": "Strategies",
     "discrepancies": "Discrepancies",
+    "users": "Users",
     "settings": "Settings"
+  },
+  "users": {
+    "title": "Users",
+    "loading": "Reading users…",
+    "error": "The users could not be read.",
+    "brake": "The brake is on: everyone trades in simulation, whatever mode they chose.",
+    "noName": "No name yet",
+    "mode": "Mode",
+    "keys": "Exchanges with a key",
+    "noKeys": "None",
+    "subscriptions": "Subscriptions",
+    "positions": "Open positions",
+    "seen": "Last sign-in",
+    "poolWithNoKey": "Enabled pool with no active key: {{exchanges}}"
   },
   "scope": {
     "exchanges": "Exchanges",

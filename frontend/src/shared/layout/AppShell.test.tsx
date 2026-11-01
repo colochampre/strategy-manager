@@ -232,16 +232,23 @@ describe("the Discrepancies item and its badge", () => {
     await i18n.changeLanguage("en");
   });
 
-  it("lists four sections in order, in the side navigation and in the bottom bar", () => {
+  it("lists the admin's five sections in order, in the side navigation and in the bottom bar", async () => {
     stubConfirmed({ kind: "ok", body: needing(0) });
     renderShell();
 
+    await screen.findAllByRole("link", { name: "Users" });
     const navs = screen.getAllByRole("navigation", { name: "Sections" });
     expect(navs).toHaveLength(2);
     for (const nav of navs) {
       const links = within(nav).getAllByRole("link");
-      expect(links.map((link) => link.textContent)).toEqual(["Overview", "Strategies", "Discrepancies", "Settings"]);
-      expect(links.map((link) => link.getAttribute("href"))).toEqual(["/", "/strategies", "/discrepancies", "/settings"]);
+      expect(links.map((link) => link.textContent)).toEqual(["Overview", "Strategies", "Discrepancies", "Users", "Settings"]);
+      expect(links.map((link) => link.getAttribute("href"))).toEqual([
+        "/",
+        "/strategies",
+        "/discrepancies",
+        "/users",
+        "/settings",
+      ]);
     }
   });
 
@@ -310,6 +317,7 @@ describe("the Discrepancies item and its badge", () => {
 
     stubConfirmed({ kind: "pending" });
     const loading = renderShell();
+    await screen.findAllByRole("link", { name: "Discrepancies" });
     expect(screen.queryByText("2")).not.toBeInTheDocument();
     expect(screen.getAllByRole("link", { name: "Discrepancies" })).toHaveLength(2);
     loading.unmount();
@@ -342,14 +350,14 @@ describe("the Discrepancies item and its badge", () => {
     expect(requests).toHaveLength(1);
   });
 
-  it("gives the bottom bar four equal cells whose icons sit level whether or not a badge is drawn", async () => {
+  it("gives the bottom bar equal cells, five for the admin, whose icons sit level whether or not a badge is drawn", async () => {
     stubConfirmed({ kind: "ok", body: needing(12) });
     renderShell();
     const bottom = screen.getAllByRole("navigation", { name: "Sections" })[1] as HTMLElement;
     await within(bottom).findByText("12");
 
     const cells = within(bottom).getAllByRole("link");
-    expect(cells).toHaveLength(4);
+    expect(cells).toHaveLength(5);
     for (const cell of cells) {
       // The icon alone is centred in a touch target of at least 44 px (owner decision 67 Q2).
       expect(cell).toHaveClass("flex-1", "min-w-0", "min-h-11", "items-center", "justify-center");

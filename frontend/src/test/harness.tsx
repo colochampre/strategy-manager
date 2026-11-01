@@ -320,6 +320,21 @@ export function publicStrategy(overrides: Record<string, unknown> = {}) {
   };
 }
 
+/** One row of `GET /api/admin/users`: Ana, live, with a Bybit key, three subscriptions and two open positions. */
+export function adminUser(overrides: Record<string, unknown> = {}) {
+  return {
+    email: "ana@example.com",
+    display_name: "Ana",
+    mode: "LIVE",
+    exchanges_with_key: ["bybit"],
+    exchanges_with_no_key: [],
+    subscriptions: 3,
+    open_positions: 2,
+    last_seen_at: "2026-10-30T12:34:56Z",
+    ...overrides,
+  };
+}
+
 /** One row of `GET /api/subscriptions/held`: the signed-in user's ACTIVE 30 % of "Alpha", by Ana, on Bybit USDT-M. */
 export function heldSubscription(overrides: Record<string, unknown> = {}) {
   return {

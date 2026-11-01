@@ -9,6 +9,8 @@ import { PublicStrategyPage } from "@/features/strategies/PublicStrategyPage";
 import { StrategiesLayout } from "@/features/strategies/StrategiesLayout";
 import { StrategiesPage } from "@/features/strategies/StrategiesPage";
 import { StrategyDetailPage } from "@/features/strategies/StrategyDetailPage";
+import { UsersPage } from "@/features/users/UsersPage";
+import { AdminRoute } from "@/shared/auth/AdminRoute";
 import { AppShell } from "@/shared/layout/AppShell";
 import { NotFoundPage } from "@/shared/layout/NotFoundPage";
 
@@ -29,7 +31,10 @@ export function AppRoutes() {
         </Route>
         <Route path="strategies/explore/:strategyId" element={<PublicStrategyPage />} />
         <Route path="strategies/:strategyId" element={<StrategyDetailPage />} />
-        <Route path="discrepancies" element={<DiscrepanciesPage />} />
+        <Route element={<AdminRoute />}>
+          <Route path="discrepancies" element={<DiscrepanciesPage />} />
+          <Route path="users" element={<UsersPage />} />
+        </Route>
         <Route path="settings" element={<SettingsPage />} />
         <Route path="*" element={<NotFoundPage />} />
       </Route>

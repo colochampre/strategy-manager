@@ -7,7 +7,22 @@
     "overview": "Resumen",
     "strategies": "Estrategias",
     "discrepancies": "Discrepancias",
+    "users": "Usuarios",
     "settings": "Configuración"
+  },
+  "users": {
+    "title": "Usuarios",
+    "loading": "Leyendo usuarios…",
+    "error": "No se pudieron leer los usuarios.",
+    "brake": "El freno está activo: todos operan en simulación, sea cual sea el modo que eligieron.",
+    "noName": "Sin nombre todavía",
+    "mode": "Modo",
+    "keys": "Exchanges con clave",
+    "noKeys": "Ninguna",
+    "subscriptions": "Suscripciones",
+    "positions": "Posiciones abiertas",
+    "seen": "Último ingreso",
+    "poolWithNoKey": "Pool habilitado sin clave activa: {{exchanges}}"
   },
   "scope": {
     "exchanges": "Exchanges",
