@@ -64,6 +64,7 @@ from strategy_manager.accounts.infrastructure.stale_snapshot_reader import (
 from strategy_manager.accounts.infrastructure.trade_capability_adapter import (
     VaultTradeCapabilityAdapter,
 )
+from strategy_manager.admin.infrastructure.users_router import router as admin_users_router
 from strategy_manager.allocation.application.allocate_capital import AllocateCapital
 from strategy_manager.allocation.application.expire_reservations import ExpireReservations
 from strategy_manager.allocation.application.sweep_handler import SweepHandler
@@ -2303,6 +2304,7 @@ def create_app() -> FastAPI:
     api_router.include_router(webhook_origin_router)
     api_router.include_router(credentials_router)
     api_router.include_router(me_router)
+    api_router.include_router(admin_users_router)
     app.include_router(api_router)
 
     # LAST, after every router: the panel's catch-all matches any GET path, so

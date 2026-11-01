@@ -9,7 +9,7 @@ from collections.abc import Sequence
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -171,6 +171,18 @@ class SqlAlchemySubscriptionRepository:
             )
             for row, name, author_id, exchange, venue, currency, author_name in result.all()
         ]
+
+    async def live_counts_by_user(self) -> dict[UUID, int]:
+        """How many ACTIVE or LEAVING subscriptions each user holds, in ONE statement.
+
+        **Global by design:** the admin's list (decision 8). It reads a count and no
+        share. A user with none is absent."""
+        result = await self._session.execute(
+            select(SubscriptionRow.user_id, func.count())
+            .where(SubscriptionRow.status.in_(_LIVE))
+            .group_by(SubscriptionRow.user_id)
+        )
+        return {user_id: count for user_id, count in result.all()}
 
     async def live_for_strategy_for_update(self, strategy_id: UUID) -> list[Subscription]:
         """EVERY user's ACTIVE or LEAVING subscription of the strategy, row-locked and

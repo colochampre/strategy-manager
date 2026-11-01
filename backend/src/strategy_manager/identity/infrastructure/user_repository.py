@@ -52,6 +52,11 @@ class SqlAlchemyUserRepository:
             update(UserRow).where(UserRow.id == user_id).values(mode=mode.value)
         )
 
+    async def everyone(self) -> list[User]:
+        """Every user, by e-mail, in ONE statement: the admin's list (decision 8)."""
+        result = await self._session.execute(select(UserRow).order_by(UserRow.email))
+        return [_to_domain(row) for row in result.scalars().all()]
+
     async def set_display_name(self, user_id: UUID, name: str) -> None:
         """The unique index decides, not a read first: two users racing for one name
         would both read it free. Only that index: any other failure stays a defect."""
