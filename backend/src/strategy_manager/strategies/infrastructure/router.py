@@ -25,7 +25,8 @@ here rather than copied from the alert would never match anything.
 """
 
 import logging
-from dataclasses import asdict
+from collections.abc import Sequence
+from dataclasses import asdict, replace
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Annotated
@@ -72,6 +73,7 @@ from strategy_manager.strategies.application.delete_strategy import (
 from strategy_manager.strategies.application.ports import (
     AuthorHasNoDisplayName,
     PairCatalogPort,
+    SubscriberCounts,
 )
 from strategy_manager.strategies.application.regenerate_webhook_secret import (
     RegenerateWebhookSecret,
@@ -205,6 +207,12 @@ class StrategyView(BaseModel):
     # mask. Named without ``webhook_secret`` on purpose: that name is the issuing
     # routes' alone, and four characters are all this carries.
     secret_last4: str
+    # The author's total (decisions 10 and 30): everyone with an ACTIVE subscription,
+    # the author and simulated subscribers included, and how many of them trade it
+    # live. ``live_subscribers`` says what the public list says, so it is 0 under
+    # the brake. Counts only: no name, no e-mail and no amount.
+    subscribers: int
+    live_subscribers: int
 
     @classmethod
     def of(
@@ -213,6 +221,7 @@ class StrategyView(BaseModel):
         uptime_value: Uptime,
         subscription: Subscription | None,
         secret_last4: str,
+        counts: SubscriberCounts,
     ) -> "StrategyView":
         return cls(
             id=strategy.id,
@@ -228,6 +237,8 @@ class StrategyView(BaseModel):
             uptime=UptimeView.of(uptime_value),
             subscription=None if subscription is None else SubscriptionView.of(subscription),
             secret_last4=secret_last4,
+            subscribers=counts.subscribers,
+            live_subscribers=counts.live,
         )
 
 
@@ -263,8 +274,13 @@ async def _view(
         user.id, [strategy.id]
     )
     last4s = await _own(session, user).secret_last4s([strategy.id])
+    counts = await _subscriber_counts(session, [strategy.id])
     return StrategyView.of(
-        strategy, uptime(events, datetime.now(UTC)), held.get(strategy.id), last4s[strategy.id]
+        strategy,
+        uptime(events, datetime.now(UTC)),
+        held.get(strategy.id),
+        last4s[strategy.id],
+        counts[strategy.id],
     )
 
 
@@ -515,6 +531,21 @@ def _subscribers(session: AsyncSession) -> StrategySubscribersAdapter:
     return StrategySubscribersAdapter(session, ledger, ReadSymbolHoldings(ledger))
 
 
+async def _subscriber_counts(
+    session: AsyncSession, strategy_ids: Sequence[UUID]
+) -> dict[UUID, SubscriberCounts]:
+    """Each strategy's counts, in one statement whatever their number, and zero
+    where nobody holds it. Under the brake nobody trades live, whatever their mode,
+    so the live count says what the public list says."""
+    found = await _subscribers(session).counts(strategy_ids)
+    brake = get_settings().dry_run
+    counts: dict[UUID, SubscriberCounts] = {}
+    for strategy_id in strategy_ids:
+        held = found.get(strategy_id, SubscriberCounts(0, 0))
+        counts[strategy_id] = replace(held, live=0) if brake else held
+    return counts
+
+
 def get_delete_strategy(session: SessionDep, user: CurrentUserDep) -> DeleteStrategy:
     """The real wiring, the ``get_register_strategy`` pattern: a router test
     overrides this ONE dependency."""
@@ -642,6 +673,7 @@ async def list_strategies(
         user.id, [strategy.id for strategy in strategies]
     )
     last4s = await _own(session, user).secret_last4s([strategy.id for strategy in strategies])
+    counts = await _subscriber_counts(session, [strategy.id for strategy in strategies])
     now = datetime.now(UTC)
     return [
         StrategyView.of(
@@ -649,6 +681,7 @@ async def list_strategies(
             uptime(events_by_strategy.get(strategy.id, []), now),
             held.get(strategy.id),
             last4s[strategy.id],
+            counts[strategy.id],
         )
         for strategy in strategies
     ]

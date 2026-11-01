@@ -323,6 +323,16 @@ class SubscriberPool:
     pool: PoolKey
 
 
+@dataclass(frozen=True, slots=True)
+class SubscriberCounts:
+    """How many hold an ACTIVE subscription of a strategy, and how many of those
+    trade it live (decisions 10 and 30). Two numbers and nothing about anyone: no
+    e-mail, no name and no amount."""
+
+    subscribers: int
+    live: int
+
+
 class StrategySubscribersPort(Protocol):
     """What archive and delete need to know about a strategy's subscribers
     (multi-user tasks.md C.9). Implemented by
