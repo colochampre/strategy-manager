@@ -26,7 +26,7 @@ all. A trade whose fee was charged in a third currency stays in the curve and
 is counted. ``Exclusions`` carries each count.
 """
 
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
@@ -165,18 +165,25 @@ def trade_return(trade: ClosedTrade) -> Decimal | None:
     return trade.pnl / capital
 
 
+def sum_by_day(returns: Iterable[tuple[datetime, Decimal]]) -> tuple[DailyReturn, ...]:
+    """``R_d``: each ``(closed_at, return)`` summed into its UTC day, oldest
+    day first."""
+    by_day: dict[date, Decimal] = {}
+    for closed_at, value in returns:
+        day = _utc(closed_at).date()
+        by_day[day] = by_day.get(day, _ZERO) + value
+    return tuple(DailyReturn(day, value) for day, value in sorted(by_day.items()))
+
+
 def daily_returns(trades: Sequence[ClosedTrade]) -> tuple[DailyReturn, ...]:
     """``R_d``: trades with a return, summed per UTC day of ``closed_at``,
     oldest day first. Trades without capital at open are skipped here (and
     counted by ``build_pool_performance``)."""
-    by_day: dict[date, Decimal] = {}
-    for trade in trades:
-        value = trade_return(trade)
-        if value is None:
-            continue
-        day = _utc(trade.closed_at).date()
-        by_day[day] = by_day.get(day, _ZERO) + value
-    return tuple(DailyReturn(day, value) for day, value in sorted(by_day.items()))
+    return sum_by_day(
+        (trade.closed_at, value)
+        for trade in trades
+        if (value := trade_return(trade)) is not None
+    )
 
 
 def compound(daily: Sequence[DailyReturn]) -> tuple[IndexPoint, ...]:
