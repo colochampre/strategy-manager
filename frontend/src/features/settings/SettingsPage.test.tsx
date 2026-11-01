@@ -86,12 +86,19 @@ function credentialCalls(fetchMock: ReturnType<typeof stubApi>) {
 }
 
 describe("the page's structure", () => {
-  it("keeps the h1 `Settings` and adds the h2 `Exchange keys` with its intro word for word", async () => {
+  it("keeps the h1 `Settings` and adds the h2 `Exchange keys`, with its intro word for word behind an information button", async () => {
     stub(ok(storedKey("bybit")));
     mountPage();
 
     expect(screen.queryByRole("heading", { level: 1, name: "Settings" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { level: 2, name: "Exchange keys" })).toBeInTheDocument();
+    const info = screen.getByRole("button", { name: "About exchange keys" });
+    expect(info).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText(INTRO)).toBeNull();
+
+    fireEvent.click(info);
+
+    expect(info).toHaveAttribute("aria-expanded", "true");
     expect(screen.queryByText(INTRO)).toBeInTheDocument();
     await cardsDrawn();
   });
@@ -100,10 +107,10 @@ describe("the page's structure", () => {
     stub(ok(storedKey("bybit")));
     mountPage();
     await cardsDrawn();
-    await screen.findByRole("heading", { level: 2, name: "Your name" });
+    await screen.findByRole("heading", { level: 2, name: "Profile" });
 
     const outline = screen.getAllByRole("heading").map((heading) => `${heading.tagName} ${headingName(heading)}`);
-    expect(outline).toEqual(["H1 Settings", "H2 Your name", "H2 Exchange keys", "H3 Bybit"]);
+    expect(outline).toEqual(["H1 Settings", "H2 Profile", "H2 Exchange keys", "H3 Bybit"]);
   });
 
   it("draws the cards as a list, one item per exchange, each holding its article", async () => {
@@ -512,7 +519,11 @@ describe("the toggles and the open form (task 13.5.8)", () => {
 
     await waitFor(() => expect(fetchMock.mock.calls.some(([, init]) => init?.method === "PUT")).toBe(true));
     // The name is a write of its own that races nothing here, and an information button only reads.
-    const buttons = within(screen.getByRole("region", { name: "Exchange keys" })).getAllByRole("button");
+    const info = screen.getByRole("button", { name: "About exchange keys" });
+    const buttons = within(screen.getByRole("region", { name: "Exchange keys" }))
+      .getAllByRole("button")
+      .filter((button) => button !== info);
+    expect(info).toBeEnabled();
     expect(buttons.length).toBeGreaterThanOrEqual(4);
     for (const button of buttons) expect(button, button.outerHTML).toBeDisabled();
   });
@@ -624,10 +635,10 @@ function expectNoEnglishSettingsText() {
 
 const noteIn = (card: HTMLElement, text: string) => within(card).queryByText(text);
 const bybitCard = () => screen.getByRole("article", { name: "Bybit" });
-/** The regions that tell of a key. The name's section tells of its own save, from its own region. */
+/** The regions that tell of a key. The profile tells of its own save, from its own region. */
 const statusRegion = () => {
-  const nameSection = screen.queryByRole("region", { name: /^(Your name|Su nombre)$/ });
-  return screen.queryAllByRole("status").filter((region) => !nameSection?.contains(region));
+  const profile = screen.queryByRole("region", { name: /^(Profile|Perfil)$/ });
+  return screen.queryAllByRole("status").filter((region) => !profile?.contains(region));
 };
 
 describe("the end of a save that worked (task 13.5.10)", () => {
@@ -978,6 +989,7 @@ describe("the page in Spanish", () => {
     mountPage();
 
     expect(screen.queryByRole("heading", { level: 2, name: "Claves de los exchanges" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Sobre las claves de los exchanges" }));
     expect(
       screen.queryByText(
         "Una clave por exchange. Las claves se cifran en el servidor y no se vuelven a mostrar; solo se ven los últimos cuatro caracteres.",

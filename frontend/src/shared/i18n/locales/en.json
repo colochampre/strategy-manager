@@ -597,8 +597,10 @@
   },
   "settings": {
     "title": "Settings",
+    "profile": {
+      "title": "Profile"
+    },
     "name": {
-      "title": "Your name",
       "info": "About your name",
       "intro": "Other users see this name beside your public strategies. They never see your e-mail.",
       "label": "Display name",
@@ -613,6 +615,7 @@
     },
     "keys": {
       "title": "Exchange keys",
+      "info": "About exchange keys",
       "intro": "One key per exchange. Keys are encrypted on the server and never shown again; you only see the last four characters.",
       "loading": "Loading exchange keys…",
       "error": "Exchange keys could not be loaded.",

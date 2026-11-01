@@ -64,12 +64,26 @@ describe("the display name, in Settings", () => {
     expect(screen.queryByText(MISSING)).toBeNull();
   });
 
-  it("sits in the frame of a report section, with the field and its button on one line", async () => {
+  it("keeps its heading and its information button outside the frame, as the keys do", async () => {
     setup(null);
     const input = await field();
+    const frame = input.closest('[data-testid="report-section"]') as HTMLElement;
 
-    expect(input.closest('[data-testid="report-section"]')).not.toBeNull();
-    expect(input.parentElement).toContainElement(await saveButton());
+    expect(frame).not.toBeNull();
+    expect(within(frame).queryByRole("heading")).toBeNull();
+    expect(screen.getByRole("heading", { level: 2, name: "Profile" })).toBeInTheDocument();
+    expect(frame).not.toContainElement(screen.getByRole("button", { name: "About your name" }));
+  });
+
+  it("gives the field all the width its button leaves, and the button only its own", async () => {
+    setup(null);
+    const input = await field();
+    const button = await saveButton();
+
+    expect(input.parentElement).toContainElement(button);
+    expect(input).toHaveClass("flex-1");
+    expect(input.className).not.toMatch(/max-w/);
+    expect(button).toHaveClass("shrink-0");
   });
 
   it("keeps its explanations closed until the information button opens them", async () => {
@@ -246,7 +260,7 @@ describe("the display name, in Settings", () => {
     await screen.findByLabelText("Nombre visible");
     fireEvent.click(screen.getByRole("button", { name: "Sobre su nombre" }));
 
-    expect(screen.getByRole("heading", { name: "Su nombre" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 2, name: "Perfil" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Guardar nombre" })).toBeInTheDocument();
     expect(
       screen.getByText("Otros usuarios ven este nombre junto a sus estrategias públicas. Nunca ven su e-mail."),

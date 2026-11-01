@@ -596,8 +596,10 @@
     "pionex": "Pionex"
   },
   "settings": {
+    "profile": {
+      "title": "Perfil"
+    },
     "name": {
-      "title": "Su nombre",
       "info": "Sobre su nombre",
       "intro": "Otros usuarios ven este nombre junto a sus estrategias públicas. Nunca ven su e-mail.",
       "label": "Nombre visible",
@@ -612,6 +614,7 @@
     },
     "keys": {
       "title": "Claves de los exchanges",
+      "info": "Sobre las claves de los exchanges",
       "intro": "Una clave por exchange. Las claves se cifran en el servidor y no se vuelven a mostrar; solo se ven los últimos cuatro caracteres.",
       "loading": "Cargando claves de los exchanges…",
       "error": "No se pudieron cargar las claves de los exchanges.",
