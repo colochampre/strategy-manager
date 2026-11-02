@@ -2269,6 +2269,8 @@ def create_app() -> FastAPI:
     app.add_middleware(NoStoreMiddleware, prefix="/api/credentials")
     # Nor the answer that names who is signed in (multi-user design AD1).
     app.add_middleware(NoStoreMiddleware, prefix="/api/me")
+    # Nor the one that names every user (decision 8).
+    app.add_middleware(NoStoreMiddleware, prefix="/api/admin")
 
     @app.get("/health")
     async def health() -> dict[str, str | bool]:

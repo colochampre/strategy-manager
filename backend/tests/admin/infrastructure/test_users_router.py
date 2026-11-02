@@ -20,7 +20,7 @@ from strategy_manager.accounts.infrastructure.models import ExchangeCredentialRo
 from strategy_manager.ledger.infrastructure.models import LedgerEntryRow
 from strategy_manager.main import create_app
 from strategy_manager.shared import db as shared_db
-from tests.identity_auth import ADMIN_HEADERS, sign_in_as_admin
+from tests.identity_auth import ADMIN_HEADERS, OTHER_HEADERS, sign_in_as_admin
 from tests.ledger.infrastructure.conftest import (  # noqa: F401
     pg_engine,
     pg_session_factory,
@@ -231,7 +231,8 @@ async def test_the_body_holds_no_amount_and_no_performance(
         )
         await session.commit()
     strategy_id = await seeds.strategy(pg_session_factory, author_id=user_id)
-    await seeds.subscription(pg_session_factory, user_id, strategy_id, pool_id, share="37.5")
+    # 61 is no clock's seconds, so a timestamp in the body cannot spell the share.
+    await seeds.subscription(pg_session_factory, user_id, strategy_id, pool_id, share="61.75")
     await seeds.open_allocation(pg_session_factory, user_id, strategy_id)
 
     response = await admin.get(USERS)
@@ -240,7 +241,20 @@ async def test_the_body_holds_no_amount_and_no_performance(
     assert set((await _state_of(admin, email)).keys()) == BODY_KEYS
     assert "7654321" not in response.text
     assert "6543217" not in response.text
-    assert "37.5" not in response.text
+    assert "61.75" not in response.text
+
+
+async def test_no_answer_of_the_list_is_kept_by_a_browser_or_a_proxy(
+    admin: AsyncClient,
+) -> None:
+    """It names every e-mail. A refusal goes through the same door, so it is asked too."""
+    answered = await admin.get(USERS)
+    refused = await admin.get(USERS, headers=OTHER_HEADERS)
+
+    assert answered.status_code == 200, answered.text
+    assert refused.status_code == 403, refused.text
+    assert answered.headers.get("cache-control") == "no-store"
+    assert refused.headers.get("cache-control") == "no-store"
 
 
 async def test_the_exchanges_with_an_active_key_are_listed_in_order(
