@@ -119,6 +119,9 @@ export function StrategyRow({ strategy }: StrategyRowProps) {
         <p data-testid="strategy-uptime" className="text-xs text-ink-2">
           {uptimeText(strategy, t)}
         </p>
+        <p data-testid="strategy-subscribers" className="text-xs text-ink-2">
+          {t("strategies.row.subscribers", { count: strategy.subscribers, live: strategy.live_subscribers })}
+        </p>
       </div>
       <Figures strategy={strategy} />
       <div className="flex flex-col items-end gap-1">

@@ -87,6 +87,7 @@ async def test_the_admin_is_told_who_they_are_and_the_brake(
         "is_admin": True,
         "mode": "SIMULATION",
         "dry_run_brake": dry_run,
+        "display_name": None,
     }
     assert await _emails(factory) == [ADMIN_EMAIL]
 

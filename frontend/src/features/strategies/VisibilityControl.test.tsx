@@ -96,6 +96,11 @@ describe("the visibility of a strategy, on its page", () => {
       jsonResponse({ detail: { error: "STRATEGY_ARCHIVED", message: "archived" } }, 409),
       "This strategy is archived and can no longer be changed.",
     ],
+    [
+      "an author with no name (409)",
+      jsonResponse({ detail: { error: "AUTHOR_HAS_NO_DISPLAY_NAME", message: "no name" } }, 409),
+      "Choose your name in Settings first: a public strategy shows its author.",
+    ],
     ["a strategy that is gone (404)", jsonResponse({ detail: "Not Found" }, 404), "This strategy no longer exists."],
     ["a server error", jsonResponse({ detail: "boom" }, 500), "The visibility was not saved. Try again."],
   ])("says why after %s, and keeps showing the stored visibility", async (_name, refusal, text) => {
@@ -121,6 +126,18 @@ describe("the visibility of a strategy, on its page", () => {
     expect(select).toBeDisabled();
     expect(select.value).toBe("PUBLIC");
     expect(patches).toEqual([]);
+  });
+
+  it("sends the author to Settings in Spanish too", async () => {
+    await act(() => i18n.changeLanguage("es"));
+    setup({ visibility: "PRIVATE" }, jsonResponse({ detail: { error: "AUTHOR_HAS_NO_DISPLAY_NAME", message: "no name" } }, 409));
+    const select = (await screen.findByLabelText("Visibilidad")) as HTMLSelectElement;
+
+    fireEvent.change(select, { target: { value: "PUBLIC" } });
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Primero elija su nombre en Configuración: una estrategia pública muestra a su autor.",
+    );
   });
 
   it("renders its texts in Spanish", async () => {

@@ -34,6 +34,8 @@ from strategy_manager.shared.application.ports import ClockPort
 from strategy_manager.shared.domain.errors import DomainError, InvariantViolation
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 from strategy_manager.strategies.application.ports import (
+    AuthorHasNoDisplayName,
+    AuthorNamesPort,
     AuthorSubscriptionPort,
     CommitPort,
     EnablementLogPort,
@@ -133,6 +135,7 @@ class RegisterStrategy:
         enablement_log: EnablementLogPort,
         clock: ClockPort,
         author_subscriptions: AuthorSubscriptionPort,
+        author_names: AuthorNamesPort,
     ) -> None:
         self._repository = repository
         self._pools = pools
@@ -141,6 +144,7 @@ class RegisterStrategy:
         self._enablement_log = enablement_log
         self._clock = clock
         self._author_subscriptions = author_subscriptions
+        self._author_names = author_names
 
     async def register(self, command: RegisterCommand) -> Registration:
         existing = await self._repository.get_by_id(command.strategy_id)
@@ -153,6 +157,11 @@ class RegisterStrategy:
                 f"{named}. That id comes from the alert's signalType, "
                 "so two strategies sharing one means an alert is misconfigured."
             )
+
+        if command.visibility is Visibility.PUBLIC and not (
+            await self._author_names.has_display_name(command.author_id)
+        ):
+            raise AuthorHasNoDisplayName
 
         await self._assert_pool_available(command)
 

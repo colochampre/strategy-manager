@@ -27,6 +27,8 @@ const STRATEGY: Strategy = {
   uptime: { seconds: 0, first_enabled_at: null, baseline: false },
   visibility: "PRIVATE",
   secret_last4: "x4F2",
+  subscribers: 1,
+  live_subscribers: 0,
 };
 
 function setup(strategy: Strategy = STRATEGY) {
@@ -56,6 +58,14 @@ afterEach(async () => {
   vi.unstubAllGlobals();
   lock();
   await i18n.changeLanguage("en");
+});
+
+describe("StrategyHeader subscribers", () => {
+  it("tells its author who holds it, simulated subscribers included", () => {
+    setup({ ...STRATEGY, subscribers: 3, live_subscribers: 2 });
+
+    expect(screen.getByTestId("strategy-subscribers")).toHaveTextContent("3 subscribers, 2 live");
+  });
 });
 
 describe("StrategyHeader webhook disclosure", () => {

@@ -82,6 +82,7 @@ from strategy_manager.strategies.infrastructure.pool_lock_adapter import PoolLoc
 from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStrategyRepository
 from tests.owner import OWNER_ID, ensure_author_subscription, secret_hash, seed_owner
 from tests.pg_head_schema import migrated_head_database
+from tests.strategies.author_names import FixedAuthorNames
 from tests.strategies.wiring import real_subscribers
 
 pytestmark = pytest.mark.integration
@@ -457,6 +458,7 @@ async def test_delete_waits_for_an_enable_in_flight_then_is_refused_still_enable
             commit=enable.commit_for(session),  # type: ignore[arg-type]
             enablement_log=SqlAlchemyEnablementLog(session),
             clock=_FixedClock(),  # type: ignore[arg-type]
+            author_names=FixedAuthorNames(),
         ).update(UpdateCommand(strategy_id=strategy_id, enabled=True))
 
     enable_task = asyncio.create_task(_outcome(factory, run_enable))

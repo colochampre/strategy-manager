@@ -3,18 +3,19 @@ import { NavLink } from "react-router";
 
 import { cn } from "@/shared/lib/cn";
 import { NavBadge } from "@/shared/layout/NavBadge";
-import { NAV_ITEMS } from "@/shared/layout/navItems";
+import { useNavItems } from "@/shared/layout/navItems";
 
 /** The left rail: hidden below `lg`, where `BottomNav` takes over. */
 export function SideNav() {
   const { t } = useTranslation();
+  const items = useNavItems();
 
   return (
     <nav
       aria-label={t("nav.sections")}
       className="hidden w-52 shrink-0 flex-col gap-1 border-r border-rule bg-panel px-3 py-6 lg:flex"
     >
-      {NAV_ITEMS.map((item) => (
+      {items.map((item) => (
         <NavLink
           key={item.to}
           to={item.to}

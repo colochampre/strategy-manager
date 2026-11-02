@@ -31,7 +31,7 @@ export function DeleteStrategyControl({ strategy }: DeleteStrategyControlProps) 
   };
 
   const confirm = () => {
-    deletion.mutate(undefined, { onSuccess: () => void navigate("/strategies", { replace: true }) });
+    deletion.mutate(undefined, { onSuccess: () => void navigate("/strategies/authored", { replace: true }) });
   };
 
   return (

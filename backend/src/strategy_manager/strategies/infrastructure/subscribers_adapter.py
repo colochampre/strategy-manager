@@ -16,13 +16,16 @@ from collections.abc import Sequence
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from strategy_manager.accounts.infrastructure.models import CapitalPoolRow
+from strategy_manager.identity.infrastructure.models import UserRow
 from strategy_manager.ledger.application.read_symbol_holdings import ReadSymbolHoldings
 from strategy_manager.ledger.infrastructure.repository import SqlAlchemyLedgerRepository
-from strategy_manager.strategies.application.ports import SubscriberPool
+from strategy_manager.shared.domain.mode import Mode
+from strategy_manager.strategies.application.ports import SubscriberCounts, SubscriberPool
+from strategy_manager.subscriptions.domain.subscription import SubscriptionStatus
 from strategy_manager.subscriptions.infrastructure.adapters import OpenAllocationAdapter
 from strategy_manager.subscriptions.infrastructure.models import SubscriptionRow
 from strategy_manager.subscriptions.infrastructure.repository import (
@@ -84,6 +87,29 @@ class StrategySubscribersAdapter:
                 subscriber.user_id, strategy_id, subscriber.pool
             )
         ]
+
+    async def counts(self, strategy_ids: Sequence[UUID]) -> dict[UUID, SubscriberCounts]:
+        """How many hold an ACTIVE subscription of each strategy, and how many of
+        those are in ``LIVE``, in ONE statement; a strategy nobody holds is absent.
+
+        ``LEAVING`` counts for neither, because it opens nothing: the same rule as
+        the public list's seats. The brake is the caller's: it is one value for
+        everyone, so it never reaches a statement. Only numbers leave, so the read
+        reaches across users on strategies the caller already holds."""
+        result = await self._session.execute(
+            select(
+                SubscriptionRow.strategy_id,
+                func.count().label("subscribers"),
+                func.count().filter(UserRow.mode == Mode.LIVE.value).label("live"),
+            )
+            .join(UserRow, UserRow.id == SubscriptionRow.user_id)
+            .where(
+                SubscriptionRow.strategy_id.in_(strategy_ids),
+                SubscriptionRow.status == SubscriptionStatus.ACTIVE.value,
+            )
+            .group_by(SubscriptionRow.strategy_id)
+        )
+        return {row.strategy_id: SubscriberCounts(row.subscribers, row.live) for row in result}
 
     async def end_all(self, strategy_id: UUID, now: datetime) -> int:
         live = await self._subscriptions.live_for_strategy_for_update(strategy_id)

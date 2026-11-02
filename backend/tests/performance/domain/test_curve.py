@@ -352,6 +352,62 @@ def test_only_rehearsal_fills_yields_same_empty_result() -> None:
     assert rehearsal_only.total_pnl == empty.total_pnl == Decimal("0")
 
 
+def test_a_day_that_loses_exactly_everything_leaves_the_index_at_zero() -> None:
+    points = compound(daily_returns([_trade("-1000", day(1))]))
+
+    assert [p.index for p in points] == [Decimal("0")]
+
+
+def test_a_day_past_minus_100_percent_stops_at_zero_and_keeps_its_own_sum() -> None:
+    """A day's trades are summed, and the sum has no floor of its own: each trade
+    reads against the whole capital, so twenty losers of 7% add up to -140%."""
+    points = compound(daily_returns([_trade("-1400", day(1))]))
+
+    assert points[0].daily_return == Decimal("-1.4")
+    assert points[0].index == Decimal("0")
+
+
+def test_two_days_past_minus_100_percent_never_multiply_into_a_gain() -> None:
+    """Decision 31: -210% twice read as +21% before the floor."""
+    points = compound(daily_returns([_trade("-2100", day(1)), _trade("-2100", day(2))]))
+
+    assert [p.index for p in points] == [Decimal("0"), Decimal("0")]
+
+
+def test_nothing_comes_back_after_the_index_reached_zero() -> None:
+    trades = [_trade("-1400", day(1)), _trade("500", day(2)), _trade("-2100", day(3))]
+
+    points = compound(daily_returns(trades))
+
+    assert [p.index for p in points] == [Decimal("0"), Decimal("0"), Decimal("0")]
+    assert not any(p.index.is_signed() for p in points)
+
+
+def test_the_month_after_a_wipe_out_reads_zero_not_a_division_by_zero() -> None:
+    october = datetime(2026, 10, 5, 12, 0, tzinfo=UTC)
+    points = compound(daily_returns([_trade("-1400", day(1)), _trade("500", october)]))
+
+    grid = monthly_grid(points)
+
+    assert [(m.year, m.month, m.value) for m in grid] == [
+        (2026, 9, Decimal("-1")),
+        (2026, 10, Decimal("0")),
+    ]
+
+
+def test_a_wipe_out_reads_minus_100_percent_in_every_figure_of_the_report() -> None:
+    october = datetime(2026, 10, 5, 12, 0, tzinfo=UTC)
+    trades = [_trade("-1400", day(1)), _trade("500", day(2)), _trade("-2100", october)]
+
+    report = build_pool_performance(POOL, _derived(*trades), 0, october)
+
+    assert report.max_drawdown == Decimal("-1")
+    assert [point.index for point in report.curve] == [Decimal("0")] * 3
+    assert [month.value for month in report.monthly] == [Decimal("-1"), Decimal("0")]
+    whole = next(r for r in report.ranges if r.range is RangeName.ALL)
+    assert whole.value == Decimal("-1")
+
+
 def test_max_drawdown_is_the_deepest_point_of_the_curve() -> None:
     trades = [
         _trade("200", day(1), capital="1000"),

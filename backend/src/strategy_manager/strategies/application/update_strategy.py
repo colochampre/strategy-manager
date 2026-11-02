@@ -38,6 +38,8 @@ from uuid import UUID
 from strategy_manager.shared.application.ports import ClockPort
 from strategy_manager.shared.domain.errors import DomainError
 from strategy_manager.strategies.application.ports import (
+    AuthorHasNoDisplayName,
+    AuthorNamesPort,
     CommitPort,
     EnablementLogPort,
     StrategyRepositoryPort,
@@ -90,11 +92,13 @@ class UpdateStrategy:
         commit: CommitPort,
         enablement_log: EnablementLogPort,
         clock: ClockPort,
+        author_names: AuthorNamesPort,
     ) -> None:
         self._repository = repository
         self._commit = commit
         self._enablement_log = enablement_log
         self._clock = clock
+        self._author_names = author_names
 
     async def update(self, command: UpdateCommand) -> Strategy:
         strategy = await self._repository.get_by_id_for_update(command.strategy_id)
@@ -107,6 +111,15 @@ class UpdateStrategy:
                 f"strategy {command.strategy_id} ({strategy.name!r}) is archived "
                 "and read-only; nothing about it may be edited"
             )
+
+        # On turning public, not on being public: a strategy made public before
+        # names existed stays editable (decision 27).
+        turns_public = (
+            command.visibility is Visibility.PUBLIC
+            and strategy.visibility is not Visibility.PUBLIC
+        )
+        if turns_public and not await self._author_names.has_display_name(strategy.author_id):
+            raise AuthorHasNoDisplayName
 
         policy = strategy.policy
         if command.fill_mode is not None:

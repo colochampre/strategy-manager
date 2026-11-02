@@ -41,6 +41,8 @@ function strategy(overrides: Record<string, unknown> = {}) {
     uptime: { seconds: 60, first_enabled_at: "2026-09-18T10:00:00Z", baseline: false },
     visibility: "PRIVATE",
     secret_last4: "x4F2",
+    subscribers: 1,
+    live_subscribers: 0,
     ...overrides,
   };
 }
@@ -172,7 +174,12 @@ describe("useSetSubscriptionShare", () => {
     expect(result.current.isSuccess).toBe(false);
     release();
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(invalidate.mock.calls.map((call) => call[0]?.queryKey)).toEqual([["strategies"], ["strategy", ID]]);
+    expect(invalidate.mock.calls.map((call) => call[0]?.queryKey)).toEqual([
+      ["strategies"],
+      ["strategy", ID],
+      ["subscriptions", "held"],
+      ["public-strategies"],
+    ]);
   });
 
   it("on a refusal still invalidates both keys, so the page reads the stored state again", async () => {
@@ -184,7 +191,12 @@ describe("useSetSubscriptionShare", () => {
     result.current.mutate("40");
     await waitFor(() => expect(result.current.isError).toBe(true));
 
-    expect(invalidate.mock.calls.map((call) => call[0]?.queryKey)).toEqual([["strategies"], ["strategy", ID]]);
+    expect(invalidate.mock.calls.map((call) => call[0]?.queryKey)).toEqual([
+      ["strategies"],
+      ["strategy", ID],
+      ["subscriptions", "held"],
+      ["public-strategies"],
+    ]);
   });
 
   it("invalidates no ['positions','open']", async () => {

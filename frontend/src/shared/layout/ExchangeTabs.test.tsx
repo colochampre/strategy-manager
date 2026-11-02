@@ -47,7 +47,7 @@ afterEach(() => {
 describe("which routes show the tabs", () => {
   it.each([
     ["/", "Overview"],
-    ["/strategies", "Strategies"],
+    ["/strategies/authored", "Strategies"],
     [`/strategies/${STRATEGY_ID}`, "Strategy"],
   ])("shows one tab per distinct exchange on %s, in both surfaces", async (path, title) => {
     stubApi(HEALTH, [], TWO_EXCHANGES, {}, strategyRoute(STRATEGY_ID, "Strategy"));
@@ -131,8 +131,8 @@ describe("selection", () => {
     fireEvent.click((await screen.findAllByRole("button", { name: "Binance" }))[0] as HTMLElement);
 
     fireEvent.click(screen.getAllByRole("link", { name: "Strategies" })[0] as HTMLElement);
+    fireEvent.click(await screen.findByRole("link", { name: "Authored" }));
 
-    await screen.findByRole("heading", { level: 1, name: "Strategies" });
     expect(await screen.findAllByRole("button", { name: "Binance", pressed: true })).toHaveLength(2);
   });
 

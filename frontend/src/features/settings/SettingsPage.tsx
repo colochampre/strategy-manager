@@ -3,6 +3,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { DeleteKeyControl } from "@/features/settings/DeleteKeyControl";
+import { DisplayNameSection } from "@/features/settings/DisplayNameSection";
 import { ExchangeKeyCard } from "@/features/settings/ExchangeKeyCard";
 import { exchangeName } from "@/shared/exchanges/exchange-name";
 import { KeyEntryForm, type SavedKey } from "@/features/settings/KeyEntryForm";
@@ -11,6 +12,7 @@ import { type CredentialEntry, useCredentials } from "@/shared/api/credentials";
 import { usePools } from "@/shared/api/pools";
 import { exchangeList, knownPools, poolOn } from "@/shared/credentials/key-state";
 import served from "@/shared/credentials/served-exchanges.json";
+import { InfoButton, InfoText, useInfoDisclosure } from "@/shared/ui/InfoDisclosure";
 
 /** The ids of the exchanges the panel manages a key for, in the file's display order. */
 const SERVED = Object.keys(served);
@@ -80,6 +82,7 @@ export function SettingsPage() {
   } | null>(null);
   /** What the always-present status region says; it is the only live region the save uses. */
   const [announcement, setAnnouncement] = useState("");
+  const keysInfo = useInfoDisclosure();
 
   useEffect(() => {
     if (focusRequest === null) return;
@@ -221,16 +224,22 @@ export function SettingsPage() {
   return (
     <div className="flex flex-col gap-6">
       <h1 className="font-display text-2xl font-bold text-ink">{t("settings.title")}</h1>
+      <DisplayNameSection />
       {/* The one status region: always in the document, hidden from sight, said once at a save. */}
       <p role="status" className="sr-only">
         {announcement}
       </p>
       <section aria-labelledby={titleId} className="flex flex-col gap-4">
         <div className="flex flex-col gap-1.5">
-          <h2 id={titleId} className="font-display text-base font-semibold text-ink">
-            {t("settings.keys.title")}
-          </h2>
-          <p className="text-sm text-ink-2">{t("settings.keys.intro")}</p>
+          <div className="flex items-center">
+            <h2 id={titleId} className="font-display text-base font-semibold text-ink">
+              {t("settings.keys.title")}
+            </h2>
+            <InfoButton disclosure={keysInfo} label={t("settings.keys.info")} />
+          </div>
+          <InfoText disclosure={keysInfo}>
+            <p className="text-xs text-ink-3">{t("settings.keys.intro")}</p>
+          </InfoText>
         </div>
 
         {credentials.status === "pending" && (

@@ -25,7 +25,8 @@ here rather than copied from the alert would never match anything.
 """
 
 import logging
-from dataclasses import asdict
+from collections.abc import Sequence
+from dataclasses import asdict, replace
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Annotated
@@ -69,7 +70,11 @@ from strategy_manager.strategies.application.delete_strategy import (
     DeleteStrategy,
     StrategyHasHistory,
 )
-from strategy_manager.strategies.application.ports import PairCatalogPort
+from strategy_manager.strategies.application.ports import (
+    AuthorHasNoDisplayName,
+    PairCatalogPort,
+    SubscriberCounts,
+)
 from strategy_manager.strategies.application.regenerate_webhook_secret import (
     RegenerateWebhookSecret,
 )
@@ -99,6 +104,7 @@ from strategy_manager.strategies.domain.pair_catalog import (
     UnknownPairs,
 )
 from strategy_manager.strategies.domain.strategy import FillMode, Strategy, Visibility
+from strategy_manager.strategies.infrastructure.author_names import SqlAlchemyAuthorNames
 from strategy_manager.strategies.infrastructure.author_subscription_adapter import (
     SqlAlchemyAuthorSubscription,
 )
@@ -201,6 +207,12 @@ class StrategyView(BaseModel):
     # mask. Named without ``webhook_secret`` on purpose: that name is the issuing
     # routes' alone, and four characters are all this carries.
     secret_last4: str
+    # The author's total (decisions 10 and 30): everyone with an ACTIVE subscription,
+    # the author and simulated subscribers included, and how many of them trade it
+    # live. ``live_subscribers`` says what the public list says, so it is 0 under
+    # the brake. Counts only: no name, no e-mail and no amount.
+    subscribers: int
+    live_subscribers: int
 
     @classmethod
     def of(
@@ -209,6 +221,7 @@ class StrategyView(BaseModel):
         uptime_value: Uptime,
         subscription: Subscription | None,
         secret_last4: str,
+        counts: SubscriberCounts,
     ) -> "StrategyView":
         return cls(
             id=strategy.id,
@@ -224,6 +237,8 @@ class StrategyView(BaseModel):
             uptime=UptimeView.of(uptime_value),
             subscription=None if subscription is None else SubscriptionView.of(subscription),
             secret_last4=secret_last4,
+            subscribers=counts.subscribers,
+            live_subscribers=counts.live,
         )
 
 
@@ -259,8 +274,13 @@ async def _view(
         user.id, [strategy.id]
     )
     last4s = await _own(session, user).secret_last4s([strategy.id])
+    counts = await _subscriber_counts(session, [strategy.id])
     return StrategyView.of(
-        strategy, uptime(events, datetime.now(UTC)), held.get(strategy.id), last4s[strategy.id]
+        strategy,
+        uptime(events, datetime.now(UTC)),
+        held.get(strategy.id),
+        last4s[strategy.id],
+        counts[strategy.id],
     )
 
 
@@ -467,6 +487,12 @@ def _pair_refusal(
     return HTTPException(status_code=409, detail={"error": PAIRS_CHANGED, "message": str(exc)})
 
 
+def _no_display_name(exc: AuthorHasNoDisplayName) -> HTTPException:
+    return HTTPException(
+        status_code=409, detail={"error": "AUTHOR_HAS_NO_DISPLAY_NAME", "message": str(exc)}
+    )
+
+
 def get_register_strategy(session: SessionDep, pairs: PairCatalogDep) -> RegisterStrategy:
     """The real wiring. The catalogue comes from ``get_pair_catalog``, so a test
     overrides ONE dependency and no router test reaches a venue."""
@@ -478,6 +504,7 @@ def get_register_strategy(session: SessionDep, pairs: PairCatalogDep) -> Registe
         enablement_log=SqlAlchemyEnablementLog(session),
         clock=SystemClock(),
         author_subscriptions=SqlAlchemyAuthorSubscription(session),
+        author_names=SqlAlchemyAuthorNames(session),
     )
 
 
@@ -502,6 +529,21 @@ def get_preview_share(sizing: Annotated[PoolSizingPort, Depends(get_pool_sizing)
 def _subscribers(session: AsyncSession) -> StrategySubscribersAdapter:
     ledger = SqlAlchemyLedgerRepository(session)
     return StrategySubscribersAdapter(session, ledger, ReadSymbolHoldings(ledger))
+
+
+async def _subscriber_counts(
+    session: AsyncSession, strategy_ids: Sequence[UUID]
+) -> dict[UUID, SubscriberCounts]:
+    """Each strategy's counts, in one statement whatever their number, and zero
+    where nobody holds it. Under the brake nobody trades live, whatever their mode,
+    so the live count says what the public list says."""
+    found = await _subscribers(session).counts(strategy_ids)
+    brake = get_settings().dry_run
+    counts: dict[UUID, SubscriberCounts] = {}
+    for strategy_id in strategy_ids:
+        held = found.get(strategy_id, SubscriberCounts(0, 0))
+        counts[strategy_id] = replace(held, live=0) if brake else held
+    return counts
 
 
 def get_delete_strategy(session: SessionDep, user: CurrentUserDep) -> DeleteStrategy:
@@ -562,6 +604,8 @@ async def register_strategy(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except EmptyAllowedPairs as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except AuthorHasNoDisplayName as exc:
+        raise _no_display_name(exc) from exc
     except (UnknownPairs, PairCatalogNotServed, PairCatalogUnavailable) as exc:
         raise _pair_refusal(exc) from exc
     except IntegrityError as exc:
@@ -629,6 +673,7 @@ async def list_strategies(
         user.id, [strategy.id for strategy in strategies]
     )
     last4s = await _own(session, user).secret_last4s([strategy.id for strategy in strategies])
+    counts = await _subscriber_counts(session, [strategy.id for strategy in strategies])
     now = datetime.now(UTC)
     return [
         StrategyView.of(
@@ -636,6 +681,7 @@ async def list_strategies(
             uptime(events_by_strategy.get(strategy.id, []), now),
             held.get(strategy.id),
             last4s[strategy.id],
+            counts[strategy.id],
         )
         for strategy in strategies
     ]
@@ -663,6 +709,17 @@ async def get_strategy_events(
     return [EnablementEventView.of(event) for event in events]
 
 
+def _reaches_preview(
+    strategy: Strategy, user: User, subscription: Subscription | None
+) -> bool:
+    """Who the preview answers: the author, whoever holds a live subscription, which
+    outlasts a turn to private (decision 21), and anyone who may subscribe. Every
+    figure in it is from the reader's own pool, and the market is on the public page."""
+    if strategy.author_id == user.id or subscription is not None:
+        return True
+    return strategy.visibility is Visibility.PUBLIC and strategy.archived_at is None
+
+
 @router.get("/{strategy_id}/share-preview", response_model=SharePreviewBody)
 async def preview_share(
     strategy_id: UUID,
@@ -684,8 +741,12 @@ async def preview_share(
     one): one ERROR naming the strategy and the pool, and a fixed 500. A pool with
     no snapshot, or a stale one, is a normal answer and logs nothing.
     """
-    strategy = await _own(session, user).get_by_id(strategy_id)
-    if strategy is None:
+    strategy = await SqlAlchemyStrategyRepository(session).get_by_id(strategy_id)
+    held = await SqlAlchemySubscriptionRepository(session).live_for_strategies(
+        user.id, [strategy_id]
+    )
+    subscription = held.get(strategy_id)
+    if strategy is None or not _reaches_preview(strategy, user, subscription):
         raise HTTPException(status_code=404, detail="no such strategy")
     policy = strategy.policy
     pool = PoolKey(policy.exchange, policy.venue, policy.settlement_currency)
@@ -694,10 +755,6 @@ async def preview_share(
     # shown a full share, the default a new subscription starts from (N4).
     previewed = share
     if previewed is None:
-        held = await SqlAlchemySubscriptionRepository(session).live_for_strategies(
-            user.id, [strategy_id]
-        )
-        subscription = held.get(strategy_id)
         previewed = (
             subscription.allocation_percent.value
             if subscription is not None
@@ -709,6 +766,10 @@ async def preview_share(
         # not the author's.
         preview = await use_case.preview(user.id, pool, previewed)
     except UnknownPoolError as exc:
+        # Anyone signed in can ask about a public strategy, so a pool that is not
+        # there is no fault of theirs, and no line for the operator.
+        if strategy.author_id != user.id:
+            raise HTTPException(status_code=404, detail="no such pool") from exc
         logger.error("share preview refused for strategy %s: %s", strategy_id, exc)
         raise HTTPException(status_code=500, detail=SHARE_PREVIEW_FAULT_DETAIL) from exc
     return SharePreviewBody.of(strategy.id, preview)
@@ -755,6 +816,7 @@ async def update_strategy(
         commit=session,
         enablement_log=SqlAlchemyEnablementLog(session),
         clock=SystemClock(),
+        author_names=SqlAlchemyAuthorNames(session),
     )
     try:
         strategy = await use_case.update(
@@ -772,6 +834,8 @@ async def update_strategy(
         raise HTTPException(
             status_code=409, detail={"error": "STRATEGY_ARCHIVED", "message": str(exc)}
         ) from exc
+    except AuthorHasNoDisplayName as exc:
+        raise _no_display_name(exc) from exc
     except IntegrityError as exc:
         if not is_name_conflict(exc):
             raise

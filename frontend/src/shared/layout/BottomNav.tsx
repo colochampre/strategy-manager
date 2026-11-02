@@ -3,7 +3,7 @@ import { NavLink } from "react-router";
 
 import { cn } from "@/shared/lib/cn";
 import { NavBadge } from "@/shared/layout/NavBadge";
-import { NAV_ITEMS } from "@/shared/layout/navItems";
+import { useNavItems } from "@/shared/layout/navItems";
 
 /**
  * The phone navigation: hidden from `lg`. It is the last row of the shell's
@@ -12,13 +12,14 @@ import { NAV_ITEMS } from "@/shared/layout/navItems";
  */
 export function BottomNav() {
   const { t } = useTranslation();
+  const items = useNavItems();
 
   return (
     <nav
       aria-label={t("nav.sections")}
       className="flex shrink-0 border-t border-rule bg-panel lg:hidden"
     >
-      {NAV_ITEMS.map((item) => (
+      {items.map((item) => (
         <NavLink
           key={item.to}
           to={item.to}

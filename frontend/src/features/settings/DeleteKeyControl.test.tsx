@@ -407,7 +407,7 @@ describe("the requests of a session (spec: the panel reads the two routes and wr
       fetchMock.mock.calls.map(([url, init]) => `${init?.method ?? "GET"} ${String(url).replace(/^.*\/api/, "")}`),
     );
     expect([...seen].sort()).toEqual(
-      ["DELETE /credentials/bybit", "GET /credentials", "GET /pools", "PUT /credentials/bybit"].sort(),
+      ["DELETE /credentials/bybit", "GET /credentials", "GET /me", "GET /pools", "PUT /credentials/bybit"].sort(),
     );
     expect(requests(fetchMock, "PUT")).toHaveLength(1);
     expect(requests(fetchMock, "DELETE")).toHaveLength(1);

@@ -95,6 +95,7 @@ These come from the owner's own words above. They are not asked again.
     - The author sees the number of subscribers, and how many of them are live.
     - The author sees the sum of the capital the subscribers assign to the strategy, in the pool's settlement currency, never blended across currencies (rule 7).
     - No e-mail and no single subscriber's amount is shown.
+    - Amended by decision 30: the sum is public and includes the author.
 
 12. **Monetization is left out of this change (Q11, 2026-10-21).** The owner chose "Afuera por ahora".
     - This change builds the users, the subscriptions, the authors and the mode per user, all free of charge.
@@ -178,5 +179,37 @@ These come from the owner's own words above. They are not asked again.
     - `sum_active` counts only reservations of the mode being allocated: a simulated reservation never shrinks a real order, and a real one never shrinks a simulated order. Both read the same real balance (decision 13).
     - The user can hold real and simulated positions at the same time until the simulated ones close.
     - The reverse stays as decision 6 says: moving back to simulation is refused while the user holds anything real.
+
+27. **An author appears under a display name they choose, and a strategy turns public only once its author has one (PR F planning, 2026-11-01).** Decisions 17 and 23 need that name and nothing had built it. The owner chose "Si, nombres" over a generated alias.
+    - Each user chooses it in Settings. It is unique ignoring case, so nobody can pass as another author. The e-mail never reaches another user.
+    - It is a nullable column on `users`, migration 0036, so PR F gains a rehearsal and an owner-run deploy.
+    - The owner added that the active strategies are already `PUBLIC`, and none of them has a named author yet. So the rule acts on turning public, at creation or by a change, and a `PUBLIC` strategy with an unnamed author stays a valid state: its settings can still be edited, and the public list leaves it out until the author chooses a name. That follow-up was worked out from the owner's word, not asked.
+
+28. **A strategy's public return is built as the panel builds its own (PR F planning, 2026-11-01).** Decision 15 defines a trade's return and left open how trades add up. The owner chose "Si, metodo del panel" over averaging each day's trades.
+    - Trades closed on one UTC day are summed, and days are compounded, as in `performance/domain/curve.py`.
+    - Each trade's return is taken as if the whole capital were on that trade. A strategy that gains 2 % on five pairs in one day shows +10 %. The list labels the figure as unleveraged and before fees.
+
+29. **The public record is checked against the venue's price before sign-up opens (PR F planning, 2026-11-01).** The record comes from the `price` of the alerts (decision 15), and an alert's price is whatever its sender writes: nothing compares it with a venue. So an author with their own webhook secret can post prices that never existed and build any record, in simulation, at no cost. Decision 9's only mitigation is that history. The owner chose "Si, sumalo como requisito antes de abrir el registro" over accepting the risk.
+    - When the worker processes a signal, it records the venue's public price. It happens in the worker, never at ingress, because of TradingView's 3-second limit (rule 3).
+    - A price that cannot be read never stops a trade.
+    - A trade whose alert price strays from the venue's by more than a margin does not count in the public record. The margin is set when the task is written.
+    - It is readiness task D.5 of PR G, not part of PR F: only the owner can send signals until sign-up opens, so no stranger's signal goes unchecked.
+    - It does not stop an author from trading by hand at real prices. That record is true.
+
+30. **A strategy's capital is one public figure, beside its number of subscribers (PR F planning, 2026-11-01; amends decision 10).** The owner proposed it so that anyone can see whether an author backs their own strategy, and chose one sum over separate figures for author and subscribers, and over any minimum number of subscribers: "Con una sola cifra y el numero de suscriptores considero que esta bien".
+    - Every signed-in user sees it, not only the author, from the first subscriber on. The author counts as a subscriber.
+    - It adds the author's capital and the subscribers' into one figure.
+    - Accepted by the owner, in their words: "Solo un primer suscriptor podría ver cuanto capital puso el autor, y a partir del segundo apenas puede estimarlo. No me importa que sea asi." This gives up decision 10's "no single subscriber's amount" for strategies with one or two subscribers. No name or e-mail goes with it.
+    - It is derived, not stored: each share times the latest balance of that pool. It is capital assigned, not capital in use, and the same money can stand behind several strategies, because strategies compete for one pool. A pool with no balance read adds nothing.
+    - Stated to the owner, not asked: it counts only those trading live, like decision 15's count, because a simulation reads the real balance (decision 13) and would show money at no risk. The subscribe step says that the capital joins a public sum.
+    - The author still sees their total of subscribers, simulated ones included (decision 10).
+
+31. **A compounded return stops at -100% (PR F's verifier, 2026-11-01; amends decision 28).** A day's trades are summed, and each reads as if the whole capital were on it, so a day can pass -100%: twenty pairs at -7% sum to -140%. Compounded as it stood, two such days multiply into a gain, and thirty pairs at -7% on each of two days read +21%. The owner chose "Dale, piso de -100%": a day that loses everything leaves the index at zero, and it stays there, so a strategy's public record never comes back from it.
+    - It lives in `compound`, which the pool and strategy curves also use, so they follow it. A day's own figure keeps its sum, -140% stays -140%.
+    - A range is compounded on its own trades, so a 7D window that starts after a wipe-out still reads what those trades returned. A month or a chart window that starts from zero reads 0%.
+
+32. **A display name cannot mix alphabets whose letters look alike (PR F's verifier, 2026-11-01; amends decision 27).** `Аna Lopez` with a Cyrillic `А` passed NFKC and the unique index beside `Ana Lopez` and read the same. The owner chose "Dale, rechazá los nombres que mezclen alfabetos".
+    - The alphabets are Latin, Cyrillic, Greek, Armenian and Cherokee, the ones with letters that pass for Latin ones or for each other. Letters of two of them refuse a name. Other scripts may sit beside them, `Ana 李` is a name, and symbols and digits do not count.
+    - It is not a whole defense: a name written wholly in Cyrillic can still imitate a Latin one, `Асе` reads as `Ace`. Refusing that would refuse every Cyrillic name that happens to use those letters.
 
 11. **The existing data becomes the owner's (Q10, 2026-10-21; a default, stated rather than asked).** The owner becomes the first user and the admin, and owns today's strategies, keys, pools, ledger and signals. Nothing already recorded changes owner or meaning. The migration that adds the owner column fills it with the owner's user for every existing row. Like every migration, it is rehearsed on a throwaway copy first.

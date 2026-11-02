@@ -131,6 +131,18 @@ class PoolCatalogPort(Protocol):
         ...
 
 
+class AuthorHasNoDisplayName(DomainError):
+    """A strategy cannot turn public until its author has chosen a name: the public
+    list names its author, and never by e-mail (decision 27)."""
+
+    def __init__(self) -> None:
+        super().__init__("a strategy turns public once its author has chosen a display name")
+
+
+class AuthorNamesPort(Protocol):
+    async def has_display_name(self, user_id: UUID) -> bool: ...
+
+
 class AuthorSubscriptionPort(Protocol):
     """Writes the author's own subscription to a strategy just registered.
 
@@ -309,6 +321,16 @@ class SubscriberPool:
     pool_id: int
     user_id: UUID
     pool: PoolKey
+
+
+@dataclass(frozen=True, slots=True)
+class SubscriberCounts:
+    """How many hold an ACTIVE subscription of a strategy, and how many of those
+    trade it live (decisions 10 and 30). Two numbers and nothing about anyone: no
+    e-mail, no name and no amount."""
+
+    subscribers: int
+    live: int
 
 
 class StrategySubscribersPort(Protocol):

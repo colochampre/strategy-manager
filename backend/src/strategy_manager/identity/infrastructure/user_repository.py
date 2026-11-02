@@ -5,11 +5,15 @@ from uuid import UUID, uuid4
 
 from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from strategy_manager.identity.application.ports import DisplayNameTakenError
 from strategy_manager.identity.domain.user import User
 from strategy_manager.identity.infrastructure.models import UserRow
 from strategy_manager.shared.domain.mode import Mode
+
+_NAME_INDEX = "ux_users_display_name_lower"
 
 
 class SqlAlchemyUserRepository:
@@ -48,6 +52,23 @@ class SqlAlchemyUserRepository:
             update(UserRow).where(UserRow.id == user_id).values(mode=mode.value)
         )
 
+    async def everyone(self) -> list[User]:
+        """Every user, by e-mail, in ONE statement: the admin's list (decision 8)."""
+        result = await self._session.execute(select(UserRow).order_by(UserRow.email))
+        return [_to_domain(row) for row in result.scalars().all()]
+
+    async def set_display_name(self, user_id: UUID, name: str) -> None:
+        """The unique index decides, not a read first: two users racing for one name
+        would both read it free. Only that index: any other failure stays a defect."""
+        try:
+            await self._session.execute(
+                update(UserRow).where(UserRow.id == user_id).values(display_name=name)
+            )
+        except IntegrityError as error:
+            if getattr(error.orig.__cause__, "constraint_name", None) == _NAME_INDEX:  # type: ignore[union-attr]
+                raise DisplayNameTakenError from error
+            raise
+
 
 def _to_domain(row: UserRow) -> User:
     return User(
@@ -56,4 +77,5 @@ def _to_domain(row: UserRow) -> User:
         created_at=row.created_at,
         last_seen_at=row.last_seen_at,
         mode=Mode(row.mode),
+        display_name=row.display_name,
     )

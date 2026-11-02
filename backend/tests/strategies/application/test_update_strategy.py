@@ -11,6 +11,7 @@ from uuid import UUID, uuid4
 import pytest
 
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
+from strategy_manager.strategies.application.ports import AuthorHasNoDisplayName
 from strategy_manager.strategies.application.update_strategy import (
     UnknownStrategy,
     UpdateCommand,
@@ -20,8 +21,10 @@ from strategy_manager.strategies.domain.strategy import (
     AllocationPolicy,
     FillMode,
     Strategy,
+    Visibility,
 )
 from tests.owner import OWNER_ID
+from tests.strategies.author_names import FixedAuthorNames
 
 STRATEGY_ID = UUID("7256917a-9937-4a6c-b6d3-9cb2b4a9cedd")
 FIXED_NOW = datetime(2026, 9, 25, 12, 0, 0, tzinfo=UTC)
@@ -102,6 +105,7 @@ class FixedClock:
 
 def _build(
     existing: Strategy | None = None,
+    author_names: FixedAuthorNames | None = None,
 ) -> tuple[UpdateStrategy, FakeRepository, SpyCommit, SpyEnablementLog, FixedClock]:
     repository = FakeRepository(_strategy() if existing is None else existing)
     commit = SpyCommit()
@@ -113,6 +117,7 @@ def _build(
             commit=commit,  # type: ignore[arg-type]
             enablement_log=log,  # type: ignore[arg-type]
             clock=clock,  # type: ignore[arg-type]
+            author_names=author_names or FixedAuthorNames(),
         ),
         repository,
         commit,
@@ -136,6 +141,67 @@ def test_the_command_offers_no_way_to_change_the_share() -> None:
     """C.4b: the share is the subscription's, and since 0033 the strategy has no
     copy of it."""
     assert "allocation_percent" not in UpdateCommand.__dataclass_fields__
+
+
+async def test_a_strategy_does_not_turn_public_before_its_author_has_a_name() -> None:
+    """Decision 27: the public list names the author, and it has nothing to name."""
+    use_case, repository, commit, _, _ = _build(author_names=FixedAuthorNames(named=False))
+
+    with pytest.raises(AuthorHasNoDisplayName):
+        await use_case.update(UpdateCommand(strategy_id=STRATEGY_ID, visibility=Visibility.PUBLIC))
+
+    assert repository.updated == []
+    assert commit.commits == 0
+
+
+async def test_a_strategy_turns_public_once_its_author_has_a_name() -> None:
+    names = FixedAuthorNames()
+    use_case, repository, commit, _, _ = _build(author_names=names)
+
+    await use_case.update(UpdateCommand(strategy_id=STRATEGY_ID, visibility=Visibility.PUBLIC))
+
+    assert repository.updated[0].visibility is Visibility.PUBLIC
+    assert names.asked == [OWNER_ID]
+    assert commit.commits == 1
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        UpdateCommand(strategy_id=STRATEGY_ID, name="renamed"),
+        UpdateCommand(strategy_id=STRATEGY_ID, visibility=Visibility.PUBLIC),
+        UpdateCommand(strategy_id=STRATEGY_ID, visibility=Visibility.PRIVATE),
+    ],
+)
+async def test_a_strategy_already_public_is_not_refused_for_an_unnamed_author(
+    command: UpdateCommand,
+) -> None:
+    """The rule acts on turning public (decision 27). The active strategies were
+    public before any name existed, and they stay editable."""
+    use_case, repository, commit, _, _ = _build(
+        _strategy(visibility=Visibility.PUBLIC), FixedAuthorNames(named=False)
+    )
+
+    await use_case.update(command)
+
+    assert len(repository.updated) == 1
+    assert commit.commits == 1
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        UpdateCommand(strategy_id=STRATEGY_ID, name="renamed"),
+        UpdateCommand(strategy_id=STRATEGY_ID, visibility=Visibility.PRIVATE),
+    ],
+)
+async def test_a_private_strategy_is_edited_with_no_name_at_all(command: UpdateCommand) -> None:
+    use_case, repository, commit, _, _ = _build(author_names=FixedAuthorNames(named=False))
+
+    await use_case.update(command)
+
+    assert len(repository.updated) == 1
+    assert commit.commits == 1
 
 
 async def test_enabling_is_a_single_field_change() -> None:

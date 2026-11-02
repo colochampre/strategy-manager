@@ -32,7 +32,7 @@ from strategy_manager.identity.infrastructure.dependencies import (
 from strategy_manager.main import create_app
 from tests.identity_auth import FORGED_HEADERS, OTHER_HEADERS, sign_in_as_admin
 
-OPEN_TO_ANY_USER = {"/api/me", "/api/me/mode"}
+OPEN_TO_ANY_USER = {"/api/me", "/api/me/mode", "/api/me/display-name"}
 #: Owner decision 16: the routes any signed-in user reaches, each answering that
 #: user's own rows only. Listed explicitly, so a new route cannot join the set by
 #: forgetting ``require_admin``: it fails the first test below instead.
@@ -48,6 +48,7 @@ SCOPED_TO_THE_SIGNED_IN_USER = {
     ("GET", "/api/positions/open"),
     ("POST", "/api/subscriptions"),
     ("GET", "/api/subscriptions"),
+    ("GET", "/api/subscriptions/held"),
     ("POST", "/api/subscriptions/{subscription_id}/leave"),
     ("PATCH", "/api/subscriptions/{subscription_id}"),
     # Any signed-in user authors (AD8, tasks.md D.4); every strategy read goes
@@ -64,6 +65,10 @@ SCOPED_TO_THE_SIGNED_IN_USER = {
     ("POST", "/api/strategies/{strategy_id}/archive"),
     ("POST", "/api/strategies/{strategy_id}/webhook-secret"),
     ("GET", "/api/pools/{exchange}/{venue}/{settlement_currency}/available-pairs"),
+    # The one read that crosses users on purpose (tasks.md F.4). They answer no
+    # user's rows: only what a public strategy shows to everyone signed in.
+    ("GET", "/api/public/strategies"),
+    ("GET", "/api/public/strategies/{strategy_id}"),
 }
 OUTSIDE_ACCESS = {"/webhook/tradingview", "/health"}
 

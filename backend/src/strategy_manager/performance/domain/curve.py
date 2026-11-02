@@ -26,7 +26,7 @@ all. A trade whose fee was charged in a third currency stays in the curve and
 is counted. ``Exclusions`` carries each count.
 """
 
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
@@ -165,26 +165,37 @@ def trade_return(trade: ClosedTrade) -> Decimal | None:
     return trade.pnl / capital
 
 
-def daily_returns(trades: Sequence[ClosedTrade]) -> tuple[DailyReturn, ...]:
-    """``R_d``: trades with a return, summed per UTC day of ``closed_at``,
-    oldest day first. Trades without capital at open are skipped here (and
-    counted by ``build_pool_performance``)."""
+def sum_by_day(returns: Iterable[tuple[datetime, Decimal]]) -> tuple[DailyReturn, ...]:
+    """``R_d``: each ``(closed_at, return)`` summed into its UTC day, oldest
+    day first."""
     by_day: dict[date, Decimal] = {}
-    for trade in trades:
-        value = trade_return(trade)
-        if value is None:
-            continue
-        day = _utc(trade.closed_at).date()
+    for closed_at, value in returns:
+        day = _utc(closed_at).date()
         by_day[day] = by_day.get(day, _ZERO) + value
     return tuple(DailyReturn(day, value) for day, value in sorted(by_day.items()))
 
 
+def daily_returns(trades: Sequence[ClosedTrade]) -> tuple[DailyReturn, ...]:
+    """``R_d``: trades with a return, summed per UTC day of ``closed_at``,
+    oldest day first. Trades without capital at open are skipped here (and
+    counted by ``build_pool_performance``)."""
+    return sum_by_day(
+        (trade.closed_at, value)
+        for trade in trades
+        if (value := trade_return(trade)) is not None
+    )
+
+
 def compound(daily: Sequence[DailyReturn]) -> tuple[IndexPoint, ...]:
-    """``E_d = E_(d-1) * (1 + R_d)`` from ``E_0 = 1``."""
+    """``E_d = E_(d-1) * max(1 + R_d, 0)`` from ``E_0 = 1``.
+
+    ``R_d`` is a sum, so it can pass -100%. A day that loses everything leaves the
+    index at zero, where it stays (decision 31): two negative factors would otherwise
+    multiply into a gain. ``daily_return`` keeps the day's own sum."""
     index = _ONE
     points: list[IndexPoint] = []
     for entry in daily:
-        index = index * (_ONE + entry.value)
+        index = index * max(_ONE + entry.value, _ZERO)
         points.append(IndexPoint(entry.day, entry.value, index))
     return tuple(points)
 
@@ -203,7 +214,8 @@ def drawdowns(points: Sequence[IndexPoint]) -> tuple[Decimal, ...]:
 
 def monthly_grid(points: Sequence[IndexPoint]) -> tuple[MonthReturn, ...]:
     """One entry per UTC month that has at least one closed day, oldest first.
-    A month with no closing trade is absent rather than a fabricated 0%."""
+    A month with no closing trade is absent rather than a fabricated 0%. A month that
+    starts from an index of zero has nothing to return on, so it reads 0%."""
     month_end: dict[tuple[int, int], Decimal] = {}
     for point in points:
         month_end[(point.day.year, point.day.month)] = point.index
@@ -211,7 +223,8 @@ def monthly_grid(points: Sequence[IndexPoint]) -> tuple[MonthReturn, ...]:
     previous_end = _ONE
     months: list[MonthReturn] = []
     for (year, month), end in sorted(month_end.items()):
-        months.append(MonthReturn(year, month, end / previous_end - _ONE))
+        value = end / previous_end - _ONE if previous_end else _ZERO
+        months.append(MonthReturn(year, month, value))
         previous_end = end
     return tuple(months)
 

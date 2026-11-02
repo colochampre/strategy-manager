@@ -50,6 +50,7 @@ function errorMessage(error: unknown): Message {
     if (error.code === "PAIR_CATALOGUE_UNAVAILABLE") return { key: "strategies.pairs.errors.venueUnavailable" };
     if (error.code === "PAIR_CATALOGUE_NOT_SERVED") return { key: "strategies.pairs.errors.notServed" };
     if (error.status === 502) return { key: "strategies.pairs.errors.venueUnavailable" };
+    if (error.code === "AUTHOR_HAS_NO_DISPLAY_NAME") return { key: "strategies.visibility.needsName" };
     if (error.status === 409) return { key: "strategies.new.errors.conflict" };
     if (error.status === 422) return { key: "strategies.new.errors.invalid" };
   }

@@ -136,7 +136,7 @@ describe("the new-strategy dialog", () => {
   it("test_pairs_are_chosen_from_the_pools_available_pairs_and_no_free_text_field_exists", async () => {
     const api = creationApi(created);
     const fetchMock = stubApi(HEALTH, [], POOLS, {}, api.route);
-    renderAt(<AppRoutes />, "/strategies");
+    renderAt(<AppRoutes />, "/strategies/authored");
     await screen.findByText(en.strategies.empty);
     const dialog = openDialog();
 
@@ -171,7 +171,7 @@ describe("the new-strategy dialog", () => {
   it("test_selected_pairs_are_submitted_in_market_key_form", async () => {
     const api = creationApi(created);
     stubApi(HEALTH, [], POOLS, {}, api.route);
-    renderAt(<AppRoutes />, "/strategies");
+    renderAt(<AppRoutes />, "/strategies/authored");
     await screen.findByText(en.strategies.empty);
     openDialog();
 
@@ -189,7 +189,7 @@ describe("the new-strategy dialog", () => {
     const fetchMock = stubApi(HEALTH, [], TWO_BYBIT_POOLS, {}, api.route, {
       "bybit/inverse/BTC": listedAs(["BTCUSD", "ETHUSD"], "inverse", "BTC"),
     });
-    renderAt(<AppRoutes />, "/strategies");
+    renderAt(<AppRoutes />, "/strategies/authored");
     await screen.findByText(en.strategies.empty);
     openDialog();
 
@@ -231,7 +231,7 @@ describe("the new-strategy dialog", () => {
   it("test_submit_is_disabled_until_the_available_pairs_are_loaded", async () => {
     const api = creationApi(created);
     stubApi(HEALTH, [], POOLS, {}, api.route, { "bybit/usdt-m/USDT": { kind: "pending" } });
-    renderAt(<AppRoutes />, "/strategies");
+    renderAt(<AppRoutes />, "/strategies/authored");
     await screen.findByText(en.strategies.empty);
     openDialog();
 
@@ -255,7 +255,7 @@ describe("the new-strategy dialog", () => {
       return api.route(url, init);
     };
     stubApi(HEALTH, [], POOLS, {}, flaky);
-    renderAt(<AppRoutes />, "/strategies");
+    renderAt(<AppRoutes />, "/strategies/authored");
     await screen.findByText(en.strategies.empty);
     const dialog = openDialog();
 
@@ -283,7 +283,7 @@ describe("the new-strategy dialog", () => {
       ),
     );
     stubApi(HEALTH, [], POOLS, {}, api.route);
-    renderAt(<AppRoutes />, "/strategies");
+    renderAt(<AppRoutes />, "/strategies/authored");
     await screen.findByText(en.strategies.empty);
     openDialog();
     fill("Delta");
@@ -302,7 +302,7 @@ describe("the new-strategy dialog", () => {
   it("test_a_502_shows_the_pair_list_could_not_be_read_text_even_without_a_body", async () => {
     const api = creationApi(() => jsonResponse(undefined, 502));
     stubApi(HEALTH, [], POOLS, {}, api.route);
-    renderAt(<AppRoutes />, "/strategies");
+    renderAt(<AppRoutes />, "/strategies/authored");
     await screen.findByText(en.strategies.empty);
     openDialog();
     fill("Delta");
@@ -321,7 +321,7 @@ describe("the new-strategy dialog", () => {
       jsonResponse({ detail: { error: "PAIR_CATALOGUE_UNAVAILABLE", message: "down" } }, 500),
     );
     stubApi(HEALTH, [], POOLS, {}, api.route);
-    renderAt(<AppRoutes />, "/strategies");
+    renderAt(<AppRoutes />, "/strategies/authored");
     await screen.findByText(en.strategies.empty);
     openDialog();
     fill("Delta");
@@ -337,7 +337,7 @@ describe("the new-strategy dialog", () => {
       jsonResponse({ detail: { error: "PAIR_CATALOGUE_NOT_SERVED", message: "no catalogue" } }, 422),
     );
     stubApi(HEALTH, [], POOLS, {}, api.route);
-    renderAt(<AppRoutes />, "/strategies");
+    renderAt(<AppRoutes />, "/strategies/authored");
     await screen.findByText(en.strategies.empty);
     openDialog();
     fill("Delta");
@@ -359,7 +359,7 @@ describe("the new-strategy dialog", () => {
         body: { detail: { error: "PAIR_CATALOGUE_NOT_SERVED", message: "no catalogue" } },
       },
     });
-    renderAt(<AppRoutes />, "/strategies");
+    renderAt(<AppRoutes />, "/strategies/authored");
     await screen.findByText(en.strategies.empty);
     const dialog = openDialog();
 
@@ -375,7 +375,7 @@ describe("the new-strategy dialog", () => {
     vi.stubGlobal("crypto", { randomUUID: () => GENERATED_ID });
     const api = creationApi(created);
     stubApi(HEALTH, [], POOLS, {}, api.route);
-    renderAt(<AppRoutes />, "/strategies");
+    renderAt(<AppRoutes />, "/strategies/authored");
     await screen.findByText(en.strategies.empty);
     openDialog();
 
@@ -401,7 +401,7 @@ describe("the new-strategy dialog", () => {
   it("offers the visibility, private by default, and posts the one chosen", async () => {
     const api = creationApi(created);
     stubApi(HEALTH, [], POOLS, {}, api.route);
-    renderAt(<AppRoutes />, "/strategies");
+    renderAt(<AppRoutes />, "/strategies/authored");
     await screen.findByText(en.strategies.empty);
     openDialog();
 
@@ -425,7 +425,7 @@ describe("the new-strategy dialog", () => {
     const writeText = stubClipboard();
     const api = creationApi(created);
     stubApi(HEALTH, [], POOLS, {}, withHost(api.route));
-    renderAt(<AppRoutes />, "/strategies");
+    renderAt(<AppRoutes />, "/strategies/authored");
     await screen.findByText(en.strategies.empty);
     openDialog();
     fill("Delta");
@@ -490,7 +490,7 @@ describe("the new-strategy dialog", () => {
   it("says the secret could not be read, and shows no URL, when the answer carries none", async () => {
     const api = creationApi(() => jsonResponse({ id: GENERATED_ID }, 201));
     stubApi(HEALTH, [], POOLS, {}, withHost(api.route));
-    renderAt(<AppRoutes />, "/strategies");
+    renderAt(<AppRoutes />, "/strategies/authored");
     await screen.findByText(en.strategies.empty);
     openDialog();
     fill("Delta");
@@ -508,7 +508,7 @@ describe("the new-strategy dialog", () => {
   it("test_submitting_with_zero_pairs_is_prevented", async () => {
     const api = creationApi(created);
     stubApi(HEALTH, [], POOLS, {}, api.route);
-    renderAt(<AppRoutes />, "/strategies");
+    renderAt(<AppRoutes />, "/strategies/authored");
     await screen.findByText(en.strategies.empty);
     openDialog();
 
@@ -526,7 +526,7 @@ describe("the new-strategy dialog", () => {
   it("requires a name, a pool and a fill mode, and sends nothing without them", async () => {
     const api = creationApi(created);
     stubApi(HEALTH, [], POOLS, {}, api.route);
-    renderAt(<AppRoutes />, "/strategies");
+    renderAt(<AppRoutes />, "/strategies/authored");
     await screen.findByText(en.strategies.empty);
     openDialog();
 
@@ -544,7 +544,7 @@ describe("the new-strategy dialog", () => {
 
   it("offers only the selected exchange's pools", async () => {
     stubApi(HEALTH, [], POOLS, {}, creationApi(created).route);
-    renderAt(<AppRoutes />, "/strategies");
+    renderAt(<AppRoutes />, "/strategies/authored");
     await screen.findByText(en.strategies.empty);
     openDialog();
 
@@ -558,7 +558,7 @@ describe("the new-strategy dialog", () => {
   it("keeps the dialog open and says why when the name is taken (409)", async () => {
     const api = creationApi(() => jsonResponse({ detail: "a strategy named 'Delta' already exists" }, 409));
     stubApi(HEALTH, [], POOLS, {}, api.route);
-    renderAt(<AppRoutes />, "/strategies");
+    renderAt(<AppRoutes />, "/strategies/authored");
     await screen.findByText(en.strategies.empty);
     openDialog();
 
@@ -572,10 +572,29 @@ describe("the new-strategy dialog", () => {
     expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
 
+  it("keeps the dialog open and sends the author to Settings when they have no name (409)", async () => {
+    const api = creationApi(() =>
+      jsonResponse({ detail: { error: "AUTHOR_HAS_NO_DISPLAY_NAME", message: "no name" } }, 409),
+    );
+    stubApi(HEALTH, [], POOLS, {}, api.route);
+    renderAt(<AppRoutes />, "/strategies/authored");
+    await screen.findByText(en.strategies.empty);
+    openDialog();
+
+    fill("Delta");
+    await choose(["STXUSDT"]);
+    fireEvent.click(submitButton());
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Choose your name in Settings first: a public strategy shows its author.",
+    );
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+  });
+
   it("keeps the dialog open and says so when the pool is refused (422)", async () => {
     const api = creationApi(() => jsonResponse({ detail: "pool unavailable" }, 422));
     stubApi(HEALTH, [], POOLS, {}, api.route);
-    renderAt(<AppRoutes />, "/strategies");
+    renderAt(<AppRoutes />, "/strategies/authored");
     await screen.findByText(en.strategies.empty);
     openDialog();
 
@@ -590,7 +609,7 @@ describe("the new-strategy dialog", () => {
   it("refreshes the list after a successful creation, and closes on Done", async () => {
     const api = creationApi(created);
     const fetchMock = stubApi(HEALTH, [], POOLS, {}, api.route);
-    renderAt(<AppRoutes />, "/strategies");
+    renderAt(<AppRoutes />, "/strategies/authored");
     await screen.findByText(en.strategies.empty);
     const listCallsBefore = fetchMock.mock.calls.filter(
       ([url, init]) => /\/strategies(\?|$)/.test(String(url)) && init?.method === undefined,
@@ -621,7 +640,7 @@ describe("the new-strategy dialog", () => {
     let attempt = 0;
     const api = creationApi(() => (++attempt === 1 ? jsonResponse({ detail: "x" }, 500) : created()));
     stubApi(HEALTH, [], POOLS, {}, api.route);
-    renderAt(<AppRoutes />, "/strategies");
+    renderAt(<AppRoutes />, "/strategies/authored");
     await screen.findByText(en.strategies.empty);
     openDialog();
     fill("Delta");
@@ -638,7 +657,7 @@ describe("the new-strategy dialog", () => {
   it("cancels without sending anything", async () => {
     const api = creationApi(created);
     stubApi(HEALTH, [], POOLS, {}, api.route);
-    renderAt(<AppRoutes />, "/strategies");
+    renderAt(<AppRoutes />, "/strategies/authored");
     await screen.findByText(en.strategies.empty);
     openDialog();
 
@@ -693,7 +712,7 @@ describe("copy", () => {
       jsonResponse({ detail: { error: "UNKNOWN_PAIRS", message: "x", unknown: ["YPF"] } }, 422),
     );
     stubApi(HEALTH, [], POOLS, {}, api.route);
-    renderAt(<AppRoutes />, "/strategies");
+    renderAt(<AppRoutes />, "/strategies/authored");
     await screen.findByText(es.strategies.empty);
     const dialog = openDialog(es as Locale);
 

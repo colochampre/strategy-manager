@@ -17,6 +17,8 @@ export interface Me {
   isAdmin: boolean;
   mode: Mode;
   dryRunBrake: boolean;
+  /** The name other users know them by, or none yet (decision 27). */
+  displayName: string | null;
 }
 
 interface MeWire {
@@ -24,6 +26,7 @@ interface MeWire {
   is_admin?: unknown;
   mode?: unknown;
   dry_run_brake?: unknown;
+  display_name?: unknown;
 }
 
 function isMode(value: unknown): value is Mode {
@@ -48,7 +51,37 @@ export async function fetchMe(): Promise<Me> {
   ) {
     throw new Error("Unexpected response shape from GET /api/me");
   }
-  return { email, isAdmin, mode, dryRunBrake };
+  // A name decides nothing, so a missing or odd one reads as none instead of refusing the whole answer.
+  const displayName = typeof body?.display_name === "string" ? body.display_name : null;
+  return { email, isAdmin, mode, dryRunBrake, displayName };
+}
+
+export type ChooseDisplayNameResult =
+  | { kind: "chosen" }
+  | { kind: "taken" }
+  | { kind: "invalid" }
+  | { kind: "unauthorized" }
+  | { kind: "unknown" };
+
+function nameRefusalFrom(error: ApiError): ChooseDisplayNameResult {
+  if (error.status === 401) return { kind: "unauthorized" };
+  if (error.status === 409 && error.code === "DISPLAY_NAME_TAKEN") return { kind: "taken" };
+  if (error.status === 422 && error.code === "DISPLAY_NAME_INVALID") return { kind: "invalid" };
+  return { kind: "unknown" };
+}
+
+/** `PUT /api/me/display-name`. Like the mode, it names no user: it changes the signed-in one. */
+export async function chooseDisplayName(name: string): Promise<ChooseDisplayNameResult> {
+  try {
+    await apiFetch<unknown>("/me/display-name", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ display_name: name }),
+    });
+    return { kind: "chosen" };
+  } catch (error) {
+    return error instanceof ApiError ? nameRefusalFrom(error) : { kind: "unknown" };
+  }
 }
 
 export type ChangeModeResult =
@@ -101,6 +134,21 @@ export function useMe() {
     queryFn: fetchMe,
     staleTime: ME_REFRESH_MS,
     refetchInterval: ME_REFRESH_MS,
+  });
+}
+
+/**
+ * The choice as a mutation. On every settled attempt but a 401 it reads `me` again and waits for it, so the form
+ * and the top bar show the name the server stored (normalized, perhaps not as typed) when the save reports.
+ */
+export function useChooseDisplayName() {
+  const queryClient = useQueryClient();
+  return useMutation<ChooseDisplayNameResult, Error, string>({
+    mutationFn: chooseDisplayName,
+    onSettled: async (result) => {
+      if (result?.kind === "unauthorized") return;
+      await queryClient.refetchQueries({ queryKey: ["me"] });
+    },
   });
 }
 

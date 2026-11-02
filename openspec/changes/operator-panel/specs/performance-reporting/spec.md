@@ -150,7 +150,9 @@ with the formula confirmed by the owner (decision 17):
 - each closed trade's return is `r_i = pnl_i / pool_capital_at_open_i`;
 - returns of trades that close on the same UTC day are SUMMED into that day's
   return `R_d`;
-- days are compounded: `E_d = E_(d-1) * (1 + R_d)`, starting from `E_0 = 1`;
+- days are compounded: `E_d = E_(d-1) * max(1 + R_d, 0)`, starting from `E_0 = 1`,
+  so a day that loses everything leaves the index at zero, where it stays
+  (multi-user decision 31);
 - the second-order error for trades that span days is the accepted
   approximation;
 - open trades, rehearsal fills and trades without capital-at-open are excluded,

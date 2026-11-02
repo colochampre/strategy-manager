@@ -9,12 +9,15 @@ from collections.abc import Sequence
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from strategy_manager.identity.infrastructure.models import UserRow
 from strategy_manager.strategies.domain.strategy import AllocationPercent
+from strategy_manager.strategies.infrastructure.models import StrategyRow
 from strategy_manager.subscriptions.application.errors import AlreadySubscribed
+from strategy_manager.subscriptions.application.ports import HeldSubscription
 from strategy_manager.subscriptions.domain.subscription import Subscription, SubscriptionStatus
 from strategy_manager.subscriptions.infrastructure.models import SubscriptionRow
 
@@ -139,6 +142,47 @@ class SqlAlchemySubscriptionRepository:
             )
         )
         return {row.strategy_id: _to_domain(row) for row in result.scalars().all()}
+
+    async def held(self, user_id: UUID) -> list[HeldSubscription]:
+        """The user's ACTIVE and LEAVING subscriptions with what names each strategy,
+        whatever its visibility, oldest first, in ONE statement."""
+        result = await self._session.execute(
+            select(
+                SubscriptionRow,
+                StrategyRow.name,
+                StrategyRow.author_id,
+                StrategyRow.exchange,
+                StrategyRow.venue,
+                StrategyRow.settlement_currency,
+                UserRow.display_name,
+            )
+            .join(StrategyRow, StrategyRow.id == SubscriptionRow.strategy_id)
+            .join(UserRow, UserRow.id == StrategyRow.author_id)
+            .where(SubscriptionRow.user_id == user_id, SubscriptionRow.status.in_(_LIVE))
+            .order_by(SubscriptionRow.created_at, SubscriptionRow.id)
+        )
+        return [
+            HeldSubscription(
+                subscription=_to_domain(row),
+                strategy_name=name,
+                author_name=author_name,
+                authored=author_id == user_id,
+                market=(exchange, venue, currency),
+            )
+            for row, name, author_id, exchange, venue, currency, author_name in result.all()
+        ]
+
+    async def live_counts_by_user(self) -> dict[UUID, int]:
+        """How many ACTIVE or LEAVING subscriptions each user holds, in ONE statement.
+
+        **Global by design:** the admin's list (decision 8). It reads a count and no
+        share. A user with none is absent."""
+        result = await self._session.execute(
+            select(SubscriptionRow.user_id, func.count())
+            .where(SubscriptionRow.status.in_(_LIVE))
+            .group_by(SubscriptionRow.user_id)
+        )
+        return {user_id: count for user_id, count in result.all()}
 
     async def live_for_strategy_for_update(self, strategy_id: UUID) -> list[Subscription]:
         """EVERY user's ACTIVE or LEAVING subscription of the strategy, row-locked and

@@ -33,6 +33,26 @@ export interface Pool {
   allocatable: string | null;
 }
 
+/**
+ * One row of `GET /api/public/strategies` (`PublicStrategyBody`): what any signed-in user sees of a strategy on
+ * the public list. `unleveraged_return_before_fees` is a ratio string, read from the strategy's signals and not
+ * from anyone's fills, so a reader must be told what it leaves out. `capital` is money in the strategy's own
+ * currency: null under the brake, when nobody trades live, and "0" with the brake off and nobody live.
+ */
+export interface PublicStrategy {
+  id: string;
+  name: string;
+  author_name: string;
+  exchange: string;
+  venue: string;
+  settlement_currency: string;
+  created_at: string;
+  closed_trade_count: number;
+  unleveraged_return_before_fees: string;
+  live_subscribers: number;
+  capital: string | null;
+}
+
 /** The three values that name one capital pool (`PoolRef` on the server). */
 export interface PoolKey {
   exchange: string;
@@ -140,6 +160,8 @@ export interface Subscription {
  * (ACTIVE or LEAVING) subscription to it, or null; the share lives there, not on the strategy.
  * `archived_at` is null while the strategy is live. `secret_last4` is the last four characters of its
  * webhook secret, the only part of it the API ever serves again: the panel masks the secret with them.
+ * `subscribers` counts every ACTIVE subscription, the author's and simulated ones included, and
+ * `live_subscribers` those trading it live, 0 under the brake (decisions 10 and 30).
  */
 export interface Strategy {
   id: string;
@@ -155,6 +177,22 @@ export interface Strategy {
   uptime: StrategyUptime;
   visibility: Visibility;
   secret_last4: string;
+  subscribers: number;
+  live_subscribers: number;
+}
+
+/**
+ * One row of `GET /api/subscriptions/held`: a live subscription and what names its strategy to the user who holds
+ * it. It reads whatever the strategy's visibility, because a subscriber keeps a strategy that turned private.
+ * `author_name` is null while the author has chosen no name.
+ */
+export interface HeldSubscription extends Subscription {
+  strategy_name: string;
+  author_name: string | null;
+  authored: boolean;
+  exchange: string;
+  venue: string;
+  settlement_currency: string;
 }
 
 /** Who else may subscribe to a strategy: a PRIVATE one only its author. Private is the default (decision 21). */

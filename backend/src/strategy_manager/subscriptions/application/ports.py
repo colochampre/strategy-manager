@@ -26,6 +26,19 @@ class StrategyMarket:
 
 
 @dataclass(frozen=True, slots=True)
+class HeldSubscription:
+    """A user's live subscription and what names its strategy to them. A strategy
+    that turned private keeps its subscribers (decision 21) and leaves the public
+    list, so this is the one place they can still read what they hold."""
+
+    subscription: Subscription
+    strategy_name: str
+    author_name: str | None
+    authored: bool
+    market: Market
+
+
+@dataclass(frozen=True, slots=True)
 class LeavingSubscription:
     """A LEAVING subscription and the market its pool lock is keyed by."""
 

@@ -116,6 +116,7 @@ _BODIES: dict[tuple[str, str], dict[str, Any]] = {
     },
     ("PATCH", "/api/subscriptions/{subscription_id}"): {"allocation_percent": "40"},
     ("POST", "/api/me/mode"): {"mode": "SIMULATION"},
+    ("PUT", "/api/me/display-name"): {"display_name": "The sweep's author"},
 }
 
 
@@ -226,9 +227,14 @@ async def test_no_api_response_carries_a_secret_or_a_hash_except_the_two_that_is
         await session.execute(
             text(
                 "UPDATE strategies SET webhook_secret_hash = :hash, "
-                "webhook_secret_last4 = :last4 WHERE id = :id"
+                "webhook_secret_last4 = :last4, visibility = 'PUBLIC' WHERE id = :id"
             ),
             {"hash": STORED_HASH, "last4": STRATEGY_SECRET[-4:], "id": strategy_id},
+        )
+        # A public strategy of a named author, so the public routes answer it.
+        await session.execute(
+            text("UPDATE users SET display_name = :name WHERE id = :id"),
+            {"name": "The sweep's author", "id": admin},
         )
         # The pool routes answer the signed-in admin's pools, and the share preview
         # reads the strategy author's (AD8): both users hold a synced Bybit pool.
@@ -388,6 +394,9 @@ async def test_no_api_response_carries_a_secret_or_a_hash_except_the_two_that_is
         rows = payload if isinstance(payload, list) else [payload]
         assert [row["secret_last4"] for row in rows] == [STRATEGY_SECRET[-4:]]
         assert STRATEGY_SECRET[-5:] not in response.text
+    if template.startswith("/api/public/"):
+        # Not even the hint: a public read answers people who do not own the strategy.
+        assert STRATEGY_SECRET[-4:] not in response.text
 
     # Never a value already held, on any route.
     forbidden = (GLOBAL_SECRET, STRATEGY_SECRET, STORED_HASH, "webhook_secret_hash")

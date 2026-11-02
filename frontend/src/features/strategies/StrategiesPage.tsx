@@ -90,20 +90,17 @@ export function StrategiesPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-        <h1 className="font-display text-2xl font-bold text-ink">{t("strategies.title")}</h1>
-        <div className="flex flex-wrap items-center gap-x-4">
-          <ArchivedToggle checked={includeArchived} onChange={setIncludeArchived} />
-          <button
-            type="button"
-            disabled={exchange === null}
-            onClick={() => setCreating(true)}
-            className="inline-flex min-h-11 items-center gap-1.5 rounded-md bg-gain px-4 text-sm font-medium text-ground hover:opacity-90 disabled:opacity-50"
-          >
-            <Plus aria-hidden="true" className="size-4 shrink-0" />
-            {t("strategies.new.open")}
-          </button>
-        </div>
+      <div className="flex flex-wrap items-center justify-end gap-x-4 gap-y-2">
+        <ArchivedToggle checked={includeArchived} onChange={setIncludeArchived} />
+        <button
+          type="button"
+          disabled={exchange === null}
+          onClick={() => setCreating(true)}
+          className="inline-flex min-h-11 items-center gap-1.5 rounded-md bg-gain px-4 text-sm font-medium text-ground hover:opacity-90 disabled:opacity-50"
+        >
+          <Plus aria-hidden="true" className="size-4 shrink-0" />
+          {t("strategies.new.open")}
+        </button>
       </div>
       {exchange !== null && <OpenStateLine exchange={exchange} visibleStrategyIds={visibleStrategyIds} />}
       {body}

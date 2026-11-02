@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ApiError } from "@/shared/api/client";
-import { changeMode, fetchMe } from "@/shared/api/me";
+import { changeMode, chooseDisplayName, fetchMe } from "@/shared/api/me";
 import { jsonResponse } from "@/test/harness";
 
 afterEach(() => {
@@ -22,8 +22,46 @@ describe("fetchMe", () => {
       isAdmin: true,
       mode: "LIVE",
       dryRunBrake: false,
+      displayName: null,
     });
     expect((fetchMock.mock.calls[0] as [string])[0]).toMatch(/\/api\/me$/);
+  });
+
+  it("reads the name the user chose", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonResponse({
+          email: "owner@example.com",
+          is_admin: true,
+          mode: "LIVE",
+          dry_run_brake: false,
+          display_name: "Ana",
+        }),
+      ),
+    );
+
+    await expect(fetchMe()).resolves.toMatchObject({ displayName: "Ana" });
+  });
+
+  it.each([
+    ["none", null],
+    ["a number", 5],
+  ])("reads %s as no name: a name decides nothing, so it never refuses the answer", async (_label, name) => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonResponse({
+          email: "owner@example.com",
+          is_admin: true,
+          mode: "LIVE",
+          dry_run_brake: false,
+          display_name: name,
+        }),
+      ),
+    );
+
+    await expect(fetchMe()).resolves.toMatchObject({ displayName: null });
   });
 
   it.each([
@@ -43,6 +81,51 @@ describe("fetchMe", () => {
 
     await expect(fetchMe()).rejects.toMatchObject({ status: 503 });
     await expect(fetchMe()).rejects.toBeInstanceOf(ApiError);
+  });
+});
+
+describe("chooseDisplayName", () => {
+  function refused(error: string, status: number) {
+    return jsonResponse({ detail: { error, message: "server wording" } }, status);
+  }
+
+  it("puts the name to /api/me/display-name", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({}));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(chooseDisplayName("Ana")).resolves.toEqual({ kind: "chosen" });
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toMatch(/\/api\/me\/display-name$/);
+    expect(init.method).toBe("PUT");
+    expect(new Headers(init.headers).get("Content-Type")).toBe("application/json");
+    expect(JSON.parse(String(init.body))).toEqual({ display_name: "Ana" });
+  });
+
+  it.each([
+    ["a taken name", refused("DISPLAY_NAME_TAKEN", 409), { kind: "taken" }],
+    ["an invalid name", refused("DISPLAY_NAME_INVALID", 422), { kind: "invalid" }],
+    ["a 401", jsonResponse({ detail: "unauthorized" }, 401), { kind: "unauthorized" }],
+    ["a 409 of another code", refused("SOMETHING_ELSE", 409), { kind: "unknown" }],
+    ["a 422 of another code", refused("SOMETHING_ELSE", 422), { kind: "unknown" }],
+    ["a 500 that names a taken name", refused("DISPLAY_NAME_TAKEN", 500), { kind: "unknown" }],
+    ["a 500 that names an invalid name", refused("DISPLAY_NAME_INVALID", 500), { kind: "unknown" }],
+  ])("reads %s", async (_label, response, expected) => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response));
+
+    await expect(chooseDisplayName("Ana")).resolves.toEqual(expected);
+  });
+
+  it("calls a failed request unknown", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("offline")));
+
+    await expect(chooseDisplayName("Ana")).resolves.toEqual({ kind: "unknown" });
+  });
+
+  it("calls an answer it cannot read unknown", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("<html>", { status: 200 })));
+
+    await expect(chooseDisplayName("Ana")).resolves.toEqual({ kind: "unknown" });
   });
 });
 

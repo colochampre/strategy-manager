@@ -6,8 +6,9 @@ import i18n from "@/shared/i18n";
 import { AppShell } from "@/shared/layout/AppShell";
 import { lock, renderAt, stubApi, unlock } from "@/test/harness";
 
-function renderShell() {
-  return renderAt(
+/** The shell, once it knows the admin is signed in: only then does it offer every section. */
+async function renderShell() {
+  const view = renderAt(
     <Routes>
       <Route element={<AppShell />}>
         <Route index element={<p>page body</p>} />
@@ -15,6 +16,8 @@ function renderShell() {
     </Routes>,
     "/",
   );
+  await screen.findAllByRole("link", { name: "Users" });
+  return view;
 }
 
 beforeEach(() => {
@@ -31,6 +34,7 @@ const ICONS = [
   ["Overview", "lucide-layout-dashboard"],
   ["Strategies", "lucide-chart-candlestick"],
   ["Discrepancies", "lucide-scale"],
+  ["Users", "lucide-users"],
   ["Settings", "lucide-settings"],
 ] as const;
 
@@ -43,8 +47,8 @@ function navs() {
 }
 
 describe("the navigation icons", () => {
-  it.each(ICONS)("%s carries its own aria-hidden icon in both navigations", (label, iconClass) => {
-    renderShell();
+  it.each(ICONS)("%s carries its own aria-hidden icon in both navigations", async (label, iconClass) => {
+    await renderShell();
     const { side, bottom } = navs();
 
     for (const nav of [side, bottom]) {
@@ -56,8 +60,8 @@ describe("the navigation icons", () => {
     }
   });
 
-  it("draws the bottom bar's icon at 20 px", () => {
-    renderShell();
+  it("draws the bottom bar's icon at 20 px", async () => {
+    await renderShell();
 
     for (const [label] of ICONS) {
       const svg = within(navs().bottom).getByRole("link", { name: label }).querySelector("svg");
@@ -65,8 +69,8 @@ describe("the navigation icons", () => {
     }
   });
 
-  it("draws the side rail's icon at 16 px, left of the name", () => {
-    renderShell();
+  it("draws the side rail's icon at 16 px, left of the name", async () => {
+    await renderShell();
 
     const link = within(navs().side).getByRole("link", { name: "Overview" });
     expect(link.querySelector("svg")).toHaveClass("size-4");
@@ -76,8 +80,8 @@ describe("the navigation icons", () => {
     expect(svg?.parentElement).toHaveTextContent("Overview");
   });
 
-  it("shows no visible label in the bottom bar: the name is sr-only text and the title", () => {
-    renderShell();
+  it("shows no visible label in the bottom bar: the name is sr-only text and the title", async () => {
+    await renderShell();
 
     for (const [label] of ICONS) {
       const link = within(navs().bottom).getByRole("link", { name: label });
@@ -88,7 +92,7 @@ describe("the navigation icons", () => {
   });
 
   it("titles the bottom bar's links in Spanish too", async () => {
-    renderShell();
+    await renderShell();
     const { bottom } = navs();
 
     fireEvent.click(screen.getByRole("button", { name: /^(es|en)$/i }));
@@ -97,8 +101,8 @@ describe("the navigation icons", () => {
     expect(link).toHaveAttribute("title", "Resumen");
   });
 
-  it("draws the language symbol left of the switch's text, without changing its name", () => {
-    renderShell();
+  it("draws the language symbol left of the switch's text, without changing its name", async () => {
+    await renderShell();
 
     const button = screen.getByRole("button", { name: /^(es|en)$/i });
     const svg = button.querySelector("svg");

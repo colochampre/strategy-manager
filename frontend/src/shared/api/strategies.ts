@@ -19,6 +19,10 @@ function isUptime(value: unknown): boolean {
   );
 }
 
+function isCount(value: unknown): boolean {
+  return Number.isInteger(value) && (value as number) >= 0;
+}
+
 function isStrategy(value: unknown): value is Strategy {
   if (!isRecord(value)) return false;
   return (
@@ -37,9 +41,12 @@ function isStrategy(value: unknown): value is Strategy {
     (value.visibility === "PUBLIC" || value.visibility === "PRIVATE") &&
     // Exactly four characters: anything else is not the tail of a secret, and is not drawn as one.
     typeof value.secret_last4 === "string" &&
-    value.secret_last4.length === SECRET_LAST4_LENGTH
+    value.secret_last4.length === SECRET_LAST4_LENGTH &&
+    isCount(value.subscribers) &&
+    isCount(value.live_subscribers)
   );
 }
+
 
 /**
  * `GET /api/strategies`, archived ones only when asked (`include_archived`).

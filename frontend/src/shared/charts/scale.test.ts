@@ -238,6 +238,21 @@ describe("sliceAndRebase", () => {
     expect(window[1]!.cumulative).toBeCloseTo(1.2 / 1.21 - 1, 10);
   });
 
+  it("draws a flat line, never NaN, for a window that starts after the index reached zero", () => {
+    const days = [indexDay("2026-06-20", 0), indexDay("2026-06-30", 0), indexDay("2026-07-02", 0)];
+    const window = sliceAndRebase(days, "2026-06-29");
+    expect(window.map((day) => [day.cumulative, day.drawdown])).toEqual([
+      [0, 0],
+      [0, 0],
+    ]);
+  });
+
+  it("reads -100% for a window in which the index reaches zero", () => {
+    const window = sliceAndRebase([indexDay("2026-06-20", 1.2), indexDay("2026-06-30", 0)], "2026-06-29");
+    expect(window[0]!.cumulative).toBe(-1);
+    expect(window[0]!.drawdown).toBe(-1);
+  });
+
   it("starts from an index of 1 when nothing precedes the window", () => {
     const window = sliceAndRebase([indexDay("2026-06-30", 1.05), indexDay("2026-07-02", 1.1)], "2026-06-01");
     expect(window[0]!.cumulative).toBeCloseTo(0.05, 10);
