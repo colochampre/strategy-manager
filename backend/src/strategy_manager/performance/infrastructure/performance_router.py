@@ -19,9 +19,10 @@ body is one pool in its own settlement currency. There is no route, field or
 type here that combines two pools, including two on one exchange.
 
 **A strategy binds to its OWN pool.** The strategy routes take no pool. They
-load the strategy first (404 if it does not exist; an archived strategy is
-found, since archiving hides a strategy and does not erase its history) and read
-through ``PoolKey(strategy's exchange, venue, settlement currency)``. This is
+load the strategy first (404 if it does not exist, or if the signed-in user
+neither wrote it nor ever held a seat on it; an archived strategy is found, since
+archiving hides a strategy and does not erase its history) and read through
+``PoolKey(strategy's exchange, venue, settlement currency)``. This is
 the router's job and cannot be left to the reads: a read given the wrong pool
 returns an empty result, not an error, because the ledger cannot tell "no
 trades" from "not this pool's strategy".
@@ -55,6 +56,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from strategy_manager.allocation.domain.pool_key import PoolKey
@@ -101,6 +103,7 @@ from strategy_manager.shared.domain.errors import InvariantViolation
 from strategy_manager.shared.infrastructure.clock import SystemClock
 from strategy_manager.shared.infrastructure.wire import Instant, Money, Price, Ratio
 from strategy_manager.strategies.infrastructure.repository import SqlAlchemyStrategyRepository
+from strategy_manager.subscriptions.infrastructure.models import SubscriptionRow
 
 logger = logging.getLogger(__name__)
 
@@ -390,11 +393,25 @@ class OperationFillsBody(BaseModel):
 # --- routes ----------------------------------------------------------------------------
 
 
-async def _strategy_pool(session: AsyncSession, strategy_id: UUID) -> PoolKey:
-    """The pool the strategy lives in, from the strategy row itself; 404 if there
-    is no such strategy. Archived strategies are found."""
+async def _held_a_seat(session: AsyncSession, user_id: UUID, strategy_id: UUID) -> bool:
+    """Any seat, an ended one included: what a user traded there stays theirs."""
+    seat = await session.execute(
+        select(SubscriptionRow.id)
+        .where(SubscriptionRow.user_id == user_id, SubscriptionRow.strategy_id == strategy_id)
+        .limit(1)
+    )
+    return seat.first() is not None
+
+
+async def _strategy_pool(session: AsyncSession, user_id: UUID, strategy_id: UUID) -> PoolKey:
+    """The pool the strategy lives in, from the strategy row itself. Archived
+    strategies are found. 404 if there is no such strategy, and the same 404 if the
+    user neither wrote it nor ever held a seat on it (multi-user design AD8): the
+    body names the strategy's market, and a private strategy's is its author's."""
     strategy = await SqlAlchemyStrategyRepository(session).get_by_id(strategy_id)
-    if strategy is None:
+    if strategy is None or (
+        strategy.author_id != user_id and not await _held_a_seat(session, user_id, strategy_id)
+    ):
         raise HTTPException(status_code=404, detail="no such strategy")
     policy = strategy.policy
     return PoolKey(policy.exchange, policy.venue, policy.settlement_currency)
@@ -427,9 +444,9 @@ async def strategy_performance(
     clock: ClockDep,
     user: Annotated[User, Depends(current_user)],
 ) -> StrategyPerformanceBody:
-    """The strategy row is global; the figures are the signed-in user's own
-    ledger rows on it (multi-user design AD8)."""
-    pool = await _strategy_pool(session, strategy_id)
+    """The strategy must be one the signed-in user wrote or held a seat on, and the
+    figures are that user's own ledger rows on it (multi-user design AD8)."""
+    pool = await _strategy_pool(session, user.id, strategy_id)
     result = await _guarded(ReadStrategyPerformance(fills, clock).read(user.id, strategy_id, pool))
     return StrategyPerformanceBody.from_strategy(result)
 
@@ -455,7 +472,7 @@ async def strategy_trades(
                 f"{missing} is missing"
             ),
         )
-    pool = await _strategy_pool(session, strategy_id)
+    pool = await _strategy_pool(session, user.id, strategy_id)
     try:
         before = (
             None
@@ -487,7 +504,7 @@ async def operation_fills(
     source: OperationFillsDep,
     user: Annotated[User, Depends(current_user)],
 ) -> OperationFillsBody:
-    pool = await _strategy_pool(session, strategy_id)
+    pool = await _strategy_pool(session, user.id, strategy_id)
     try:
         result = await _guarded(
             ReadOperationFills(source).read(user.id, strategy_id, pool, allocation_id)
