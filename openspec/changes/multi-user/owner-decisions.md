@@ -235,4 +235,10 @@ These come from the owner's own words above. They are not asked again.
     - A trade that opens and closes on one UTC day puts the origin the day before the close, so the two points do not fall on one x and draw a vertical line.
     - Not built. It goes with the panel requests in `tasks.md`, in its own delivery: sign-up does not depend on it.
 
+37. **An exchange tab shows only where its user has something running (2026-11-02; proposed and confirmed with "Si, me parece bien").** The request: "Actualmente veo como pestañas Binance, Bybit y Pionex a pesar de solo tener la key configurada de Binance. Quisiera que solo se muestren las pestañas de exchanges configurados." The tabs came from the user's pools, not from their keys.
+    - A tab shows when the user has a key on that exchange, a position open there, or an active strategy or subscription there. Closed history alone does not hold a tab: the data stays, and the tab returns with a key.
+    - Not a key alone: a simulated opening needs no key, so a new user simulating with no key would have no tab and could not see their own positions.
+    - Decision 80 settled the same thing for Settings' cards, which keep their own rule: an enabled pool with no key stays as an amber card.
+    - Not built. It goes with the panel requests in `tasks.md`, in its own delivery.
+
 11. **The existing data becomes the owner's (Q10, 2026-10-21; a default, stated rather than asked).** The owner becomes the first user and the admin, and owns today's strategies, keys, pools, ledger and signals. Nothing already recorded changes owner or meaning. The migration that adds the owner column fills it with the owner's user for every existing row. Like every migration, it is rehearsed on a throwaway copy first.

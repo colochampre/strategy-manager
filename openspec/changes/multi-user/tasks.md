@@ -1430,6 +1430,7 @@ Asked by the owner on 2026-11-02, after PR F's deploy, not built. None blocks PR
 - "En strategies/explore agregaría a cada item age, closed trades, return... etc, un icono. La página se apoya demasiado en textos y debería empezar a aligerarse con más iconos que hablen por sí solos, y a lo sumo agregarles tooltips al pasar el mouse por encima para el que quiera corroborar de qué se trata. Todo lo que sea información sensible o que no se pueda malinterpretar que quede como textual, pero lo que no lo sea, puede pasar a este formato. No solo en strategies/explore sino en general, para que todo siga las mismas reglas."
 - "Además, el botón de Leave en strategies my subscriptions, debería ser rojo, como el boton de delete key en settings. Sino tiene el mismo peso que el boton de change share."
 - "La curva se empezó a dibujar directamente a partir de aproximadamente 3% de PnL y cayendo a 0% nuevamente. Idealmente, la curva debería empezar desde 0%, y subir al 3% en el primer tramo." Settled as decision 36: the 0 goes on the day the first trade opened, and needs one origin date in the curve's response.
+- "Actualmente veo como pestañas Binance, Bybit y Pionex a pesar de solo tener la key configurada de Binance. Quisiera que solo se muestren las pestañas de exchanges configurados." Settled as decision 37: a tab shows with a key, an open position, or an active strategy or subscription on that exchange. The panel cannot tell that from what it reads today, so the server has to say it.
 
 ## PR G
 
