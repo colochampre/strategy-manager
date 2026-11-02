@@ -1433,3 +1433,46 @@ Asked by the owner on 2026-11-02, after PR F's deploy, not built. Neither blocks
 ## PR G
 
 Planned in `design.md`, "Delivery": readiness D.1 to D.5, `SignInGate` opens, the Access policy opens, seat expiration turns on. Its tasks are written when PR F is merged. D.5 is the price check of decision 29. Advisory A3 of PR E2 is still open and needs its design before sign-up opens: it reaches any subscriber. Found in F.6, to close before sign-up opens: `PositionsTable` and `StrategyLink` link every strategy to `/strategies/:strategyId`, which is author-only, so a subscriber's own position links to a page that answers not found. Found by PR F's verifier, to close before sign-up opens: the public list must survive one strategy of crafted prices (`wire.py:48` raises `InvalidOperation` above 80 digits, and decision 29 says an author can post them), and preview and subscribe must follow the page for a strategy that is off the list.
+
+### PR G's plan (2026-11-02)
+
+The panel opens to every signed-in user, and Access opens last. Until G.D's last step production stays what it is: Access admits the owner, plus one test address for D.2. One PR, one migration (`0037`). Owner's word per unit.
+
+**The map, read at `c8bf0d2`:**
+- **a.** `SignInGate.tsx:30` is the one line that stops a non-admin. Behind it, `/discrepancies` and `/users` are already under `AdminRoute`. Three things still assume the admin: `ExchangeTabs.tsx:40` draws no tabs for anyone else, so a user keyed on two exchanges could not switch between them; `/api/webhook-origin` answers a non-admin 403 (`webhook_origin_router.py:36`), so their issued URL carries only the path; and `useVenueFollowUp` asks `/api/reconciliation/confirmed`, which answers them 403.
+- **b.** Correction to what F.D recorded: `useVenueFollowUp` does not send a non-admin anywhere. On the 403 `data` stays undefined and it returns null (`useVenueFollowUp.ts:41`). What remains is a refused read on every marked line.
+- **c.** 34 `/api` routes. `test_every_api_route_is_guarded.py` lists them from the app but checks the guard, not cross-user data. The cross-user tests live per router, and nothing demands one per route.
+- **d.** The worker runs one job at a time (`job_queue.py:110-122` `.limit(1)`, `worker.py:260`). So a fan-out's deliveries run one after another, and nothing measures how long that takes.
+- **e.** `/fapi/v3/account` weighs 5 of Binance's 2400 per minute, per IP (`config.py:290-296`). A balance sync makes one such call per (user, exchange) every 60 s, so 50 users add 250. The reconciliation's weight still has to be added to that.
+- **f.** No adapter reads a venue's price without a key, and `signals` has nowhere to put one.
+- **g.** `wire.py:48`: `read_all` builds every strategy in one pass, with no per-row guard, so one ratio over 80 digits fails the whole list. Read from the code, not run yet.
+- **h.** The page's `_LISTED` requires the author's name; preview (`strategies/infrastructure/router.py:712-720`) and subscribe (`subscribe.py:45-52`) do not.
+- **i.** `PositionsTable.tsx:129` links every row to the author-only `/strategies/:id`. `StrategyLink` is only on admin pages, so it needs no change.
+- **j.** `live_seats` (`public_strategies_source.py:121-141`) reads no credential, so a deleted key's seat stays in the capital and in the live count.
+- **k.** Decision 10 gives an author the capital their subscribers assign. `StrategyView` carries only counts, and the capital sits on the public body, so the author of a private strategy sees none.
+
+**Decisions stated, not asked:**
+- **D.5, a price that cannot be read does not count in the public record.** Decision 29 settled that it never stops a trade, and left the record open. If it counted, a symbol no venue knows would be a way around the check. A venue outage therefore costs a true trade its place in the record, which understates and never inflates.
+- **D.5, signals from before the check still count.** Only the owner could send them (decision 29).
+- **Preview and subscribe answer as the page does** when the author has no name. An archived strategy keeps subscribe's 409.
+- **D.2 runs before Access opens**, by adding one test address to the policy, on the deployed code with the gate already open. If it fails, nobody else got in.
+- **Left out on purpose:** the 404 page that shows "loading" first (a panel-wide retry pattern that shows no wrong data), and the two panel requests of the section above.
+
+**Tasks.** Each is a work-unit commit, strict TDD.
+
+- [ ] G.1 The public list survives a strategy it cannot serialise (map g). One such strategy is left out and logged, and the list answers. Its page behaves the same as any off-list strategy. RED on a crafted record through the router.
+- [ ] G.2 Preview and subscribe follow the page (map h): one shared rule, not a third copy of `_LISTED`. The author and a holder keep their reach.
+- [ ] G.3 Capital counts a seat only if its user has a trade-capable key on that exchange (map j), reusing the capability the opening's key check reads. The author's view carries the capital of their strategy, private ones too, simulated subscribers left out of the sum as in decision 30 (map k).
+- [ ] G.4 The panel for a non-admin (map a, b, i): `ExchangeTabs` opens; `/api/webhook-origin` opens to any signed-in user and moves to the scoped list of `test_every_api_route_is_guarded.py`; `useConfirmedDiscrepancies` does not run for a non-admin; a position's link goes to the detail page for its author, to the public page for a listed strategy, and is plain text otherwise. Read in Edge as a non-admin, at desktop and narrow width.
+- [ ] G.5 D.1, the cross-user sweep (map c): one test takes the route list from the app and fails on any `/api` route with no cross-user probe, and each route has one. A route that turns out to leak is fixed in its own commit.
+- [ ] G.6 A3: a close waits for an opening in flight. Needs its design first: `_holds` reads no attempt, there is no fill yet to act on, and the shape to mirror is `OpenAfterClose`. Written into this section before any code. Risk item 4.
+- [ ] G.7 D.3, fan-out latency (map d, e): measure one signal to 20 simulated subscribers on real PostgreSQL, and write down the Binance weight for 50 users, reconciliation included. Design says a serial worker gets its concurrency raised, so this unit carries that change, deliveries only: two signals of one strategy must stay in order. Lock-hold harness. Risk item 4.
+- [ ] G.8 D.5, the price check (decision 29, map f). Migration `0037` adds to `signals` the venue's price, when it was read, and the check's result (NULL for everything older). A public ticker reader per venue, no key, with the three symbol spellings crossing the boundary. The worker reads once per signal, never per delivery, and a failed read stops nothing. The public record leaves out a trade with a strayed or unread leg, and the page says that it does. The margin comes from `measure_alert_gap.sh` and is written here before this unit starts. Risk items 1 and 2.
+- [ ] G.9 D.4 and the gate, last: `CLAUDE.md` rewritten for one key per exchange per user (lines 192-206 and 380-381; rule 4 is already per user), and `SignInGate` lets every signed-in user through, with its docstring.
+
+**Delivery.**
+- [ ] G.D.1 Gate (backend and frontend), and an independent verifier over the whole PR: it names items 1, 2 and 4.
+- [ ] G.D.2 Push and PR (owner's word), merge (owner), with a merge commit.
+- [ ] G.D.3 Rehearse `0037` on a fresh backup, deploy, then pps.6. Access unchanged.
+- [ ] G.D.4 D.2, owner-run: add one test address to the Access policy and sign in with it, by one-time PIN and by Google. Check the `email` claim on a real token, that the user is created, and that they see nothing of the owner's. Google has to be enabled as an identity provider first.
+- [ ] G.D.5 Owner-run: the Access policy admits every authenticated identity (decision 2), and seat expiration turns on (Zero Trust > Settings > Admin controls). Delivery log and "Production now".
