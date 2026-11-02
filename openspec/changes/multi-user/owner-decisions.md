@@ -212,4 +212,9 @@ These come from the owner's own words above. They are not asked again.
     - The alphabets are Latin, Cyrillic, Greek, Armenian and Cherokee, the ones with letters that pass for Latin ones or for each other. Letters of two of them refuse a name. Other scripts may sit beside them, `Ana 李` is a name, and symbols and digits do not count.
     - It is not a whole defense: a name written wholly in Cyrillic can still imitate a Latin one, `Асе` reads as `Ace`. Refusing that would refuse every Cyrillic name that happens to use those letters.
 
+33. **The price check's margin is 0.25 % (PR G planning, 2026-11-02; completes decision 29).** Set from production's own fills and stated to the owner, not asked. `measure_alert_gap.sh` read 20 live fills, all on Binance, none of them over 3 seconds after the alert: median gap 0.034 %, largest 0.145 %, none over 0.25 %.
+    - The gap measured is alert price against fill price, so it holds the order's slippage, which a ticker read does not. It is 20 fills on one exchange: Bybit and Pionex are unmeasured, and a thin market will stray further.
+    - It leans tight on purpose. An author who lies within the margin on both legs gains up to twice the margin on each trade, unseen: 0.5 % per trade here. A true trade that strays only leaves the public record.
+    - It can be widened later. The verdict is derived when the record is built, so a new margin applies to the whole history with no data change.
+
 11. **The existing data becomes the owner's (Q10, 2026-10-21; a default, stated rather than asked).** The owner becomes the first user and the admin, and owns today's strategies, keys, pools, ledger and signals. Nothing already recorded changes owner or meaning. The migration that adds the owner column fills it with the owner's user for every existing row. Like every migration, it is rehearsed on a throwaway copy first.
