@@ -52,3 +52,39 @@ def test_an_invisible_character_is_refused(raw: str) -> None:
     someone pass as another author."""
     with pytest.raises(InvalidDisplayNameError):
         normalize_display_name(raw)
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "Ana️",
+        "Ana︀",
+        "A͏na",
+        "Ana\U000e0100",
+        "Ana\U000e01ef",
+        "An឴a",
+        "An឵a",
+        "An᠋a",
+        "An᠍a",
+        "An᠏a",
+        "ㅤㅤㅤ",
+        "⠀⠀⠀",
+        "ﾠﾠﾠ",
+        "Anaᅟ",
+        "Anaᅠ",
+    ],
+    ids=ascii,
+)
+def test_a_character_nobody_can_see_is_refused(raw: str) -> None:
+    """Variation selectors are marks and the Hangul fillers are letters, so their
+    Unicode category says nothing: each draws no ink, and ``Ana<selector>`` would pass
+    the unique index beside ``Ana``."""
+    with pytest.raises(InvalidDisplayNameError):
+        normalize_display_name(raw)
+
+
+@pytest.mark.parametrize("name", ["Müller", "नमस्ते", "한글이름", "مريم"])
+def test_a_mark_that_draws_ink_is_kept(name: str) -> None:
+    """A name in a script that writes its vowels as marks stays a name: the refusal
+    lists what is blank, it does not refuse every mark."""
+    assert normalize_display_name(name) == name

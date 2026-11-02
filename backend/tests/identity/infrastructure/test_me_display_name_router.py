@@ -145,6 +145,21 @@ async def test_an_invalid_name_is_a_422_and_a_name_cannot_be_emptied(
     assert await _stored(factory, ADMIN_EMAIL) == "Ana"
 
 
+@pytest.mark.parametrize(
+    "spoof", ["Ana Lopez️", "Ana͏ Lopez", "ㅤㅤㅤ"], ids=ascii
+)
+async def test_an_invisible_character_cannot_pass_as_another_author(
+    client: AsyncClient, factory: async_sessionmaker[AsyncSession], spoof: str
+) -> None:
+    await _choose(client, OTHER_HEADERS, "Ana Lopez")
+
+    response = await client.put(ROUTE, headers=ADMIN_HEADERS, json={"display_name": spoof})
+
+    assert response.status_code == 422, ascii(response.text)
+    assert response.json()["detail"]["error"] == "DISPLAY_NAME_INVALID"
+    assert await _stored(factory, ADMIN_EMAIL) is None
+
+
 async def test_two_users_racing_for_one_name_leave_one_holder(
     client: AsyncClient, factory: async_sessionmaker[AsyncSession]
 ) -> None:
