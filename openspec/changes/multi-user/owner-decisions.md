@@ -208,4 +208,8 @@ These come from the owner's own words above. They are not asked again.
     - It lives in `compound`, which the pool and strategy curves also use, so they follow it. A day's own figure keeps its sum, -140% stays -140%.
     - A range is compounded on its own trades, so a 7D window that starts after a wipe-out still reads what those trades returned. A month or a chart window that starts from zero reads 0%.
 
+32. **A display name cannot mix alphabets whose letters look alike (PR F's verifier, 2026-11-01; amends decision 27).** `Аna Lopez` with a Cyrillic `А` passed NFKC and the unique index beside `Ana Lopez` and read the same. The owner chose "Dale, rechazá los nombres que mezclen alfabetos".
+    - The alphabets are Latin, Cyrillic, Greek, Armenian and Cherokee, the ones with letters that pass for Latin ones or for each other. Letters of two of them refuse a name. Other scripts may sit beside them, `Ana 李` is a name, and symbols and digits do not count.
+    - It is not a whole defense: a name written wholly in Cyrillic can still imitate a Latin one, `Асе` reads as `Ace`. Refusing that would refuse every Cyrillic name that happens to use those letters.
+
 11. **The existing data becomes the owner's (Q10, 2026-10-21; a default, stated rather than asked).** The owner becomes the first user and the admin, and owns today's strategies, keys, pools, ledger and signals. Nothing already recorded changes owner or meaning. The migration that adds the owner column fills it with the owner's user for every existing row. Like every migration, it is rehearsed on a throwaway copy first.

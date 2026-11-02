@@ -147,7 +147,14 @@ async def test_an_invalid_name_is_a_422_and_a_name_cannot_be_emptied(
 
 @pytest.mark.parametrize(
     "spoof",
-    ["Ana Lopez️", "Ana͏ Lopez", "ㅤㅤㅤ", "Ana Lopez\U000133fc"],
+    [
+        "Ana Lopez️",
+        "Ana͏ Lopez",
+        "ㅤㅤㅤ",
+        "Ana Lopez\U000133fc",
+        "Аna Lopez",
+        "Ana Lоpez",
+    ],
     ids=ascii,
 )
 async def test_an_invisible_character_cannot_pass_as_another_author(

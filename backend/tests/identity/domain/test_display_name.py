@@ -86,6 +86,47 @@ def test_a_character_nobody_can_see_is_refused(raw: str) -> None:
         normalize_display_name(raw)
 
 
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "Аna Lopez",  # Cyrillic A
+        "Ana Lоpez",  # Cyrillic o
+        "Αna Lopez",  # Greek Alpha
+        "Ana Lοpez",  # Greek omicron
+        "Анα",  # Cyrillic beside Greek
+        "Ana Lօpez",  # Armenian oh
+        "Ꭺna Lopez",  # Cherokee A
+    ],
+    ids=ascii,
+)
+def test_a_name_that_mixes_alphabets_of_look_alike_letters_is_refused(raw: str) -> None:
+    """The unique index tells these apart and a reader cannot (decision 32)."""
+    with pytest.raises(InvalidDisplayNameError):
+        normalize_display_name(raw)
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "Иван Петров",
+        "Νίκος",
+        "Արամ",
+        "Ana 李",
+        "Ana مريم",
+        "Иван ✝",
+        "Hawaiʻi",
+        "Ana 2",
+        "Иван 2",
+        "田中 たなか",
+    ],
+)
+def test_a_name_in_one_of_those_alphabets_is_kept(name: str) -> None:
+    """Only letters of two of those alphabets refuse a name. A symbol called "LATIN
+    CROSS" is not a letter, and a script no Latin letter can pass for may sit beside
+    them."""
+    assert normalize_display_name(name) == name
+
+
 @pytest.mark.parametrize("name", ["Müller", "नमस्ते", "한글이름", "مريم"])
 def test_a_mark_that_draws_ink_is_kept(name: str) -> None:
     """A name in a script that writes its vowels as marks stays a name: the refusal

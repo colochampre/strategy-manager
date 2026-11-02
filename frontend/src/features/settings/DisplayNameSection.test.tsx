@@ -226,7 +226,7 @@ describe("the display name, in Settings", () => {
     [
       "invalid",
       jsonResponse({ detail: { error: "DISPLAY_NAME_INVALID", message: "m" } }, 422),
-      "That name is not valid: 3 to 30 characters, with no @ and no invisible characters.",
+      "That name is not valid: 3 to 30 characters in one alphabet, with no @ and no invisible characters.",
     ],
     ["failed", jsonResponse({ detail: "boom" }, 500), "The name was not saved. Try again."],
   ])("keeps what was typed and says so when it is %s", async (_label, response, text) => {
@@ -278,7 +278,7 @@ describe("the display name, in Settings", () => {
     [
       "invalid",
       jsonResponse({ detail: { error: "DISPLAY_NAME_INVALID", message: "m" } }, 422),
-      "Ese nombre no es válido: de 3 a 30 caracteres, sin @ y sin caracteres invisibles.",
+      "Ese nombre no es válido: de 3 a 30 caracteres en un solo alfabeto, sin @ y sin caracteres invisibles.",
     ],
     ["failed", jsonResponse({ detail: "boom" }, 500), "El nombre no se guardó. Inténtelo de nuevo."],
   ])("says %s in Spanish", async (_label, response, text) => {

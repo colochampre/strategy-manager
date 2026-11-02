@@ -705,7 +705,7 @@
       "saving": "Guardando…",
       "saved": "Guardado",
       "taken": "Ese nombre ya está en uso. Elija otro.",
-      "invalid": "Ese nombre no es válido: de 3 a 30 caracteres, sin @ y sin caracteres invisibles.",
+      "invalid": "Ese nombre no es válido: de 3 a 30 caracteres en un solo alfabeto, sin @ y sin caracteres invisibles.",
       "failed": "El nombre no se guardó. Inténtelo de nuevo."
     },
     "keys": {

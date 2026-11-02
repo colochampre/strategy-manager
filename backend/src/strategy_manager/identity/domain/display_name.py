@@ -3,8 +3,9 @@
 The public list names a strategy's author, and an e-mail never reaches another
 user. The unique index on ``lower()`` can only tell apart what is spelled apart, so
 one name that looks the same must have one spelling here: compatibility forms and
-whitespace fold, and a character nobody can see is refused. Letters that merely look
-alike across alphabets are not caught.
+whitespace fold, a character nobody can see is refused, and so is a name that mixes
+alphabets whose letters look alike (decision 32). A name written wholly in one of
+them can still imitate another: ``Асе`` in Cyrillic reads as ``Ace``.
 """
 
 import unicodedata
@@ -31,8 +32,26 @@ _BLANK_RANGES = (
 )
 
 
+#: The alphabets with letters that pass for Latin ones, or for each other, as the
+#: first word of a Unicode character name. Python's ``unicodedata`` has no script
+#: property. Other scripts stay out: no letter of theirs reads as one of these.
+_LOOK_ALIKE_ALPHABETS = frozenset({"LATIN", "CYRILLIC", "GREEK", "ARMENIAN", "CHEROKEE"})
+
+
 class InvalidDisplayNameError(ValueError):
     pass
+
+
+def _alphabet(character: str) -> str | None:
+    """Letters only: U+271D is called ``LATIN CROSS`` and is a symbol."""
+    if not unicodedata.category(character).startswith("L"):
+        return None
+    first_word = unicodedata.name(character, "").split(" ", 1)[0]
+    return first_word if first_word in _LOOK_ALIKE_ALPHABETS else None
+
+
+def _mixes_alphabets(name: str) -> bool:
+    return len({_alphabet(character) for character in name} - {None}) > 1
 
 
 def _is_invisible(character: str) -> bool:
@@ -45,9 +64,9 @@ def _is_invisible(character: str) -> bool:
 def normalize_display_name(raw: str) -> str:
     """The one spelling of a name, or ``InvalidDisplayNameError``.
 
-    The last two rules are also why the name can sit next to a strategy: ``@`` keeps
-    anyone from publishing their e-mail by accident, and an invisible character would
-    let ``A<zero-width>na`` pass as ``Ana``."""
+    The last three rules are also why the name can sit next to a strategy: ``@`` keeps
+    anyone from publishing their e-mail by accident, an invisible character would let
+    ``A<zero-width>na`` pass as ``Ana``, and so would a Cyrillic ``А``."""
 
     name = " ".join(unicodedata.normalize("NFKC", raw).split())
     if not MIN_LENGTH <= len(name) <= MAX_LENGTH:
@@ -58,4 +77,6 @@ def normalize_display_name(raw: str) -> str:
         raise InvalidDisplayNameError("a name holds no @")
     if any(_is_invisible(character) for character in name):
         raise InvalidDisplayNameError("a name holds no invisible characters")
+    if _mixes_alphabets(name):
+        raise InvalidDisplayNameError("a name keeps to one alphabet")
     return name

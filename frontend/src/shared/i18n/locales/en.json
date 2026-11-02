@@ -706,7 +706,7 @@
       "saving": "Saving…",
       "saved": "Saved",
       "taken": "That name is taken. Choose another.",
-      "invalid": "That name is not valid: 3 to 30 characters, with no @ and no invisible characters.",
+      "invalid": "That name is not valid: 3 to 30 characters in one alphabet, with no @ and no invisible characters.",
       "failed": "The name was not saved. Try again."
     },
     "keys": {
