@@ -176,6 +176,48 @@ async def test_another_authors_public_strategy_can_be_subscribed_to(
     assert response.status_code == 201, response.text
 
 
+async def test_a_strategy_whose_author_has_no_name_answers_as_one_that_does_not_exist(
+    pg_session_factory: Factory,  # noqa: F811
+    client_for: ClientFor,
+) -> None:
+    """The public page answers 404 for it, and subscribing follows the page (G.2)."""
+    author_id, _ = await seeds.user(pg_session_factory)
+    unnamed = await seeds.strategy(pg_session_factory, author_id=author_id, named=False)
+    missing_id = uuid4()
+    user_id, _ = await seeds.user(pg_session_factory)
+
+    refused = await client_for(user_id).post(
+        "/api/subscriptions",
+        json={"strategy_id": str(unnamed), "allocation_percent": "30"},
+    )
+    absent = await client_for(user_id).post(
+        "/api/subscriptions",
+        json={"strategy_id": str(missing_id), "allocation_percent": "30"},
+    )
+
+    assert (refused.status_code, absent.status_code) == (404, 404)
+    assert refused.json()["detail"].replace(str(unnamed), "<id>") == absent.json()[
+        "detail"
+    ].replace(str(missing_id), "<id>")
+    assert await seeds.rows(pg_session_factory) == []
+
+
+async def test_an_author_with_no_name_subscribes_to_their_own_strategy(
+    pg_session_factory: Factory,  # noqa: F811
+    client_for: ClientFor,
+) -> None:
+    author_id, pool_id = await seeds.user(pg_session_factory)
+    strategy_id = await seeds.strategy(pg_session_factory, author_id=author_id, named=False)
+
+    response = await client_for(author_id).post(
+        "/api/subscriptions",
+        json={"strategy_id": str(strategy_id), "allocation_percent": "30"},
+    )
+
+    assert response.status_code == 201, response.text
+    assert response.json()["pool_id"] == pool_id
+
+
 async def test_an_archived_strategy_is_a_409_and_writes_nothing(
     pg_session_factory: Factory,  # noqa: F811
     client_for: ClientFor,

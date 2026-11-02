@@ -103,7 +103,12 @@ from strategy_manager.strategies.domain.pair_catalog import (
     PairsChangedConcurrently,
     UnknownPairs,
 )
-from strategy_manager.strategies.domain.strategy import FillMode, Strategy, Visibility
+from strategy_manager.strategies.domain.strategy import (
+    FillMode,
+    Strategy,
+    Visibility,
+    offered_to_others,
+)
 from strategy_manager.strategies.infrastructure.author_names import SqlAlchemyAuthorNames
 from strategy_manager.strategies.infrastructure.author_subscription_adapter import (
     SqlAlchemyAuthorSubscription,
@@ -709,15 +714,18 @@ async def get_strategy_events(
     return [EnablementEventView.of(event) for event in events]
 
 
-def _reaches_preview(
-    strategy: Strategy, user: User, subscription: Subscription | None
+async def _reaches_preview(
+    session: AsyncSession, strategy: Strategy, user: User, subscription: Subscription | None
 ) -> bool:
     """Who the preview answers: the author, whoever holds a live subscription, which
     outlasts a turn to private (decision 21), and anyone who may subscribe. Every
     figure in it is from the reader's own pool, and the market is on the public page."""
     if strategy.author_id == user.id or subscription is not None:
         return True
-    return strategy.visibility is Visibility.PUBLIC and strategy.archived_at is None
+    if strategy.archived_at is not None:
+        return False
+    author_named = await SqlAlchemyAuthorNames(session).has_display_name(strategy.author_id)
+    return offered_to_others(strategy.visibility, author_named=author_named)
 
 
 @router.get("/{strategy_id}/share-preview", response_model=SharePreviewBody)
@@ -746,7 +754,7 @@ async def preview_share(
         user.id, [strategy_id]
     )
     subscription = held.get(strategy_id)
-    if strategy is None or not _reaches_preview(strategy, user, subscription):
+    if strategy is None or not await _reaches_preview(session, strategy, user, subscription):
         raise HTTPException(status_code=404, detail="no such strategy")
     policy = strategy.policy
     pool = PoolKey(policy.exchange, policy.venue, policy.settlement_currency)

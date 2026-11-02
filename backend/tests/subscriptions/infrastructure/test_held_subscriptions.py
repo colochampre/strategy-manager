@@ -148,7 +148,7 @@ async def test_an_author_with_no_name_yet_reads_as_null(
 ) -> None:
     author, _ = await seeds.user(pg_session_factory)
     subscriber, pool = await seeds.user(pg_session_factory)
-    strategy_id = await seeds.strategy(pg_session_factory, author_id=author)
+    strategy_id = await seeds.strategy(pg_session_factory, author_id=author, named=False)
     await seeds.subscription(pg_session_factory, subscriber, strategy_id, pool or 0)
 
     held = await _only(client_for(subscriber))

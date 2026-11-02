@@ -33,10 +33,13 @@ async def strategy(
     archived: bool = False,
     visibility: str = "PUBLIC",
     author_id: UUID | None = None,
+    named: bool = True,
 ) -> UUID:
     """A strategy of ``author_id`` (the owner by default). PUBLIC unless told
     otherwise, so a subscriber who is not its author may take a place in it; the
-    column's own default is PRIVATE."""
+    column's own default is PRIVATE. Its author has a name unless ``named`` is false:
+    without one the strategy is off the list. ``users`` outlives the truncates, so a
+    name they already hold stays."""
     strategy_id = uuid4()
     if author_id is None:
         await seed_strategy(factory, strategy_id=strategy_id, enabled=not archived)
@@ -49,6 +52,14 @@ async def strategy(
             text("UPDATE strategies SET visibility = :visibility WHERE id = :id"),
             {"id": strategy_id, "visibility": visibility},
         )
+        if named:
+            await session.execute(
+                text(
+                    "UPDATE users SET display_name = COALESCE(display_name, :name) "
+                    "WHERE id = (SELECT author_id FROM strategies WHERE id = :id)"
+                ),
+                {"id": strategy_id, "name": f"Author {strategy_id.hex[:12]}"},
+            )
         if archived:
             await session.execute(
                 text("UPDATE strategies SET archived_at = now() WHERE id = :id"),

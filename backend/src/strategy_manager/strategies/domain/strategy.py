@@ -33,6 +33,14 @@ class Visibility(StrEnum):
     PRIVATE = "PRIVATE"
 
 
+def offered_to_others(visibility: Visibility, *, author_named: bool) -> bool:
+    """Whether anyone but the author may come to this strategy. What the public page
+    requires, in the terms preview and subscribe read it (tasks.md G.2); the page's
+    own read says the same in SQL, with ``archived_at``, which each of these two
+    answers in its own way."""
+    return visibility is Visibility.PUBLIC and author_named
+
+
 @dataclass(frozen=True, slots=True)
 class AllocationPercent:
     """The strategy's share of its pool's BALANCE (not availability) that
