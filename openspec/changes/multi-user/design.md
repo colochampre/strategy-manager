@@ -365,7 +365,7 @@ Sequential PRs, each cut from `main`. Every PR ships while Access admits only th
   - rule 4: the lock is keyed by pool, which includes the user;
   - "one key per exchange" becomes per user;
   - the credentials section.
-- **D.5.** The public record is checked against the venue's price (decision 29), so an author cannot post prices that never existed.
+- **D.5.** The public record reads the author's real fills (decision 34, which replaces the price check of decision 29), and a live opening is sized from the venue's price (decision 35), so an author's alert price reaches neither.
 
 Every PR follows strict TDD and the gate. Concurrency (AD7's mode race, AD5's per-pool lock) is proven on real PostgreSQL with the lock-hold harness.
 

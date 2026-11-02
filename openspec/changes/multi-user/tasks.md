@@ -1436,7 +1436,7 @@ Planned in `design.md`, "Delivery": readiness D.1 to D.5, `SignInGate` opens, th
 
 ### PR G's plan (2026-11-02)
 
-The panel opens to every signed-in user, and Access opens last. Until G.D's last step production stays what it is: Access admits the owner, plus one test address for D.2. One PR, one migration (`0037`). Owner's word per unit.
+The panel opens to every signed-in user, and Access opens last. Until G.D's last step production stays what it is: Access admits the owner, plus one test address for D.2. One PR, no migration since decision 34 replaced the price check. Owner's word per unit.
 
 **The map, read at `c8bf0d2`:**
 - **a.** `SignInGate.tsx:30` is the one line that stops a non-admin. Behind it, `/discrepancies` and `/users` are already under `AdminRoute`. Three things still assume the admin: `ExchangeTabs.tsx:40` draws no tabs for anyone else, so a user keyed on two exchanges could not switch between them; `/api/webhook-origin` answers a non-admin 403 (`webhook_origin_router.py:36`), so their issued URL carries only the path; and `useVenueFollowUp` asks `/api/reconciliation/confirmed`, which answers them 403.
@@ -1452,11 +1452,11 @@ The panel opens to every signed-in user, and Access opens last. Until G.D's last
 - **k.** Decision 10 gives an author the capital their subscribers assign. `StrategyView` carries only counts, and the capital sits on the public body, so the author of a private strategy sees none.
 
 **Decisions stated, not asked:**
-- **D.5, a price that cannot be read does not count in the public record.** Decision 29 settled that it never stops a trade, and left the record open. If it counted, a symbol no venue knows would be a way around the check. A venue outage therefore costs a true trade its place in the record, which understates and never inflates.
-- **D.5, signals from before the check still count.** Only the owner could send them (decision 29).
 - **Preview and subscribe answer as the page does** when the author has no name. An archived strategy keeps subscribe's 409.
 - **D.2 runs before Access opens**, by adding one test address to the policy, on the deployed code with the gate already open. If it fails, nobody else got in.
 - **Left out on purpose:** the 404 page that shows "loading" first (a panel-wide retry pattern that shows no wrong data), and the two panel requests of the section above.
+
+**Found on 2026-11-02, to close before sign-up opens:** a live opening is sized from the alert's price. `process_signal.py:781` passes `context.price`, which is `signals.price`, and `binance_futures_exchange.py:115` and its Bybit twin compute `granted * leverage / price` from it. An author who posts a tenth of the market price opens every live subscriber at ten times their granted margin, limited only by what the venue's margin allows. Decision 29's check would not stop it, since it only touches the public record. Harmless while the owner is the only sender.
 
 **Tasks.** Each is a work-unit commit, strict TDD.
 
@@ -1467,12 +1467,13 @@ The panel opens to every signed-in user, and Access opens last. Until G.D's last
 - [ ] G.5 D.1, the cross-user sweep (map c): one test takes the route list from the app and fails on any `/api` route with no cross-user probe, and each route has one. A route that turns out to leak is fixed in its own commit.
 - [ ] G.6 A3: a close waits for an opening in flight. Needs its design first: `_holds` reads no attempt, there is no fill yet to act on, and the shape to mirror is `OpenAfterClose`. Written into this section before any code. Risk item 4.
 - [ ] G.7 D.3, fan-out latency (map d, e): measure one signal to 20 simulated subscribers on real PostgreSQL, and write down the Binance weight for 50 users, reconciliation included. Design says a serial worker gets its concurrency raised, so this unit carries that change, deliveries only: two signals of one strategy must stay in order. Lock-hold harness. Risk item 4.
-- [ ] G.8 D.5, the price check (decision 29, map f). Migration `0037` adds to `signals` the venue's price and when the read was attempted: both NULL on anything older, and a NULL price with an attempt is an unread one. The verdict is derived when the record is built, never stored, so a new margin applies to the whole history with no data change. A public ticker reader per venue, no key, with the three symbol spellings crossing the boundary. The worker reads once per signal, never per delivery, and a failed read stops nothing. The public record leaves out a trade with a strayed or unread leg, and the page says that it does. The margin is 0.25 % (decision 33). Found in G.1, to settle in this unit: a simulated fill prints at the alert's price (`fake_exchange.py:214`, `:336`), so a crafted alert also reaches a simulated subscriber's own ledger and pages, which the check on the public record does not touch. Risk items 1 and 2.
-- [ ] G.9 D.4 and the gate, last: `CLAUDE.md` rewritten for one key per exchange per user (lines 192-206 and 380-381; rule 4 is already per user), and `SignInGate` lets every signed-in user through, with its docstring.
+- [ ] G.8 D.5, replaced by decision 34: the public record reads the author's real trades, from the ledger. Their fills per allocation, through `derive_trade`'s existing fold and never the rehearsal ones, give each trade's return, unleveraged and before fees; decisions 28 and 31 still add them up. `closed_trade_count` follows. A strategy with no real closed trade is listed with no return and says so, EN and ES. `test_the_read_runs_in_one_read_only_snapshot_and_touches_no_ledger_or_payload` and the record's module note change with it: the body still carries no amount. Risk item 3.
+- [ ] G.9 A live opening is sized from the venue's price (decision 35). Binance and Bybit read it at order-build time, as they read the leverage, and an unread price refuses that opening. A close is untouched. To settle in this unit: a simulated fill prints at the alert's price (`fake_exchange.py:214`, `:336`), so a crafted alert still reaches a simulated subscriber's own ledger and pages, and a simulated user may have no key to read a price with. The sizing path moves real money, so G.D.1's verifier reads it by name.
+- [ ] G.10 D.4 and the gate, last: `CLAUDE.md` rewritten for one key per exchange per user (lines 192-206 and 380-381; rule 4 is already per user), and `SignInGate` lets every signed-in user through, with its docstring.
 
 **Delivery.**
-- [ ] G.D.1 Gate (backend and frontend), and an independent verifier over the whole PR: it names items 1, 2 and 4.
+- [ ] G.D.1 Gate (backend and frontend), and an independent verifier over the whole PR: it names items 2, 3 and 4, and the sizing of a live order.
 - [ ] G.D.2 Push and PR (owner's word), merge (owner), with a merge commit.
-- [ ] G.D.3 Rehearse `0037` on a fresh backup, deploy, then pps.6. Access unchanged.
+- [ ] G.D.3 Deploy, then pps.6. No migration to rehearse. Access unchanged.
 - [ ] G.D.4 D.2, owner-run: add one test address to the Access policy and sign in with it, by one-time PIN and by Google. Check the `email` claim on a real token, that the user is created, and that they see nothing of the owner's. Google has to be enabled as an identity provider first.
 - [ ] G.D.5 Owner-run: the Access policy admits every authenticated identity (decision 2), and seat expiration turns on (Zero Trust > Settings > Admin controls). Delivery log and "Production now".
