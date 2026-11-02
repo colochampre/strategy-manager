@@ -17,6 +17,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from typing import Any
 from uuid import UUID, uuid4
 
 import pytest
@@ -26,7 +27,11 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from strategy_manager.allocation.domain.pool_key import PoolKey
 from strategy_manager.execution.domain.fill import REHEARSAL_FILL_ID_PREFIX
 from strategy_manager.performance.application.ports import SubmittedOrder
-from strategy_manager.performance.domain.open_position import FillAggregate, PoolLabel
+from strategy_manager.performance.domain.open_position import (
+    FillAggregate,
+    PoolLabel,
+    StrategyPage,
+)
 from strategy_manager.performance.infrastructure.open_position_facts_source import (
     SqlAlchemyOpenPositionFactsSource,
 )
@@ -269,6 +274,92 @@ async def test_the_reservation_part_is_the_grant_the_status_the_pool_and_the_ope
     )
     assert y.leverage is None, "a reservation with no recorded leverage reads null, never 1"
     assert {g.symbol for g in y.groups} == {"STXUSDT_PERP"}
+
+
+async def _page_seen_by_a_subscriber(
+    factory: async_sessionmaker[AsyncSession],
+    *,
+    visibility: str = "PUBLIC",
+    archived: bool = False,
+    author_named: bool = True,
+) -> StrategyPage | None:
+    """A strategy of another user, and the signed-in user holding a position in it.
+    ``users`` outlives the fixtures, so the author is a fresh user, never the owner."""
+    async with factory() as session:
+        author = await seed_other_user(session)
+        await session.commit()
+    strategy, allocation, _ = await _seed_allocation(factory)
+    await _sql(
+        factory,
+        "UPDATE strategies SET author_id = :author, visibility = :visibility WHERE id = :id",
+        author=author,
+        visibility=visibility,
+        id=strategy,
+    )
+    if archived:
+        await _sql(factory, "UPDATE strategies SET archived_at = now() WHERE id = :id", id=strategy)
+    if author_named:
+        await _sql(
+            factory,
+            "UPDATE users SET display_name = :name WHERE id = :id",
+            name=f"author{author.hex[:8]}",
+            id=author,
+        )
+
+    async with factory() as session:
+        facts = await SqlAlchemyOpenPositionFactsSource(session).position_facts(
+            OWNER_ID, [allocation]
+        )
+    return facts[allocation].strategy_page
+
+
+async def test_a_subscriber_reaches_the_public_page_of_a_listed_strategy(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    assert await _page_seen_by_a_subscriber(pg_session_factory) is StrategyPage.LISTED
+
+
+@pytest.mark.parametrize(
+    "off_the_list",
+    [{"visibility": "PRIVATE"}, {"archived": True}, {"author_named": False}],
+    ids=["private", "archived", "author-with-no-name"],
+)
+async def test_a_subscriber_reaches_no_page_of_a_strategy_off_the_list(
+    pg_session_factory: async_sessionmaker[AsyncSession], off_the_list: dict[str, Any]
+) -> None:
+    page = await _page_seen_by_a_subscriber(pg_session_factory, **off_the_list)
+
+    assert page is None
+
+
+@pytest.mark.parametrize("visibility", ["PRIVATE", "PUBLIC"])
+async def test_the_author_reaches_their_own_page_whatever_the_list_says(
+    pg_session_factory: async_sessionmaker[AsyncSession], ledger: FactsLedger, visibility: str
+) -> None:
+    await _sql(
+        pg_session_factory,
+        "UPDATE strategies SET visibility = :visibility WHERE id = :id",
+        visibility=visibility,
+        id=ledger.strategy_a,
+    )
+
+    async with pg_session_factory() as session:
+        facts = await SqlAlchemyOpenPositionFactsSource(session).position_facts(
+            OWNER_ID, [ledger.x]
+        )
+
+    assert facts[ledger.x].strategy_page is StrategyPage.AUTHORED
+
+
+async def test_an_archived_strategy_of_the_author_is_still_theirs_to_open(
+    pg_session_factory: async_sessionmaker[AsyncSession], ledger: FactsLedger
+) -> None:
+    async with pg_session_factory() as session:
+        facts = await SqlAlchemyOpenPositionFactsSource(session).position_facts(
+            OWNER_ID, [ledger.y]
+        )
+
+    assert facts[ledger.y].strategy_page is StrategyPage.AUTHORED
 
 
 async def test_an_allocation_that_was_not_asked_for_is_absent(

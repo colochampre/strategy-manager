@@ -17,6 +17,7 @@ from strategy_manager.performance.domain.open_position import (
     InFlightAttemptElement,
     OpenAllocationElement,
     PoolLabel,
+    StrategyPage,
 )
 from strategy_manager.performance.domain.operation import OperationFill, PricingFacts
 from strategy_manager.performance.domain.public_capital import LiveSeat
@@ -111,6 +112,7 @@ class PositionFacts:
     strategy_id: UUID
     strategy_name: str
     strategy_archived: bool
+    strategy_page: StrategyPage | None
     margin_granted: Decimal
     reservation_status: str
     leverage: Decimal | None

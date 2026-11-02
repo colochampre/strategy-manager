@@ -8,12 +8,13 @@ Three statements, each ONE statement however many rows it answers:
   missing is still a row: no attempt is dropped by a missing parent.
 * ``position_facts``, 1 of 2: the fills of the asked allocations, grouped by
   allocation, strategy, pool, symbol, side and upper-cased fee currency.
-* ``position_facts``, 2 of 2: each reservation's grant, status, strategy, pool
-  and the leverage of its OPENING attempt.
+* ``position_facts``, 2 of 2: each reservation's grant, status, strategy, pool,
+  the leverage of its OPENING attempt, and which page of the strategy this user
+  can open: its detail if they wrote it, its public page if it is listed.
 
 **One user's rows** (multi-user design AD8): every statement filters the ledger
-entries, reservations and execution attempts on ``user_id``. Strategies stay
-global: a strategy's name and archive flag are the same for every user.
+entries, reservations and execution attempts on ``user_id``. A strategy's name
+and archive flag are the same for every user; which page they reach is not.
 
 **The origin is not decided here.** Nothing in these statements tests the
 rehearsal prefix; a position's origin is the guard's two flags and nowhere else.
@@ -35,9 +36,15 @@ from sqlalchemy.orm import aliased
 
 from strategy_manager.allocation.infrastructure.models import ReservationRow
 from strategy_manager.execution.infrastructure.models import ExecutionAttemptRow
+from strategy_manager.identity.infrastructure.models import UserRow
 from strategy_manager.ledger.infrastructure.models import LedgerEntryRow
 from strategy_manager.performance.application.ports import PositionFacts, SubmittedOrder
-from strategy_manager.performance.domain.open_position import FillAggregate, PoolLabel
+from strategy_manager.performance.domain.open_position import (
+    FillAggregate,
+    PoolLabel,
+    strategy_page_of,
+)
+from strategy_manager.performance.infrastructure.public_strategies_source import LISTED
 from strategy_manager.strategies.infrastructure.models import StrategyRow
 
 _SUBMITTED = "SUBMITTED"
@@ -122,8 +129,11 @@ class SqlAlchemyOpenPositionFactsSource:
                 ReservationRow.exchange,
                 ReservationRow.venue,
                 ReservationRow.settlement_currency,
+                StrategyRow.author_id == user_id,
+                and_(*LISTED),
             )
             .join(StrategyRow, StrategyRow.id == ReservationRow.strategy_id)
+            .join(UserRow, UserRow.id == StrategyRow.author_id)
             .outerjoin(
                 ExecutionAttemptRow,
                 and_(
@@ -140,6 +150,7 @@ class SqlAlchemyOpenPositionFactsSource:
                 strategy_id=row[1],
                 strategy_name=row[2],
                 strategy_archived=bool(row[3]),
+                strategy_page=strategy_page_of(authored=bool(row[10]), listed=bool(row[11])),
                 margin_granted=Decimal(row[4]),
                 reservation_status=row[5],
                 leverage=None if row[6] is None else Decimal(row[6]),

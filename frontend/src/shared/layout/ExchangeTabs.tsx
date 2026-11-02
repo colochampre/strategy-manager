@@ -14,11 +14,10 @@ interface ExchangeTabsProps {
 }
 
 /**
- * The exchange selector of the scoped routes. Until the sign-in gate has
- * confirmed the admin there is nothing to scope, and `GET /pools` would only
- * answer 401 or 403, so it renders nothing and asks for nothing; `TopBar`
- * mounts it only on the scoped routes, which is why Settings never reads the
- * scope.
+ * The exchange selector of the scoped routes, for anyone signed in. Until the
+ * API has said who that is there is nothing to scope, and `GET /pools` would
+ * only answer 401, so it renders nothing and asks for nothing; `TopBar` mounts
+ * it only on the scoped routes, which is why Settings never reads the scope.
  *
  * The row scrolls sideways and never wraps, so a long exchange list on a phone
  * cannot push the page taller than the viewport.
@@ -37,7 +36,7 @@ interface ExchangeTabsProps {
  */
 export function ExchangeTabs({ className }: ExchangeTabsProps) {
   const me = useMe();
-  if (me.data?.isAdmin !== true) return null;
+  if (me.data === undefined) return null;
   return <ExchangeTabsBar className={className} />;
 }
 

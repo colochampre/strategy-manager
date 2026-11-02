@@ -6,9 +6,11 @@ module, and the reason each method names its columns: what is selected here is
 all that can leave. ``raw_payload``, the secret's columns and the e-mail are not
 in a statement at all.
 
-**The list has one definition.** ``_LISTED`` is what makes a strategy public:
+**The list has one definition.** ``LISTED`` is what makes a strategy public:
 ``PUBLIC``, not archived, and an author with a name. ``listings`` and ``listing``
-both read through it, so a strategy off the list is not reachable by its id.
+both read through it, so a strategy off the list is not reachable by its id. The
+open-positions read links to the public page through it too, so a link cannot lead
+to a page that answers 404.
 
 **One statement each**, ``ANY`` over the ids, whatever their number. Nothing here
 locks or writes.
@@ -45,7 +47,7 @@ from strategy_manager.strategies.infrastructure.models import StrategyRow
 from strategy_manager.subscriptions.domain.subscription import SubscriptionStatus
 from strategy_manager.subscriptions.infrastructure.models import SubscriptionRow
 
-_LISTED = (
+LISTED = (
     StrategyRow.visibility == Visibility.PUBLIC.value,
     StrategyRow.archived_at.is_(None),
     UserRow.display_name.is_not(None),
@@ -64,7 +66,7 @@ def _listings_query() -> Select[Any]:
             StrategyRow.created_at,
         )
         .join(UserRow, UserRow.id == StrategyRow.author_id)
-        .where(*_LISTED)
+        .where(*LISTED)
     )
 
 

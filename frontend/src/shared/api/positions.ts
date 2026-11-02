@@ -34,6 +34,8 @@ export interface OpenPosition {
   strategy_id: string | null;
   strategy_name: string;
   strategy_archived: boolean | null;
+  /** Which page of the strategy this user can open: their own detail, its public page, or none. */
+  strategy_page: "AUTHORED" | "LISTED" | null;
   pool: OpenPool;
   currency: string;
   markets: string[];
@@ -130,6 +132,7 @@ function isVenueDisagreement(value: unknown): value is VenueDisagreement {
 
 const POSITION_ORIGINS: readonly unknown[] = ["rehearsal", "live", "mixed"];
 const ORDER_ORIGINS: readonly unknown[] = ["rehearsal", "live", "unknown"];
+const STRATEGY_PAGES: readonly unknown[] = ["AUTHORED", "LISTED", null];
 
 function isPosition(value: unknown): value is OpenPosition {
   if (!isRecord(value)) return false;
@@ -138,6 +141,7 @@ function isPosition(value: unknown): value is OpenPosition {
     isTextOrNull(value.strategy_id) &&
     isText(value.strategy_name) &&
     (value.strategy_archived === null || typeof value.strategy_archived === "boolean") &&
+    STRATEGY_PAGES.includes(value.strategy_page) &&
     isPoolKey(value.pool) &&
     isText(value.currency) &&
     Array.isArray(value.markets) &&

@@ -236,12 +236,12 @@ describe("what a mark and a row never do", () => {
     expect(screen.getByTestId("where")).toHaveTextContent(item);
   });
 
-  it("asks only the panel's own API: the open positions and the confirmed discrepancies, and nothing of a venue", async () => {
+  it("asks only the panel's own API: who is signed in, the open positions and the confirmed discrepancies, and nothing of a venue", async () => {
     const { api } = await mountUnit();
 
     const urls = api.mock.calls.map(([url]) => String(url));
     const paths = new Set(urls.map((url) => new URL(url, "http://panel.test").pathname.replace(/^.*\/api/, "")));
-    expect([...paths].sort()).toEqual(["/positions/open", "/reconciliation/confirmed"]);
+    expect([...paths].sort()).toEqual(["/me", "/positions/open", "/reconciliation/confirmed"]);
     expect(api.unexpected).toEqual([]);
     for (const [, init] of api.mock.calls) expect((init?.method ?? "GET").toUpperCase()).toBe("GET");
   });

@@ -16,7 +16,11 @@ from strategy_manager.execution.domain.mode_origin import (
     OpenAllocationOrigin,
 )
 from strategy_manager.performance.application.ports import PositionFacts, SubmittedOrder
-from strategy_manager.performance.domain.open_position import FillAggregate, PoolLabel
+from strategy_manager.performance.domain.open_position import (
+    FillAggregate,
+    PoolLabel,
+    StrategyPage,
+)
 from strategy_manager.shared.domain.mode import Mode
 from tests.owner import OWNER_ID
 
@@ -112,6 +116,7 @@ def position_facts(
     *,
     name: str = "Alpha",
     archived: bool = False,
+    page: StrategyPage | None = StrategyPage.AUTHORED,
     margin: str = "20",
     status: str = "FILLED",
     leverage: str | None = "3",
@@ -122,6 +127,7 @@ def position_facts(
         strategy_id=strategy_id,
         strategy_name=name,
         strategy_archived=archived,
+        strategy_page=page,
         margin_granted=Decimal(margin),
         reservation_status=status,
         leverage=None if leverage is None else Decimal(leverage),

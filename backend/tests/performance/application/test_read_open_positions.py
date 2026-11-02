@@ -34,6 +34,7 @@ from strategy_manager.performance.domain.open_position import (
     OrderAction,
     OrderOrigin,
     PoolLabel,
+    StrategyPage,
 )
 from strategy_manager.performance.domain.operation import FeeAmount
 from tests.owner import OWNER_ID
@@ -106,6 +107,7 @@ async def test_a_position_carries_what_its_fills_and_its_reservation_say() -> No
     assert position.strategy_id == STRATEGY
     assert position.strategy_name == "Alpha"
     assert position.strategy_archived is False
+    assert position.strategy_page is StrategyPage.AUTHORED
     assert position.pool == POOL
     assert position.markets == ("STXUSDT",)
     assert position.origin is Origin.LIVE
@@ -247,6 +249,7 @@ async def test_a_position_with_no_facts_is_built_from_the_readers_element() -> N
     assert first.markets == ("STXUSDT",)
     assert first.strategy_id is None
     assert first.strategy_archived is None
+    assert first.strategy_page is None
     assert first.opened_at is None
     assert first.fill_count == 0
     assert first.fees is None

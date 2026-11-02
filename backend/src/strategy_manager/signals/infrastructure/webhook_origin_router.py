@@ -10,7 +10,8 @@ panel cannot work its full URL out of ``window.location``. This route tells it.
   ``null`` means "no usable value": unset and malformed read the same to the
   panel. Only the startup line (``webhook_origin_check``) tells them apart,
   which is why a malformed value is an ERROR there.
-- **Admin only on the router** (``require_admin``), as on every ``/api`` router. FastAPI does not
+- **Any signed-in user** (``current_user``, tasks.md G.4): every author builds their
+  webhook's URL from it, and it is one setting, nobody's rows. FastAPI does not
   re-apply a parent's dependencies to a bare router, so it is declared here.
 - **The body never carries the webhook secret.** The route reads one setting,
   ``webhook_public_origin``, through the pure ``parse_webhook_origin``.
@@ -23,7 +24,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
-from strategy_manager.identity.infrastructure.dependencies import require_admin
+from strategy_manager.identity.infrastructure.dependencies import current_user
 from strategy_manager.shared.config import Settings, get_settings
 from strategy_manager.signals.domain.webhook_origin import (
     InvalidWebhookOrigin,
@@ -33,7 +34,7 @@ from strategy_manager.signals.domain.webhook_origin import (
 router = APIRouter(
     prefix="/webhook-origin",
     tags=["webhook-origin"],
-    dependencies=[Depends(require_admin)],
+    dependencies=[Depends(current_user)],
 )
 
 SettingsDep = Annotated[Settings, Depends(get_settings)]

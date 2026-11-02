@@ -2,6 +2,7 @@ import { useTranslation } from "react-i18next";
 
 import { useConfirmedDiscrepancies } from "@/shared/api/discrepancies";
 import type { ConfirmedDiscrepancy } from "@/shared/api/discrepancies";
+import { useMe } from "@/shared/api/me";
 
 /** What follows a venue mark that has found its discrepancy: the words of its state, when it has any, and the link. */
 export interface VenueFollowUp {
@@ -33,11 +34,13 @@ function reasonWords(item: ConfirmedDiscrepancy, t: Translate): string | null {
  *
  * It returns null, and so makes no claim and draws no link, while the query loads, after it failed with nothing
  * read yet, and for an id in neither list (one the scan resolved between the two reads): until the lists are READ
- * a link would be a guess and the words a claim nobody checked (design § K rows 15 and 22).
+ * a link would be a guess and the words a claim nobody checked (design § K rows 15 and 22). Anyone but the admin
+ * gets null too, with no request: the lists and the page they link to are the admin's.
  */
 export function useVenueFollowUp(discrepancyId: string): VenueFollowUp | null {
   const { t } = useTranslation();
-  const confirmed = useConfirmedDiscrepancies();
+  const me = useMe();
+  const confirmed = useConfirmedDiscrepancies({ enabled: me.data?.isAdmin === true });
   if (confirmed.data === undefined) return null;
   // Under dry run the discrepancies page draws no list, so CONFIRMED rows left from a live period are neither
   // being booked (nothing books in dry run) nor anything the link could reach, in either list (cd.f10).
