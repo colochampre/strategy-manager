@@ -383,6 +383,7 @@ export function strategyRoute(id: string, name: string, overrides: Record<string
     secret_last4: "x4F2",
     subscribers: 1,
     live_subscribers: 0,
+    capital: null,
     ...overrides,
   };
   return (url) => {

@@ -43,7 +43,9 @@ function isStrategy(value: unknown): value is Strategy {
     typeof value.secret_last4 === "string" &&
     value.secret_last4.length === SECRET_LAST4_LENGTH &&
     isCount(value.subscribers) &&
-    isCount(value.live_subscribers)
+    isCount(value.live_subscribers) &&
+    // Null under the brake, when nobody trades live. Never absent.
+    (value.capital === null || typeof value.capital === "string")
   );
 }
 

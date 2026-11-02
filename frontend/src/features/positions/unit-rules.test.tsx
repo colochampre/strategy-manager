@@ -52,6 +52,7 @@ function strategy(): Strategy {
     secret_last4: "x4F2",
     subscribers: 1,
     live_subscribers: 0,
+    capital: null,
   };
 }
 

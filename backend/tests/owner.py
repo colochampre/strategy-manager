@@ -20,18 +20,21 @@ identity tests do) leaves no gap behind.
 """
 
 import hashlib
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import UUID, uuid4
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession, async_sessionmaker
 
+from strategy_manager.accounts.infrastructure.models import ExchangeCredentialRow
 from strategy_manager.allocation.application.allocate_capital import AllocateCommand
 from strategy_manager.shared.domain.mode import Mode
 from strategy_manager.shared.domain.money import Money
 
 OWNER_ID = UUID("0a1b2c3d-0000-4000-8000-00000000a0a0")
+_GARBAGE = b"not a real cipher"
+_KEY_VALIDATED_AT = datetime(2026, 9, 1, tzinfo=UTC)
 OWNER_EMAIL = "fixture-owner@example.com"
 
 
@@ -383,6 +386,51 @@ async def attempt_user_id(
         if found is not None:
             return UUID(str(found))
     return OWNER_ID
+
+
+async def seed_trade_key(
+    session: AsyncSession,
+    user_id: UUID,
+    *,
+    exchange: str = "bybit",
+    trade_capable: bool = True,
+    active: bool = True,
+) -> None:
+    """A credential row for ``user_id``. Its ciphers are garbage: only the worker
+    opens one. A user who already holds an active key on the exchange keeps it, so
+    two seats of one user seed once."""
+    held = (
+        await session.execute(
+            text(
+                "SELECT count(*) FROM exchange_credentials "
+                "WHERE user_id = :user AND exchange = :exchange AND is_active"
+            ),
+            {"user": user_id, "exchange": exchange},
+        )
+    ).scalar_one()
+    if active and held:
+        return
+    session.add(
+        ExchangeCredentialRow(
+            user_id=user_id,
+            exchange=exchange,
+            label="default",
+            is_active=active,
+            wrapped_dek=_GARBAGE,
+            dek_nonce=_GARBAGE,
+            api_key_ciphertext=_GARBAGE,
+            api_key_nonce=_GARBAGE,
+            api_secret_ciphertext=_GARBAGE,
+            api_secret_nonce=_GARBAGE,
+            api_key_last4="abcd",
+            trade_capable=trade_capable,
+            trade_capability_source="VERIFIED",
+            withdraw_check="VERIFIED",
+            validated_at=_KEY_VALIDATED_AT,
+            internal_transfer=None,
+        )
+    )
+    await session.flush()
 
 
 async def seed_snapshot(

@@ -298,6 +298,7 @@
     "row": {
       "subscribers_one": "{{count}} suscriptor, {{live}} en vivo",
       "subscribers_other": "{{count}} suscriptores, {{live}} en vivo",
+      "capital": "Capital: {{amount}} {{currency}}",
       "archived": "Archivada",
       "enable": "Activar {{name}}",
       "neverEnabled": "nunca activada",

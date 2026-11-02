@@ -13,8 +13,9 @@ both read through it, so a strategy off the list is not reachable by its id.
 **One statement each**, ``ANY`` over the ids, whatever their number. Nothing here
 locks or writes.
 
-**A seat is live on ``users.mode``.** The brake is the use case's: it is one
-value for everyone, so it never reaches a statement. A snapshot is joined on the
+**A seat is live on ``users.mode`` and a key that can trade on the market.** A seat
+with neither opens nothing. The brake is the use case's: it is one value for
+everyone, so it never reaches a statement. A snapshot is joined on the
 subscription's own pool and left-joined, because a pool with no balance read is
 still someone trading live, and adds no money.
 
@@ -30,6 +31,9 @@ from sqlalchemy import Row, Select, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from strategy_manager.accounts.infrastructure.models import PoolBalanceSnapshotRow
+from strategy_manager.accounts.infrastructure.trade_capability_adapter import (
+    has_trade_capable_key,
+)
 from strategy_manager.identity.infrastructure.models import UserRow
 from strategy_manager.performance.application.ports import PublicListing
 from strategy_manager.performance.domain.public_capital import LiveSeat
@@ -124,6 +128,7 @@ class SqlAlchemyPublicStrategiesSource:
                 PoolBalanceSnapshotRow.total,
             )
             .join(UserRow, UserRow.id == SubscriptionRow.user_id)
+            .join(StrategyRow, StrategyRow.id == SubscriptionRow.strategy_id)
             .outerjoin(
                 PoolBalanceSnapshotRow,
                 PoolBalanceSnapshotRow.pool_id == SubscriptionRow.pool_id,
@@ -132,6 +137,7 @@ class SqlAlchemyPublicStrategiesSource:
                 SubscriptionRow.strategy_id.in_(strategy_ids),
                 SubscriptionRow.status == SubscriptionStatus.ACTIVE.value,
                 UserRow.mode == Mode.LIVE.value,
+                has_trade_capable_key(SubscriptionRow.user_id, StrategyRow.exchange),
             )
         )
         found: defaultdict[UUID, list[LiveSeat]] = defaultdict(list)

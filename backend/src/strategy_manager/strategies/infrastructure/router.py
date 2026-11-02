@@ -52,6 +52,10 @@ from strategy_manager.identity.domain.user import User
 from strategy_manager.identity.infrastructure.dependencies import current_user
 from strategy_manager.ledger.application.read_symbol_holdings import ReadSymbolHoldings
 from strategy_manager.ledger.infrastructure.repository import SqlAlchemyLedgerRepository
+from strategy_manager.performance.domain.public_capital import public_capital
+from strategy_manager.performance.infrastructure.public_strategies_source import (
+    SqlAlchemyPublicStrategiesSource,
+)
 from strategy_manager.reconciliation.infrastructure.booking_proposal_repository import (
     SqlAlchemyBookingProposalRepository,
 )
@@ -214,10 +218,12 @@ class StrategyView(BaseModel):
     secret_last4: str
     # The author's total (decisions 10 and 30): everyone with an ACTIVE subscription,
     # the author and simulated subscribers included, and how many of them trade it
-    # live. ``live_subscribers`` says what the public list says, so it is 0 under
-    # the brake. Counts only: no name, no e-mail and no amount.
+    # live. ``live_subscribers`` and ``capital`` say what the public list says, on a
+    # private strategy too, so under the brake they are 0 and null. No name, no e-mail
+    # and no single seat's amount.
     subscribers: int
     live_subscribers: int
+    capital: Money | None
 
     @classmethod
     def of(
@@ -227,6 +233,7 @@ class StrategyView(BaseModel):
         subscription: Subscription | None,
         secret_last4: str,
         counts: SubscriberCounts,
+        capital: Decimal | None,
     ) -> "StrategyView":
         return cls(
             id=strategy.id,
@@ -244,6 +251,7 @@ class StrategyView(BaseModel):
             secret_last4=secret_last4,
             subscribers=counts.subscribers,
             live_subscribers=counts.live,
+            capital=capital,
         )
 
 
@@ -280,12 +288,14 @@ async def _view(
     )
     last4s = await _own(session, user).secret_last4s([strategy.id])
     counts = await _subscriber_counts(session, [strategy.id])
+    capitals = await _capitals(session, [strategy.id])
     return StrategyView.of(
         strategy,
         uptime(events, datetime.now(UTC)),
         held.get(strategy.id),
         last4s[strategy.id],
         counts[strategy.id],
+        capitals[strategy.id],
     )
 
 
@@ -551,6 +561,18 @@ async def _subscriber_counts(
     return counts
 
 
+async def _capitals(
+    session: AsyncSession, strategy_ids: Sequence[UUID]
+) -> dict[UUID, Decimal | None]:
+    """The one figure the public list shows (decisions 10 and 30), read the same way
+    for a strategy that is not on it: its author is told what their private strategy
+    holds too. Null under the brake, when nobody trades live."""
+    if get_settings().dry_run:
+        return dict.fromkeys(strategy_ids)
+    seats = await SqlAlchemyPublicStrategiesSource(session).live_seats(strategy_ids)
+    return {strategy_id: public_capital(seats.get(strategy_id, ())) for strategy_id in strategy_ids}
+
+
 def get_delete_strategy(session: SessionDep, user: CurrentUserDep) -> DeleteStrategy:
     """The real wiring, the ``get_register_strategy`` pattern: a router test
     overrides this ONE dependency."""
@@ -679,6 +701,7 @@ async def list_strategies(
     )
     last4s = await _own(session, user).secret_last4s([strategy.id for strategy in strategies])
     counts = await _subscriber_counts(session, [strategy.id for strategy in strategies])
+    capitals = await _capitals(session, [strategy.id for strategy in strategies])
     now = datetime.now(UTC)
     return [
         StrategyView.of(
@@ -687,6 +710,7 @@ async def list_strategies(
             held.get(strategy.id),
             last4s[strategy.id],
             counts[strategy.id],
+            capitals[strategy.id],
         )
         for strategy in strategies
     ]

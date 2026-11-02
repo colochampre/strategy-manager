@@ -29,7 +29,7 @@ from strategy_manager.shared.config import get_settings
 from strategy_manager.signals.infrastructure.models import SignalRow
 from tests.identity_auth import ADMIN_HEADERS, OTHER_HEADERS, seed_admin, sign_in_as_admin
 from tests.ledger.infrastructure.conftest import seed_strategy
-from tests.owner import seed_other_user, seed_pool, seed_snapshot
+from tests.owner import seed_other_user, seed_pool, seed_snapshot, seed_trade_key
 
 MARKET = ("bybit", "usdt-m", "USDT")
 OTHER_MARKET = ("bybit", "spot", "USDT")
@@ -149,11 +149,15 @@ async def _subscribe(
     share: str,
     total: str | None,
     status: str = "ACTIVE",
+    key: bool = True,
 ) -> UUID:
-    """``user``'s subscription through a pool of their own on ``MARKET``. Half the
-    balance is free, so a read of ``available`` instead of the total shows."""
+    """``user``'s subscription through a pool of their own on ``MARKET``, with a key
+    that can trade there unless ``key`` is false. Half the balance is free, so a read
+    of ``available`` instead of the total shows."""
     subscription = uuid4()
     async with factory() as session:
+        if key:
+            await seed_trade_key(session, user)
         pool = await seed_pool(session, MARKET, user_id=user)
         if total is not None:
             await seed_snapshot(
@@ -471,6 +475,36 @@ async def test_a_simulated_subscriber_shows_no_money_at_no_risk(
     strategy_id = await _strategy(pg_session_factory, await _new_user(pg_session_factory))
     simulating = await _new_user(pg_session_factory, mode="SIMULATION")
     await _subscribe(pg_session_factory, simulating, strategy_id, share="50", total="400")
+
+    listed = await api.page(strategy_id)
+
+    assert listed["live_subscribers"] == 0
+    assert Decimal(listed["capital"]) == 0
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        pytest.param(None, id="no key at all"),
+        pytest.param({"trade_capable": False}, id="a read-only key"),
+        pytest.param({"active": False}, id="a key that was replaced or deleted"),
+        pytest.param({"exchange": "pionex"}, id="a key on another exchange"),
+    ],
+)
+async def test_a_seat_whose_key_cannot_trade_there_is_not_trading_live(
+    key: dict[str, Any] | None, pg_session_factory: Factory, api: _Api
+) -> None:
+    """A live seat with no key that trades on the market opens nothing, however much
+    its pool holds (tasks.md G.3, decision 30)."""
+    strategy_id = await _strategy(pg_session_factory, await _new_user(pg_session_factory))
+    subscriber = await _new_user(pg_session_factory)
+    await _subscribe(
+        pg_session_factory, subscriber, strategy_id, share="50", total="400", key=False
+    )
+    if key is not None:
+        async with pg_session_factory() as session:
+            await seed_trade_key(session, subscriber, **key)
+            await session.commit()
 
     listed = await api.page(strategy_id)
 

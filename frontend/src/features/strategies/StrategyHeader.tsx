@@ -3,6 +3,7 @@ import { Webhook } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router";
 
+import { AuthorCapital } from "@/features/strategies/AuthorCapital";
 import { StrategyTitle } from "@/features/strategies/StrategyTitle";
 import { UptimeSummary } from "@/features/strategies/UptimeSummary";
 import { WebhookMessage } from "@/features/strategies/WebhookMessage";
@@ -70,6 +71,7 @@ export function StrategyHeader({ strategy }: StrategyHeaderProps) {
       <p data-testid="strategy-subscribers" className="font-mono text-xs text-ink-2">
         {t("strategies.row.subscribers", { count: strategy.subscribers, live: strategy.live_subscribers })}
       </p>
+      <AuthorCapital strategy={strategy} className="font-mono text-xs text-ink-2" />
       <div id={panelId} className="mt-2">
         {open && <WebhookMessage strategyId={strategy.id} secretLast4={strategy.secret_last4} archived={archived} />}
       </div>

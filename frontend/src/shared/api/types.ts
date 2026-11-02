@@ -161,7 +161,8 @@ export interface Subscription {
  * `archived_at` is null while the strategy is live. `secret_last4` is the last four characters of its
  * webhook secret, the only part of it the API ever serves again: the panel masks the secret with them.
  * `subscribers` counts every ACTIVE subscription, the author's and simulated ones included, and
- * `live_subscribers` those trading it live, 0 under the brake (decisions 10 and 30).
+ * `live_subscribers` those trading it live, 0 under the brake (decisions 10 and 30). `capital` is the one
+ * figure the public list shows, private strategies included, and null under the brake.
  */
 export interface Strategy {
   id: string;
@@ -179,6 +180,7 @@ export interface Strategy {
   secret_last4: string;
   subscribers: number;
   live_subscribers: number;
+  capital: string | null;
 }
 
 /**
