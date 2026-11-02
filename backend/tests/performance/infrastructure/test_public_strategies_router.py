@@ -35,6 +35,7 @@ MARKET = ("bybit", "usdt-m", "USDT")
 OTHER_MARKET = ("bybit", "spot", "USDT")
 T0 = datetime(2026, 9, 1, 12, tzinfo=UTC)
 LIST = "/api/public/strategies"
+ROUTER_LOGGER = "strategy_manager.performance.infrastructure.public_strategies_router"
 
 #: A body is an explicit list. Anything added to it has to be added here too.
 BODY_KEYS = {
@@ -194,7 +195,7 @@ class _Api:
                 yield session
 
         app.dependency_overrides[shared_db.get_session] = _session
-        transport = ASGITransport(app=app)
+        transport = ASGITransport(app=app, raise_app_exceptions=False)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             return await client.get(path, headers=headers)
 
@@ -641,6 +642,69 @@ async def test_the_author_of_a_strategy_off_the_list_gets_the_same_404(
     response = await api.get(f"{LIST}/{private}", ADMIN_HEADERS)
 
     assert response.status_code == 404
+
+
+async def _crafted_record(factory: Factory, strategy_id: UUID) -> None:
+    """Two days of the widest prices a signal can hold (tasks.md G.1). An alert's
+    price is whatever its sender writes, and compounded this return needs more
+    digits than the wire can round."""
+    for day in range(2):
+        opened = T0 + timedelta(days=day)
+        await _signal(
+            factory, strategy_id, position_size="1", price="0.000000000000000001", at=opened
+        )
+        await _signal(
+            factory,
+            strategy_id,
+            position_size="0",
+            price="99999999999999999999",
+            at=opened + timedelta(hours=1),
+        )
+
+
+async def test_one_strategy_the_wire_cannot_write_leaves_the_rest_of_the_list(
+    pg_session_factory: Factory, api: _Api
+) -> None:
+    author = await _new_user(pg_session_factory)
+    crafted = await _strategy(pg_session_factory, author, created_at=T0)
+    honest = await _strategy(pg_session_factory, author, created_at=T0 + timedelta(hours=1))
+    await _crafted_record(pg_session_factory, crafted)
+
+    response = await api.get(LIST)
+
+    assert response.status_code == 200
+    assert [each["id"] for each in response.json()] == [str(honest)]
+
+
+async def test_the_page_of_a_strategy_the_wire_cannot_write_answers_as_off_the_list(
+    pg_session_factory: Factory, api: _Api
+) -> None:
+    author = await _new_user(pg_session_factory)
+    crafted = await _strategy(pg_session_factory, author)
+    await _crafted_record(pg_session_factory, crafted)
+
+    response = await api.get(f"{LIST}/{crafted}")
+    unknown = await api.get(f"{LIST}/{uuid4()}")
+
+    assert response.status_code == 404
+    assert response.json() == unknown.json()
+
+
+async def test_a_strategy_left_out_for_its_return_says_so_in_the_log(
+    pg_session_factory: Factory, api: _Api, caplog: pytest.LogCaptureFixture
+) -> None:
+    author = await _new_user(pg_session_factory)
+    crafted = await _strategy(pg_session_factory, author)
+    await _crafted_record(pg_session_factory, crafted)
+
+    with caplog.at_level("WARNING", logger=ROUTER_LOGGER):
+        await api.get(LIST)
+
+    assert [
+        record.getMessage()
+        for record in caplog.records
+        if record.name == ROUTER_LOGGER and str(crafted) in record.getMessage()
+    ], "nothing says why a strategy left the list"
 
 
 async def test_another_user_reads_a_public_strategy(
