@@ -204,4 +204,8 @@ These come from the owner's own words above. They are not asked again.
     - Stated to the owner, not asked: it counts only those trading live, like decision 15's count, because a simulation reads the real balance (decision 13) and would show money at no risk. The subscribe step says that the capital joins a public sum.
     - The author still sees their total of subscribers, simulated ones included (decision 10).
 
+31. **A compounded return stops at -100% (PR F's verifier, 2026-11-01; amends decision 28).** A day's trades are summed, and each reads as if the whole capital were on it, so a day can pass -100%: twenty pairs at -7% sum to -140%. Compounded as it stood, two such days multiply into a gain, and thirty pairs at -7% on each of two days read +21%. The owner chose "Dale, piso de -100%": a day that loses everything leaves the index at zero, and it stays there, so a strategy's public record never comes back from it.
+    - It lives in `compound`, which the pool and strategy curves also use, so they follow it. A day's own figure keeps its sum, -140% stays -140%.
+    - A range is compounded on its own trades, so a 7D window that starts after a wipe-out still reads what those trades returned. A month or a chart window that starts from zero reads 0%.
+
 11. **The existing data becomes the owner's (Q10, 2026-10-21; a default, stated rather than asked).** The owner becomes the first user and the admin, and owns today's strategies, keys, pools, ledger and signals. Nothing already recorded changes owner or meaning. The migration that adds the owner column fills it with the owner's user for every existing row. Like every migration, it is rehearsed on a throwaway copy first.

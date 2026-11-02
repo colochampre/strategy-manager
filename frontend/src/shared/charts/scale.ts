@@ -189,8 +189,10 @@ export function windowStartDate(nowMs: number, days: number): string {
  * The days on or after `from`, rebased so the window starts at zero: each index
  * is divided by the last index BEFORE the window (1 when none precedes it, the
  * server's E_0), and the drawdown is measured from the running peak inside the
- * window, which starts at that rebased 1. `from === null` is the whole series,
- * kept exactly as the server wrote it. Ratio arithmetic for display only.
+ * window, which starts at that rebased 1. An index of zero stays at zero
+ * (decision 31), so a window that starts there has nothing to rebase on and reads
+ * flat. `from === null` is the whole series, kept exactly as the server wrote it.
+ * Ratio arithmetic for display only.
  */
 export function sliceAndRebase(days: readonly IndexDay[], from: string | null): ReturnDay[] {
   if (from === null) {
@@ -205,7 +207,7 @@ export function sliceAndRebase(days: readonly IndexDay[], from: string | null): 
   }
   let peak = 1;
   return inside.map((day) => {
-    const rebased = day.index / base;
+    const rebased = base === 0 ? 1 : day.index / base;
     peak = Math.max(peak, rebased);
     return { date: day.date, cumulative: rebased - 1, drawdown: rebased / peak - 1 };
   });

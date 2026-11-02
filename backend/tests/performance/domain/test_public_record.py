@@ -196,6 +196,19 @@ class TestTheRecord:
 
         assert build_public_record(signals).total_return == Decimal(0)
 
+    def test_two_days_of_losses_past_everything_read_minus_100_percent(self) -> None:
+        """Decision 31: thirty pairs at -7% on each of two days read +21% before the floor."""
+        signals = [
+            step
+            for offset in range(2)
+            for number in range(30)
+            for step in trade_closing_at(
+                START + timedelta(days=offset), "-0.07", symbol=f"P{number}USDT.P"
+            )
+        ]
+
+        assert build_public_record(signals).total_return == Decimal(-1)
+
     def test_two_percent_on_five_pairs_in_one_day_shows_ten_percent(self) -> None:
         signals = [
             step

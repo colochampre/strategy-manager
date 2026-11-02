@@ -187,11 +187,15 @@ def daily_returns(trades: Sequence[ClosedTrade]) -> tuple[DailyReturn, ...]:
 
 
 def compound(daily: Sequence[DailyReturn]) -> tuple[IndexPoint, ...]:
-    """``E_d = E_(d-1) * (1 + R_d)`` from ``E_0 = 1``."""
+    """``E_d = E_(d-1) * max(1 + R_d, 0)`` from ``E_0 = 1``.
+
+    ``R_d`` is a sum, so it can pass -100%. A day that loses everything leaves the
+    index at zero, where it stays (decision 31): two negative factors would otherwise
+    multiply into a gain. ``daily_return`` keeps the day's own sum."""
     index = _ONE
     points: list[IndexPoint] = []
     for entry in daily:
-        index = index * (_ONE + entry.value)
+        index = index * max(_ONE + entry.value, _ZERO)
         points.append(IndexPoint(entry.day, entry.value, index))
     return tuple(points)
 
@@ -210,7 +214,8 @@ def drawdowns(points: Sequence[IndexPoint]) -> tuple[Decimal, ...]:
 
 def monthly_grid(points: Sequence[IndexPoint]) -> tuple[MonthReturn, ...]:
     """One entry per UTC month that has at least one closed day, oldest first.
-    A month with no closing trade is absent rather than a fabricated 0%."""
+    A month with no closing trade is absent rather than a fabricated 0%. A month that
+    starts from an index of zero has nothing to return on, so it reads 0%."""
     month_end: dict[tuple[int, int], Decimal] = {}
     for point in points:
         month_end[(point.day.year, point.day.month)] = point.index
@@ -218,7 +223,8 @@ def monthly_grid(points: Sequence[IndexPoint]) -> tuple[MonthReturn, ...]:
     previous_end = _ONE
     months: list[MonthReturn] = []
     for (year, month), end in sorted(month_end.items()):
-        months.append(MonthReturn(year, month, end / previous_end - _ONE))
+        value = end / previous_end - _ONE if previous_end else _ZERO
+        months.append(MonthReturn(year, month, value))
         previous_end = end
     return tuple(months)
 
