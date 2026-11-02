@@ -6,12 +6,12 @@ Sequential PRs A-G (`design.md`, "Delivery"), each cut from `main`. Every PR shi
 
 ## Production now
 
-- 2026-11-01: main `44099dd`, panel bundle `44099dd99af1`, alembic `0035`, certifi `2026.10.23`.
+- 2026-11-02: main `60e5fb3`, panel bundle `60e5fb33a2d6`, alembic `0036`, certifi `2026.10.23`.
 - `DRY_RUN=false`.
 - Access admits only the owner. The API verifies the Access assertion itself; `ADMIN_API_TOKEN` is gone from `.env`.
-- `users` holds one row, the owner's, created by their first `/api/me`. Every owned row is that user's, and every strategy's `author_id` is theirs.
+- `users` holds one row, the owner's, created by their first `/api/me`, and they have chosen their display name. Every owned row is that user's, and every strategy's `author_id` is theirs.
 - Every strategy is traded through its author's subscription: 3 `ACTIVE` at 30 % and 3 `ENDED` (archived) at 5 %. Each signal has one delivery (58 of each at PR E's rehearsal). `strategies.allocation_percent` is gone (0033). The owner reads `LIVE` (0035).
-- Every strategy has its own webhook secret hash, today the hash of the old global `WEBHOOK_SECRET`, so the TradingView alerts kept their URL. The active strategies are `PUBLIC`: the owner's word, 2026-11-01, not read from the database. 0033 started them `PRIVATE`. None had been regenerated at 0034 (it refuses otherwise), so each holds that secret's last four. `GET /api/webhook-secret` no longer exists.
+- Every strategy has its own webhook secret hash, today the hash of the old global `WEBHOOK_SECRET`, so the TradingView alerts kept their URL. The 3 active strategies are `PUBLIC` and the 3 archived ones `PRIVATE`, read from the database on 2026-11-02. 0033 started them `PRIVATE`. None had been regenerated at 0034 (it refuses otherwise), so each holds that secret's last four. `GET /api/webhook-secret` no longer exists.
 - The worker reports one enabled pool and one sealed key, Binance's.
 
 ## Delivery log
@@ -27,6 +27,7 @@ Sequential PRs A-G (`design.md`, "Delivery"), each cut from `main`. Every PR shi
 | #90 | PR D2: the webhook secret masked with its last four characters, the visibility beside the settings heading, migration 0034 | `ddf8262` (parents `d75e5a4`, `e8e636c`) | 2026-10-30, see "PR D2's delivery" |
 | #91 | PR E: the mode belongs to the user, the mode badge and dialog, migration 0035 | `c9b7ec0` (parents `ddf8262`, `70d5026`) | 2026-10-31, see "PR E's delivery" |
 | #92 | PR E2: what must close before PR F, no migration | `44099dd` (parents `c9b7ec0`, `7ef2468`) | 2026-11-01, see "PR E2's delivery" |
+| #93 | PR F: display names, the public record and list, Explore, Subscribe and Leave, the admin's users list, migration 0036 | `60e5fb3` (parents `44099dd`, `1c48808`) | 2026-11-02, see "PR F's delivery" |
 
 ## PR A: identity from Cloudflare Access
 
@@ -1399,13 +1400,35 @@ Branch `feat/multi-user-public-list`, cut from `main` at `44099dd`; it carries P
   - `useNavItems` offers the admin's items only once `/api/me` says so, so a stranger never sees them flash by. The bottom bar holds five cells for the admin.
   - A real server answered the list with exactly the eight keys, on `strategy_manager_review`. The page was read in Edge in Spanish at desktop and 500 px wide, under the brake, with and without a key. 390 px was not seen: headless Edge does not go below 500 and an iframe did not draw the app. Open positions were 0 for everyone there, so a nonzero count is proven by the integration tests only.
   - Mutations: 25 of `mutate_f7a.ps1` on the backend and 48 of `mutate_f7b.ps1` on the panel, all killed and restored. Two panel survivors were real gaps, an entry that is not an object and `/users` outside its guard, and each got a test.
-- [ ] F.D Gate, independent verifier (a migration, and a read that crosses users on purpose), `rehearse_0036.sh` on a fresh backup, which also prints `visibility` by archived state, since `PUBLIC` in "Production now" is the owner's word, and its deploy script, every query exercised locally. Then push and PR on the owner's word, merge, deploy, the API's restart before pps.6 (a panel ahead of the API would offer a form whose route does not exist yet), the owner chooses their name, delivery log.
+- [x] F.D Gate, independent verifier (a migration, and a read that crosses users on purpose), `rehearse_0036.sh` on a fresh backup, which also prints `visibility` by archived state, since `PUBLIC` in "Production now" is the owner's word, and its deploy script, every query exercised locally. Then push and PR on the owner's word, merge, deploy, the API's restart before pps.6 (a panel ahead of the API would offer a form whose route does not exist yet), the owner chooses their name, delivery log.
   - Gate after decisions 31 and 32, the last code of the PR: ruff 0, mypy 0, pytest exit 0 with no failing test; frontend lint 0, 117 files, 3,163 tests passed.
   - Verifier (Opus, at `65c44ac`): one blocker, B1. An invisible character passed `normalize_display_name`, because the check read only the `C*` categories while variation selectors are marks and the Hangul fillers are letters: `PUT /api/me/display-name` took `Ana Lopez` plus U+FE0F beside the real holder. Fixed in `6420df6`. The recheck found the same blocker on U+133FC, which draws no ink in Edge through the panel's fonts although Unicode gives it a glyph, so a second correction, `d427b8e`, refuses it and U+FFFC. That recheck's sweep over Unicode 15: of 267 Default_Ignorable code points outside the `C*` categories, none is accepted. `d427b8e` was proven by its own tests and mutations, with no third verifier run. Other browsers and fonts were not checked.
   - Closed from its advisories: `/api/admin` is `no-store` on every status and the flaky `37.5` test reads a share no clock's seconds can spell (`096925a`), a saved share refreshes the public capital (`674cb9b`), and `rehearse_0036.sh` prints the database locale and whether `lower()` folds an accented capital. Mutations: 19 of `mutate_fd.ps1`, all killed and restored. `rehearse_local_0036.py` answered `LOCAL RESULT: ok` after the locale lines were added.
   - Decision 32: a name cannot mix Latin, Cyrillic, Greek, Armenian or Cherokee letters, since Cyrillic `Аna Lopez` passed NFKC and the unique index beside `Ana Lopez` and read the same. A name wholly in one of them can still imitate another. Mutations: 8 of `mutate_fd3.ps1`.
   - Decision 31: a compounded return stops at -100%, in `compound`, so the public record, the pool and strategy curves, ranges and pairs all follow it. `monthly_grid` and `sliceAndRebase` would have divided by the zero the floor makes possible, so a month or a chart window that starts from zero reads 0%. Mutations: 8 of `mutate_fd2.ps1`.
   - Open, recorded under PR G: one strategy of crafted prices can answer 500 for the whole public list, a `PUBLIC` strategy of an unnamed author is reachable by id through preview and subscribe, a deleted key's seat still counts as live capital, `useVenueFollowUp` sends a non-admin to a page that says not found, and an author sees no capital sum on a private strategy. A 404 public page shows "loading" first, because the default `QueryClient` retries: a panel-wide pattern.
+
+### PR F's delivery
+
+PR #93 merged 2026-11-02 03:14 UTC as `60e5fb33a2d6`, with a merge commit. One migration, no dependency changed, 142 files, 74 of them in `frontend/`.
+
+**PR F's deploy, 2026-11-02** (owner-run):
+1. Pull as `strategy`, checkout `60e5fb33a2d6`.
+2. `rehearse_0036.sh` on a fresh backup, `/root/sm_pre0036_20261102_0320.dump`: clean through upgrade, downgrade and upgrade again. Locale `en_US.UTF-8`, and `lower()` folds an accented capital. The real rows gave 3 strategies on the public list, each with 1 live subscriber and capital `328.12`, and 1 user on the admin's list.
+3. `deploy_0036.sh`, 202 minutes into the 4h candle, 03:22 UTC (the script prints the VPS's clock, one hour ahead). Backup `/root/sm_pre0036_deploy_20261102_0322.dump`, alembic `0035` to `0036`, nobody named, the guard exits 0, both services active. The webhook and both new routes answer 401 unsigned. The only lines the WARNING/ERROR grep matched are the two `INFO` alert lines, known noise.
+4. pps.6 after the API: `60e5fb33a2d6`, SHA-256 `a216e0246964ae007df99f2c41d39efaa682798c50062d3df3b202db0fb0eb1e`. `/root/panel-60e5fb33a2d6.tgz: OK`, `readable`, `bundle:   60e5fb33a2d6`, `checkout: 60e5fb33a2d6`.
+5. The owner chose their name and read the capital on Explore, `328.12 USDT`, its first reading on a running server. They confirmed the delivery as correct.
+
+**Not seen in production:** nobody but the owner can reach any of this until PR G, so a subscribe and a leave by another user, a name refused for real, and a public page read by a stranger stay proven by tests only.
+
+**Asked by the owner on reading it, for the delivery they belong to:** see "Panel requests pending" below.
+
+## Panel requests pending
+
+Asked by the owner on 2026-11-02, after PR F's deploy, not built. Neither blocks PR G. Verbatim:
+
+- "En strategies/explore agregaría a cada item age, closed trades, return... etc, un icono. La página se apoya demasiado en textos y debería empezar a aligerarse con más iconos que hablen por sí solos, y a lo sumo agregarles tooltips al pasar el mouse por encima para el que quiera corroborar de qué se trata. Todo lo que sea información sensible o que no se pueda malinterpretar que quede como textual, pero lo que no lo sea, puede pasar a este formato. No solo en strategies/explore sino en general, para que todo siga las mismas reglas."
+- "Además, el botón de Leave en strategies my subscriptions, debería ser rojo, como el boton de delete key en settings. Sino tiene el mismo peso que el boton de change share."
 
 ## PR G
 
