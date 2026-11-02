@@ -13,8 +13,10 @@ MIN_LENGTH = 3
 MAX_LENGTH = 30
 
 #: What draws no ink although its Unicode category is a mark, a letter or a symbol:
-#: Default_Ignorable_Code_Point outside the ``C*`` categories, plus the braille blank.
-#: Read after NFKC, which folds U+3164 and U+FFA0 into U+1160.
+#: Default_Ignorable_Code_Point outside the ``C*`` categories, the braille blank, and
+#: two that Unicode draws but a browser may not. U+133FC draws nothing in Edge on
+#: Windows through the panel's fonts (seen 2026-11-01), so it reads as a space or as
+#: no character at all. Read after NFKC, which folds U+3164 and U+FFA0 into U+1160.
 _BLANK_RANGES = (
     (0x034F, 0x034F),  # combining grapheme joiner
     (0x115F, 0x1160),  # Hangul fillers
@@ -23,6 +25,8 @@ _BLANK_RANGES = (
     (0x180F, 0x180F),  # Mongolian variation selector four
     (0x2800, 0x2800),  # braille blank
     (0xFE00, 0xFE0F),  # variation selectors
+    (0xFFFC, 0xFFFC),  # object replacement character
+    (0x133FC, 0x133FC),  # Egyptian hieroglyph Z015B
     (0xE0100, 0xE01EF),  # variation selectors supplement
 )
 

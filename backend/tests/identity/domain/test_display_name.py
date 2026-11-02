@@ -72,6 +72,9 @@ def test_an_invisible_character_is_refused(raw: str) -> None:
         "ﾠﾠﾠ",
         "Anaᅟ",
         "Anaᅠ",
+        "Ana Lopez\U000133fc",
+        "Ana\U000133fcLopez",
+        "Ana￼",
     ],
     ids=ascii,
 )
