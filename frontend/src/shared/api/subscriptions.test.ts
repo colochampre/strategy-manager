@@ -178,6 +178,7 @@ describe("useSetSubscriptionShare", () => {
       ["strategies"],
       ["strategy", ID],
       ["subscriptions", "held"],
+      ["public-strategies"],
     ]);
   });
 
@@ -194,6 +195,7 @@ describe("useSetSubscriptionShare", () => {
       ["strategies"],
       ["strategy", ID],
       ["subscriptions", "held"],
+      ["public-strategies"],
     ]);
   });
 

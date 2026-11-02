@@ -67,6 +67,7 @@ export function useSetSubscriptionShare(strategyId: string, subscriptionId: stri
       await queryClient.invalidateQueries({ queryKey: ["strategies"] });
       await queryClient.invalidateQueries({ queryKey: ["strategy", strategyId] });
       await queryClient.invalidateQueries({ queryKey: HELD_KEY });
+      await queryClient.invalidateQueries({ queryKey: ["public-strategies"] });
     },
   });
 }

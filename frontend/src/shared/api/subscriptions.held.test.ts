@@ -184,4 +184,20 @@ describe("what a change makes stale", () => {
 
     await waitFor(() => expect(client.getQueryState(["subscriptions", "held"])?.isInvalidated).toBe(true));
   });
+
+  it("a saved share reaches the public capital", async () => {
+    stubFetch(jsonResponse(subscriptionOf(STRATEGY_ID, "25")));
+    const { client, wrapper } = clientWrapper();
+    holdEveryRead(client);
+    const { result } = renderHook(() => useSetSubscriptionShare(STRATEGY_ID, SUBSCRIPTION_ID), { wrapper });
+
+    await act(async () => {
+      await result.current.mutateAsync("25");
+    });
+
+    await waitFor(() => {
+      expect(client.getQueryState(["public-strategies"])?.isInvalidated).toBe(true);
+      expect(client.getQueryState(["public-strategies", STRATEGY_ID])?.isInvalidated).toBe(true);
+    });
+  });
 });
