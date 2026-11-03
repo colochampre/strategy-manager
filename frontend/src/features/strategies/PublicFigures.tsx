@@ -56,9 +56,10 @@ export function PublicOrigin({ strategy }: Pick<PublicFiguresProps, "strategy">)
 }
 
 /**
- * The public record (decisions 28 and 30): age, closed trades, the return, how many trade it live and the one
- * capital figure. A return is only claimed once a trade has closed, and a capital that is absent, under the
- * server's brake, is told apart from a capital of zero.
+ * The public record (decisions 28, 30 and 34): age, closed trades, the return, how many trade it live and the
+ * one capital figure. A return is only claimed once a real trade of the author's has closed, and until then the
+ * figure says so in words. A capital that is absent, under the server's brake, is told apart from a capital of
+ * zero.
  */
 export function PublicFigures({ strategy, returnInfo, capitalInfo }: PublicFiguresProps) {
   const { t, i18n } = useTranslation();
@@ -76,7 +77,13 @@ export function PublicFigures({ strategy, returnInfo, capitalInfo }: PublicFigur
       <Figure
         label={t("strategies.public.return")}
         testId="public-return"
-        value={ratio === null ? NO_FIGURE : percentText(ratio, i18n.language)}
+        value={
+          strategy.closed_trade_count === 0
+            ? t("strategies.public.noRealTrade")
+            : ratio === null
+              ? NO_FIGURE
+              : percentText(ratio, i18n.language)
+        }
         tone={ratio === null ? undefined : toneClass(ratio)}
         info={returnInfo}
       />

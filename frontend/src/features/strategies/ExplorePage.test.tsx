@@ -71,14 +71,18 @@ describe("Explore", () => {
     expect(await screen.findByTestId("public-age")).toHaveTextContent(i18n.t("strategies.public.ageDays", { count: 10 }));
   });
 
-  it("claims no return before a trade has closed", async () => {
+  it("claims no return before a real trade has closed, and says so in words", async () => {
     serve(() =>
       Promise.resolve(jsonResponse([publicStrategy({ closed_trade_count: 0, unleveraged_return_before_fees: "0" })])),
     );
     open();
 
     expect(await screen.findByTestId("public-trades")).toHaveTextContent("0");
-    expect(screen.getByTestId("public-return")).toHaveTextContent("—");
+    const figure = screen.getByTestId("public-return");
+    expect(figure).toHaveTextContent(i18n.t("strategies.public.noRealTrade"));
+    expect(figure).not.toHaveTextContent("0");
+    expect(figure).not.toHaveClass("text-gain");
+    expect(figure).not.toHaveClass("text-loss");
   });
 
   it("under the brake shows no capital and says why", async () => {

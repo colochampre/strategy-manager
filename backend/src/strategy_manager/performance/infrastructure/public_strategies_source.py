@@ -1,5 +1,5 @@
 """``SqlAlchemyPublicStrategiesSource``: the read that crosses users on purpose
-(tasks.md F.4, decisions 27 and 30).
+(tasks.md F.4 and G.8, decisions 27, 30 and 34).
 
 **No method takes a user.** That is the difference from every other read of this
 module, and the reason each method names its columns: what is selected here is
@@ -21,27 +21,34 @@ everyone, so it never reaches a statement. A snapshot is joined on the
 subscription's own pool and left-joined, because a pool with no balance read is
 still someone trading live, and adds no money.
 
-No ledger module is imported: a public figure comes from signals.
+**The record reads the author's real fills** (decision 34): ledger rows whose
+user is the strategy's author and whose fill id does not carry the rehearsal
+prefix, the same mark ``SqlAlchemyAllocationFillsSource`` sorts by. Only their
+sums leave, and only as far as the record, which turns them into a ratio: no
+amount reaches a public body. No signal is read, so an alert's price cannot
+build a record.
 """
 
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
+from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import Row, Select, select
+from sqlalchemy import Row, Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from strategy_manager.accounts.infrastructure.models import PoolBalanceSnapshotRow
 from strategy_manager.accounts.infrastructure.trade_capability_adapter import (
     has_trade_capable_key,
 )
+from strategy_manager.execution.domain.fill import REHEARSAL_FILL_ID_PREFIX
 from strategy_manager.identity.infrastructure.models import UserRow
+from strategy_manager.ledger.infrastructure.models import LedgerEntryRow
 from strategy_manager.performance.application.ports import PublicListing
+from strategy_manager.performance.domain.closed_trade import FillGroup
 from strategy_manager.performance.domain.public_capital import LiveSeat
-from strategy_manager.performance.domain.public_record import RecordSignal
 from strategy_manager.shared.domain.mode import Mode
-from strategy_manager.signals.infrastructure.models import SignalRow
 from strategy_manager.strategies.domain.strategy import Visibility
 from strategy_manager.strategies.infrastructure.models import StrategyRow
 from strategy_manager.subscriptions.domain.subscription import SubscriptionStatus
@@ -100,25 +107,64 @@ class SqlAlchemyPublicStrategiesSource:
         ).one_or_none()
         return None if row is None else _listing(row)
 
-    async def signals(self, strategy_ids: Sequence[UUID]) -> Mapping[UUID, Sequence[RecordSignal]]:
-        """Every stored signal of each strategy, whatever its status, by
-        ``received_at`` and then ``id``: two signals of one instant read the same
-        way on every request."""
+    async def author_fills(
+        self, strategy_ids: Sequence[UUID]
+    ) -> Mapping[UUID, Sequence[FillGroup]]:
+        """Each strategy's real fills by its author, folded per allocation, side,
+        fee currency and spelling as ``SqlAlchemyAllocationFillsSource`` folds
+        them, so ``derive_trades`` reads both the same way."""
+        is_rehearsal = LedgerEntryRow.exchange_fill_id.startswith(
+            REHEARSAL_FILL_ID_PREFIX, autoescape=True
+        )
+        keys = (
+            LedgerEntryRow.allocation_id,
+            LedgerEntryRow.strategy_id,
+            LedgerEntryRow.exchange,
+            LedgerEntryRow.venue,
+            LedgerEntryRow.settlement_currency,
+            LedgerEntryRow.side,
+            LedgerEntryRow.fee_currency,
+            LedgerEntryRow.symbol,
+        )
         rows = await self._session.execute(
             select(
-                SignalRow.strategy_id,
-                SignalRow.symbol,
-                SignalRow.received_at,
-                SignalRow.position_size,
-                SignalRow.price,
+                *keys,
+                func.sum(LedgerEntryRow.quantity).label("quantity"),
+                func.sum(LedgerEntryRow.notional).label("notional"),
+                func.sum(LedgerEntryRow.fee).label("fee"),
+                func.min(LedgerEntryRow.filled_at).label("first_filled_at"),
+                func.max(LedgerEntryRow.filled_at).label("last_filled_at"),
             )
-            .where(SignalRow.strategy_id.in_(strategy_ids))
-            .order_by(SignalRow.received_at, SignalRow.id)
+            .join(StrategyRow, StrategyRow.id == LedgerEntryRow.strategy_id)
+            .where(
+                LedgerEntryRow.strategy_id.in_(strategy_ids),
+                LedgerEntryRow.user_id == StrategyRow.author_id,
+                ~is_rehearsal,
+            )
+            .group_by(*keys)
+            .order_by(*keys)
         )
-        found: defaultdict[UUID, list[RecordSignal]] = defaultdict(list)
+        found: defaultdict[UUID, list[FillGroup]] = defaultdict(list)
         for row in rows:
             found[row.strategy_id].append(
-                RecordSignal(row.symbol, row.received_at, row.position_size, row.price)
+                FillGroup(
+                    allocation_id=row.allocation_id,
+                    strategy_id=row.strategy_id,
+                    exchange=row.exchange,
+                    venue=row.venue,
+                    settlement_currency=row.settlement_currency,
+                    symbol=row.symbol,
+                    side=row.side,
+                    fee_currency=row.fee_currency,
+                    quantity=Decimal(row.quantity),
+                    notional=Decimal(row.notional),
+                    fee=Decimal(row.fee),
+                    first_filled_at=row.first_filled_at,
+                    last_filled_at=row.last_filled_at,
+                    # No public figure divides by a pool: the record is a price move.
+                    pool_total_at_open=None,
+                    rehearsal=False,
+                )
             )
         return found
 

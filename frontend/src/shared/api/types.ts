@@ -35,8 +35,9 @@ export interface Pool {
 
 /**
  * One row of `GET /api/public/strategies` (`PublicStrategyBody`): what any signed-in user sees of a strategy on
- * the public list. `unleveraged_return_before_fees` is a ratio string, read from the strategy's signals and not
- * from anyone's fills, so a reader must be told what it leaves out. `capital` is money in the strategy's own
+ * the public list. `unleveraged_return_before_fees` is a ratio string, read from the fills of its author's real
+ * closed trades (decision 34) and "0" while there is none, so a reader must be told what it leaves out and
+ * `closed_trade_count` says whether there is a return at all. `capital` is money in the strategy's own
  * currency: null under the brake, when nobody trades live, and "0" with the brake off and nobody live.
  */
 export interface PublicStrategy {
