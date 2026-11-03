@@ -201,6 +201,14 @@ class Settings(BaseSettings):
     # for what that cost.
     worker_poll_interval_seconds: float = Field(default=2.0)
 
+    # How many loops the worker runs beside its first one, each claiming only a
+    # user's trading jobs (deliveries, their continuations and settles), so one
+    # signal's subscribers are worked in parallel (tasks.md G.7). One user's jobs
+    # still run one at a time and in order: the claim keeps them so, not the count.
+    # Each loop holds about two connections (its claim and its handler's), so the
+    # first loop and these four hold ten of the engine's default fifteen.
+    worker_delivery_lanes: int = Field(default=4)
+
     # How often reservation.sweep gives expired reservations a terminal status.
     #
     # Bookkeeping cadence, not a correctness one: ``sum_active`` already

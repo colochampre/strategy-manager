@@ -306,6 +306,7 @@ from strategy_manager.signals.infrastructure.settle_outcome_recorder import (
 )
 from strategy_manager.signals.infrastructure.signal_context import SignalContextAdapter
 from strategy_manager.signals.infrastructure.skip_recorder import SignalSkipRecorder
+from strategy_manager.signals.infrastructure.user_job_lanes import USER_JOB_LANES
 from strategy_manager.signals.infrastructure.venue_net_position import VenueNetPositionAdapter
 from strategy_manager.signals.infrastructure.webhook_origin_check import log_webhook_origin
 from strategy_manager.signals.infrastructure.webhook_origin_router import (
@@ -2233,6 +2234,9 @@ def build_worker_runner(
                 ),
                 backoff_base_seconds=settings.job_retry_backoff_base_seconds,
                 backoff_max_seconds=settings.job_retry_backoff_max_seconds,
+                # One user's trading jobs one at a time and in order, other users'
+                # beside them on the runner's lanes (tasks.md G.7).
+                lanes=USER_JOB_LANES,
             )
 
     handlers: Mapping[JobKind, JobHandler] = {
@@ -2251,6 +2255,7 @@ def build_worker_runner(
         queue_factory=queue_factory,
         handlers=handlers,
         poll_interval_seconds=settings.worker_poll_interval_seconds,
+        lanes=settings.worker_delivery_lanes,
     )
 
 
