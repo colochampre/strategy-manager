@@ -60,7 +60,12 @@ from strategy_manager.shared.infrastructure.binance.transport import BinanceTran
 # One path serves both verbs: POST places an order, GET looks one up.
 ORDER_PATH = "/fapi/v1/order"
 USER_TRADES_PATH = "/fapi/v1/userTrades"
-POSITION_MODE_PATH = "/fapi/v1/positionSide/dual"
+# The position mode is read from here, not from /fapi/v1/positionSide/dual:
+# both answer ``dualSidePosition``, but that one costs an IP weight of 30 and
+# this one 5 (verified in Binance's docs 2026-11-03). The mode is read on every
+# job, and at fifty subscribers the dearer read alone pushed one signal past
+# the 2400-per-minute ceiling, where Binance answers 429 and then bans the IP.
+ACCOUNT_CONFIG_PATH = "/fapi/v1/accountConfig"
 
 MARKET = "MARKET"
 
@@ -201,10 +206,10 @@ class BinanceTradeClient:
         job.
         """
         if self._hedged is None:
-            payload = await self._transport.get_signed(POSITION_MODE_PATH)
+            payload = await self._transport.get_signed(ACCOUNT_CONFIG_PATH)
             if not isinstance(payload, dict):
                 raise BinanceApiError(
-                    f"{POSITION_MODE_PATH} returned a non-object body"
+                    f"{ACCOUNT_CONFIG_PATH} returned a non-object body"
                 )
             dual = payload.get("dualSidePosition")
             if not isinstance(dual, bool):

@@ -255,6 +255,15 @@ async def _run(symbols: list[str], spot: BinanceTransport, futures: BinanceTrans
     if position_mode.ok:
         _dump(position_mode.value)
 
+    # What the trade client actually reads the mode from (weight 5, not 30).
+    # Its dualSidePosition must match the line above.
+    account_config = await probe(
+        "ACCOUNT CONFIG GET /fapi/v1/accountConfig",
+        lambda: futures.get_signed("/fapi/v1/accountConfig"),
+    )
+    if account_config.ok:
+        _dump(account_config.value)
+
     catalogue = await probe(
         "CATALOGUE     GET /fapi/v1/exchangeInfo",
         lambda: futures.get_public("/fapi/v1/exchangeInfo"),

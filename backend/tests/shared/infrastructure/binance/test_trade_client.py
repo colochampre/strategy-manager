@@ -27,9 +27,9 @@ from strategy_manager.shared.infrastructure.binance.signer import (
     signature_for,
 )
 from strategy_manager.shared.infrastructure.binance.trade_client import (
+    ACCOUNT_CONFIG_PATH,
     AMBIGUOUS_CODES,
     ORDER_PATH,
-    POSITION_MODE_PATH,
     USER_TRADES_PATH,
     BinanceTradeClient,
 )
@@ -100,7 +100,7 @@ def _client(
     overrides: dict[tuple[str, str], httpx.Response] | None = None,
 ) -> BinanceTradeClient:
     responses: dict[tuple[str, str], httpx.Response] = {
-        ("GET", POSITION_MODE_PATH): httpx.Response(
+        ("GET", ACCOUNT_CONFIG_PATH): httpx.Response(
             200, json={"dualSidePosition": hedge_mode}
         ),
         ("POST", ORDER_PATH): httpx.Response(
@@ -323,6 +323,31 @@ async def test_a_hedged_account_is_refused_before_any_order_is_sent(
     assert [r for r in recorded if r.method == "POST"] == []
 
 
+async def test_the_position_mode_is_read_from_the_account_configuration(
+    recorded: list[httpx.Request],
+) -> None:
+    """``/fapi/v1/accountConfig`` carries the same ``dualSidePosition`` at an
+    IP weight of 5, where ``/fapi/v1/positionSide/dual`` costs 30. The mode is
+    read on every job, so at fifty subscribers the dearer read alone pushed one
+    signal past Binance's 2400-per-minute ceiling."""
+    client = _client(
+        recorded,
+        overrides={
+            ("GET", ACCOUNT_CONFIG_PATH): httpx.Response(
+                200, json={"dualSidePosition": True}
+            ),
+            ("GET", "/fapi/v1/positionSide/dual"): httpx.Response(
+                200, json={"dualSidePosition": False}
+            ),
+        },
+    )
+
+    with pytest.raises(BinanceApiError, match="hedge mode"):
+        await _place(client)
+
+    assert [r.url.path for r in recorded] == [ACCOUNT_CONFIG_PATH]
+
+
 async def test_the_position_mode_is_read_once_per_client(
     recorded: list[httpx.Request],
 ) -> None:
@@ -334,7 +359,7 @@ async def test_the_position_mode_is_read_once_per_client(
     for _ in range(2):
         await _place(client)
 
-    mode_reads = [r for r in recorded if r.url.path == POSITION_MODE_PATH]
+    mode_reads = [r for r in recorded if r.url.path == ACCOUNT_CONFIG_PATH]
     assert len(mode_reads) == 1
 
 
@@ -345,7 +370,7 @@ async def test_an_unreadable_position_mode_stops_the_order(
     client = _client(
         recorded,
         overrides={
-            ("GET", POSITION_MODE_PATH): httpx.Response(200, json={"dual": "no"})
+            ("GET", ACCOUNT_CONFIG_PATH): httpx.Response(200, json={"dual": "no"})
         },
     )
 
