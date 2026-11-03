@@ -244,7 +244,7 @@ async def test_a_delivery_job_trades_with_the_subscribers_key_never_the_strategy
         def __init__(self, exchanges: ModeExchangesPort) -> None:
             self._exchanges = exchanges
 
-        async def handle(self, delivery: UUID, halves: object) -> None:
+        async def handle(self, delivery: UUID, halves: object, poll: int = 0) -> None:
             await self._exchanges.for_mode(Mode.LIVE)
             recorded.handled.append((delivery, halves))
 
@@ -273,7 +273,7 @@ async def test_a_delivery_job_without_halves_hands_the_handler_none_not_a_defaul
     )
 
     class _Handler:
-        async def handle(self, delivery: UUID, halves: object) -> None:
+        async def handle(self, delivery: UUID, halves: object, poll: int = 0) -> None:
             recorded.handled.append((delivery, halves))
 
     monkeypatch.setattr(
@@ -289,6 +289,41 @@ async def test_a_delivery_job_without_halves_hands_the_handler_none_not_a_defaul
     # This handler asked for no mode, so nothing was decrypted (E.5): a job opens an
     # adapter only once it knows which side it runs on.
     assert recorded.signed_with == []
+
+
+@pytest.mark.parametrize(("payload", "expected"), [({"poll": 3}, 3), ({}, 0)])
+async def test_a_delivery_job_hands_the_handler_the_poll_it_carries(
+    pg_session_factory: async_sessionmaker[AsyncSession],  # noqa: F811
+    recorded: _Recorded,
+    monkeypatch: pytest.MonkeyPatch,
+    payload: dict[str, int],
+    expected: int,
+) -> None:
+    """G.6: the job a close that waits seeds carries its poll, and the first run has
+    none. A handler told 0 on every run would seed poll 1 again, and that step already
+    ran: the wait would end there with nothing logged."""
+    delivery_id, _ = await _a_delivery_to_the_other_user(
+        pg_session_factory, recorded.master_key
+    )
+    polls: list[int] = []
+
+    class _Handler:
+        async def handle(self, delivery: UUID, halves: object, poll: int = 0) -> None:
+            polls.append(poll)
+
+    monkeypatch.setattr(
+        main, "_build_process_delivery", lambda *args, **kwargs: (_Handler(), None)
+    )
+    runner = main.build_worker_runner([_BYBIT_POOL], session_factory_override=pg_session_factory)
+
+    await runner._handlers[JobKind.DELIVERY_PROCESS](  # noqa: SLF001
+        _job(
+            JobKind.DELIVERY_PROCESS,
+            {"delivery_id": str(delivery_id), "halves": "close", **payload},
+        )
+    )
+
+    assert polls == [expected]
 
 
 class _Continuation:

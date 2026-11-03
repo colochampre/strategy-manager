@@ -15,7 +15,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from strategy_manager.allocation.domain.reservation import ReservationStatus
 from strategy_manager.allocation.infrastructure.models import ReservationRow
+from strategy_manager.execution.domain.execution_attempt import ExecutionStatus
 from strategy_manager.execution.domain.market_symbol import market_spellings
+from strategy_manager.execution.infrastructure.models import ExecutionAttemptRow
 from strategy_manager.ledger.application.read_symbol_holdings import ReadSymbolHoldings
 from strategy_manager.shared.application.job import JobKind
 from strategy_manager.shared.infrastructure.models import JobRow
@@ -105,39 +107,61 @@ class SqlAlchemySubscribers:
         ]
 
     async def _holds(self, user_id: UUID, strategy_id: UUID, symbol: str, pool: PoolKey) -> bool:
-        """This user's open allocation of the strategy on THIS symbol: the ledger's
-        allocations (per allocation, never netted across them, under every spelling
-        of the symbol), and a reservation of the user still holding capital. A
-        reservation carries no symbol, so it is matched through the signal that
-        opened it.
+        """This user's open allocation of the strategy on THIS symbol: a reservation
+        of the user still holding capital, an opening order of theirs still in flight,
+        and the ledger's allocations (per allocation, never netted across them, under
+        every spelling of the symbol). A reservation carries no symbol, so it is
+        matched through the signal that opened it.
 
-        ``OpenAllocationAdapter`` asks one more thing, an opening order in flight under
-        an expired reservation. This does not, and a close arriving then reaches
-        nobody: delivering it would not help, since there is no fill yet to close
-        (tasks.md, PR E2's advisories)."""
-        held = await self._holdings.symbol_holdings(user_id, pool, symbol)
-        if any(allocation.strategy_id == strategy_id for allocation in held):
-            return True
+        **An order in flight counts by its attempt, not its reservation**, as in
+        ``OpenAllocationAdapter``. The sweeper expires a SUBMITTED reservation at its
+        TTL and the order may still fill, and a close that reached nobody then would
+        leave that fill open. Delivered, it waits for the opening (``CloseAfterOpen``).
 
+        **The order of the reads is part of the check**: exposure moves from the
+        reservation to the attempt to the ledger, and an opening's settle takes no pool
+        lock. Read this way, whatever left one read has already reached the next."""
         exchange, venue, currency = pool
+        of_this_market = (
+            ReservationRow.user_id == user_id,
+            ReservationRow.strategy_id == strategy_id,
+            ReservationRow.exchange == exchange,
+            ReservationRow.venue == venue,
+            ReservationRow.settlement_currency == currency,
+            func.upper(SignalRow.symbol).in_(market_spellings(symbol)),
+        )
         reserved = (
             await self._session.execute(
                 select(ReservationRow.id)
                 .join(SignalRow, SignalRow.id == ReservationRow.signal_id)
                 .where(
-                    ReservationRow.user_id == user_id,
-                    ReservationRow.strategy_id == strategy_id,
-                    ReservationRow.exchange == exchange,
-                    ReservationRow.venue == venue,
-                    ReservationRow.settlement_currency == currency,
+                    *of_this_market,
                     ReservationRow.status.in_(_LIVE_RESERVATION),
                     ReservationRow.terminal_at.is_(None),
-                    func.upper(SignalRow.symbol).in_(market_spellings(symbol)),
                 )
                 .limit(1)
             )
         ).first()
-        return reserved is not None
+        if reserved is not None:
+            return True
+
+        in_flight = (
+            await self._session.execute(
+                select(ExecutionAttemptRow.id)
+                .join(ReservationRow, ReservationRow.id == ExecutionAttemptRow.reservation_id)
+                .join(SignalRow, SignalRow.id == ReservationRow.signal_id)
+                .where(
+                    *of_this_market,
+                    ExecutionAttemptRow.status == ExecutionStatus.SUBMITTED.value,
+                )
+                .limit(1)
+            )
+        ).first()
+        if in_flight is not None:
+            return True
+
+        held = await self._holdings.symbol_holdings(user_id, pool, symbol)
+        return any(allocation.strategy_id == strategy_id for allocation in held)
 
     async def _awaits_opening(
         self, subscription_id: UUID, strategy_id: UUID, symbol: str, received_at: datetime

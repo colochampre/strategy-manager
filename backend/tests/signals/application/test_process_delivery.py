@@ -33,7 +33,7 @@ from strategy_manager.signals.application.process_signal import (
 )
 from strategy_manager.signals.domain.holding import HeldAllocation
 from strategy_manager.signals.domain.outcome import SignalOutcome
-from tests.allocation.fakes import FixedUserMode, RecordedModes
+from tests.allocation.fakes import FixedUserMode, OpeningsSettled, RecordedModes
 from tests.owner import OWNER_ID
 from tests.signals.application.test_process_signal import (
     TRADABLE,
@@ -171,6 +171,7 @@ def _rig(
         trade_capability=capability,
         user_mode=FixedUserMode(),
         allocation_modes=RecordedModes(),
+        close_after_open=OpeningsSettled(),
     )
     return Rig(
         handler,

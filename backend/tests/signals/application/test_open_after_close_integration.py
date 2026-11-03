@@ -104,6 +104,7 @@ from tests.allocation.fakes import (
     AlwaysEnabledPool,
     AnyKeyTrades,
     FixedUserMode,
+    OpeningsSettled,
     RecordedModes,
     RecordingSkipRecorder,
 )
@@ -578,6 +579,7 @@ async def test_the_open_waits_for_the_close_to_settle_then_grants_the_freed_bala
             trade_capability=FakeTradeCapability(),
             user_mode=FixedUserMode(),
             allocation_modes=RecordedModes(),
+            close_after_open=OpeningsSettled(),
         )
         return handler, open_after_close
 

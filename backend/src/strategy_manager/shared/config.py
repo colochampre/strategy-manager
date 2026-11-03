@@ -283,6 +283,14 @@ class Settings(BaseSettings):
     # would hold a signal hostage for 30s after a fill that already landed.
     open_after_close_poll_interval_seconds: float = Field(default=5.0)
 
+    # How long a close waits for its opening (``CloseAfterOpen``), from the opening
+    # attempt's ``created_at``, polling every
+    # ``open_after_close_poll_interval_seconds``, before it ends with an ERROR for a
+    # human. It has to outlast the settle job (``execution_settle_delay_seconds`` plus
+    # the four backoff waits, about 452 s by default), or the close gives up on an
+    # opening that is still going to fill.
+    close_after_open_timeout_seconds: float = Field(default=600.0)
+
     # How often reconciliation.scan compares each pool's venue-reported net
     # position against the ledger's.
     #

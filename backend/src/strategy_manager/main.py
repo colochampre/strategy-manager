@@ -260,6 +260,7 @@ from strategy_manager.shared.infrastructure.validation_errors import (
     redacted_validation_handler,
 )
 from strategy_manager.shared.infrastructure.worker_runner import JobHandler, WorkerRunner
+from strategy_manager.signals.application.close_after_open import CloseAfterOpen
 from strategy_manager.signals.application.close_orphans import CloseOrphans
 from strategy_manager.signals.application.fan_out_signal import FanOutSignal
 from strategy_manager.signals.application.holding_guard import HoldingGuard
@@ -270,6 +271,7 @@ from strategy_manager.signals.application.process_signal import (
 )
 from strategy_manager.signals.infrastructure.delivery_adapters import (
     SqlAlchemyDeliveries,
+    SqlAlchemyOpeningStates,
     SqlAlchemySubscriptionReservations,
 )
 from strategy_manager.signals.infrastructure.exhausted_job_recorder import (
@@ -651,6 +653,13 @@ def _build_process_delivery(
         tradable_pools=tradable_pools,
         outcomes=delivery_outcomes,
         trade_capability=trade_capability,
+        close_after_open=CloseAfterOpen(
+            openings=SqlAlchemyOpeningStates(session),
+            queue=_job_queue(session, settings),
+            clock=SystemClock(),
+            timeout_seconds=settings.close_after_open_timeout_seconds,
+            poll_interval_seconds=settings.open_after_close_poll_interval_seconds,
+        ),
         user_mode=user_mode,
         allocation_modes=allocation_modes,
     )
@@ -1730,7 +1739,12 @@ def build_worker_runner(
                 #
                 # ``halves`` goes in as the payload carries it: ``FanOutSignal``
                 # wrote it, and the handler refuses, loudly, one that is missing.
-                await handler.handle(delivery_id, job.payload.get("halves"))
+                #
+                # ``poll`` is the wait of a close for its opening: only the jobs
+                # ``CloseAfterOpen`` seeds carry one, and the first run is poll 0.
+                await handler.handle(
+                    delivery_id, job.payload.get("halves"), int(job.payload.get("poll", 0))
+                )
                 # Required since S5: the guard's in-flight branch may seed a
                 # continuation (``enqueue_unique``, which never commits) without
                 # otherwise writing anything through this handler. Every other
