@@ -40,7 +40,7 @@ describe("SignInGate", () => {
   it("carries its copy in both locales, never hardcoded", () => {
     for (const locale of [en, es]) {
       expect(locale.auth.gate.checking).toBeTruthy();
-      expect(locale.auth.gate.notOpen).toContain("{{email}}");
+      expect("notOpen" in locale.auth.gate).toBe(false);
       expect(locale.auth.gate.unavailable).toBeTruthy();
       expect(locale.auth.gate.retry).toBeTruthy();
       expect(locale.auth.gate.signedOut).toBeTruthy();
@@ -67,13 +67,13 @@ describe("SignInGate", () => {
     expect(screen.getByRole("status")).toHaveTextContent(en.auth.gate.checking);
   });
 
-  it("tells a signed-in user who is not the admin that the panel is not open yet, by e-mail", async () => {
+  it("shows the panel to a signed-in user who is not the admin (PR G opens sign-up)", async () => {
     answerMe(() => Promise.resolve(jsonResponse(USER)));
 
     renderGate();
 
-    expect(await screen.findByText(/someone@example\.com/)).toBeInTheDocument();
-    expect(screen.queryByText("protected content")).not.toBeInTheDocument();
+    expect(await screen.findByText("protected content")).toBeInTheDocument();
+    expect(screen.queryByText(/someone@example\.com/)).not.toBeInTheDocument();
   });
 
   it("says sign-in cannot be checked on a 503, and retries on request", async () => {

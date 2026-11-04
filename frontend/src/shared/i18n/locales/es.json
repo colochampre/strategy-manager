@@ -825,7 +825,6 @@
   "auth": {
     "gate": {
       "checking": "Verificando el ingreso",
-      "notOpen": "Ingresó como {{email}}. El panel todavía no está abierto a otros usuarios.",
       "unavailable": "En este momento no se puede verificar el ingreso.",
       "retry": "Reintentar",
       "signedOut": "Su sesión terminó.",
