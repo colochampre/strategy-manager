@@ -114,6 +114,7 @@ from strategy_manager.execution.infrastructure.simulated_fee_rates import (
     SIMULATED_TAKER_FEE_RATES,
 )
 from strategy_manager.execution.infrastructure.simulated_venues import SimulatedVenues
+from strategy_manager.execution.infrastructure.venue_mark_prices import public_mark_prices
 from strategy_manager.execution.infrastructure.venue_support import (
     describe_unserved,
     unserved_pools,
@@ -392,32 +393,40 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 def log_simulated_exchange_startup(fakes: Mapping[str, FakeExchangeAdapter]) -> None:
-    """The two startup lines of decision 45 (design § J), taken from each
+    """The startup lines of decisions 45 and 35 (design § J), taken from each
     instance's OWN mode and rate: one INFO per process, so the journal shows
-    from which start fills carry their alert's price and which taker rate was
-    charged; and one WARNING per simulated exchange built with a fixed price,
-    which would silently restore the old behaviour (every fill at one price).
+    from which start fills print at the venue's mark price and which taker rate
+    was charged; and one WARNING per simulated exchange that does not, which
+    would silently restore an old behaviour: a fixed price (every fill at one
+    price) or the alert's price (a crafted alert prints a crafted result).
 
-    Production never builds a fixed-price exchange; the function takes the
-    instances so a later edit of this module cannot do it quietly."""
-    alert_priced: dict[str, FakeExchangeAdapter] = {}
+    Production builds neither; the function takes the instances so a later
+    edit of this module cannot do it quietly."""
+    venue_priced: dict[str, FakeExchangeAdapter] = {}
     for name, fake in sorted(fakes.items()):
-        if fake.fixed_fill_price is None:
-            alert_priced[name] = fake
-        else:
+        if fake.fixed_fill_price is not None:
             logger.warning(
                 "the simulated exchange '%s' is built with a fixed price of %s: every "
-                "fill is priced at it, not at its alert's price",
+                "fill is priced at it, not at the venue's mark price",
                 name,
                 format(fake.fixed_fill_price.normalize(), "f"),
             )
-    if alert_priced:
+        elif not fake.prices_from_venue:
+            logger.warning(
+                "the simulated exchange '%s' prices each fill at its alert's price, "
+                "not at the venue's mark price: an alert's price reaches its "
+                "subscribers' simulated results",
+                name,
+            )
+        else:
+            venue_priced[name] = fake
+    if venue_priced:
         logger.info(
-            "the simulated exchange prices each fill at its alert's price "
+            "the simulated exchange prices each fill at the venue's mark price "
             "and charges the venue's taker fee in USDT (%s)",
             ", ".join(
                 f"{name}={format(fake.fee_rate.normalize(), 'f')}"
-                for name, fake in alert_priced.items()
+                for name, fake in venue_priced.items()
             ),
         )
 
@@ -1213,9 +1222,17 @@ def build_worker_runner(
             )
             return [(position.symbol, position.net_base) for position in positions]
 
+    # Decision 35: a simulated fill prints at the venue's mark price, read from
+    # its public market data, never at the alert's. Looked up by key, never with
+    # a default: an exchange with no source would quietly print at the alert.
+    mark_prices = public_mark_prices(settings)
+
     def simulated_exchange(exchange: str, book: FakeVenueBook | None) -> FakeExchangeAdapter:
         return FakeExchangeAdapter(
-            exchange=exchange, book=book, fee_rate=SIMULATED_TAKER_FEE_RATES[exchange]
+            exchange=exchange,
+            book=book,
+            fee_rate=SIMULATED_TAKER_FEE_RATES[exchange],
+            mark_prices=mark_prices[exchange],
         )
 
     # BYBIT_EXCHANGE and BINANCE_EXCHANGE are unconditional, on top of

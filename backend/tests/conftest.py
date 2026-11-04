@@ -7,6 +7,7 @@ from sqlalchemy.engine import make_url
 from strategy_manager.main import create_app
 from strategy_manager.shared.config import get_settings
 from tests.report_scrub import scrub_credentials
+from tests.venue_marks import refuse_every_venue
 
 
 @pytest.hookimpl(hookwrapper=True)
@@ -37,6 +38,15 @@ def _tests_never_send_operator_alerts(monkeypatch: pytest.MonkeyPatch) -> None:
     object for every test; tests of the alerter build their own ``Settings``.
     """
     monkeypatch.setattr(get_settings(), "alerts_enabled", False)
+
+
+@pytest.fixture(autouse=True)
+def _tests_never_read_a_venue_price(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The worker ``main.build_worker_runner`` builds prices every simulated
+    fill from the venue's public market data (decision 35). No test reaches a
+    venue (rule 1): every read is refused unless the test installs a price
+    through ``tests.venue_marks.install``."""
+    refuse_every_venue(monkeypatch)
 
 
 @pytest.fixture

@@ -407,14 +407,7 @@ class BinanceReadOnlyClient:
         position.
         """
         payload = await self._transport.get_public(PREMIUM_INDEX_PATH, {"symbol": symbol})
-        if not isinstance(payload, dict):
-            raise BinanceApiError(f"{PREMIUM_INDEX_PATH} for {symbol} returned a non-object body")
-        answered = payload.get("symbol")
-        if not isinstance(answered, str) or answered.upper() != symbol.upper():
-            raise BinanceApiError(
-                f"{PREMIUM_INDEX_PATH} asked for {symbol} answered for {answered!r}"
-            )
-        return _positive_price(payload, "markPrice", symbol)
+        return parse_mark_price(payload, symbol)
 
     async def position_for(self, symbol: str) -> Position | None:
         """The open position on one symbol, or ``None`` when flat.
@@ -574,6 +567,18 @@ def _trade_amount(fields: Mapping[str, Any], field: str) -> Decimal:
         return Decimal(value)
     except InvalidOperation as exc:
         raise BinanceApiError(f"{field} is not a valid decimal: {value!r}") from exc
+
+
+def parse_mark_price(payload: Any, symbol: str) -> Decimal:
+    """The mark price of ``symbol`` in a ``premiumIndex`` answer, or
+    ``BinanceApiError``. Shared by the signed read client and the public reader
+    the simulated exchange prices with, so both refuse the same answers."""
+    if not isinstance(payload, dict):
+        raise BinanceApiError(f"{PREMIUM_INDEX_PATH} for {symbol} returned a non-object body")
+    answered = payload.get("symbol")
+    if not isinstance(answered, str) or answered.upper() != symbol.upper():
+        raise BinanceApiError(f"{PREMIUM_INDEX_PATH} asked for {symbol} answered for {answered!r}")
+    return _positive_price(payload, "markPrice", symbol)
 
 
 def _positive_price(fields: Mapping[str, Any], field: str, symbol: str) -> Decimal:

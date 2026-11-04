@@ -8,6 +8,10 @@ credential (rule 1). The on-demand balance refresh finds no key, fails, and fall
 back to the young snapshot the fixture seeds -- the path the design read from the
 code and never ran; this file is where it is first proven.
 
+Every fill prints at the venue's mark price (decision 35), which the stack sets
+before each alert, while the alert itself carries ``CRAFTED_ALERT_PRICE``, a
+tenth of the market: no row, size or fee here can come from the alert's price.
+
 Three spellings of one market cross the boundary on purpose: the alert says
 ``STXUSDT.P``, the strategy allows ``STXUSDT``, and a ledger row is asserted
 through ``market_key(symbol) == "STXUSDT"``, never by comparing two spellings as
@@ -67,6 +71,7 @@ from tests.signals.infrastructure.test_no_fee_rate_pool_refused import (
     seed_pool,
     seed_strategy_on,
 )
+from tests.venue_marks import VenueMarks, install
 
 pytestmark = pytest.mark.integration
 
@@ -78,6 +83,8 @@ FAKE_EXCHANGE_LOGGER = "strategy_manager.execution.infrastructure.fake_exchange"
 
 OPEN_PRICE = "0.4512"
 CLOSE_PRICE = "0.4633"
+# What every alert says: a tenth of the market, as an author could type it.
+CRAFTED_ALERT_PRICE = "0.04512"
 # 56.4% of the 1000 USDT snapshot: the granted capital of the design's figures.
 ALLOCATION_PERCENT = Decimal("56.4")
 BYBIT_RATE = Decimal("0.00055")
@@ -90,6 +97,7 @@ class Stack:
     factory: Factory
     runner: object
     strategies: dict[str, UUID]
+    marks: VenueMarks
     sequence: int = 0
 
     async def alert(
@@ -99,13 +107,16 @@ class Stack:
         action: str,
         position_size: str,
         price: str,
+        alert_price: str = CRAFTED_ALERT_PRICE,
     ) -> UUID:
-        """POSTs one TradingView alert for the pool's strategy and returns the id
-        of the signal the webhook stored."""
+        """Sets the venue's mark to ``price``, POSTs one TradingView alert for the
+        pool's strategy carrying ``alert_price``, and returns the id of the
+        signal the webhook stored."""
         self.sequence += 1
+        self.marks.price = Decimal(price)
         body = {
             "data": {"action": action, "contracts": "10", "position_size": position_size},
-            "price": price,
+            "price": alert_price,
             "signal_param": "{}",
             "signal_type": str(self.strategies[pool.exchange.value]),
             "symbol": TRADINGVIEW_SYMBOL,
@@ -156,6 +167,7 @@ async def stack(
             await session.commit()
         strategies[pool.exchange.value] = strategy_id
 
+    marks = install(monkeypatch, VenueMarks(Decimal(OPEN_PRICE)))
     runner = main.build_worker_runner(
         [BYBIT_POOL, BINANCE_POOL], session_factory_override=pg_session_factory
     )
@@ -169,7 +181,7 @@ async def stack(
     app.dependency_overrides[shared_db.get_session] = _override_get_session
     transport = ASGITransport(app=app, client=(ALLOWED_IP, 12345))
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        yield Stack(client, pg_session_factory, runner, strategies)
+        yield Stack(client, pg_session_factory, runner, strategies, marks)
 
 
 async def _rows(factory: Factory, strategy_id: UUID) -> list[LedgerEntryRow]:
@@ -309,23 +321,21 @@ async def test_one_sweep_expires_an_unfilled_opening_and_ends_the_subscription_i
     assert status == "ENDED"
 
 
-async def test_the_opening_row_is_priced_at_the_stored_alert_price_exactly(
+async def test_the_opening_row_is_sized_and_priced_at_the_venues_mark_never_the_alerts(
     stack: Stack,
 ) -> None:
-    """A 19-place alert price is rounded to 18 ONCE, by the column at ingress;
-    every later step carries that stored value."""
+    """Decision 35: the alert said a tenth of the market. Sized from it, the
+    564 granted would have bought 12500; the venue's mark buys 1250."""
     strategy_id = stack.strategies["bybit"]
-    signal_id = await stack.alert(
-        BYBIT_POOL, action="buy", position_size="10", price="0.1234567890123456789"
-    )
+    signal_id = await stack.alert(BYBIT_POOL, action="buy", position_size="10", price=OPEN_PRICE)
     await stack.drain()
 
     [row] = await _rows(stack.factory, strategy_id)
-    stored = await _signal_price(stack.factory, signal_id)
-    assert stored == Decimal("0.123456789012345679")
+    assert await _signal_price(stack.factory, signal_id) == Decimal(CRAFTED_ALERT_PRICE)
     assert await _signal_of_allocation(stack.factory, row.allocation_id) == signal_id
-    assert row.price == stored == Decimal("0.123456789012345679")
-    assert str(row.price) == "0.123456789012345679"
+    assert row.price == Decimal(OPEN_PRICE)
+    assert row.quantity == Decimal("1250")
+    assert ("bybit", "STXUSDT.P") in stack.marks.asked
     assert market_key(row.symbol) == "STXUSDT"
     assert row.exchange_fill_id.startswith("fake-fill-")
     assert row.exchange_order_id.startswith("fake-order-")
@@ -356,14 +366,15 @@ async def test_the_opening_row_carries_the_taker_fee_in_usdt(
     assert Decimal(str(line.args[5])) == row.fee  # type: ignore[index]
 
 
-async def test_a_closing_alert_at_another_price_is_filled_at_that_alert_and_the_allocation_nets_to_zero(  # noqa: E501
+async def test_a_close_is_filled_at_the_venues_mark_then_and_the_allocation_nets_to_zero(
     stack: Stack,
 ) -> None:
     _, closing, rows = await _round_trip(stack)
 
     opened, closed = rows
     assert opened.price == Decimal(OPEN_PRICE)
-    assert closed.price == await _signal_price(stack.factory, closing) == Decimal(CLOSE_PRICE)
+    assert closed.price == Decimal(CLOSE_PRICE)
+    assert await _signal_price(stack.factory, closing) == Decimal(CRAFTED_ALERT_PRICE)
     assert closed.allocation_id == opened.allocation_id
     assert closed.fee_currency == "USDT"
     async with stack.factory() as session:
@@ -483,11 +494,12 @@ async def test_no_performance_total_counts_the_rehearsal_operation(stack: Stack)
 # ---- the two paths that need a position first (9q.25) ---------------------------
 
 
-async def test_a_reverse_prices_the_close_and_the_new_open_at_the_reversing_alert(
+async def test_a_reverse_prices_the_close_and_the_new_open_at_the_venues_mark_then(
     stack: Stack,
 ) -> None:
-    """A LONG opened at 0.4512 and a reversing alert at 0.4633: the close fill and
-    the new allocation's opening fill both read 0.4633."""
+    """A LONG opened with the mark at 0.4512 and a reversing alert with the mark
+    at 0.4633: the close fill and the new allocation's opening fill both read
+    0.4633, whatever the alert said."""
     strategy_id = stack.strategies["bybit"]
     opening = await stack.alert(BYBIT_POOL, action="buy", position_size="10", price=OPEN_PRICE)
     await stack.drain()
@@ -507,7 +519,7 @@ async def test_a_reverse_prices_the_close_and_the_new_open_at_the_reversing_aler
     assert new_open.allocation_id != first.allocation_id
     assert await _signal_of_allocation(stack.factory, first.allocation_id) == opening
     assert await _signal_of_allocation(stack.factory, new_open.allocation_id) == reversing
-    assert new_open.price == await _signal_price(stack.factory, reversing)
+    assert await _signal_price(stack.factory, reversing) == Decimal(CRAFTED_ALERT_PRICE)
 
 
 async def _seed_orphan(
@@ -584,7 +596,7 @@ async def _seed_orphan(
     return allocation_id
 
 
-async def test_an_orphan_is_closed_at_the_price_of_the_alert_that_found_it_and_the_open_follows(
+async def test_an_orphan_is_closed_at_the_venues_mark_when_an_alert_finds_it_and_the_open_follows(  # noqa: E501
     stack: Stack,
 ) -> None:
     strategy_id = stack.strategies["bybit"]
@@ -595,7 +607,7 @@ async def test_an_orphan_is_closed_at_the_price_of_the_alert_that_found_it_and_t
     rows = await _rows(stack.factory, strategy_id)
     assert [(row.allocation_id == orphan, row.side, row.price) for row in rows] == [
         (True, "BUY", Decimal("0.4512")),  # the seeded orphan, untouched
-        (True, "SELL", Decimal(CLOSE_PRICE)),  # its close, priced at the finding alert
+        (True, "SELL", Decimal(CLOSE_PRICE)),  # its close, at the venue's mark then
         (False, "BUY", Decimal(CLOSE_PRICE)),  # then the open's own fill
     ]
     async with stack.factory() as session:
@@ -607,19 +619,17 @@ async def test_an_orphan_is_closed_at_the_price_of_the_alert_that_found_it_and_t
             )
         ).scalar_one()
     assert closing_attempt.signal_id is None  # the close carries no signal id
-    assert rows[2].price == await _signal_price(stack.factory, finder)
     assert await _signal_of_allocation(stack.factory, rows[2].allocation_id) == finder
 
 
-async def test_a_stored_nan_closing_price_is_refused_and_the_next_opening_alert_closes_the_orphan_at_its_own_price(  # noqa: E501
-    stack: Stack, caplog: pytest.LogCaptureFixture
+async def test_a_stored_nan_closing_price_no_longer_stops_the_close_it_fills_at_the_venues_mark(  # noqa: E501
+    stack: Stack,
 ) -> None:
-    """Requirement 2's third scenario at stack level. ``NaN`` CAN be stored in
-    ``signals.price`` (task 9q.14, observed on the ``head`` schema), so a closing
-    alert can carry one. Its close is refused, the position stays open, and the
-    strategy's next OPENING alert, at a usable price, finds the holding as an
-    orphan, closes it at that alert's price and then opens."""
-    caplog.set_level(logging.WARNING)
+    """``NaN`` CAN be stored in ``signals.price`` (task 9q.14, observed on the
+    ``head`` schema), so a closing alert can carry one. Under decision 45 that
+    close was refused and the position stayed open until the next opening found
+    it as an orphan. The alert's price no longer prices anything: the close fills
+    at the venue's mark."""
     strategy_id = stack.strategies["bybit"]
     await stack.alert(BYBIT_POOL, action="buy", position_size="10", price=OPEN_PRICE)
     await stack.drain()
@@ -627,7 +637,7 @@ async def test_a_stored_nan_closing_price_is_refused_and_the_next_opening_alert_
     # The webhook refuses a NaN price since task 9qf.1, so the row is stored with a
     # finite price and rewritten before the worker runs: the state a signal stored
     # before that fix would be in.
-    nan_close = await stack.alert(BYBIT_POOL, action="sell", position_size="0", price="1")
+    nan_close = await stack.alert(BYBIT_POOL, action="sell", position_size="0", price=CLOSE_PRICE)
     async with stack.factory() as session:
         await session.execute(
             text("UPDATE signals SET price = 'NaN' WHERE id = :id"), {"id": nan_close}
@@ -637,51 +647,16 @@ async def test_a_stored_nan_closing_price_is_refused_and_the_next_opening_alert_
 
     assert (await _signal_price(stack.factory, nan_close)).is_nan()
     async with stack.factory() as session:
-        # C.7: the refusal is the outcome of the signal's DELIVERY.
-        refused = (
+        delivery = (
             await session.execute(
                 select(SignalDeliveryRow).where(SignalDeliveryRow.signal_id == nan_close)
             )
         ).scalar_one()
-        [opening_attempt] = (
-            await session.execute(
-                select(ExecutionAttemptRow).where(ExecutionAttemptRow.reservation_id.is_not(None))
-            )
-        ).scalars()
-        close_attempts = list(
-            (
-                await session.execute(
-                    select(ExecutionAttemptRow).where(
-                        ExecutionAttemptRow.closes_allocation_id.is_not(None)
-                    )
-                )
-            ).scalars()
-        )
-    assert (refused.status, refused.outcome_reason) == ("REJECTED", "CLOSE_REJECTED_BY_VENUE")
-    [attempt] = close_attempts
-    assert attempt.status == "FAILED"
-    errors = [
-        r
-        for r in caplog.records
-        if r.levelno == logging.ERROR and "close rejected" in r.getMessage()
-    ]
-    assert len(errors) == 1
-    assert "no usable price" in errors[0].getMessage()
-    rows = await _rows(stack.factory, strategy_id)
-    assert [(row.side, row.price) for row in rows] == [("BUY", Decimal(OPEN_PRICE))]  # still open
-    orphan = rows[0].allocation_id
-    assert opening_attempt.status == "FILLED"
-
-    finder = await stack.alert(BYBIT_POOL, action="buy", position_size="10", price=CLOSE_PRICE)
-    await stack.drain()
-
-    rows = await _rows(stack.factory, strategy_id)
-    assert [(row.allocation_id == orphan, row.side, row.price) for row in rows] == [
-        (True, "BUY", Decimal(OPEN_PRICE)),
-        (True, "SELL", Decimal(CLOSE_PRICE)),
-        (False, "BUY", Decimal(CLOSE_PRICE)),
-    ]
-    assert await _signal_of_allocation(stack.factory, rows[2].allocation_id) == finder
+    assert delivery.status != "REJECTED"
+    opened, closed = await _rows(stack.factory, strategy_id)
+    assert (opened.side, opened.price) == ("BUY", Decimal(OPEN_PRICE))
+    assert (closed.side, closed.price) == ("SELL", Decimal(CLOSE_PRICE))
+    assert closed.allocation_id == opened.allocation_id
 
 
 # ---- nothing already in the ledger is repriced (9q.26; Requirement 8) -----------
@@ -716,6 +691,7 @@ async def test_a_row_written_before_the_change_keeps_price_one_and_fee_zero(
             [BYBIT_POOL, BINANCE_POOL], session_factory_override=pg_session_factory
         ),
         stack.strategies,
+        stack.marks,
         stack.sequence,
     )
     await _round_trip(rebuilt, BINANCE_POOL)  # other fills, on the new code
@@ -732,7 +708,7 @@ async def test_a_row_written_before_the_change_keeps_price_one_and_fee_zero(
     assert after.exchange_fill_id.startswith("fake-fill-")
 
 
-async def test_a_position_that_straddles_the_change_closes_at_the_alert_price_with_a_fee(
+async def test_a_position_that_straddles_the_change_closes_at_the_venues_mark_with_a_fee(
     stack: Stack,
 ) -> None:
     strategy_id = stack.strategies["bybit"]
@@ -745,7 +721,8 @@ async def test_a_position_that_straddles_the_change_closes_at_the_alert_price_wi
     assert (opened.price, opened.fee) == (Decimal("1"), Decimal("0"))  # unchanged
     assert closed.side == "SELL"
     assert closed.quantity == Decimal("1250")
-    assert closed.price == await _signal_price(stack.factory, closing) == Decimal(CLOSE_PRICE)
+    assert closed.price == Decimal(CLOSE_PRICE)
+    assert await _signal_price(stack.factory, closing) == Decimal(CRAFTED_ALERT_PRICE)
     assert closed.fee == Decimal("0.31851875")  # 1250 x 0.4633 x 0.00055
     assert closed.fee_currency == "USDT"
     async with stack.factory() as session:

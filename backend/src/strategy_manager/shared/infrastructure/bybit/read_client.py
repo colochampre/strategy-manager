@@ -381,17 +381,7 @@ class BybitReadOnlyClient:
         written as a string, is refused: it would size a real position.
         """
         data = await self._read(TICKERS_PATH, {"category": LINEAR, "symbol": symbol})
-        for entry in _list_of(data, "list"):
-            fields = _object(entry, "ticker")
-            if _text(fields, "symbol").upper() == symbol.upper():
-                price = _amount(fields, "markPrice")
-                if not price.is_finite() or price <= 0:
-                    raise BybitApiError(
-                        f"markPrice for {symbol} must be a positive price, "
-                        f"got {fields.get('markPrice')!r}"
-                    )
-                return price
-        raise BybitApiError(f"Bybit reports no ticker for {symbol!r}")
+        return parse_mark_price(data, symbol)
 
     async def wallet_balance(self) -> list[CoinBalance]:
         """Unified-account balances. Bybit nests them one level deeper than
@@ -502,6 +492,27 @@ class BybitReadOnlyClient:
                 f"GET {path} returned no result object, got {type(data).__name__}"
             )
         return data
+
+
+def parse_mark_price(data: Any, symbol: str) -> Decimal:
+    """The mark price of ``symbol`` in a linear ``tickers`` result, or
+    ``BybitApiError``. Shared by the signed read client and the public reader
+    the simulated exchange prices with, so both refuse the same answers."""
+    if not isinstance(data, dict):
+        raise BybitApiError(
+            f"GET {TICKERS_PATH} returned no result object, got {type(data).__name__}"
+        )
+    for entry in _list_of(data, "list"):
+        fields = _object(entry, "ticker")
+        if _text(fields, "symbol").upper() == symbol.upper():
+            price = _amount(fields, "markPrice")
+            if not price.is_finite() or price <= 0:
+                raise BybitApiError(
+                    f"markPrice for {symbol} must be a positive price, "
+                    f"got {fields.get('markPrice')!r}"
+                )
+            return price
+    raise BybitApiError(f"Bybit reports no ticker for {symbol!r}")
 
 
 def _list_of(data: Mapping[str, Any], field: str) -> list[Any]:
