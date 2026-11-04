@@ -161,6 +161,11 @@ class BybitTradeClient:
         """
         return await self._read.leverage_for(symbol)
 
+    async def mark_price(self, symbol: str) -> Decimal:
+        """The venue's price an opening is sized at, never the alert's
+        (decision 35). Read rather than assumed, as the leverage is."""
+        return await self._read.mark_price(symbol)
+
     async def place_market_order(
         self,
         *,

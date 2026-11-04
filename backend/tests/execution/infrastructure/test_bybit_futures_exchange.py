@@ -38,6 +38,7 @@ from strategy_manager.shared.infrastructure.bybit.trade_client import (
 # str(uuid4()) is exactly 36 characters, which is exactly Bybit's limit.
 CLIENT_ORDER_ID = "3f2504e0-4f89-41d3-9a0c-0305e82c3301"
 SYMBOL = "BTCUSDT"
+PRICE = Decimal("78000")
 
 # BTCUSDT exactly as the live account reported it on 2026-08-26.
 LIVE_RULES = PerpContract(
@@ -72,9 +73,14 @@ class FakeTradeClient:
         executions: list[BybitExecution] | None = None,
         order_exists: bool = True,
         exists_raises: Exception | None = None,
+        mark_price: Decimal = PRICE,
+        price_raises: Exception | None = None,
     ) -> None:
         self.orders: list[dict[str, object]] = []
         self.existence_checks = 0
+        self.price_reads: list[str] = []
+        self._mark_price = mark_price
+        self._price_raises = price_raises
         self._leverage = leverage
         self._rules = rules
         self._leverage_raises = leverage_raises
@@ -88,6 +94,12 @@ class FakeTradeClient:
         if self._leverage_raises is not None:
             raise self._leverage_raises
         return self._leverage
+
+    async def mark_price(self, symbol: str) -> Decimal:
+        self.price_reads.append(symbol)
+        if self._price_raises is not None:
+            raise self._price_raises
+        return self._mark_price
 
     async def perp_rules(self, symbol: str) -> PerpContract:
         if self._rules_raises is not None:
@@ -138,7 +150,7 @@ def _open(
         symbol=symbol,
         side=side,
         granted=Decimal(granted),
-        price=Decimal("78000"),
+        price=PRICE,
     )
 
 
@@ -245,6 +257,68 @@ async def test_a_notional_below_the_minimum_is_refused() -> None:
 
     with pytest.raises(OrderNotPlaceable, match="notional of at least 500"):
         await adapter.build_open_order(_open(granted="100"))
+
+
+# ---- the venue's price, never the alert's (decision 35) ----
+
+
+async def test_an_opening_is_sized_from_the_venues_price_never_the_alerts() -> None:
+    """An author who posts a tenth of the market price would otherwise open
+    every live subscriber at ten times the margin granted. 100 USDT at 10x
+    over the venue's 78000 is 0.012 BTC; over the alert's 7800 it would be
+    0.128. The price is asked for under the venue's spelling, not
+    TradingView's."""
+    client = FakeTradeClient(mark_price=PRICE)
+    spec = replace(_open(symbol=f"{SYMBOL}.P"), price=PRICE / 10)
+
+    order = await _adapter(client).build_open_order(spec)
+
+    assert isinstance(order, FuturesMarketOrder)
+    assert order.base_size == Decimal("0.012")
+    assert client.price_reads == [SYMBOL]
+
+
+async def test_an_unreadable_price_refuses_the_opening_rather_than_using_the_alerts() -> None:
+    """As the leverage: the raw ``BybitApiError`` propagates, never an
+    ``OrderNotPlaceable``, so ``PlaceOrder`` retries instead of releasing the
+    reservation on something merely unknown."""
+    adapter = _adapter(FakeTradeClient(price_raises=BybitApiError("unavailable")))
+
+    with pytest.raises(BybitApiError) as caught:
+        await adapter.build_open_order(_open())
+
+    assert not isinstance(caught.value, OrderNotPlaceable)
+
+
+async def test_the_minimum_notional_is_checked_at_the_venues_price() -> None:
+    """An alert at ten times the market must not carry an order past the
+    venue's floor: 0.001 BTC is 78 USDT at 78000, under a floor of 500, and
+    would read 780 at the alert's 780000."""
+    binding = replace(LIVE_RULES, min_notional=Decimal("500"))
+    adapter = _adapter(
+        FakeTradeClient(leverage=Decimal("1"), rules=binding, mark_price=PRICE)
+    )
+
+    with pytest.raises(OrderNotPlaceable, match="notional of at least 500"):
+        await adapter.build_open_order(replace(_open(granted="100"), price=PRICE * 10))
+
+
+async def test_a_close_reads_no_price_and_an_unreadable_one_does_not_stop_it() -> None:
+    """A close is sized from the ledger. Reading a price there would let a
+    venue's market-data outage keep a real position open."""
+    client = FakeTradeClient(price_raises=BybitApiError("unavailable"))
+
+    order = await _adapter(client).build_close_order(
+        CloseOrderSpec(
+            client_order_id=CLIENT_ORDER_ID,
+            symbol=SYMBOL,
+            side=OrderSide.SELL,
+            base_size=Decimal("0.012"),
+        )
+    )
+
+    assert order.base_size == Decimal("0.012")
+    assert client.price_reads == []
 
 
 async def test_a_close_is_reduce_only_and_carries_no_leverage() -> None:

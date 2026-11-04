@@ -81,6 +81,7 @@ class FuturesAssetBalance:
 EXCHANGE_INFO_PATH = "/fapi/v1/exchangeInfo"
 SYMBOL_CONFIG_PATH = "/fapi/v1/symbolConfig"
 POSITION_RISK_PATH = "/fapi/v3/positionRisk"
+PREMIUM_INDEX_PATH = "/fapi/v1/premiumIndex"
 
 PERPETUAL = "PERPETUAL"
 
@@ -395,6 +396,26 @@ class BinanceReadOnlyClient:
         """
         return (await self.symbol_config(symbol)).leverage
 
+    async def mark_price(self, symbol: str) -> Decimal:
+        """The venue's mark price for one symbol, which sizes an opening
+        (decision 35). Public: no signature, no account needed.
+
+        The mark, not the last trade: it is the price Binance computes margin
+        and liquidation from, and one print on a thin book cannot move it.
+        Weight 1 for one symbol. Anything but one positive price of this
+        symbol, written as a string, is refused: it would size a real
+        position.
+        """
+        payload = await self._transport.get_public(PREMIUM_INDEX_PATH, {"symbol": symbol})
+        if not isinstance(payload, dict):
+            raise BinanceApiError(f"{PREMIUM_INDEX_PATH} for {symbol} returned a non-object body")
+        answered = payload.get("symbol")
+        if not isinstance(answered, str) or answered.upper() != symbol.upper():
+            raise BinanceApiError(
+                f"{PREMIUM_INDEX_PATH} asked for {symbol} answered for {answered!r}"
+            )
+        return _positive_price(payload, "markPrice", symbol)
+
     async def position_for(self, symbol: str) -> Position | None:
         """The open position on one symbol, or ``None`` when flat.
 
@@ -553,6 +574,22 @@ def _trade_amount(fields: Mapping[str, Any], field: str) -> Decimal:
         return Decimal(value)
     except InvalidOperation as exc:
         raise BinanceApiError(f"{field} is not a valid decimal: {value!r}") from exc
+
+
+def _positive_price(fields: Mapping[str, Any], field: str, symbol: str) -> Decimal:
+    """A price that sizes an order: a decimal string, finite and above zero.
+    A JSON number has already lost precision, and a zero or a NaN would size
+    a position at nothing or at everything."""
+    value = fields.get(field)
+    if not isinstance(value, str) or not value:
+        raise BinanceApiError(f"{field} for {symbol} must be a string price, got {value!r}")
+    try:
+        price = Decimal(value)
+    except InvalidOperation as exc:
+        raise BinanceApiError(f"{field} for {symbol} is not a decimal: {value!r}") from exc
+    if not price.is_finite() or price <= 0:
+        raise BinanceApiError(f"{field} for {symbol} must be a positive price, got {value!r}")
+    return price
 
 
 def _to_millis(moment: datetime) -> int:

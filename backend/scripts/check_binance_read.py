@@ -279,6 +279,15 @@ async def _run(symbols: list[str], spot: BinanceTransport, futures: BinanceTrans
         if config.ok:
             _dump(config.value)
 
+        # What an opening is sized at (decision 35): its markPrice must be a
+        # positive decimal string and its symbol the one asked for.
+        mark = await probe(
+            f"MARK PRICE    GET /fapi/v1/premiumIndex?symbol={symbol}",
+            lambda symbol=symbol: futures.get_public("/fapi/v1/premiumIndex", {"symbol": symbol}),
+        )
+        if mark.ok:
+            _dump(mark.value)
+
         commission = await probe(
             f"COMMISSION    GET /fapi/v1/commissionRate?symbol={symbol}",
             lambda symbol=symbol: futures.get_signed("/fapi/v1/commissionRate", {"symbol": symbol}),

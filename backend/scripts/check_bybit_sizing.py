@@ -99,8 +99,10 @@ async def main() -> int:
 
         async with read_only_client(settings, credentials) as reader:
             venue_symbol = args.symbol.upper().removesuffix(".P")
-            price = await reader.last_price(venue_symbol)
-            print(f"last price {price}")
+            # The adapter sizes at the venue's mark price (decision 35), so the
+            # notional below is rendered at that same price.
+            price = await reader.mark_price(venue_symbol)
+            print(f"mark price {price}")
 
         async with trade_client(settings, credentials) as client:
             adapter = BybitFuturesExchangeAdapter(client)

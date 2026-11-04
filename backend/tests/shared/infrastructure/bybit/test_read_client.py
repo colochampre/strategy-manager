@@ -11,6 +11,7 @@ from strategy_manager.shared.infrastructure.bybit.read_client import (
     ACCOUNT_INFO_PATH,
     INSTRUMENTS_PATH,
     POSITIONS_PATH,
+    TICKERS_PATH,
     WALLET_BALANCE_PATH,
     BybitReadOnlyClient,
 )
@@ -331,3 +332,73 @@ def test_the_client_exposes_no_writing_method() -> None:
     public = [name for name in dir(BybitReadOnlyClient) if not name.startswith("_")]
 
     assert [name for name in public if any(w in name.lower() for w in forbidden)] == []
+
+
+# --- the venue's price, which sizes an opening (decision 35) -----------------
+
+# One linear ticker as Bybit documents it. The last, mark and index prices
+# differ, so reading the wrong one is seen.
+BTC_TICKER: dict[str, Any] = {
+    "symbol": "BTCUSDT",
+    "lastPrice": "78061.90",
+    "markPrice": "78055.30",
+    "indexPrice": "78050.00",
+}
+
+
+def _tickers(entries: list[Any]) -> dict[str, httpx.Response]:
+    return {
+        TICKERS_PATH: httpx.Response(
+            200, json=_envelope({"category": "linear", "list": entries})
+        )
+    }
+
+
+async def test_the_mark_price_of_the_symbol_is_read_from_its_linear_ticker(
+    signer: BybitSigner, recorded: list[httpx.Request]
+) -> None:
+    client = _client(signer, _tickers([BTC_TICKER]), recorded)
+
+    price = await client.mark_price("BTCUSDT")
+
+    assert price == Decimal("78055.30")
+    assert [request.url.path for request in recorded] == [TICKERS_PATH]
+    assert dict(recorded[0].url.params) == {"category": "linear", "symbol": "BTCUSDT"}
+
+
+@pytest.mark.parametrize(
+    "entries",
+    [
+        [{**BTC_TICKER, "markPrice": "0"}],
+        [{**BTC_TICKER, "markPrice": "-78055.30"}],
+        [{**BTC_TICKER, "markPrice": ""}],
+        [{**BTC_TICKER, "markPrice": "NaN"}],
+        [{**BTC_TICKER, "markPrice": "Infinity"}],
+        [{**BTC_TICKER, "markPrice": 78055.30}],
+        [{key: value for key, value in BTC_TICKER.items() if key != "markPrice"}],
+        [{**BTC_TICKER, "symbol": "ETHUSDT"}],
+        [],
+        ["BTCUSDT"],
+    ],
+    ids=[
+        "zero",
+        "negative",
+        "empty",
+        "nan",
+        "infinite",
+        "json-number",
+        "missing",
+        "another-symbol",
+        "no-ticker",
+        "not-an-object",
+    ],
+)
+async def test_a_mark_price_that_cannot_be_read_is_refused_rather_than_guessed(
+    signer: BybitSigner, recorded: list[httpx.Request], entries: list[Any]
+) -> None:
+    """It sizes a real position, so anything but one positive price of this
+    symbol, written as a string, is no price at all."""
+    client = _client(signer, _tickers(entries), recorded)
+
+    with pytest.raises(BybitApiError):
+        await client.mark_price("BTCUSDT")

@@ -20,6 +20,7 @@ from strategy_manager.shared.infrastructure.binance.errors import (
 )
 from strategy_manager.shared.infrastructure.binance.read_client import (
     EXCHANGE_INFO_PATH,
+    PREMIUM_INDEX_PATH,
 )
 from strategy_manager.shared.infrastructure.binance.signer import (
     BinanceCredentials,
@@ -595,3 +596,83 @@ async def test_a_broken_entry_for_another_market_does_not_refuse_this_one(
     )
 
     assert (await client.perp_rules(SYMBOL)).symbol == SYMBOL
+
+
+# --- the venue's price, which sizes an opening (decision 35) -----------------
+
+# One symbol's answer as Binance documents it. The mark and index prices
+# differ, so reading the wrong one is seen.
+PREMIUM_INDEX = {
+    "symbol": SYMBOL,
+    "markPrice": "124.02000000",
+    "indexPrice": "124.01500000",
+    "estimatedSettlePrice": "124.01000000",
+    "lastFundingRate": "0.00010000",
+    "interestRate": "0.00010000",
+    "nextFundingTime": 1789560000000,
+    "time": 1789559990000,
+}
+
+
+def _priced(recorded: list[httpx.Request], body: object) -> BinanceTradeClient:
+    return _client(
+        recorded,
+        overrides={("GET", PREMIUM_INDEX_PATH): httpx.Response(200, json=body)},
+    )
+
+
+async def test_the_mark_price_of_the_symbol_is_read_from_the_premium_index(
+    recorded: list[httpx.Request],
+) -> None:
+    price = await _priced(recorded, PREMIUM_INDEX).mark_price(SYMBOL)
+
+    assert price == Decimal("124.02000000")
+    assert [request.url.path for request in recorded] == [PREMIUM_INDEX_PATH]
+    assert dict(parse_qsl(recorded[0].url.query.decode())) == {"symbol": SYMBOL}
+
+
+async def test_the_mark_price_is_public_and_carries_no_key_or_signature(
+    recorded: list[httpx.Request],
+) -> None:
+    """Market data needs no account, so the read sends nothing of the key."""
+    await _priced(recorded, PREMIUM_INDEX).mark_price(SYMBOL)
+
+    assert [request.url.path for request in recorded] == [PREMIUM_INDEX_PATH]
+    assert not any(name.lower().startswith("x-mbx") for name in recorded[0].headers)
+    assert b"signature" not in recorded[0].url.query
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {**PREMIUM_INDEX, "markPrice": "0"},
+        {**PREMIUM_INDEX, "markPrice": "-124.02"},
+        {**PREMIUM_INDEX, "markPrice": ""},
+        {**PREMIUM_INDEX, "markPrice": "NaN"},
+        {**PREMIUM_INDEX, "markPrice": "Infinity"},
+        {**PREMIUM_INDEX, "markPrice": "abc"},
+        {**PREMIUM_INDEX, "markPrice": 124.02},
+        {key: value for key, value in PREMIUM_INDEX.items() if key != "markPrice"},
+        {**PREMIUM_INDEX, "symbol": "BTCUSDT"},
+        [PREMIUM_INDEX],
+    ],
+    ids=[
+        "zero",
+        "negative",
+        "empty",
+        "nan",
+        "infinite",
+        "not-a-number",
+        "json-number",
+        "missing",
+        "another-symbol",
+        "a-list",
+    ],
+)
+async def test_a_mark_price_that_cannot_be_read_is_refused_rather_than_guessed(
+    recorded: list[httpx.Request], body: object
+) -> None:
+    """It sizes a real position, so anything but one positive price of this
+    symbol, written as a string, is no price at all."""
+    with pytest.raises(BinanceApiError):
+        await _priced(recorded, body).mark_price(SYMBOL)

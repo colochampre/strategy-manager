@@ -117,6 +117,11 @@ class OpenOrderSpec:
     ``price`` is never a live fill's price. It is, since decision 45, the
     price a REHEARSAL fill is minted at: the simulated exchange remembers it
     between its own build and its own place.
+
+    **It sizes no real order** (decision 35 of the multi-user change). The
+    alert's price is whatever its author posted, so a live futures adapter
+    reads the venue's own price at build time, as it reads the leverage, and
+    refuses the opening when it cannot.
     """
 
     client_order_id: str

@@ -371,6 +371,28 @@ class BybitReadOnlyClient:
             raise BybitApiError(f"Bybit reports no ticker for {symbol!r}")
         return _amount(_object(tickers[0], "ticker"), "lastPrice")
 
+    async def mark_price(self, symbol: str) -> Decimal:
+        """The venue's mark price for one linear symbol, which sizes an
+        opening (decision 35).
+
+        The mark, not ``lastPrice``: it is the price Bybit computes margin and
+        liquidation from, and one print on a thin book cannot move it. The
+        ticker is matched by symbol, and anything but one positive price,
+        written as a string, is refused: it would size a real position.
+        """
+        data = await self._read(TICKERS_PATH, {"category": LINEAR, "symbol": symbol})
+        for entry in _list_of(data, "list"):
+            fields = _object(entry, "ticker")
+            if _text(fields, "symbol").upper() == symbol.upper():
+                price = _amount(fields, "markPrice")
+                if not price.is_finite() or price <= 0:
+                    raise BybitApiError(
+                        f"markPrice for {symbol} must be a positive price, "
+                        f"got {fields.get('markPrice')!r}"
+                    )
+                return price
+        raise BybitApiError(f"Bybit reports no ticker for {symbol!r}")
+
     async def wallet_balance(self) -> list[CoinBalance]:
         """Unified-account balances. Bybit nests them one level deeper than
         Pionex: ``result.list[0].coin[]``."""

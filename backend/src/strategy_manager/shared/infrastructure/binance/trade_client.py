@@ -197,6 +197,11 @@ class BinanceTradeClient:
         """
         return await self._read.leverage_for(symbol)
 
+    async def mark_price(self, symbol: str) -> Decimal:
+        """The venue's price an opening is sized at, never the alert's
+        (decision 35). Read rather than assumed, as the leverage is."""
+        return await self._read.mark_price(symbol)
+
     async def assert_one_way_mode(self) -> None:
         """Refuses a hedged account before any order is sent.
 
