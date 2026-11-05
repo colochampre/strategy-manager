@@ -242,4 +242,11 @@ These come from the owner's own words above. They are not asked again.
     - Decision 80 settled the same thing for Settings' cards, which keep their own rule: an enabled pool with no key stays as an amber card.
     - Not built. It goes with the panel requests in `tasks.md`, in its own delivery.
 
+38. **Each user chooses the leverage of each subscription, and the system sets it, with isolated margin, on the venue before every opening (after the PNUT incident, 2026-11-05).**
+    - **The incident.** Binance applies a user's default leverage to a pair only once its trading page has been visited, so a first opening went out at the 20x system default. The owner: "Estaba configurado el default y no se respetó. Nunca tuve conocimiento de que si no se había operado el par, salía por defecto con x20 y eso le puede pasar a cualquiera."
+    - **Set, not refused.** The owner chose to have the system set the leverage over refusing a mismatch: "Si, que el sistema lo fije".
+    - **Who chooses.** The user chooses, not the author: "Cada usuario elige el suyo. El autor solo recomienda el apalancamiento."
+    - **The description.** It carries that recommendation: "Se me había ocurrido que cada estrategia tenga una descripción opcional, que es donde se describiría cómo opera, y las configs recomendadas. La descripción la escribe el autor desde la gestión de su estrategia."
+    - **Built in** PR H.
+
 11. **The existing data becomes the owner's (Q10, 2026-10-21; a default, stated rather than asked).** The owner becomes the first user and the admin, and owns today's strategies, keys, pools, ledger and signals. Nothing already recorded changes owner or meaning. The migration that adds the owner column fills it with the owner's user for every existing row. Like every migration, it is rehearsed on a throwaway copy first.

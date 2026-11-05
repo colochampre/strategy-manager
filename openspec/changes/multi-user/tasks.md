@@ -1569,3 +1569,97 @@ The panel opens to every signed-in user, and Access opens last. Until G.D's last
   - The author only recommends one, in a new optional strategy description written in strategy management.
   - The system sets the leverage and isolated margin on the pair before every opening, reads both back, and refuses on a mismatch. On Bybit the margin mode is account-wide, so it is checked, not set.
   - A second open position on the same pair at a different leverage is refused.
+
+## PR H: each user's leverage, set on the venue before every opening
+
+The follow-up of the PNUT incident above, and decision 38. Branch `feat/subscription-leverage`, cut from `b5129b0`. One PR with one migration, `0037`. Strict TDD, owner's word per unit. **Access stays closed (G.D.4 and G.D.5 wait) until this PR is in production**: until then any new user would meet the same 20x default.
+
+### PR H's plan (2026-11-05)
+
+**The map, read at `b5129b0`:**
+- **a. Subscriptions.**
+  - A subscription's one setting is `allocation_percent` (`0031_subscriptions.py:104-125`, ORM `subscriptions/infrastructure/models.py:70-90`). It is edited by `PATCH /api/subscriptions/{id}` (`subscriptions/infrastructure/router.py:200-216`, `change_share.py:265-297`).
+  - The author trades through an ordinary subscription row. `RegisterStrategy` writes it (`author_subscription_adapter.py:27-46`), and the author edits it on the strategy page, not in My subscriptions (`MySubscriptionsPage.tsx:196`).
+- **b. The delivery already carries the setting.** It is loaded with its subscription joined (`delivery_adapters.py:28-47`), so a leverage column reaches `Delivery`, `PlaceCommand` (`place_order.py:64-87`) and `OpenOrderSpec` (`execution/application/ports.py:105-132`) with no new query.
+- **c. Refusals in `PlaceOrder`.**
+  - `build_open_order` runs before any write (`place_order.py:164-173`).
+  - `OrderNotPlaceable` is the one definitive refusal there. The reservation is released, the delivery is recorded `REJECTED` with its reason, and it is not retried (`:174-195`).
+  - Anything else raised from the build retries.
+  - No panel code reads a delivery's `outcome_reason`.
+- **d. Venue writes.** Nothing in the repo writes leverage or margin mode today. The adapters read `leverage_for` and size `granted * leverage / mark` (`binance_futures_exchange.py:119-147`, the Bybit twin).
+  - Binance already reads `/fapi/v1/symbolConfig` on every opening, weight 5, carrying `leverage` and `marginType`; the parser exists (`read_client.py:296-304`).
+  - Bybit reads leverage from `/v5/position/list` (`read_client.py:406-421`). `account_info()` exists but `marginMode` is unparsed (`:479-484`).
+  - The signed POST helpers serve only `place_market_order`. The definitive-versus-ambiguous classifier is private to each adapter's `place()` (`binance_futures_exchange.py:285-303`).
+- **e. The simulated exchange sizes at a fixed 1x** (`fake_exchange.py:119`, `:187`).
+- **f. Strategies have no description.** A description would reach the public page and the preview through `PublicListing` (`performance/application/ports.py:160-171`) and `public_strategies_source.py:67-73`. The author edits it through `PATCH /api/strategies/{id}` (`strategies/infrastructure/router.py:842-880`).
+- **g. The holding guard is per strategy** (`holding_guard.py`). Two strategies of one user can each hold the same pair, and the venue nets them, since the account is one-way. This pre-dates PR H; it is recorded here, not fixed.
+
+**The venues, from their documentation (2026-11-05):**
+- **Binance.**
+  - `POST /fapi/v1/leverage` takes an integer from 1 to the symbol's maximum, weight 1. The maximum is bracket 1's `initialLeverage` in `/fapi/v1/leverageBracket`.
+  - `POST /fapi/v1/marginType` takes `ISOLATED` or `CROSSED`, weight 1.
+  - Its refusals: `-4046` the type is already set, `-4047` open orders, `-4048` an open position, `-4168` isolated is forbidden under Multi-Assets mode, `-4161` leverage cannot be lowered in isolated with a position open.
+  - Sources: [legacy docs, Change Initial Leverage](https://developers.binance.com/legacy-docs/derivatives/usds-margined-futures/trade/rest-api/Change-Initial-Leverage), [Change Margin Type](https://developers.binance.com/legacy-docs/derivatives/usds-margined-futures/trade/rest-api/Change-Margin-Type), [error codes](https://developers.binance.com/docs/derivatives/usds-margined-futures/error-code).
+- **Bybit.**
+  - `POST /v5/position/set-leverage` takes equal `buyLeverage` and `sellLeverage` in one-way mode; `110043` means unchanged.
+  - On a UTA the margin mode is account-wide: `marginMode` of `/v5/account/info`, `ISOLATED_MARGIN`. The per-symbol switch is abandoned for UTA 2.0.
+  - Sources: [Set Leverage](https://bybit-exchange.github.io/docs/v5/position/leverage), [Account Info](https://bybit-exchange.github.io/docs/v5/account/account-info), [abandoned cross/isolate](https://bybit-exchange.github.io/docs/v5/abandon/cross-isolate).
+- **Not documented, to read live (H.9):**
+  - which code each venue answers for a leverage above the symbol's maximum;
+  - the spelling of `marginType` in `symbolConfig` for an isolated symbol. Compare it ignoring case until H.9 reads it.
+
+**Decisions stated, not asked:**
+- **The leverage is an integer from 1 to 125**, the venue's own range on Binance. Each pair's maximum is the venue's to enforce, and its refusal ends the opening.
+- **The order of a live opening** is chosen so that no venue setting changes when the opening is refused for another reason:
+  1. The adapter sizes at the chosen leverage first.
+  2. It runs the step and notional checks.
+  3. Only then does it write to the venue.
+  - On Binance, it reads `symbolConfig` (already read today). It writes `marginType=ISOLATED` only when the type differs, and `leverage` only when the value differs. After a write it reads `symbolConfig` back. Whatever does not read ISOLATED at the chosen leverage refuses.
+  - On Bybit, it reads the account's `marginMode`, and anything but `ISOLATED_MARGIN` refuses. **It is never switched by the system**, because it would change every position in the account. It writes leverage only when the value differs, and reads it back.
+- **Weight.** A pair already at the user's settings costs nothing more than today. A change costs at most two writes of weight 1 and one read-back of weight 5.
+- **A definitive venue refusal ends the opening**: `LEVERAGE_NOT_APPLIED` or `MARGIN_NOT_ISOLATED`, the reservation released, logged as an ERROR so it reaches Telegram. An ambiguous one (transport, 5xx, 408 or 429) retries, as every other build failure does.
+- **A user who holds a pair through one strategy** cannot open it through another at a different leverage: `LEVERAGE_CONFLICT`. Changing the venue's leverage would change the open position under it.
+- **A change of a subscription's leverage applies at its next opening.** It changes nothing open.
+- **The author's seat** takes its leverage at registration and changes it on the strategy page, like its share.
+- **The description is plain text, optional, up to 2,000 characters**, written by the author at creation or on the strategy page. It is shown on the public page and in the preview, and rendered as text, never as HTML or Markdown. Any recommended leverage is written in it; there is no separate field (the owner: "El autor solo recomienda el apalancamiento").
+- **Left out:**
+  - a panel view of an opening's refusal reason (none exists for any reason today; the ERROR line reaches Telegram);
+  - the cross-strategy netting of map g.
+
+**Open, asked one at a time:**
+- **H-Q1.** The leverage given to the subscriptions that already exist, all the owner's: 2, their stated default, or no value until they choose one, with openings refused meanwhile?
+- **H-Q2.** The value the subscribe form starts at.
+- **H-Q3.** Whether a simulated opening sizes at the chosen leverage, as live does, instead of 1x. It would change how simulated results read from then on.
+
+**Tasks.** Each is a work-unit commit.
+- [ ] H.1 Migration `0037`.
+  - `subscriptions.leverage` integer, with a CHECK of 1 to 125 and the backfill of H-Q1.
+  - `strategies.description` text, nullable, with a CHECK of length ≤ 2,000.
+  - The ORM rows for both.
+  - Rehearsal and deploy scripts, every query exercised locally.
+  - RED from mutations of the CHECKs and the backfill.
+- [ ] H.2 The leverage of a subscription.
+  - `POST /api/subscriptions` takes it, `PATCH /api/subscriptions/{id}` changes it, and the views and the held view carry it.
+  - Registration gives the author's seat one.
+  - Refusals: a value out of range (422), and a change to an ended subscription (as the share's).
+- [ ] H.3 The description.
+  - Register and `PATCH /api/strategies/{id}` take it, and `StrategyView` carries it.
+  - `PublicListing`, the public body and the preview carry it.
+  - It is trimmed, an empty one is stored as none, and one over 2,000 characters is refused.
+- [ ] H.4 The leverage reaches the order: `Delivery`, then `PlaceCommand`, then `OpenOrderSpec`, the REVERSE's opening included. The simulated exchange follows H-Q3.
+- [ ] H.5 Binance applies it before an opening, in the order above.
+  - New `set_leverage` and `set_margin_type` on the trade client, with each refusal code classified.
+  - `LeverageNotApplied` is a definitive refusal in `PlaceOrder`.
+  - `LEVERAGE_CONFLICT` is checked against the user's open allocations on that pair.
+  - `CLAUDE.md` "Open risks" no longer says nothing sets the leverage.
+- [ ] H.6 Bybit, the same way: `marginMode` parsed and required to be `ISOLATED_MARGIN`, leverage set when it differs and read back.
+- [ ] H.7 The panel's leverage.
+  - A control in the subscribe form, in My subscriptions beside the share, on the author's seat on the strategy page, and in the new-strategy dialog.
+  - EN/ES copy, including what it means ("applies at the next opening; the system sets it on the exchange").
+- [ ] H.8 The panel's description: written at creation, edited on the strategy page, shown on the public page above its figures. EN/ES.
+- [ ] H.9 Owner-run, before the deploy: a probe that reads `symbolConfig` for one isolated pair (the spelling of `marginType`). It also asks for a leverage above one pair's maximum while flat on it, so the venue refuses with the code H.5 classifies.
+
+**Delivery.**
+- [ ] H.D.1 Gate (backend and frontend), and an independent verifier over the whole PR. It names items 1 (`0037`), 3 (the subscribe and strategy contracts) and the venue writes of a live opening.
+- [ ] H.D.2 Push and PR (owner's word), merge (owner), with a merge commit.
+- [ ] H.D.3 Rehearse `0037` on a fresh backup, deploy, then pps.6 after the API.
