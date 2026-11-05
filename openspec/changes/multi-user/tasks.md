@@ -1547,3 +1547,20 @@ The panel opens to every signed-in user, and Access opens last. Until G.D's last
 - [ ] G.D.3 Deploy, then pps.6. No migration to rehearse. Access unchanged.
 - [ ] G.D.4 D.2, owner-run: add one test address to the Access policy and sign in with it, by one-time PIN and by Google. Check the `email` claim on a real token, that the user is created, and that they see nothing of the owner's. Google has to be enabled as an identity provider first.
 - [ ] G.D.5 Owner-run: the Access policy admits every authenticated identity (decision 2), and seat expiration turns on (Zero Trust > Settings > Admin controls). Delivery log and "Production now".
+
+**Incident, 2026-11-05: a live PNUT opening at Binance's 20x default.**
+- **What happened.** A new strategy's first PNUTUSDT.P signal opened live at 01:00 at **20x**.
+  - The owner's default of 2x isolated had never reached that pair. Binance applies a user's default leverage and margin mode to a symbol only after its trading page is visited, and API orders do not reflect the default until then ([FAQ 360034946672](https://www.binance.com/en/support/faq/360034946672)). The system default for an "Advanced" account is 20x.
+  - The worker read `leverage = 20` from `/fapi/v1/symbolConfig` and sized at it. Margin 328.55 USDT, 174,575 PNUT, notional 6,579.37, roughly ten times what 2x would have opened.
+  - The close came by signal at 15:56. Result: −326.55 from the move and −6.42 in fees, −332.97 USDT, which is more than the margin. That points to cross margin, an inference.
+  - Nothing logged a warning. The system only reads leverage, and does not check `marginType` even though `_parse_symbol_config` parses it.
+- **The owner topped the account back up** to its previous balance of 1095.17 USDT.
+- **The round trip was deleted from the ledger at the owner's request**, so that it leaves their curve. It was rehearsed first on a copy restored from a backup.
+  - Deleted: reservation `de7bcb64-3359-44ae-9dbb-8f177860a54c`, its 2 attempts and 75 fills, inside one transaction with the append-only triggers disabled and re-enabled (precedent: 0019).
+  - Kept: both signals (their idempotency keys stop a replay), both deliveries, and the jobs.
+  - Backup taken before the delete: `/var/backups/strategy-manager/pre-pnut-delete-20261105T153913Z.dump`.
+- **Follow-up (owner decision, 2026-11-05): its own PR after PR G.**
+  - Each user chooses their leverage per subscription, in the panel.
+  - The author only recommends one, in a new optional strategy description written in strategy management.
+  - The system sets the leverage and isolated margin on the pair before every opening, reads both back, and refuses on a mismatch. On Bybit the margin mode is account-wide, so it is checked, not set.
+  - A second open position on the same pair at a different leverage is refused.
