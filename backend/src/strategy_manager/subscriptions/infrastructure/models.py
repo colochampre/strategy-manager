@@ -40,7 +40,8 @@ from strategy_manager.strategies.infrastructure.models import StrategyRow  # noq
 
 class SubscriptionRow(Base):
     """Mirrors the ``subscriptions`` table created by migration ``0031``: a user's
-    place in a strategy, through the user's own pool, at the user's own share.
+    place in a strategy, through the user's own pool, at the user's own share and,
+    since ``0037``, at the user's own leverage.
 
     ``(pool_id, user_id)`` references ``capital_pools (id, user_id)``, so a
     subscription never sits in another user's pool. A strategy's deletion takes
@@ -58,6 +59,7 @@ class SubscriptionRow(Base):
             name="ck_subscriptions_allocation_percent_range",
         ),
         CheckConstraint("status IN ('ACTIVE', 'LEAVING', 'ENDED')", name="ck_subscriptions_status"),
+        CheckConstraint("leverage BETWEEN 1 AND 125", name="ck_subscriptions_leverage_range"),
         Index(
             "ux_subscriptions_one_live_per_strategy",
             "user_id",
@@ -82,6 +84,9 @@ class SubscriptionRow(Base):
     )
     pool_id: Mapped[int] = mapped_column(Integer, nullable=False)
     allocation_percent: Mapped[Decimal] = mapped_column(Numeric, nullable=False)
+    # Migration ``0037`` (decision 38): the leverage this seat's openings are set to on
+    # the venue. Existing rows were given 2; a row written without one gets 1.
+    leverage: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("1"))
     status: Mapped[str] = mapped_column(Text, nullable=False, server_default="ACTIVE")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
