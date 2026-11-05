@@ -1627,9 +1627,13 @@ The follow-up of the PNUT incident above, and decision 38. Branch `feat/subscrip
   - the cross-strategy netting of map g.
 
 **Open, asked one at a time:**
-- **H-Q1.** The leverage given to the subscriptions that already exist, all the owner's: 2, their stated default, or no value until they choose one, with openings refused meanwhile?
-- **H-Q2.** The value the subscribe form starts at.
-- **H-Q3.** Whether a simulated opening sizes at the chosen leverage, as live does, instead of 1x. It would change how simulated results read from then on.
+- **H-Q1, answered (owner, 2026-11-05):** "Van con default. En el caso de las estrategias existentes, todas son x2, pero una estrategia nueva debe empezar con x1." `0037` fills every existing subscription with 2.
+- **H-Q2, answered by the same words:** every new seat starts at x1, the author's at registration and a subscriber's at subscribe. This reading is stated to the owner, not asked.
+- **H-Q3, answered (owner, 2026-11-05):** "Si, las simuladas usan el apalancamineto elegido." A simulated opening sizes at the seat's leverage instead of `FAKE_LEVERAGE = 1`, and records it on the attempt. Simulated trades before the deploy stay at 1x.
+
+**Added by the owner, same message (decision 39):** "el capital que se le asigna a una estrategia nueva es 100%. Cambialo por 0% y que el usuario ponga a mano cuánto quiere usar. No puede olvidarse accidentalmente y que la estrategia opere con 100%, menos si pueden surgir incidentes como el de hoy."
+- Today the new-strategy dialog asks no share at all and sends a fixed 100 (`NewStrategyDialog.tsx:17`, `:121`). `RegisterRequest` defaults to 100 when the share is left out (`strategies/infrastructure/router.py:324`). The subscribe form starts at 100 (`SubscribePanel.tsx:19`), and the preview of a user with no seat shows 100 (`strategies/infrastructure/router.py:788-794`).
+- Built as follows. Both forms start at 0 % and cannot be sent until the user types a share above 0. `RegisterRequest` requires the share, so leaving it out answers 422. The database keeps refusing 0 (`ck_subscriptions_allocation_percent_range`). The preview of a user with no seat no longer assumes 100.
 
 **Tasks.** Each is a work-unit commit.
 - [ ] H.1 Migration `0037`.
@@ -1646,7 +1650,7 @@ The follow-up of the PNUT incident above, and decision 38. Branch `feat/subscrip
   - Register and `PATCH /api/strategies/{id}` take it, and `StrategyView` carries it.
   - `PublicListing`, the public body and the preview carry it.
   - It is trimmed, an empty one is stored as none, and one over 2,000 characters is refused.
-- [ ] H.4 The leverage reaches the order: `Delivery`, then `PlaceCommand`, then `OpenOrderSpec`, the REVERSE's opening included. The simulated exchange follows H-Q3.
+- [ ] H.4 The leverage reaches the order: `Delivery`, then `PlaceCommand`, then `OpenOrderSpec`, the REVERSE's opening included. The simulated exchange sizes at that leverage (H-Q3), and sets nothing, since it has no venue.
 - [ ] H.5 Binance applies it before an opening, in the order above.
   - New `set_leverage` and `set_margin_type` on the trade client, with each refusal code classified.
   - `LeverageNotApplied` is a definitive refusal in `PlaceOrder`.
@@ -1657,6 +1661,11 @@ The follow-up of the PNUT incident above, and decision 38. Branch `feat/subscrip
   - A control in the subscribe form, in My subscriptions beside the share, on the author's seat on the strategy page, and in the new-strategy dialog.
   - EN/ES copy, including what it means ("applies at the next opening; the system sets it on the exchange").
 - [ ] H.8 The panel's description: written at creation, edited on the strategy page, shown on the public page above its figures. EN/ES.
+- [ ] H.10 Decision 39, the share is typed by hand.
+  - The new-strategy dialog gets a share field and the subscribe form starts at 0 %. Neither can be sent with 0.
+  - `RegisterRequest` requires `allocation_percent`.
+  - The preview with no seat and no share asked shows no sizing instead of 100 %.
+  - EN/ES copy.
 - [ ] H.9 Owner-run, before the deploy: a probe that reads `symbolConfig` for one isolated pair (the spelling of `marginType`). It also asks for a leverage above one pair's maximum while flat on it, so the venue refuses with the code H.5 classifies.
 
 **Delivery.**

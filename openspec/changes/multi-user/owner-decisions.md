@@ -248,5 +248,9 @@ These come from the owner's own words above. They are not asked again.
     - **Who chooses.** The user chooses, not the author: "Cada usuario elige el suyo. El autor solo recomienda el apalancamiento."
     - **The description.** It carries that recommendation: "Se me había ocurrido que cada estrategia tenga una descripción opcional, que es donde se describiría cómo opera, y las configs recomendadas. La descripción la escribe el autor desde la gestión de su estrategia."
     - **Built in** PR H.
+    - **Starting values** (owner, 2026-11-05): "Van con default. En el caso de las estrategias existentes, todas son x2, pero una estrategia nueva debe empezar con x1." Existing subscriptions get 2. Every new seat starts at 1.
+    - **Simulation** (owner, 2026-11-05): "Si, las simuladas usan el apalancamineto elegido." A simulated opening sizes at the seat's leverage, as a live one does.
+
+39. **A new seat's share starts at 0 % and is typed by hand (2026-11-05, with decision 38).** The owner: "el capital que se le asigna a una estrategia nueva es 100%. Cambialo por 0% y que el usuario ponga a mano cuánto quiere usar. No puede olvidarse accidentalmente y que la estrategia opere con 100%, menos si pueden surgir incidentes como el de hoy." Neither the new-strategy dialog nor the subscribe form can be sent with 0, the API no longer defaults the share to 100, and the database still refuses a share of 0.
 
 11. **The existing data becomes the owner's (Q10, 2026-10-21; a default, stated rather than asked).** The owner becomes the first user and the admin, and owns today's strategies, keys, pools, ledger and signals. Nothing already recorded changes owner or meaning. The migration that adds the owner column fills it with the owner's user for every existing row. Like every migration, it is rehearsed on a throwaway copy first.
