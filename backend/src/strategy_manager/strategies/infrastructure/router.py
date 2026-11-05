@@ -33,7 +33,7 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from pydantic import BaseModel, Field, field_validator
+from pydantic import AfterValidator, BaseModel, Field, field_validator
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -61,6 +61,7 @@ from strategy_manager.reconciliation.infrastructure.booking_proposal_repository 
 )
 from strategy_manager.shared.config import get_settings
 from strategy_manager.shared.db import get_session
+from strategy_manager.shared.domain.errors import InvariantViolation
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 from strategy_manager.shared.infrastructure.clock import SystemClock
 from strategy_manager.shared.infrastructure.wire import Instant, Money
@@ -94,12 +95,14 @@ from strategy_manager.strategies.application.replace_allowed_pairs import (
 )
 from strategy_manager.strategies.application.subscriber_locks import SubscribersChanged
 from strategy_manager.strategies.application.update_strategy import (
+    UNCHANGED,
     StrategyArchived,
     UnknownStrategy,
     UpdateCommand,
     UpdateStrategy,
 )
 from strategy_manager.strategies.domain.allowed_pairs import EmptyAllowedPairs
+from strategy_manager.strategies.domain.description import description_of
 from strategy_manager.strategies.domain.enablement import EnablementEvent, Uptime, uptime
 from strategy_manager.strategies.domain.pair_catalog import (
     PairCatalogNotServed,
@@ -200,6 +203,8 @@ class StrategyView(BaseModel):
 
     id: UUID
     name: str
+    # The author's own words, plain text (decision 38), or null.
+    description: str | None
     exchange: Exchange
     venue: Venue
     settlement_currency: Currency
@@ -238,6 +243,7 @@ class StrategyView(BaseModel):
         return cls(
             id=strategy.id,
             name=strategy.name,
+            description=strategy.description,
             exchange=strategy.policy.exchange,
             venue=strategy.policy.venue,
             settlement_currency=strategy.policy.settlement_currency,
@@ -311,6 +317,20 @@ class EnablementEventView(BaseModel):
         return cls(enabled=event.enabled, occurred_at=event.occurred_at, origin=event.origin.value)
 
 
+def _stored_description(value: str | None) -> str | None:
+    try:
+        return description_of(value)
+    except InvariantViolation as exc:
+        # A ``ValueError`` is what the 422 handler answers, with its fixed message.
+        raise ValueError(str(exc)) from None
+
+
+#: The author's description as the API takes it: a JSON string or null (pydantic
+#: turns no number or list into a string), then put in its stored shape (trimmed, a
+#: blank one made null) or refused with a 422.
+Description = Annotated[str | None, AfterValidator(_stored_description)]
+
+
 class RegisterRequest(BaseModel):
     """``id`` is the alert's ``signalType``. It is required, and there is no
     server-side default, because a generated one would match no alert."""
@@ -325,6 +345,7 @@ class RegisterRequest(BaseModel):
     allowed_pairs: list[str] = Field(min_length=1)
     # Nothing turns public without the author's choice (decision 21).
     visibility: Visibility = Visibility.PRIVATE
+    description: Description = None
 
 
 class UpdateRequest(BaseModel):
@@ -338,6 +359,8 @@ class UpdateRequest(BaseModel):
     fill_mode: FillMode | None = None
     enabled: bool | None = None
     visibility: Visibility | None = None
+    # Unlike the fields above, null here clears it; leaving it out keeps it.
+    description: Description = None
     # The share is each subscriber's now (``PATCH /api/subscriptions/{id}``). A body
     # that still carries one is refused, whatever its value, rather than accepted
     # and ignored: the validator below fires for any value present, ``null``
@@ -620,6 +643,7 @@ async def register_strategy(
                 allowed_pairs=body.allowed_pairs,
                 author_id=user.id,
                 visibility=body.visibility,
+                description=body.description,
             )
         )
     except StrategyAlreadyRegistered as exc:
@@ -858,6 +882,10 @@ async def update_strategy(
                 fill_mode=body.fill_mode,
                 enabled=body.enabled,
                 visibility=body.visibility,
+                # Sent, null included, is a change; left out is not.
+                description=(
+                    body.description if "description" in body.model_fields_set else UNCHANGED
+                ),
             )
         )
     except UnknownStrategy as exc:

@@ -1656,10 +1656,15 @@ The follow-up of the PNUT incident above, and decision 38. Branch `feat/subscrip
   - `ChangeShare` logs a real leverage change after the commit (`leverage changed from x1 to x5`), ids and values only, and only when the value differs.
   - RED was seen on assertions, against stubs that carried the field and did nothing. 24 of 24 mutations were killed (`mutate_h2.ps1`).
   - Gate: ruff 0, mypy 0, pytest exit 0 with no failing test. The panel ignores the new field until H.7.
-- [ ] H.3 The description.
+- [x] H.3 The description.
   - Register and `PATCH /api/strategies/{id}` take it, and `StrategyView` carries it.
   - `PublicListing`, the public body and the preview carry it.
   - It is trimmed, an empty one is stored as none, and one over 2,000 characters is refused.
+  - *Built 2026-11-05.* `strategies/domain/description.py`: `description_of` trims the same four characters as the 0037 CHECK, makes a blank one null, counts 2,000 characters after the trim, keeps lines and tabs inside, and refuses any other control character (NUL included, which PostgreSQL would refuse with an unreadable error; not asked for, added so no description answers 500). `Strategy` holds it only in that shape.
+  - `PATCH`: a sent description, null included, is a change; a left-out one is not (`model_fields_set` and the `UNCHANGED` sentinel on `UpdateCommand`). Null or blank clears it. A non-string, an over-long or a control-character one answers 422 and changes nothing; an archived strategy's is 409, like every other field.
+  - The preview the panel shows before subscribing is the public page's body, so it carries it through `PublicStrategyBody`; the share preview (`SharePreviewBody`) is untouched.
+  - RED was seen on assertions, against stubs that carried the field and did nothing. 26 mutations (`mutate_h3.ps1`, `mutate_h3b.ps1`): the first run killed 21 of 24. Two survivors led to changes. `strip()` in place of the four characters survived, so a test now pins that a non-breaking space at the edge is kept, as `btrim` keeps it. `strict=True` on the request field survived because pydantic already refuses a number or a list for a `str`, so it was removed. One mutant did not apply, because the new file is LF; it was rerun, and both reruns were killed.
+  - Gate: ruff 0, mypy 0, pytest exit 0 with no failing test.
 - [ ] H.4 The leverage reaches the order: `Delivery`, then `PlaceCommand`, then `OpenOrderSpec`, the REVERSE's opening included. The simulated exchange sizes at that leverage (H-Q3), and sets nothing, since it has no venue.
 - [ ] H.5 Binance applies it before an opening, in the order above.
   - New `set_leverage` and `set_margin_type` on the trade client, with each refusal code classified.

@@ -104,6 +104,8 @@ class RegisterCommand:
     allowed_pairs: list[str]
     author_id: UUID
     visibility: Visibility = Visibility.PRIVATE
+    # In its stored shape (``description_of``), or None (decision 38).
+    description: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -195,6 +197,7 @@ class RegisterStrategy:
             author_id=command.author_id,
             visibility=command.visibility,
             allowed_pairs=allowed_pairs,
+            description=command.description,
             # Registered, not armed. Enabling is a separate, deliberate call.
             enabled=False,
         )

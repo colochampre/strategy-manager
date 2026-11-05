@@ -14,6 +14,7 @@ from uuid import UUID
 from strategy_manager.shared.domain.errors import InvariantViolation
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 from strategy_manager.strategies.domain.allowed_pairs import AllowedPairs
+from strategy_manager.strategies.domain.description import description_of
 
 
 class FillMode(StrEnum):
@@ -96,6 +97,7 @@ class Strategy:
     enabled: bool = False
     visibility: Visibility = Visibility.PRIVATE
     allowed_pairs: AllowedPairs = AllowedPairs(frozenset())
+    description: str | None = None
     archived_at: datetime | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
@@ -103,3 +105,8 @@ class Strategy:
     def __post_init__(self) -> None:
         if not self.name:
             raise InvariantViolation("Strategy.name must be non-empty")
+        # Held only in its stored shape: what ``description_of`` makes of it is
+        # itself. A blank or padded one is turned into that shape before it gets
+        # here, never written as it came.
+        if self.description is not None and description_of(self.description) != self.description:
+            raise InvariantViolation("Strategy.description must be trimmed and non-empty")

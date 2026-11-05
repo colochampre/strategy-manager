@@ -169,6 +169,8 @@ class PublicListing:
     venue: str
     settlement_currency: str
     created_at: datetime
+    # The author's own words, written for anyone reading the strategy (decision 38).
+    description: str | None = None
 
 
 class PublicStrategiesSourcePort(Protocol):

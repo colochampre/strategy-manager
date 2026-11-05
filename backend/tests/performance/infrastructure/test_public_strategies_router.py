@@ -48,6 +48,7 @@ ROUTER_LOGGER = "strategy_manager.performance.infrastructure.public_strategies_r
 BODY_KEYS = {
     "id",
     "name",
+    "description",
     "author_name",
     "exchange",
     "venue",
@@ -310,6 +311,26 @@ async def test_a_public_strategy_shows_exactly_the_listed_fields(
     assert (listed["exchange"], listed["venue"]) == ("bybit", "usdt-m")
     assert listed["settlement_currency"] == "USDT"
     assert listed["created_at"] == "2026-09-01T12:00:00Z"
+    assert listed["description"] is None
+
+
+async def test_a_public_strategy_shows_its_authors_description_on_the_list_and_the_page(
+    pg_session_factory: Factory, api: _Api
+) -> None:
+    author = await _new_user(pg_session_factory)
+    strategy_id = await _strategy(pg_session_factory, author)
+    written = "Trades the 4h close.\n\nRecommended: x3, isolated."
+    async with pg_session_factory() as session:
+        await session.execute(
+            text("UPDATE strategies SET description = :description WHERE id = :id"),
+            {"description": written, "id": strategy_id},
+        )
+        await session.commit()
+
+    [listed] = await api.listed()
+
+    assert listed["description"] == written
+    assert (await api.page(strategy_id))["description"] == written
 
 
 async def test_the_page_says_what_the_list_says(pg_session_factory: Factory, api: _Api) -> None:
