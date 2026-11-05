@@ -423,3 +423,60 @@ async def test_a_settle_committed_between_the_holders_reads_still_finds_the_hold
 
     assert racing.fired
     assert {holder.user_id for holder in found} == {world.author, world.other}
+
+
+class _OpensBeforeTheDeliveryRead:
+    """A session that lets every pending opening run to its end (reserved, filled,
+    settled, its job acknowledged) just before the read of pending deliveries: the
+    first state in the chain, a delivery on a lane beside a fan-out (G.D.1, A1)."""
+
+    def __init__(self, session: AsyncSession, run: Callable[[], Awaitable[None]]) -> None:
+        self._session = session
+        self._run = run
+        self.fired = False
+
+    async def execute(self, statement: Any, *args: Any, **kwargs: Any) -> Any:
+        if not self.fired and str(statement).startswith("SELECT signal_deliveries.id"):
+            self.fired = True
+            await self._run()
+        return await self._session.execute(statement, *args, **kwargs)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._session, name)
+
+
+async def test_an_opening_run_to_its_end_during_the_holders_reads_still_finds_the_holder(
+    pg_session_factory: Factory,  # noqa: F811
+) -> None:
+    """The pending delivery is read first, so whatever leaves it has already reached
+    the reservation, the attempt or the ledger by the time those are read. Read last,
+    an opening that ran in between was seen in no state, and its close reached nobody."""
+    world = await _world(pg_session_factory)
+    opening = await _signal(world, position_size="1", minutes=1)
+    await _fan_out(world, opening)
+    queued = await _queued(world, opening)
+
+    async def run_every_opening() -> None:
+        for user, (delivery_id, halves) in queued.items():
+            await _work(world, user, delivery_id, halves)
+        await _settle_all(world)
+        async with pg_session_factory() as session:
+            await session.execute(
+                update(JobRow)
+                .where(JobRow.kind == JobKind.DELIVERY_PROCESS.value)
+                .values(status="DONE")
+            )
+            await session.commit()
+
+    async with pg_session_factory() as session:
+        racing = _OpensBeforeTheDeliveryRead(session, run_every_opening)
+        subscribers = SqlAlchemySubscribers(
+            racing,  # type: ignore[arg-type]
+            ReadSymbolHoldings(SqlAlchemyLedgerRepository(session)),
+        )
+        found = await subscribers.live_holders(
+            world.strategy_id, "STXUSDT", MARKET, world.t0 + timedelta(minutes=3)
+        )
+
+    assert racing.fired
+    assert {holder.user_id for holder in found} == {world.author, world.other}

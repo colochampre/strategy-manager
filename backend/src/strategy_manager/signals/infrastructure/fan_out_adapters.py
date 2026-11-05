@@ -75,14 +75,19 @@ class SqlAlchemySubscribers:
     async def live_holders(
         self, strategy_id: UUID, symbol: str, pool: PoolKey, received_at: datetime
     ) -> list[Subscriber]:
+        """**The pending delivery is read first**, because it is the first state in the
+        chain: an opening moves from its delivery to a reservation, an attempt and the
+        ledger, and since the worker's lanes it can run beside this fan-out. Read in
+        that order, whatever left one read has already reached the next; read last,
+        an opening that ran in between was seen in no state (PR G verifier, A1)."""
         live = await self._subscribers(strategy_id, _LIVE, received_at)
         return [
             subscriber
             for subscriber in live
-            if await self._holds(subscriber.user_id, strategy_id, symbol, pool)
-            or await self._awaits_opening(
+            if await self._awaits_opening(
                 subscriber.subscription_id, strategy_id, symbol, received_at
             )
+            or await self._holds(subscriber.user_id, strategy_id, symbol, pool)
         ]
 
     async def _subscribers(

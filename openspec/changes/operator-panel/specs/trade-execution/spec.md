@@ -397,10 +397,12 @@ unchanged.
 
 So that the moment decision 45 took effect and each simulated price and fee are
 visible in the journal, the worker MUST log, once at start per process, one INFO
-line saying the simulated exchange prices each fill at its alert's price and
-naming each simulated exchange with its taker rate. It MUST log one WARNING
-naming the exchange and the price instead when a simulated exchange is built with
-a fixed price. It MUST log one INFO line per simulated fill with the exchange,
+line saying the simulated exchange prices each fill at the venue's mark price and
+naming each simulated exchange with its taker rate (decision 35 of the
+multi-user change replaced the alert's price, 2026-11-04). It MUST log one
+WARNING naming the exchange and the price instead when a simulated exchange is
+built with a fixed price, and one WARNING naming the exchange when one is built
+to price at its alert's price. It MUST log one INFO line per simulated fill with the exchange,
 symbol, side, quantity, price, fee and client order id. No log line MUST carry a
 credential, a DSN, a token or a raw payload.
 
@@ -408,7 +410,7 @@ credential, a DSN, a token or a raw payload.
 
 - GIVEN a worker under `DRY_RUN` with no fixed price
 - WHEN it starts
-- THEN one INFO line says each fill is priced at its alert's price and names Bybit with `0.00055` and Binance with `0.0005`
+- THEN one INFO line says each fill is priced at the venue's mark price and names Bybit with `0.00055` and Binance with `0.0005`
 
 #### Scenario: A fixed price is a startup WARNING
 
