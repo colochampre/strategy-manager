@@ -14,6 +14,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from strategy_manager.identity.infrastructure.models import UserRow
+from strategy_manager.shared.domain.leverage import Leverage
 from strategy_manager.strategies.domain.strategy import AllocationPercent
 from strategy_manager.strategies.infrastructure.models import StrategyRow
 from strategy_manager.subscriptions.application.errors import AlreadySubscribed
@@ -36,6 +37,7 @@ class SqlAlchemySubscriptionRepository:
             strategy_id=subscription.strategy_id,
             pool_id=subscription.pool_id,
             allocation_percent=subscription.allocation_percent.value,
+            leverage=subscription.leverage.value,
             status=subscription.status.value,
             left_at=subscription.left_at,
             ended_at=subscription.ended_at,
@@ -109,6 +111,7 @@ class SqlAlchemySubscriptionRepository:
             )
             .values(
                 allocation_percent=subscription.allocation_percent.value,
+                leverage=subscription.leverage.value,
                 status=subscription.status.value,
                 left_at=subscription.left_at,
                 ended_at=subscription.ended_at,
@@ -226,6 +229,7 @@ def _to_domain(row: SubscriptionRow) -> Subscription:
         strategy_id=row.strategy_id,
         pool_id=row.pool_id,
         allocation_percent=AllocationPercent(Decimal(row.allocation_percent)),
+        leverage=Leverage(row.leverage),
         status=SubscriptionStatus(row.status),
         created_at=row.created_at,
         left_at=row.left_at,

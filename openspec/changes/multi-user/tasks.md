@@ -1647,10 +1647,15 @@ The follow-up of the PNUT incident above, and decision 38. Branch `feat/subscrip
   - The ORM rows for both.
   - Rehearsal and deploy scripts, every query exercised locally.
   - RED from mutations of the CHECKs and the backfill.
-- [ ] H.2 The leverage of a subscription.
+- [x] H.2 The leverage of a subscription.
   - `POST /api/subscriptions` takes it, `PATCH /api/subscriptions/{id}` changes it, and the views and the held view carry it.
   - Registration gives the author's seat one.
   - Refusals: a value out of range (422), and a change to an ended subscription (as the share's).
+  - *Built 2026-11-05.* `shared/domain/leverage.py` holds `Leverage` (an integer from 1 to `MAX_LEVERAGE` = 20, a `bool` refused), and `NEW_SEAT_LEVERAGE` is one. `Subscription.leverage` defaults to it, so the author's seat written by `RegisterStrategy` starts at one with no change to that path. `change_leverage` is ACTIVE-only, like `change_share`.
+  - `POST` takes `leverage` as a strict JSON integer from 1 to 20 and defaults to one when it is not sent. A string, a fraction, `true`, `null` and any value out of range are each answered 422, and nothing is written. The `PATCH` takes a share, a leverage or both; what is not sent is left as it is; a body that names neither is 422; a LEAVING or ENDED subscription is 409 `SUBSCRIPTION_NOT_ACTIVE`; another user's is 404.
+  - `ChangeShare` logs a real leverage change after the commit (`leverage changed from x1 to x5`), ids and values only, and only when the value differs.
+  - RED was seen on assertions, against stubs that carried the field and did nothing. 24 of 24 mutations were killed (`mutate_h2.ps1`).
+  - Gate: ruff 0, mypy 0, pytest exit 0 with no failing test. The panel ignores the new field until H.7.
 - [ ] H.3 The description.
   - Register and `PATCH /api/strategies/{id}` take it, and `StrategyView` carries it.
   - `PublicListing`, the public body and the preview carry it.

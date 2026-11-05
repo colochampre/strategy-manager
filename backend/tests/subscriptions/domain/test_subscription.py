@@ -5,6 +5,7 @@ from uuid import uuid4
 import pytest
 
 from strategy_manager.shared.domain.errors import InvariantViolation
+from strategy_manager.shared.domain.leverage import Leverage
 from strategy_manager.strategies.domain.strategy import AllocationPercent
 from strategy_manager.subscriptions.domain.subscription import Subscription, SubscriptionStatus
 
@@ -81,6 +82,29 @@ def test_only_an_active_subscription_changes_its_share(status: SubscriptionStatu
 
     with pytest.raises(InvariantViolation, match="only an ACTIVE subscription"):
         subscription.change_share(AllocationPercent(Decimal("45")))
+
+
+def test_a_new_seat_starts_at_one_times() -> None:
+    assert _subscription().leverage == Leverage(1)
+
+
+def test_an_active_subscription_changes_its_leverage_and_keeps_its_share() -> None:
+    subscription = _subscription()
+
+    changed = subscription.change_leverage(Leverage(5))
+
+    assert changed.leverage == Leverage(5)
+    assert changed.allocation_percent == AllocationPercent(Decimal("30"))
+    assert changed.status is SubscriptionStatus.ACTIVE
+    assert subscription.leverage == Leverage(1)
+
+
+@pytest.mark.parametrize("status", [SubscriptionStatus.LEAVING, SubscriptionStatus.ENDED])
+def test_only_an_active_subscription_changes_its_leverage(status: SubscriptionStatus) -> None:
+    subscription = _subscription(status)
+
+    with pytest.raises(InvariantViolation, match="only an ACTIVE subscription"):
+        subscription.change_leverage(Leverage(5))
 
 
 @pytest.mark.parametrize(

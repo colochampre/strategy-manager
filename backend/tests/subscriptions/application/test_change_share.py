@@ -6,11 +6,13 @@ question it was on the strategy.
 """
 
 import logging
+from dataclasses import replace
 from decimal import Decimal
 from uuid import UUID, uuid4
 
 import pytest
 
+from strategy_manager.shared.domain.leverage import Leverage
 from strategy_manager.strategies.domain.strategy import AllocationPercent
 from strategy_manager.subscriptions.application.change_share import ChangeShare
 from strategy_manager.subscriptions.domain.subscription import Subscription
@@ -27,6 +29,10 @@ class _Subscriptions:
 
     async def update(self, subscription: Subscription) -> None:
         self._subscription = subscription
+
+    @property
+    def stored(self) -> Subscription:
+        return self._subscription
 
 
 class _Commit:
@@ -83,6 +89,73 @@ async def test_the_same_value_written_differently_is_not_a_change(
         )
 
     assert _share_lines(caplog) == []
+
+
+async def test_a_leverage_change_alone_keeps_the_share_and_is_logged(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    subscription = _subscription("30")
+    subscriptions = _Subscriptions(subscription)
+    use_case = ChangeShare(subscriptions, _Commit())
+
+    with caplog.at_level(logging.INFO, logger=_LOGGER):
+        changed = await use_case.change(
+            subscription.user_id, subscription.id, leverage=Leverage(5)
+        )
+
+    assert changed.leverage == Leverage(5)
+    assert changed.allocation_percent == AllocationPercent(Decimal("30"))
+    assert subscriptions.stored.leverage == Leverage(5)
+    lines = _share_lines(caplog)
+    assert len(lines) == 1
+    message = lines[0].getMessage()
+    assert str(subscription.id) in message
+    assert str(subscription.strategy_id) in message
+    assert "leverage changed from x1 to x5" in message
+
+
+async def test_both_change_in_one_call_and_each_leaves_its_line(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    subscription = _subscription("30")
+    subscriptions = _Subscriptions(subscription)
+    use_case = ChangeShare(subscriptions, _Commit())
+
+    with caplog.at_level(logging.INFO, logger=_LOGGER):
+        await use_case.change(
+            subscription.user_id,
+            subscription.id,
+            AllocationPercent(Decimal("40")),
+            leverage=Leverage(3),
+        )
+
+    assert subscriptions.stored.allocation_percent == AllocationPercent(Decimal("40"))
+    assert subscriptions.stored.leverage == Leverage(3)
+    messages = [line.getMessage() for line in _share_lines(caplog)]
+    assert len(messages) == 2
+    assert any("from 30 to 40" in message for message in messages)
+    assert any("leverage changed from x1 to x3" in message for message in messages)
+
+
+async def test_the_same_leverage_is_not_a_change(caplog: pytest.LogCaptureFixture) -> None:
+    subscription = _subscription("30")
+    use_case = ChangeShare(_Subscriptions(subscription), _Commit())
+
+    with caplog.at_level(logging.INFO, logger=_LOGGER):
+        await use_case.change(subscription.user_id, subscription.id, leverage=Leverage(1))
+
+    assert _share_lines(caplog) == []
+
+
+async def test_a_share_change_alone_keeps_the_leverage() -> None:
+    subscription = replace(_subscription("30"), leverage=Leverage(4))
+    subscriptions = _Subscriptions(subscription)
+
+    await ChangeShare(subscriptions, _Commit()).change(
+        subscription.user_id, subscription.id, AllocationPercent(Decimal("45"))
+    )
+
+    assert subscriptions.stored.leverage == Leverage(4)
 
 
 async def test_a_change_that_never_commits_leaves_no_line(

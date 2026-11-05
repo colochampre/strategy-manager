@@ -40,6 +40,7 @@ BODY_KEYS = {
     "strategy_id",
     "pool_id",
     "allocation_percent",
+    "leverage",
     "status",
     "created_at",
     "left_at",
@@ -122,7 +123,9 @@ async def test_a_subscription_comes_with_what_names_its_strategy(
     author_name = await _named(pg_session_factory, author)
     subscriber, pool = await seeds.user(pg_session_factory)
     strategy_id = await seeds.strategy(pg_session_factory, author_id=author)
-    await seeds.subscription(pg_session_factory, subscriber, strategy_id, pool or 0, share="30")
+    await seeds.subscription(
+        pg_session_factory, subscriber, strategy_id, pool or 0, share="30", leverage=7
+    )
     await _set(
         pg_session_factory,
         "UPDATE strategies SET name = 'The name' WHERE id = :id",
@@ -135,6 +138,7 @@ async def test_a_subscription_comes_with_what_names_its_strategy(
     assert held["strategy_id"] == str(strategy_id)
     assert held["pool_id"] == pool
     assert held["allocation_percent"] == "30"
+    assert held["leverage"] == 7
     assert held["status"] == "ACTIVE"
     assert held["strategy_name"] == "The name"
     assert held["author_name"] == author_name

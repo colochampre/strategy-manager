@@ -15,7 +15,7 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from strategy_manager.identity.domain.user import User
@@ -23,6 +23,7 @@ from strategy_manager.identity.infrastructure.dependencies import current_user
 from strategy_manager.ledger.application.read_symbol_holdings import ReadSymbolHoldings
 from strategy_manager.ledger.infrastructure.repository import SqlAlchemyLedgerRepository
 from strategy_manager.shared.db import get_session
+from strategy_manager.shared.domain.leverage import MAX_LEVERAGE, NEW_SEAT_LEVERAGE, Leverage
 from strategy_manager.shared.infrastructure.clock import SystemClock
 from strategy_manager.shared.infrastructure.wire import Money
 from strategy_manager.strategies.domain.strategy import AllocationPercent
@@ -62,13 +63,29 @@ SessionDep = Annotated[AsyncSession, Depends(get_session)]
 CurrentUserDep = Annotated[User, Depends(current_user)]
 
 
+#: A leverage as the API takes it: a JSON integer from 1 to the cap. Strict, so a
+#: string, a fraction and ``true`` are each a 422 rather than read as a number.
+LeverageInput = Annotated[int, Field(strict=True, ge=1, le=MAX_LEVERAGE)]
+
+
 class SubscribeRequest(BaseModel):
     strategy_id: UUID
     allocation_percent: Share
+    # A subscriber who sends none is placed at one times (decision 38).
+    leverage: LeverageInput = NEW_SEAT_LEVERAGE.value
 
 
 class ChangeShareRequest(BaseModel):
-    allocation_percent: Share
+    """Either or both; what is not sent is left as it is."""
+
+    allocation_percent: Share | None = None
+    leverage: LeverageInput | None = None
+
+    @model_validator(mode="after")
+    def _names_something(self) -> "ChangeShareRequest":
+        if self.allocation_percent is None and self.leverage is None:
+            raise ValueError("a change names a share, a leverage or both")
+        return self
 
 
 class SubscriptionView(BaseModel):
@@ -79,6 +96,7 @@ class SubscriptionView(BaseModel):
     strategy_id: UUID
     pool_id: int
     allocation_percent: Money
+    leverage: int
     status: str
     created_at: datetime | None
     left_at: datetime | None
@@ -91,6 +109,7 @@ class SubscriptionView(BaseModel):
             strategy_id=subscription.strategy_id,
             pool_id=subscription.pool_id,
             allocation_percent=subscription.allocation_percent.value,
+            leverage=subscription.leverage.value,
             status=subscription.status.value,
             created_at=subscription.created_at,
             left_at=subscription.left_at,
@@ -139,7 +158,10 @@ async def subscribe(
     )
     try:
         subscription = await use_case.subscribe(
-            user.id, body.strategy_id, AllocationPercent(body.allocation_percent)
+            user.id,
+            body.strategy_id,
+            AllocationPercent(body.allocation_percent),
+            Leverage(body.leverage),
         )
     except StrategyNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -207,7 +229,12 @@ async def change_share(
     use_case = ChangeShare(SqlAlchemySubscriptionRepository(session), commit=session)
     try:
         subscription = await use_case.change(
-            user.id, subscription_id, AllocationPercent(body.allocation_percent)
+            user.id,
+            subscription_id,
+            None
+            if body.allocation_percent is None
+            else AllocationPercent(body.allocation_percent),
+            leverage=None if body.leverage is None else Leverage(body.leverage),
         )
     except SubscriptionNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

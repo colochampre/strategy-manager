@@ -330,6 +330,73 @@ async def test_an_invalid_share_is_a_422_and_writes_nothing(
     assert await seeds.rows(pg_session_factory) == []
 
 
+async def test_a_subscription_sent_without_a_leverage_starts_at_one(
+    pg_session_factory: Factory,  # noqa: F811
+    client_for: ClientFor,
+) -> None:
+    strategy_id = await seeds.strategy(pg_session_factory)
+    user_id, _ = await seeds.user(pg_session_factory)
+
+    response = await client_for(user_id).post(
+        "/api/subscriptions",
+        json={"strategy_id": str(strategy_id), "allocation_percent": "25"},
+    )
+
+    assert response.status_code == 201
+    assert response.json()["leverage"] == 1
+    stored = await seeds.row_of(pg_session_factory, UUID(response.json()["id"]))
+    assert stored.leverage == 1
+
+
+@pytest.mark.parametrize("leverage", [1, 7, 20])
+async def test_a_subscription_takes_the_leverage_it_is_sent(
+    pg_session_factory: Factory,  # noqa: F811
+    client_for: ClientFor,
+    leverage: int,
+) -> None:
+    strategy_id = await seeds.strategy(pg_session_factory)
+    user_id, _ = await seeds.user(pg_session_factory)
+
+    response = await client_for(user_id).post(
+        "/api/subscriptions",
+        json={
+            "strategy_id": str(strategy_id),
+            "allocation_percent": "25",
+            "leverage": leverage,
+        },
+    )
+
+    assert response.status_code == 201
+    assert response.json()["leverage"] == leverage
+    stored = await seeds.row_of(pg_session_factory, UUID(response.json()["id"]))
+    assert stored.leverage == leverage
+
+
+_INVALID_LEVERAGES = [0, -1, 21, 125, 2.5, "5", True, None]
+
+
+@pytest.mark.parametrize("leverage", _INVALID_LEVERAGES)
+async def test_an_invalid_leverage_is_a_422_and_writes_nothing(
+    pg_session_factory: Factory,  # noqa: F811
+    client_for: ClientFor,
+    leverage: object,
+) -> None:
+    strategy_id = await seeds.strategy(pg_session_factory)
+    user_id, _ = await seeds.user(pg_session_factory)
+
+    response = await client_for(user_id).post(
+        "/api/subscriptions",
+        json={
+            "strategy_id": str(strategy_id),
+            "allocation_percent": "25",
+            "leverage": leverage,
+        },
+    )
+
+    assert response.status_code == 422
+    assert await seeds.rows(pg_session_factory) == []
+
+
 async def test_the_unique_index_closes_the_race_between_two_subscribes(
     pg_session_factory: Factory,  # noqa: F811
     client_for: ClientFor,
@@ -696,6 +763,156 @@ async def test_changing_to_an_invalid_share_is_a_422_and_changes_nothing(
     )
 
     assert response.status_code == 422
+    assert await seeds.rows(pg_session_factory) == before
+
+
+# -- change the leverage ----------------------------------------------------
+
+
+async def test_changing_the_leverage_alone_keeps_the_share(
+    pg_session_factory: Factory,  # noqa: F811
+    client_for: ClientFor,
+) -> None:
+    strategy_id = await seeds.strategy(pg_session_factory)
+    user_id, pool_id = await seeds.user(pg_session_factory)
+    assert pool_id is not None
+    subscription_id = await seeds.subscription(
+        pg_session_factory, user_id, strategy_id, pool_id, share="30", leverage=2
+    )
+
+    response = await client_for(user_id).patch(
+        f"/api/subscriptions/{subscription_id}", json={"leverage": 9}
+    )
+
+    assert response.status_code == 200
+    assert response.json()["leverage"] == 9
+    assert response.json()["allocation_percent"] == "30"
+    stored = await seeds.row_of(pg_session_factory, subscription_id)
+    assert stored.leverage == 9
+    assert stored.allocation_percent == Decimal("30")
+    assert stored.status == "ACTIVE"
+
+
+async def test_changing_the_share_alone_keeps_the_leverage(
+    pg_session_factory: Factory,  # noqa: F811
+    client_for: ClientFor,
+) -> None:
+    strategy_id = await seeds.strategy(pg_session_factory)
+    user_id, pool_id = await seeds.user(pg_session_factory)
+    assert pool_id is not None
+    subscription_id = await seeds.subscription(
+        pg_session_factory, user_id, strategy_id, pool_id, leverage=4
+    )
+
+    response = await client_for(user_id).patch(
+        f"/api/subscriptions/{subscription_id}", json={"allocation_percent": "42.5"}
+    )
+
+    assert response.status_code == 200
+    assert response.json()["leverage"] == 4
+    stored = await seeds.row_of(pg_session_factory, subscription_id)
+    assert stored.leverage == 4
+
+
+async def test_changing_both_in_one_request(
+    pg_session_factory: Factory,  # noqa: F811
+    client_for: ClientFor,
+) -> None:
+    strategy_id = await seeds.strategy(pg_session_factory)
+    user_id, pool_id = await seeds.user(pg_session_factory)
+    assert pool_id is not None
+    subscription_id = await seeds.subscription(pg_session_factory, user_id, strategy_id, pool_id)
+
+    response = await client_for(user_id).patch(
+        f"/api/subscriptions/{subscription_id}",
+        json={"allocation_percent": "12", "leverage": 20},
+    )
+
+    assert response.status_code == 200
+    stored = await seeds.row_of(pg_session_factory, subscription_id)
+    assert (stored.allocation_percent, stored.leverage) == (Decimal("12"), 20)
+
+
+@pytest.mark.parametrize("body", [{}, {"leverage": None}], ids=["empty", "null"])
+async def test_a_change_that_names_nothing_is_a_422_and_changes_nothing(
+    pg_session_factory: Factory,  # noqa: F811
+    client_for: ClientFor,
+    body: dict[str, object],
+) -> None:
+    strategy_id = await seeds.strategy(pg_session_factory)
+    user_id, pool_id = await seeds.user(pg_session_factory)
+    assert pool_id is not None
+    subscription_id = await seeds.subscription(pg_session_factory, user_id, strategy_id, pool_id)
+    before = await seeds.rows(pg_session_factory)
+
+    response = await client_for(user_id).patch(
+        f"/api/subscriptions/{subscription_id}", json=body
+    )
+
+    assert response.status_code == 422
+    assert await seeds.rows(pg_session_factory) == before
+
+
+@pytest.mark.parametrize("leverage", [value for value in _INVALID_LEVERAGES if value is not None])
+async def test_changing_to_an_invalid_leverage_is_a_422_and_changes_nothing(
+    pg_session_factory: Factory,  # noqa: F811
+    client_for: ClientFor,
+    leverage: object,
+) -> None:
+    strategy_id = await seeds.strategy(pg_session_factory)
+    user_id, pool_id = await seeds.user(pg_session_factory)
+    assert pool_id is not None
+    subscription_id = await seeds.subscription(pg_session_factory, user_id, strategy_id, pool_id)
+    before = await seeds.rows(pg_session_factory)
+
+    response = await client_for(user_id).patch(
+        f"/api/subscriptions/{subscription_id}",
+        json={"allocation_percent": "40", "leverage": leverage},
+    )
+
+    assert response.status_code == 422
+    assert await seeds.rows(pg_session_factory) == before
+
+
+@pytest.mark.parametrize("status", ["LEAVING", "ENDED"])
+async def test_changing_the_leverage_of_a_subscription_that_is_not_active_is_a_409(
+    pg_session_factory: Factory,  # noqa: F811
+    client_for: ClientFor,
+    status: str,
+) -> None:
+    strategy_id = await seeds.strategy(pg_session_factory)
+    user_id, pool_id = await seeds.user(pg_session_factory)
+    assert pool_id is not None
+    subscription_id = await seeds.subscription(
+        pg_session_factory, user_id, strategy_id, pool_id, status=status
+    )
+    before = await seeds.rows(pg_session_factory)
+
+    response = await client_for(user_id).patch(
+        f"/api/subscriptions/{subscription_id}", json={"leverage": 5}
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["error"] == "SUBSCRIPTION_NOT_ACTIVE"
+    assert await seeds.rows(pg_session_factory) == before
+
+
+async def test_changing_the_leverage_of_another_users_subscription_is_a_404(
+    pg_session_factory: Factory,  # noqa: F811
+    client_for: ClientFor,
+) -> None:
+    strategy_id = await seeds.strategy(pg_session_factory)
+    holder, pool_id = await seeds.user(pg_session_factory)
+    other, _ = await seeds.user(pg_session_factory)
+    assert pool_id is not None
+    subscription_id = await seeds.subscription(pg_session_factory, holder, strategy_id, pool_id)
+    before = await seeds.rows(pg_session_factory)
+
+    response = await client_for(other).patch(
+        f"/api/subscriptions/{subscription_id}", json={"leverage": 5}
+    )
+
+    assert response.status_code == 404
     assert await seeds.rows(pg_session_factory) == before
 
 
