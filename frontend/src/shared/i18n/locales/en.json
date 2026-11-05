@@ -270,7 +270,8 @@
       "live": "trading it live",
       "capital": "capital",
       "returnInfo": "How this return is read",
-      "returnHint": "Read from the strategy's signals, not from anyone's fills. The trades of one UTC day are summed and the days are compounded, each trade taken as if the whole capital were on it. No leverage and no fees are counted, so nobody's real result matches it exactly.",
+      "noRealTrade": "no real trade yet",
+      "returnHint": "Read from the fills of the trades its author made with real money and closed; simulated trades and subscribers' trades do not count. The trades of one UTC day are summed and the days are compounded, each trade taken as if the whole capital were on it. No leverage and no fees are counted, so nobody's real result matches it exactly.",
       "capitalInfo": "What this capital is",
       "capitalHint": "The capital assigned by everyone trading it live, its author included: each one's share of the latest balance of their pool. It is capital assigned, not capital in use, and the same money can stand behind several strategies."
     },
@@ -298,6 +299,7 @@
     "row": {
       "subscribers_one": "{{count}} subscriber, {{live}} live",
       "subscribers_other": "{{count}} subscribers, {{live}} live",
+      "capital": "Capital: {{amount}} {{currency}}",
       "archived": "Archived",
       "enable": "Enable {{name}}",
       "neverEnabled": "never enabled",
@@ -823,7 +825,6 @@
   "auth": {
     "gate": {
       "checking": "Checking sign-in",
-      "notOpen": "You are signed in as {{email}}. The panel is not open to other users yet.",
       "unavailable": "Sign-in cannot be checked right now.",
       "retry": "Try again",
       "signedOut": "Your session has ended.",

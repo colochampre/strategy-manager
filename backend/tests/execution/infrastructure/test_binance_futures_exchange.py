@@ -85,11 +85,16 @@ class FakeTradeClient:
         executions: list[BinanceExecution] | None = None,
         order_id: int = 778899,
         order_id_raises: Exception | None = None,
+        mark_price: Decimal = PRICE,
+        price_raises: Exception | None = None,
     ) -> None:
         self.orders: list[dict[str, object]] = []
         self.lookups: list[tuple[str, str]] = []
         self.fill_reads: list[tuple[str, int]] = []
         self.leverage_reads: list[str] = []
+        self.price_reads: list[str] = []
+        self._mark_price = mark_price
+        self._price_raises = price_raises
         self._leverage = leverage
         self._rules = rules
         self._leverage_raises = leverage_raises
@@ -104,6 +109,12 @@ class FakeTradeClient:
         if self._leverage_raises is not None:
             raise self._leverage_raises
         return self._leverage
+
+    async def mark_price(self, symbol: str) -> Decimal:
+        self.price_reads.append(symbol)
+        if self._price_raises is not None:
+            raise self._price_raises
+        return self._mark_price
 
     async def perp_rules(self, symbol: str) -> PerpContract:
         if self._rules_raises is not None:
@@ -309,6 +320,58 @@ async def test_a_notional_below_the_minimum_is_refused() -> None:
 
     with pytest.raises(OrderNotPlaceable, match="notional of at least 500"):
         await adapter.build_open_order(_open())
+
+
+# ---- the venue's price, never the alert's (decision 35) ----
+
+
+async def test_an_opening_is_sized_from_the_venues_price_never_the_alerts() -> None:
+    """An author who posts a tenth of the market price would otherwise open
+    every live subscriber at ten times the margin granted. 100 USDT at 2x over
+    the venue's 124.02 is 1.6 AAVE; over the alert's 12.402 it would be 16.1.
+    The price is asked for under the venue's spelling, not TradingView's."""
+    client = FakeTradeClient(mark_price=PRICE)
+    spec = replace(_open(symbol=f"{SYMBOL}.P"), price=PRICE / 10)
+
+    order = await _adapter(client).build_open_order(spec)
+
+    assert isinstance(order, FuturesMarketOrder)
+    assert order.base_size == Decimal("1.6")
+    assert client.price_reads == [SYMBOL]
+
+
+async def test_an_unreadable_price_refuses_the_opening_rather_than_using_the_alerts() -> None:
+    """As the leverage: the raw ``BinanceApiError`` propagates, never an
+    ``OrderNotPlaceable``, so ``PlaceOrder`` retries instead of releasing the
+    reservation on something merely unknown."""
+    adapter = _adapter(FakeTradeClient(price_raises=BinanceApiError("unavailable")))
+
+    with pytest.raises(BinanceApiError) as caught:
+        await adapter.build_open_order(_open())
+
+    assert not isinstance(caught.value, OrderNotPlaceable)
+
+
+async def test_the_minimum_notional_is_checked_at_the_venues_price() -> None:
+    """An alert at ten times the market must not carry an order past the
+    venue's floor: 1.6 AAVE is 198 USDT at 124.02, under a floor of 500, and
+    would read 1984 at the alert's 1240.2."""
+    binding = replace(LIVE_RULES, min_notional=Decimal("500"))
+    adapter = _adapter(FakeTradeClient(rules=binding, mark_price=PRICE))
+
+    with pytest.raises(OrderNotPlaceable, match="notional of at least 500"):
+        await adapter.build_open_order(replace(_open(), price=PRICE * 10))
+
+
+async def test_a_close_reads_no_price_and_an_unreadable_one_does_not_stop_it() -> None:
+    """A close is sized from the ledger. Reading a price there would let a
+    venue's market-data outage keep a real position open."""
+    client = FakeTradeClient(price_raises=BinanceApiError("unavailable"))
+
+    order = await _adapter(client).build_close_order(_close())
+
+    assert order.base_size == Decimal("1.6")
+    assert client.price_reads == []
 
 
 async def test_a_close_is_reduce_only_and_carries_no_leverage() -> None:

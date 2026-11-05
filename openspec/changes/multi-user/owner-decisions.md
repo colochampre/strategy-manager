@@ -195,6 +195,7 @@ These come from the owner's own words above. They are not asked again.
     - A trade whose alert price strays from the venue's by more than a margin does not count in the public record. The margin is set when the task is written.
     - It is readiness task D.5 of PR G, not part of PR F: only the owner can send signals until sign-up opens, so no stranger's signal goes unchecked.
     - It does not stop an author from trading by hand at real prices. That record is true.
+    - **Superseded by decision 34:** the record no longer reads alert prices, so there is nothing left to check.
 
 30. **A strategy's capital is one public figure, beside its number of subscribers (PR F planning, 2026-11-01; amends decision 10).** The owner proposed it so that anyone can see whether an author backs their own strategy, and chose one sum over separate figures for author and subscribers, and over any minimum number of subscribers: "Con una sola cifra y el numero de suscriptores considero que esta bien".
     - Every signed-in user sees it, not only the author, from the first subscriber on. The author counts as a subscriber.
@@ -211,5 +212,34 @@ These come from the owner's own words above. They are not asked again.
 32. **A display name cannot mix alphabets whose letters look alike (PR F's verifier, 2026-11-01; amends decision 27).** `Аna Lopez` with a Cyrillic `А` passed NFKC and the unique index beside `Ana Lopez` and read the same. The owner chose "Dale, rechazá los nombres que mezclen alfabetos".
     - The alphabets are Latin, Cyrillic, Greek, Armenian and Cherokee, the ones with letters that pass for Latin ones or for each other. Letters of two of them refuse a name. Other scripts may sit beside them, `Ana 李` is a name, and symbols and digits do not count.
     - It is not a whole defense: a name written wholly in Cyrillic can still imitate a Latin one, `Асе` reads as `Ace`. Refusing that would refuse every Cyrillic name that happens to use those letters.
+
+33. **The price check's margin is 0.25 % (PR G planning, 2026-11-02; completes decision 29).** Set from production's own fills and stated to the owner, not asked. `measure_alert_gap.sh` read 20 live fills, all on Binance, none of them over 3 seconds after the alert: median gap 0.034 %, largest 0.145 %, none over 0.25 %.
+    - The gap measured is alert price against fill price, so it holds the order's slippage, which a ticker read does not. It is 20 fills on one exchange: Bybit and Pionex are unmeasured, and a thin market will stray further.
+    - It leans tight on purpose. An author who lies within the margin on both legs gains up to twice the margin on each trade, unseen: 0.5 % per trade here. A true trade that strays only leaves the public record.
+    - It can be widened later. The verdict is derived when the record is built, so a new margin applies to the whole history with no data change.
+    - **Superseded by decision 34:** no price check is built, so this margin is not used.
+
+34. **A strategy's public record is its author's real trades, read from their fills (PR G, 2026-11-02; replaces decision 15's source, supersedes decisions 29 and 33).** The owner read SFP at -12.0 % over four trades, three of them simulated, and proposed it: "me parecería bien mostrar solo historial con trades reales. Para ver backtests de dinero simulado, ya tenemos tradingview". They refused a second figure beside it: "eso satura de informacion". On being told the fills make the price check unnecessary, they answered "Confirmo los tres".
+    - A trade counts when the author held it live, closed. Its return comes from the fills of that allocation, as if the whole capital were on it, unleveraged and before fees. Decisions 28 and 31 still add the trades up. The list keeps showing the closed trades, now the real ones.
+    - A strategy with no real closed trade is listed with no return, and says that it has none yet.
+    - Only the author's trades count, in keeping with decision 22, so a subscriber's capital cannot give a strategy a record.
+    - An alert's price no longer reaches the record, so a price nobody traded at cannot build one. The record stays a percentage, so it takes real money but very little of it, and an author can run several strategies small and leave public the one that went well.
+    - Going back to simulation hides nothing already closed. As the owner put it, an author cannot predict the next trade, so skipping one gains nothing on average. What is left is stopping while ahead: the figure freezes at a good moment, and only the strategy's age against its closed trades shows it.
+
+35. **A live opening is sized from the venue's price, never the alert's (PR G, 2026-11-02).** It was `granted * leverage / alert price`, so an author posting a tenth of the market price would have opened every live subscriber at ten times their granted margin, limited only by the venue. Found while checking decision 34. The owner confirmed it with "Confirmo los tres".
+    **A simulated fill prints at the venue's mark price too (2026-11-04), superseding decision 45's alert price.** An author types the alert's price, and a Heikin Ashi chart computes one that never traded, so a simulated subscriber, who decides from those results whether to go live, read fills no venue would have given. The mark is read from each venue's public market data, so a user with no key simulates too; it sizes the simulated opening and prices both fills. The cost, accepted: an unreadable mark retries the simulated job, each simulated subscriber adds one weight-1 read on Binance per signal, and the author's simulation no longer matches TradingView's report to the cent. The owner chose it with "Dale, si".
+    - The price is read when the order is built, as the leverage is. An opening whose price cannot be read is refused, also as the leverage is. This reverses decision 29's "a price that cannot be read never stops a trade" for openings only: a close does not depend on that price.
+
+36. **A return curve starts at 0 on the day its first trade opened (2026-11-02; confirmed with "Confirmo el 0").** `E_0 = 1` existed in the arithmetic but was never drawn, so the line was born on the first close, with that trade already in it, reading +3 % where the owner expected 0.
+    - The origin is the UTC day of the earliest `opened_at` among the trades the curve counts, because that is when capital went at risk. Not the strategy's activation: Overview mixes strategies with different dates, and a strategy enabled for a month with no signal would draw a flat line that reads as a record. Not the day before the first close: it would show a four-day trade as one day.
+    - A window with earlier history starts at 0 on its left edge, which is the rebase's own base. Its first point inside was born above or below 0 in the same way.
+    - A trade that opens and closes on one UTC day puts the origin the day before the close, so the two points do not fall on one x and draw a vertical line.
+    - Not built. It goes with the panel requests in `tasks.md`, in its own delivery: sign-up does not depend on it.
+
+37. **An exchange tab shows only where its user has something running (2026-11-02; proposed and confirmed with "Si, me parece bien").** The request: "Actualmente veo como pestañas Binance, Bybit y Pionex a pesar de solo tener la key configurada de Binance. Quisiera que solo se muestren las pestañas de exchanges configurados." The tabs came from the user's pools, not from their keys.
+    - A tab shows when the user has a key on that exchange, a position open there, or an active strategy or subscription there. Closed history alone does not hold a tab: the data stays, and the tab returns with a key.
+    - Not a key alone: a simulated opening needs no key, so a new user simulating with no key would have no tab and could not see their own positions.
+    - Decision 80 settled the same thing for Settings' cards, which keep their own rule: an enabled pool with no key stays as an amber card.
+    - Not built. It goes with the panel requests in `tasks.md`, in its own delivery.
 
 11. **The existing data becomes the owner's (Q10, 2026-10-21; a default, stated rather than asked).** The owner becomes the first user and the admin, and owns today's strategies, keys, pools, ledger and signals. Nothing already recorded changes owner or meaning. The migration that adds the owner column fills it with the owner's user for every existing row. Like every migration, it is rehearsed on a throwaway copy first.

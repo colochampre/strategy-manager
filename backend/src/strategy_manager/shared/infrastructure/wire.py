@@ -12,8 +12,9 @@ matches digits will not, so every ``Decimal`` here is written with
 ``format(value, "f")``. A negative zero is written as zero.
 
 ``Ratio`` additionally rounds to 10 places (design.md section 11: "ratios are
-quantized to 10 places on the wire"), half-even, in a context wide enough that
-the rounding itself can never raise.
+quantized to 10 places on the wire"), half-even, in an 80-digit context. A figure
+that needs more digits than that raises ``InvalidOperation``: a return compounded
+from alert prices can, and ``public_strategies_router`` catches it there.
 
 ``Price`` is the type of a price that is a quotient (``notional / quantity``,
 computed in a wider context than the wire's). It rounds to 18 places, half-even:

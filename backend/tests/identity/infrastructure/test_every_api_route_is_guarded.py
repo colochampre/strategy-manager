@@ -69,6 +69,9 @@ SCOPED_TO_THE_SIGNED_IN_USER = {
     # user's rows: only what a public strategy shows to everyone signed in.
     ("GET", "/api/public/strategies"),
     ("GET", "/api/public/strategies/{strategy_id}"),
+    # Any author needs the origin to build their webhook's URL (tasks.md G.4). It is
+    # one setting, the same for everyone, and no user's rows.
+    ("GET", "/api/webhook-origin"),
 }
 OUTSIDE_ACCESS = {"/webhook/tradingview", "/health"}
 

@@ -107,16 +107,22 @@ class OpenOrderSpec:
     """What an adapter needs to turn granted capital into an opening order.
 
     ``granted`` is the reservation's amount in the pool's settlement currency
-    and ``price`` is the alert's bar-close reference. What those two become
+    and ``price`` is the alert's bar-close reference. What ``granted`` becomes
     is venue business, which is exactly why this is a spec handed to an
     adapter rather than an order built by the caller: on spot a buy carries
     ``granted`` verbatim as a quote amount, while on futures ``granted`` is
-    margin and the size is ``granted * leverage / price`` at a leverage only
-    the adapter can read.
+    margin and the size is ``granted * leverage / mark`` at a leverage and a
+    mark price only the adapter can read.
 
-    ``price`` is never a live fill's price. It is, since decision 45, the
-    price a REHEARSAL fill is minted at: the simulated exchange remembers it
-    between its own build and its own place.
+    **``price`` sizes no real order and prices no fill** (decision 35 of the
+    multi-user change). The alert's price is whatever its author posted, so a
+    live futures adapter reads the venue's own mark price at build time, as it
+    reads the leverage, and refuses the opening when it cannot; the simulated
+    exchange the worker builds sizes and fills at that same mark. Only a
+    simulated exchange built without a mark-price source still prices at it,
+    and the worker logs a WARNING at start when one is. The Pionex adapters
+    still size from it; they are registered for no venue, and must read the
+    venue's price before they ever are.
     """
 
     client_order_id: str

@@ -1,58 +1,54 @@
-"""A strategy's public record: what its signals returned, for anyone to read
-(tasks.md F.3, decisions 15 and 28).
+"""A strategy's public record: what its author's real trades returned, for anyone
+to read (tasks.md G.8, decisions 28, 31 and 34).
 
-The figure is the strategy's, not anyone's account. It is built from the
-signals alone, whatever became of them, so no ledger, pool or fill reaches it,
-and it reads as if the whole capital were on each trade. It is unleveraged and
-before fees, and whoever shows it says so.
+It is read from the author's fills, folded per allocation by ``derive_trades``,
+never from the signals: an alert's price is not a price anybody traded at, so it
+cannot build a record (decision 34). Only the author's fills, in keeping with
+decision 22, so a subscriber's capital cannot give a strategy a record.
 
-**A chain is one exact symbol.** Signals are read per ``symbol`` as stored, by
-``received_at``, as ``find_prior`` walks them, so ``STXUSDT.P`` and ``STXUSDT``
-are two chains. An opening or a closing is not stored; it is read from
-``position_size``:
+**Rehearsal fills never count.** The simulated exchange writes them, so a
+strategy run on simulated money has no record, however it did. The source
+leaves them out and this refuses them again, so a source that forgets cannot
+put one on a public page.
 
-- from flat, a nonzero size opens at that signal's price, and its sign is the
-  side;
-- to zero, it closes;
-- a sign flip closes and opens at the same price;
-- a change that keeps the sign, and zero to zero, leave the entry as it is.
-  ``PositionTransition.classify`` raises on those two, because for a trade
-  they are a defect. A read over history must get past them instead.
+**A trade's return is the price move, as if the whole capital were on it.** The
+notional of the fills says it: a long returns ``sold / bought - 1`` and a short
+``1 - bought / sold``. That is unleveraged, because leverage changes how much is
+bought, never the ratio, and before fees, because no fee enters a notional.
+Whoever shows it says both.
 
-A trade still open counts for nothing. A long returns ``exit / entry - 1`` and
-a short ``1 - exit / entry``. ``signals.price`` is positive by CHECK, so an
-entry is never zero.
+A trade still open counts for nothing. An allocation whose symbol cannot be
+split against its settlement currency has no closed test, so it is returned
+among ``unresolved_allocation_ids`` rather than dropped without a word.
 
 **Adding up is the panel's** (``curve.py``): trades of one UTC day are summed
 and days are compounded.
 """
 
-from collections.abc import Iterable
+from collections import defaultdict
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
+from uuid import UUID
 
+from strategy_manager.performance.domain.closed_trade import ClosedTrade, Direction, FillGroup
 from strategy_manager.performance.domain.curve import compound, sum_by_day
+from strategy_manager.performance.domain.derive_trade import (
+    BUY,
+    SELL,
+    DerivedTrades,
+    derive_trades,
+)
 
 _ZERO = Decimal(0)
 _ONE = Decimal(1)
 
 
 @dataclass(frozen=True, slots=True)
-class RecordSignal:
-    """What the record reads of one stored signal."""
-
-    symbol: str
-    received_at: datetime
-    position_size: Decimal
-    price: Decimal
-
-
-@dataclass(frozen=True, slots=True)
 class RecordTrade:
     """A closed trade of the record. ``value`` is its return as a fraction."""
 
-    symbol: str
     closed_at: datetime
     value: Decimal
 
@@ -61,48 +57,47 @@ class RecordTrade:
 class PublicRecord:
     closed_trade_count: int
     total_return: Decimal
+    unresolved_allocation_ids: tuple[UUID, ...]
 
 
-@dataclass(frozen=True, slots=True)
-class _Entry:
-    long: bool
-    price: Decimal
+def _notional(groups: Iterable[FillGroup], side: str) -> Decimal:
+    return sum((group.notional for group in groups if group.side == side), _ZERO)
 
 
-def _trade_return(entry: _Entry, exit_price: Decimal) -> Decimal:
-    ratio = exit_price / entry.price
-    return ratio - _ONE if entry.long else _ONE - ratio
+def _return(trade: ClosedTrade, groups: Sequence[FillGroup]) -> Decimal:
+    bought, sold = _notional(groups, BUY), _notional(groups, SELL)
+    if trade.direction is Direction.LONG:
+        return sold / bought - _ONE
+    return _ONE - bought / sold
 
 
-def _closed_in_chain(signals: Iterable[RecordSignal]) -> list[RecordTrade]:
-    trades: list[RecordTrade] = []
-    entry: _Entry | None = None
-    for signal in sorted(signals, key=lambda each: each.received_at):
-        size = signal.position_size
-        if entry is not None and (size == _ZERO or (size > _ZERO) != entry.long):
-            value = _trade_return(entry, signal.price)
-            trades.append(RecordTrade(signal.symbol, signal.received_at, value))
-            entry = None
-        if entry is None and size != _ZERO:
-            entry = _Entry(long=size > _ZERO, price=signal.price)
+def _derived(groups: Iterable[FillGroup]) -> tuple[tuple[RecordTrade, ...], DerivedTrades]:
+    real = [group for group in groups if not group.rehearsal]
+    by_allocation: dict[UUID, list[FillGroup]] = defaultdict(list)
+    for group in real:
+        by_allocation[group.allocation_id].append(group)
+    derived = derive_trades(real)
+    trades = [
+        RecordTrade(trade.closed_at, _return(trade, by_allocation[trade.allocation_id]))
+        for trade in derived.closed
+    ]
+    return tuple(sorted(trades, key=lambda trade: trade.closed_at)), derived
+
+
+def closed_trades(groups: Iterable[FillGroup]) -> tuple[RecordTrade, ...]:
+    """Every closed real trade among one author's fills of one strategy, oldest
+    close first."""
+    trades, _ = _derived(groups)
     return trades
 
 
-def closed_trades(signals: Iterable[RecordSignal]) -> tuple[RecordTrade, ...]:
-    """Every closed trade of one strategy, oldest close first."""
-    chains: dict[str, list[RecordSignal]] = {}
-    for signal in signals:
-        chains.setdefault(signal.symbol, []).append(signal)
-    trades = [trade for chain in chains.values() for trade in _closed_in_chain(chain)]
-    return tuple(sorted(trades, key=lambda trade: trade.closed_at))
-
-
-def build_public_record(signals: Iterable[RecordSignal]) -> PublicRecord:
-    """The closed trades of one strategy and their compounded return, zero
-    when none has closed."""
-    trades = closed_trades(signals)
+def build_public_record(groups: Iterable[FillGroup]) -> PublicRecord:
+    """The closed trades of one strategy and their compounded return, zero when
+    none has closed."""
+    trades, derived = _derived(groups)
     points = compound(sum_by_day((trade.closed_at, trade.value) for trade in trades))
     return PublicRecord(
         closed_trade_count=len(trades),
         total_return=points[-1].index - _ONE if points else _ZERO,
+        unresolved_allocation_ids=derived.unresolved_allocation_ids,
     )

@@ -270,7 +270,8 @@
       "live": "operando en vivo",
       "capital": "capital",
       "returnInfo": "Cómo se calcula este rendimiento",
-      "returnHint": "Se calcula con las señales de la estrategia, no con las operaciones de ningún usuario. Las operaciones de un mismo día UTC se suman y los días se componen, y cada operación se toma como si todo el capital estuviera en ella. No cuenta apalancamiento ni comisiones, así que el resultado real de nadie coincide exactamente.",
+      "noRealTrade": "todavía sin operaciones reales",
+      "returnHint": "Se calcula con las ejecuciones de las operaciones que su autor hizo con dinero real y cerró; no cuentan las operaciones simuladas ni las de los suscriptores. Las operaciones de un mismo día UTC se suman y los días se componen, y cada operación se toma como si todo el capital estuviera en ella. No cuenta apalancamiento ni comisiones, así que el resultado real de nadie coincide exactamente.",
       "capitalInfo": "Qué es este capital",
       "capitalHint": "El capital que asignan todos los que la operan en vivo, incluido su autor: la cuota de cada uno sobre el último saldo de su pool. Es capital asignado, no capital en uso, y el mismo dinero puede respaldar varias estrategias."
     },
@@ -298,6 +299,7 @@
     "row": {
       "subscribers_one": "{{count}} suscriptor, {{live}} en vivo",
       "subscribers_other": "{{count}} suscriptores, {{live}} en vivo",
+      "capital": "Capital: {{amount}} {{currency}}",
       "archived": "Archivada",
       "enable": "Activar {{name}}",
       "neverEnabled": "nunca activada",
@@ -823,7 +825,6 @@
   "auth": {
     "gate": {
       "checking": "Verificando el ingreso",
-      "notOpen": "Ingresó como {{email}}. El panel todavía no está abierto a otros usuarios.",
       "unavailable": "En este momento no se puede verificar el ingreso.",
       "retry": "Reintentar",
       "signedOut": "Su sesión terminó.",

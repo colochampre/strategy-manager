@@ -29,6 +29,7 @@ const STRATEGY: Strategy = {
   secret_last4: "x4F2",
   subscribers: 1,
   live_subscribers: 0,
+  capital: null,
 };
 
 function setup(strategy: Strategy = STRATEGY) {
@@ -65,6 +66,25 @@ describe("StrategyHeader subscribers", () => {
     setup({ ...STRATEGY, subscribers: 3, live_subscribers: 2 });
 
     expect(screen.getByTestId("strategy-subscribers")).toHaveTextContent("3 subscribers, 2 live");
+  });
+
+  it("tells its author the capital, on a private strategy too", () => {
+    setup({ ...STRATEGY, visibility: "PRIVATE", capital: "328.12" });
+
+    expect(screen.getByTestId("strategy-capital")).toHaveTextContent("Capital: 328.12 USDT");
+  });
+
+  it("claims no capital under the server's brake", () => {
+    setup({ ...STRATEGY, capital: null });
+
+    expect(screen.queryByTestId("strategy-capital")).not.toBeInTheDocument();
+  });
+
+  it("says it in Spanish too", async () => {
+    await i18n.changeLanguage("es");
+    setup({ ...STRATEGY, capital: "300" });
+
+    expect(screen.getByTestId("strategy-capital")).toHaveTextContent("Capital: 300,00 USDT");
   });
 });
 

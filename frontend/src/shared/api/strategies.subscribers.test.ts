@@ -21,6 +21,7 @@ function strategy(overrides: Record<string, unknown> = {}) {
     secret_last4: "x4F2",
     subscribers: 3,
     live_subscribers: 2,
+    capital: "300",
     ...overrides,
   };
 }
@@ -42,9 +43,20 @@ describe("the author's total on a strategy", () => {
     ["a total that is a string", { subscribers: "3" }],
     ["a live count that is fractional", { live_subscribers: 1.5 }],
     ["a total that is negative", { subscribers: -1 }],
+    ["a capital that is missing", { capital: undefined }],
+    ["a capital that is a number", { capital: 300 }],
   ])("refuses %s", async (_name, overrides) => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse([strategy(overrides)])));
 
     await expect(fetchStrategies(false)).rejects.toBeInstanceOf(ApiError);
+  });
+
+  it("carries the capital, and a null one under the brake", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(jsonResponse([strategy(), strategy({ capital: null })])),
+    );
+
+    await expect(fetchStrategies(false)).resolves.toMatchObject([{ capital: "300" }, { capital: null }]);
   });
 });

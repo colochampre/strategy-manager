@@ -64,9 +64,9 @@ PIONEX_BTC = PoolLabel("pionex", "coin-m", "BTC")
 URL = "/api/positions/open"
 
 POSITION_KEYS = {
-    "allocation_id", "strategy_id", "strategy_name", "strategy_archived", "pool", "currency",
-    "markets", "origin", "figures_missing", "side", "base_currency", "size", "opened_size",
-    "entry_price", "opened_at", "fill_count", "fees", "other_fees", "margin_granted",
+    "allocation_id", "strategy_id", "strategy_name", "strategy_archived", "strategy_page", "pool",
+    "currency", "markets", "origin", "figures_missing", "side", "base_currency", "size",
+    "opened_size", "entry_price", "opened_at", "fill_count", "fees", "other_fees", "margin_granted",
     "leverage", "reservation_status", "venue_disagreement",
 }  # fmt: skip
 ORDER_KEYS = {
@@ -164,6 +164,7 @@ async def test_a_live_futures_position_is_served_field_by_field() -> None:
                 "strategy_id": str(strategy),
                 "strategy_name": "Alpha",
                 "strategy_archived": False,
+                "strategy_page": "AUTHORED",
                 "pool": POOL_BODY,
                 "currency": "USDT",
                 "markets": ["STXUSDT"],
@@ -279,6 +280,7 @@ async def test_a_position_with_no_facts_writes_its_nullable_fields_as_json_null(
             "strategy_id": None,
             "strategy_name": "Gamma",
             "strategy_archived": None,
+            "strategy_page": None,
             "pool": POOL_BODY,
             "currency": "USDT",
             "markets": ["STXUSDT"],

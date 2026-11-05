@@ -36,7 +36,7 @@ from strategy_manager.signals.domain.position_transition import (
     PositionTransition,
     TransitionEffect,
 )
-from tests.allocation.fakes import FixedUserMode, RecordedModes
+from tests.allocation.fakes import FixedUserMode, OpeningsSettled, RecordedModes
 from tests.signals.fakes import in_both_modes
 
 
@@ -110,5 +110,6 @@ def sole_subscriber_handler(**kwargs: Any) -> SoleSubscriberHandler:
     kwargs["tradable_pools"] = pools if isinstance(pools, Mapping) else in_both_modes(pools)
     kwargs.setdefault("user_mode", FixedUserMode())
     kwargs.setdefault("allocation_modes", RecordedModes())
+    kwargs.setdefault("close_after_open", OpeningsSettled())
     inner = ProcessDelivery(deliveries=deliveries, **kwargs)
     return SoleSubscriberHandler(inner, kwargs["signal_context"], deliveries)

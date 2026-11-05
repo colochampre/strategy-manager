@@ -13,7 +13,11 @@ from sqlalchemy import Row, Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from strategy_manager.allocation.infrastructure.models import ReservationRow
+from strategy_manager.execution.domain.execution_attempt import ExecutionStatus
 from strategy_manager.execution.domain.market_symbol import market_spellings
+from strategy_manager.execution.infrastructure.models import ExecutionAttemptRow
+from strategy_manager.ledger.infrastructure.models import LedgerEntryRow
+from strategy_manager.signals.application.close_after_open import OpeningState
 from strategy_manager.signals.application.process_signal import Delivery, UnknownDeliveryError
 from strategy_manager.signals.infrastructure.models import SignalDeliveryRow, SignalRow
 from strategy_manager.subscriptions.infrastructure.models import SubscriptionRow
@@ -70,6 +74,43 @@ class SqlAlchemyDeliveries:
         if found is None:
             raise UnknownDeliveryError(f"no delivery registered for id {delivery_id}")
         return found
+
+
+class SqlAlchemyOpeningStates:
+    """Implements ``OpeningStatePort``.
+
+    The attempt is read before the ledger. A settle writes both in one transaction, so
+    one landing between the two reads shows as an attempt still ``SUBMITTED`` with a row
+    booked, which ``next_close_step`` takes as the position it is."""
+
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def opening_state(self, user_id: UUID, allocation_id: UUID) -> OpeningState | None:
+        attempt = (
+            await self._session.execute(
+                select(ExecutionAttemptRow.status, ExecutionAttemptRow.created_at).where(
+                    ExecutionAttemptRow.reservation_id == allocation_id,
+                    ExecutionAttemptRow.user_id == user_id,
+                )
+            )
+        ).first()
+        if attempt is None:
+            return None
+        booked = (
+            await self._session.execute(
+                select(LedgerEntryRow.id)
+                .where(
+                    LedgerEntryRow.allocation_id == allocation_id,
+                    LedgerEntryRow.user_id == user_id,
+                )
+                .limit(1)
+            )
+        ).first()
+        status, created_at = attempt
+        return OpeningState(
+            status=ExecutionStatus(status), created_at=created_at, booked=booked is not None
+        )
 
 
 class SqlAlchemySubscriptionReservations:

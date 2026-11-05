@@ -20,7 +20,8 @@ Sizing an opening order reads the account's leverage for the symbol, because
 ``AllocateCapital`` grants MARGIN out of the wallet and the position that
 margin supports is ``granted * leverage / price``. The read is refused rather
 than defaulted: a default would size a position at the wrong multiple of the
-capital actually reserved, silently.
+capital actually reserved, silently. The price is the venue's mark price, read
+the same way and refused the same way, never the alert's (decision 35).
 
 The size is rounded and validated at BUILD time, so the number ``PlaceOrder``
 commits to its transaction is exactly the number that goes on the wire.
@@ -104,17 +105,22 @@ class BinanceFuturesExchangeAdapter:
         """Sizes a position from reserved margin at the account's leverage.
 
         Three things happen here that cannot happen anywhere else: the
-        leverage is read from the venue, the size is truncated to the
-        contract's step, and every limit that would get the order rejected is
-        checked while the reference price is still in hand.
+        leverage and the price are read from the venue, the size is truncated
+        to the contract's step, and every limit that would get the order
+        rejected is checked at that same price.
+
+        The price is the venue's mark price, never the alert's
+        (``spec.price``, decision 35): an author who posted a tenth of the
+        market would otherwise open every live subscriber at ten times the
+        margin granted. It is read as the leverage is, and an unread price
+        refuses the opening as an unread leverage does.
         """
         symbol = _venue_symbol(spec.symbol)
         leverage = await self._client.leverage_for(symbol)
         rules = await self._client.perp_rules(symbol)
+        price = await self._client.mark_price(symbol)
 
-        raw = futures_position_size(
-            granted=spec.granted, leverage=leverage, price=spec.price
-        )
+        raw = futures_position_size(granted=spec.granted, leverage=leverage, price=price)
         qty = rules.round_qty(raw)
         if qty <= 0:
             raise OrderNotPlaceable(
@@ -127,7 +133,7 @@ class BinanceFuturesExchangeAdapter:
                 step=rules.qty_step,
             )
         try:
-            rules.assert_tradable(qty, spec.price)
+            rules.assert_tradable(qty, price)
         except BinanceRuleRefusal as exc:
             # The venue's own catalogue already decided -- definitively,
             # unlike a leverage or instrument read that merely failed above.

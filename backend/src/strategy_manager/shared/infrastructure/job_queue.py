@@ -16,14 +16,16 @@ arithmetic came from.
 from datetime import timedelta
 from uuid import UUID
 
-from sqlalchemy import insert, select, update
+from sqlalchemy import ColumnElement, exists, insert, or_, select, tuple_, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from strategy_manager.shared.application.job import ClaimedJob, Job, JobKind
 from strategy_manager.shared.application.ports import ClockPort
 from strategy_manager.shared.domain.errors import InvariantViolation
 from strategy_manager.shared.infrastructure.clock import SystemClock
+from strategy_manager.shared.infrastructure.job_lanes import JobLanes
 from strategy_manager.shared.infrastructure.models import JobRow
 
 # Mirror ``Settings.job_retry_backoff_*``. They are duplicated rather than read
@@ -45,11 +47,13 @@ class PostgresJobQueue:
         clock: ClockPort | None = None,
         backoff_base_seconds: float = DEFAULT_BACKOFF_BASE_SECONDS,
         backoff_max_seconds: float = DEFAULT_BACKOFF_MAX_SECONDS,
+        lanes: JobLanes | None = None,
     ) -> None:
         self._session = session
         self._clock: ClockPort = clock or SystemClock()
         self._backoff_base_seconds = backoff_base_seconds
         self._backoff_max_seconds = backoff_max_seconds
+        self._lanes = lanes
 
     async def enqueue(self, job: Job) -> UUID:
         stmt = (
@@ -107,13 +111,30 @@ class PostgresJobQueue:
         )
         return existing.scalar_one(), False
 
-    async def claim(self) -> ClaimedJob | None:
+    async def claim(self, *, lane_only: bool = False) -> ClaimedJob | None:
+        """The first due PENDING job, by ``(run_after, id)``.
+
+        With ``lanes``, a job of a lane kind is claimable only when no other PENDING
+        job of those kinds for the same user comes before it (tasks.md G.7). Nothing
+        here commits until the job ends, so a job another loop is working still reads
+        as PENDING, and its user's later jobs wait for its ack. A job whose user
+        cannot be read waits for every such job before it, and holds back every one
+        after it. ``lane_only`` claims only lane kinds whose user can be read: what a
+        lane beside the first loop may take."""
         now = self._clock.now()
+        conditions: list[ColumnElement[bool]] = [
+            JobRow.status == "PENDING",
+            JobRow.run_after <= now,
+        ]
+        if self._lanes is not None:
+            conditions.extend(self._lane_conditions(self._lanes, lane_only))
+        elif lane_only:
+            raise InvariantViolation("a lane claim needs the queue's lanes")
         claimable = (
             select(JobRow.id)
-            .where(JobRow.status == "PENDING", JobRow.run_after <= now)
+            .where(*conditions)
             .order_by(JobRow.run_after, JobRow.id)
-            .with_for_update(skip_locked=True)
+            .with_for_update(skip_locked=True, of=JobRow)
             .limit(1)
         )
         stmt = (
@@ -135,6 +156,23 @@ class PostgresJobQueue:
             attempts=row.attempts,
             max_attempts=row.max_attempts,
         )
+
+    @staticmethod
+    def _lane_conditions(lanes: JobLanes, lane_only: bool) -> list[ColumnElement[bool]]:
+        kinds = [kind.value for kind in lanes.kinds]
+        earlier = aliased(JobRow)
+        user = lanes.owner_of(JobRow)
+        earlier_user = lanes.owner_of(earlier)
+        held_back = exists().where(
+            earlier.status == "PENDING",
+            earlier.kind.in_(kinds),
+            tuple_(earlier.run_after, earlier.id) < tuple_(JobRow.run_after, JobRow.id),
+            or_(earlier_user == user, earlier_user.is_(None), user.is_(None)),
+        )
+        conditions: list[ColumnElement[bool]] = [or_(JobRow.kind.not_in(kinds), ~held_back)]
+        if lane_only:
+            conditions.extend([JobRow.kind.in_(kinds), user.is_not(None)])
+        return conditions
 
     async def ack(self, job_id: UUID) -> None:
         await self._session.execute(

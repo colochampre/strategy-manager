@@ -106,6 +106,7 @@ from tests.allocation.fakes import (
     AlwaysEnabledPool,
     AnyKeyTrades,
     FixedUserMode,
+    OpeningsSettled,
     RecordedModes,
     RecordingSkipRecorder,
 )
@@ -495,6 +496,7 @@ def _build_handler(
         trade_capability=FakeTradeCapability(),
         user_mode=FixedUserMode(),
         allocation_modes=RecordedModes(),
+        close_after_open=OpeningsSettled(),
     )
 
 

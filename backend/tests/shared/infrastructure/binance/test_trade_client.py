@@ -20,6 +20,7 @@ from strategy_manager.shared.infrastructure.binance.errors import (
 )
 from strategy_manager.shared.infrastructure.binance.read_client import (
     EXCHANGE_INFO_PATH,
+    PREMIUM_INDEX_PATH,
 )
 from strategy_manager.shared.infrastructure.binance.signer import (
     BinanceCredentials,
@@ -27,9 +28,9 @@ from strategy_manager.shared.infrastructure.binance.signer import (
     signature_for,
 )
 from strategy_manager.shared.infrastructure.binance.trade_client import (
+    ACCOUNT_CONFIG_PATH,
     AMBIGUOUS_CODES,
     ORDER_PATH,
-    POSITION_MODE_PATH,
     USER_TRADES_PATH,
     BinanceTradeClient,
 )
@@ -100,7 +101,7 @@ def _client(
     overrides: dict[tuple[str, str], httpx.Response] | None = None,
 ) -> BinanceTradeClient:
     responses: dict[tuple[str, str], httpx.Response] = {
-        ("GET", POSITION_MODE_PATH): httpx.Response(
+        ("GET", ACCOUNT_CONFIG_PATH): httpx.Response(
             200, json={"dualSidePosition": hedge_mode}
         ),
         ("POST", ORDER_PATH): httpx.Response(
@@ -323,6 +324,31 @@ async def test_a_hedged_account_is_refused_before_any_order_is_sent(
     assert [r for r in recorded if r.method == "POST"] == []
 
 
+async def test_the_position_mode_is_read_from_the_account_configuration(
+    recorded: list[httpx.Request],
+) -> None:
+    """``/fapi/v1/accountConfig`` carries the same ``dualSidePosition`` at an
+    IP weight of 5, where ``/fapi/v1/positionSide/dual`` costs 30. The mode is
+    read on every job, so at fifty subscribers the dearer read alone pushed one
+    signal past Binance's 2400-per-minute ceiling."""
+    client = _client(
+        recorded,
+        overrides={
+            ("GET", ACCOUNT_CONFIG_PATH): httpx.Response(
+                200, json={"dualSidePosition": True}
+            ),
+            ("GET", "/fapi/v1/positionSide/dual"): httpx.Response(
+                200, json={"dualSidePosition": False}
+            ),
+        },
+    )
+
+    with pytest.raises(BinanceApiError, match="hedge mode"):
+        await _place(client)
+
+    assert [r.url.path for r in recorded] == [ACCOUNT_CONFIG_PATH]
+
+
 async def test_the_position_mode_is_read_once_per_client(
     recorded: list[httpx.Request],
 ) -> None:
@@ -334,7 +360,7 @@ async def test_the_position_mode_is_read_once_per_client(
     for _ in range(2):
         await _place(client)
 
-    mode_reads = [r for r in recorded if r.url.path == POSITION_MODE_PATH]
+    mode_reads = [r for r in recorded if r.url.path == ACCOUNT_CONFIG_PATH]
     assert len(mode_reads) == 1
 
 
@@ -345,7 +371,7 @@ async def test_an_unreadable_position_mode_stops_the_order(
     client = _client(
         recorded,
         overrides={
-            ("GET", POSITION_MODE_PATH): httpx.Response(200, json={"dual": "no"})
+            ("GET", ACCOUNT_CONFIG_PATH): httpx.Response(200, json={"dual": "no"})
         },
     )
 
@@ -570,3 +596,83 @@ async def test_a_broken_entry_for_another_market_does_not_refuse_this_one(
     )
 
     assert (await client.perp_rules(SYMBOL)).symbol == SYMBOL
+
+
+# --- the venue's price, which sizes an opening (decision 35) -----------------
+
+# One symbol's answer as Binance documents it. The mark and index prices
+# differ, so reading the wrong one is seen.
+PREMIUM_INDEX = {
+    "symbol": SYMBOL,
+    "markPrice": "124.02000000",
+    "indexPrice": "124.01500000",
+    "estimatedSettlePrice": "124.01000000",
+    "lastFundingRate": "0.00010000",
+    "interestRate": "0.00010000",
+    "nextFundingTime": 1789560000000,
+    "time": 1789559990000,
+}
+
+
+def _priced(recorded: list[httpx.Request], body: object) -> BinanceTradeClient:
+    return _client(
+        recorded,
+        overrides={("GET", PREMIUM_INDEX_PATH): httpx.Response(200, json=body)},
+    )
+
+
+async def test_the_mark_price_of_the_symbol_is_read_from_the_premium_index(
+    recorded: list[httpx.Request],
+) -> None:
+    price = await _priced(recorded, PREMIUM_INDEX).mark_price(SYMBOL)
+
+    assert price == Decimal("124.02000000")
+    assert [request.url.path for request in recorded] == [PREMIUM_INDEX_PATH]
+    assert dict(parse_qsl(recorded[0].url.query.decode())) == {"symbol": SYMBOL}
+
+
+async def test_the_mark_price_is_public_and_carries_no_key_or_signature(
+    recorded: list[httpx.Request],
+) -> None:
+    """Market data needs no account, so the read sends nothing of the key."""
+    await _priced(recorded, PREMIUM_INDEX).mark_price(SYMBOL)
+
+    assert [request.url.path for request in recorded] == [PREMIUM_INDEX_PATH]
+    assert not any(name.lower().startswith("x-mbx") for name in recorded[0].headers)
+    assert b"signature" not in recorded[0].url.query
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {**PREMIUM_INDEX, "markPrice": "0"},
+        {**PREMIUM_INDEX, "markPrice": "-124.02"},
+        {**PREMIUM_INDEX, "markPrice": ""},
+        {**PREMIUM_INDEX, "markPrice": "NaN"},
+        {**PREMIUM_INDEX, "markPrice": "Infinity"},
+        {**PREMIUM_INDEX, "markPrice": "abc"},
+        {**PREMIUM_INDEX, "markPrice": 124.02},
+        {key: value for key, value in PREMIUM_INDEX.items() if key != "markPrice"},
+        {**PREMIUM_INDEX, "symbol": "BTCUSDT"},
+        [PREMIUM_INDEX],
+    ],
+    ids=[
+        "zero",
+        "negative",
+        "empty",
+        "nan",
+        "infinite",
+        "not-a-number",
+        "json-number",
+        "missing",
+        "another-symbol",
+        "a-list",
+    ],
+)
+async def test_a_mark_price_that_cannot_be_read_is_refused_rather_than_guessed(
+    recorded: list[httpx.Request], body: object
+) -> None:
+    """It sizes a real position, so anything but one positive price of this
+    symbol, written as a string, is no price at all."""
+    with pytest.raises(BinanceApiError):
+        await _priced(recorded, body).mark_price(SYMBOL)

@@ -29,22 +29,28 @@ TickHook = Callable[[], Awaitable[object]]
 
 
 class WorkerRunner:
-    """Claims one job at a time and dispatches it to a registered handler."""
+    """Claims jobs and dispatches each to a registered handler: one at a time on
+    its first loop, and beside it on ``lanes`` more, for a user's trading jobs."""
 
     def __init__(
         self,
         queue_factory: QueueFactory,
         handlers: Mapping[JobKind, JobHandler],
         poll_interval_seconds: float,
+        lanes: int = 0,
     ) -> None:
         self._queue_factory = queue_factory
         self._handlers = dict(handlers)
         self._poll_interval_seconds = poll_interval_seconds
+        self._lanes = lanes
 
-    async def run_once(self) -> bool:
-        """Claim and process at most one job. Returns whether one was found."""
+    async def run_once(self, *, lane_only: bool = False) -> bool:
+        """Claim and process at most one job. Returns whether one was found.
+
+        ``lane_only`` is a lane's claim: only a user's trading jobs, kept one at a
+        time per user by the queue (tasks.md G.7)."""
         async with self._queue_factory() as queue:
-            claimed = await queue.claim()
+            claimed = await queue.claim(lane_only=True) if lane_only else await queue.claim()
             if claimed is None:
                 return False
 
@@ -92,7 +98,24 @@ class WorkerRunner:
 
         ``on_tick`` runs once per iteration, before the claim. It decides for
         itself whether it is due — this loop only offers it a heartbeat.
+
+        With ``lanes``, that many more loops run beside this one, each claiming only
+        a user's trading jobs, so one signal's subscribers are worked in parallel
+        (tasks.md G.7). They share one ``TaskGroup``: an error out of any loop ends
+        them all and reaches the caller, inside an ``ExceptionGroup``, as an error out
+        of the one loop ended the process before.
         """
+        if self._lanes <= 0:
+            await self._loop(stop_event, on_tick, lane_only=False)
+            return
+        async with asyncio.TaskGroup() as group:
+            group.create_task(self._loop(stop_event, on_tick, lane_only=False))
+            for _ in range(self._lanes):
+                group.create_task(self._loop(stop_event, None, lane_only=True))
+
+    async def _loop(
+        self, stop_event: asyncio.Event, on_tick: TickHook | None, *, lane_only: bool
+    ) -> None:
         while not stop_event.is_set():
             if on_tick is not None:
                 try:
@@ -103,7 +126,7 @@ class WorkerRunner:
                     # reach the database must not take that down with it.
                     logger.exception("worker tick hook failed; the claim loop continues")
 
-            processed = await self.run_once()
+            processed = await self.run_once(lane_only=lane_only)
             if not processed:
                 with contextlib.suppress(TimeoutError):
                     await asyncio.wait_for(

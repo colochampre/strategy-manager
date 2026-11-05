@@ -38,6 +38,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from strategy_manager.shared.application.job import ClaimedJob
 from strategy_manager.shared.application.ports import ClockPort, ExhaustedJobObserverPort
 from strategy_manager.shared.infrastructure.alert_redaction import redact
+from strategy_manager.shared.infrastructure.job_lanes import JobLanes
 from strategy_manager.shared.infrastructure.job_queue import (
     DEFAULT_BACKOFF_BASE_SECONDS,
     DEFAULT_BACKOFF_MAX_SECONDS,
@@ -56,12 +57,14 @@ class ExhaustionObservingJobQueue(PostgresJobQueue):
         clock: ClockPort | None = None,
         backoff_base_seconds: float = DEFAULT_BACKOFF_BASE_SECONDS,
         backoff_max_seconds: float = DEFAULT_BACKOFF_MAX_SECONDS,
+        lanes: JobLanes | None = None,
     ) -> None:
         super().__init__(
             session,
             clock=clock,
             backoff_base_seconds=backoff_base_seconds,
             backoff_max_seconds=backoff_max_seconds,
+            lanes=lanes,
         )
         self._observer = observer
 

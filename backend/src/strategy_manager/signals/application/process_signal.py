@@ -91,6 +91,7 @@ from strategy_manager.shared.application.ports import AllocationModePort, Commit
 from strategy_manager.shared.domain.mode import Mode
 from strategy_manager.shared.domain.money import Currency, Money
 from strategy_manager.shared.domain.trade_capability import TradeCapability, key_refusal
+from strategy_manager.signals.application.close_after_open import CloseStep
 from strategy_manager.signals.application.fan_out_signal import DeliveryHalves
 from strategy_manager.signals.application.holding_guard import HoldingGuard
 from strategy_manager.signals.application.ports import (
@@ -306,6 +307,20 @@ class ContinuationSeederPort(Protocol):
     ) -> bool: ...
 
 
+class CloseAfterOpenPort(Protocol):
+    """Whether a close may run yet, and the next poll of one that may not.
+    Implemented by ``signals.application.close_after_open.CloseAfterOpen``.
+
+    ``seed`` never commits: the caller's commit makes the next poll durable. ``poll``
+    MUST be the next step of this delivery's chain, as ``ContinuationSeederPort``
+    asks and for its reason: seeding a step that already ran is a no-op, and the
+    chain would end there with nothing logged."""
+
+    async def step(self, user_id: UUID, allocation_id: UUID) -> CloseStep: ...
+
+    async def seed(self, delivery_id: UUID, halves: DeliveryHalves, poll: int) -> None: ...
+
+
 class CloseOrphansPort(Protocol):
     """The REAL branch of ``HoldingGuard`` (design.md § S6; spec:
     capital-allocation § Real-Orphan Resolution via Close-Then-Open):
@@ -353,13 +368,17 @@ class ProcessSignalResult:
     definitively rejected by the venue, as opposed to ``refused``'s half that
     could never be attempted at all. ``ClosePosition`` already logs the
     rejection; this field lets a caller such as the job handler see it too
-    without going back to the execution attempt row."""
+    without going back to the execution attempt row.
+
+    ``waiting`` is a close that has not run yet, because its opening is still in
+    flight: the next poll is seeded, and nothing can be said of the delivery so far."""
 
     transition_kind: str
     reservation_id: UUID | None
     executed: bool
     refused: str | None = None
     failed: str | None = None
+    waiting: bool = False
 
 
 class ProcessDelivery:
@@ -387,7 +406,9 @@ class ProcessDelivery:
         trade_capability: TradeCapabilityPort,
         user_mode: CurrentModePort,
         allocation_modes: AllocationModePort,
+        close_after_open: CloseAfterOpenPort,
     ) -> None:
+        self._close_after_open = close_after_open
         self._deliveries = deliveries
         self._signal_context = signal_context
         self._strategy_policy = strategy_policy
@@ -407,11 +428,16 @@ class ProcessDelivery:
         self._user_mode = user_mode
         self._allocation_modes = allocation_modes
 
-    async def handle(self, delivery_id: UUID, raw_halves: object) -> ProcessSignalResult:
+    async def handle(
+        self, delivery_id: UUID, raw_halves: object, poll: int = 0
+    ) -> ProcessSignalResult:
         """Works one delivery. ``raw_halves`` is the job payload's ``halves`` as it
         arrived: ``FanOutSignal`` wrote which half (or halves) this subscription
         runs, and it is never defaulted. A payload without a usable value is
-        refused loudly instead of guessed."""
+        refused loudly instead of guessed.
+
+        ``poll`` is how many times this delivery has already waited for its opening
+        (``CloseAfterOpen``): the job payload's, 0 on the first run."""
         delivery = await self._deliveries.load(delivery_id)
         signal_id = delivery.signal_id
         context = await self._signal_context.load(delivery)
@@ -477,8 +503,8 @@ class ProcessDelivery:
         # told to flip short bought MORE long.
         if halves is DeliveryHalves.OPEN:
             return await self._handle_consumes(context, transition, policy, delivery, mode)
-        result = await self._handle_releases(context, transition, policy, delivery, halves)
-        if halves is DeliveryHalves.CLOSE:
+        result = await self._handle_releases(context, transition, policy, delivery, halves, poll)
+        if halves is DeliveryHalves.CLOSE or result.waiting:
             return result
         if _new_side_holdable(context.symbol, context.position_size):
             # Reverse Completion (spec: trade-execution § Reverse
@@ -790,6 +816,7 @@ class ProcessDelivery:
         policy: StrategyPolicySnapshot,
         delivery: Delivery,
         halves: DeliveryHalves,
+        poll: int,
     ) -> ProcessSignalResult:
         """A close carries no price, because nothing about its size is derived
         from one. The allocation it works is THIS subscription's
@@ -828,6 +855,12 @@ class ProcessDelivery:
                 refused += ", and the new side was not opened"
             logger.warning("%s", refused)
             return await self._reject(delivery, transition, "NO_POSITION_TO_CLOSE", refused)
+
+        held_back = await self._hold_back_for_opening(
+            context, transition, delivery, halves, poll, context.prior_reservation_id
+        )
+        if held_back is not None:
+            return held_back
 
         # Unlisted-pair WARNING, closing anyway (decision 15; design.md §
         # 7, "A releasing signal is never refused by the allowlist"). A
@@ -1194,6 +1227,50 @@ class ProcessDelivery:
         the signal ends ``REJECTED`` instead of the job retrying until it exhausts."""
         logger.error("refusing delivery, %s", refused)
         return await self._reject(delivery, transition, reason, refused)
+
+    async def _hold_back_for_opening(
+        self,
+        context: SignalContext,
+        transition: PositionTransition,
+        delivery: Delivery,
+        halves: DeliveryHalves,
+        poll: int,
+        allocation_id: UUID,
+    ) -> ProcessSignalResult | None:
+        """``None`` when the close may run. While its opening is in flight the next
+        poll is seeded, for the job handler's commit to make durable, and the result
+        says ``waiting``. An opening that ended with nothing booked has nothing to
+        close, and one past its bound ends with an ERROR: its order may still fill, and
+        only a human can tell."""
+        step = await self._close_after_open.step(delivery.user_id, allocation_id)
+        if step is CloseStep.PROCEED:
+            return None
+        if step is CloseStep.WAIT:
+            await self._close_after_open.seed(delivery.delivery_id, halves, poll + 1)
+            logger.info(
+                "delivery %s waits for the opening of allocation %s (poll %d)",
+                delivery.delivery_id,
+                allocation_id,
+                poll,
+            )
+            return ProcessSignalResult(transition.kind.value, allocation_id, False, waiting=True)
+
+        tail = ", and the new side was not opened" if halves is DeliveryHalves.BOTH else ""
+        if step is CloseStep.NOTHING_OPENED:
+            refused = (
+                f"signal {delivery.signal_id} asks to {transition.kind.value} {context.symbol} "
+                f"for allocation {allocation_id}, but the opening was never placed; nothing "
+                f"was closed{tail}"
+            )
+            logger.warning("%s", refused)
+            return await self._reject(delivery, transition, "NO_POSITION_TO_CLOSE", refused)
+        refused = (
+            f"signal {delivery.signal_id} asks to {transition.kind.value} {context.symbol} "
+            f"for allocation {allocation_id}, whose opening is still in flight past the "
+            f"bound; nothing was closed{tail}. Check the venue: the order may have filled"
+        )
+        logger.error("%s", refused)
+        return await self._reject(delivery, transition, "CONTINUATION_TIMED_OUT", refused)
 
     async def _reject(
         self,

@@ -19,6 +19,7 @@ from strategy_manager.execution.infrastructure.models import ExecutionAttemptRow
 from strategy_manager.ledger.application.read_symbol_holdings import ReadSymbolHoldings
 from strategy_manager.ledger.infrastructure.repository import SqlAlchemyLedgerRepository
 from strategy_manager.strategies.domain.strategy import Visibility
+from strategy_manager.strategies.infrastructure.author_names import SqlAlchemyAuthorNames
 from strategy_manager.strategies.infrastructure.models import StrategyRow
 from strategy_manager.subscriptions.application.ports import (
     LeavingSubscription,
@@ -47,6 +48,9 @@ class SqlAlchemyStrategyLookup:
             archived=row.archived_at is not None,
             author_id=row.author_id,
             visibility=Visibility(row.visibility),
+            author_named=await SqlAlchemyAuthorNames(self._session).has_display_name(
+                row.author_id
+            ),
         )
 
 

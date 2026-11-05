@@ -1,14 +1,11 @@
 import { screen } from "@testing-library/react";
-import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AppRoutes } from "@/app/router";
 import { adminUser, jsonResponse, renderAt, resetExchangeScope, setViewport, stubApi, unlock } from "@/test/harness";
 
-// `SignInGate` keeps every other user out until PR G, so it would hide the routes this file is about.
-vi.mock("@/shared/auth/SignInGate", () => ({
-  SignInGate: ({ children }: { children: ReactNode }) => children,
-}));
+// Past the real `SignInGate`, which lets every signed-in user in since PR G: what
+// keeps these routes the admin's is `AdminRoute`.
 
 function serve(isAdmin: boolean) {
   return stubApi({ kind: "ok", body: {} }, [], { kind: "ok", body: [] }, {}, (url) => {

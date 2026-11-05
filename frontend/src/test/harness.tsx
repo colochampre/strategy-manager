@@ -153,6 +153,7 @@ export function openPosition(overrides: Partial<OpenPosition> = {}): OpenPositio
     strategy_id: "11111111-1111-4111-8111-111111111111",
     strategy_name: "Alpha",
     strategy_archived: false,
+    strategy_page: "AUTHORED",
     pool: { exchange: "bybit", venue: "usdt-m", settlement_currency: "USDT" },
     currency: "USDT",
     markets: ["SOLUSDT"],
@@ -383,6 +384,7 @@ export function strategyRoute(id: string, name: string, overrides: Record<string
     secret_last4: "x4F2",
     subscribers: 1,
     live_subscribers: 0,
+    capital: null,
     ...overrides,
   };
   return (url) => {

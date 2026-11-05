@@ -1051,3 +1051,127 @@ async def test_a_refused_order_logs_no_fill_line(caplog: pytest.LogCaptureFixtur
 
     assert type(raised) is ExchangeError
     assert _fill_lines(caplog) == []
+
+
+# ---- priced at the venue's mark, never at the alert (decision 35) --------------
+
+VENUE_MARK = Decimal("0.4633")
+# A tenth of the market: what a crafted alert, or a Heikin Ashi chart, can send.
+CRAFTED_ALERT_PRICE = Decimal("0.04633")
+
+
+class VenueMarks:
+    """A stand-in for the venue's public mark price: one price, or the venue's
+    own error, and every symbol it was asked for."""
+
+    def __init__(self, price: Decimal = VENUE_MARK, error: Exception | None = None) -> None:
+        self.price = price
+        self.error = error
+        self.asked: list[str] = []
+
+    async def mark_price(self, symbol: str) -> Decimal:
+        self.asked.append(symbol)
+        if self.error is not None:
+            raise self.error
+        return self.price
+
+
+def _venue_priced(marks: VenueMarks) -> FakeExchangeAdapter:
+    return FakeExchangeAdapter(exchange="bybit", fee_rate=BYBIT_RATE, mark_prices=marks)
+
+
+async def test_a_simulated_opening_is_sized_and_filled_at_the_venues_mark_not_the_alerts() -> None:
+    marks = VenueMarks()
+    adapter = _venue_priced(marks)
+    order = await adapter.build_open_order(
+        OpenOrderSpec(
+            side=OrderSide.BUY,
+            client_order_id="c-mark-1",
+            symbol="STXUSDT.P",
+            granted=Decimal("20"),
+            price=CRAFTED_ALERT_PRICE,
+        )
+    )
+    await adapter.place(order)
+
+    [fill] = await adapter.fetch_fills("c-mark-1", "STXUSDT.P")
+    assert marks.asked == ["STXUSDT.P"]
+    assert fill.price == VENUE_MARK
+    # 20 / 0.4633 at leverage 1, floored to the domain's step; the alert's price
+    # would have sized ten times as much.
+    assert fill.quantity * VENUE_MARK <= Decimal("20")
+    assert fill.quantity * VENUE_MARK > Decimal("19")
+
+
+async def test_a_simulated_close_fills_at_the_venues_mark_not_its_alerts_reference_price() -> None:
+    marks = VenueMarks()
+    adapter = _venue_priced(marks)
+    order = await adapter.build_close_order(
+        CloseOrderSpec(
+            side=OrderSide.SELL,
+            client_order_id="c-mark-2",
+            symbol="STXUSDT.P",
+            base_size=Decimal("43"),
+            reference_price=CRAFTED_ALERT_PRICE,
+        )
+    )
+    await adapter.place(order)
+
+    [fill] = await adapter.fetch_fills("c-mark-2", "STXUSDT.P")
+    assert marks.asked == ["STXUSDT.P"]
+    assert (fill.quantity, fill.price) == (Decimal("43"), VENUE_MARK)
+
+
+async def test_a_simulated_close_with_no_alert_price_still_fills_at_the_venues_mark() -> None:
+    adapter = _venue_priced(VenueMarks())
+    order = await adapter.build_close_order(
+        CloseOrderSpec(
+            side=OrderSide.SELL,
+            client_order_id="c-mark-3",
+            symbol="STXUSDT.P",
+            base_size=Decimal("43"),
+            reference_price=Decimal("NaN"),
+        )
+    )
+    await adapter.place(order)
+
+    [fill] = await adapter.fetch_fills("c-mark-3", "STXUSDT.P")
+    assert fill.price == VENUE_MARK
+
+
+@pytest.mark.parametrize("leg", ["open", "close"])
+async def test_an_unreadable_venue_price_refuses_the_build_with_the_venues_own_error(
+    leg: str,
+) -> None:
+    """The raw error, as a live opening's unread price: the job retries it. Not
+    ``OrderNotPlaceable`` (reported as dust) and never a fallback to the alert."""
+    venue_error = RuntimeError("Bybit reports no ticker for 'STXUSDT'")
+    adapter = _venue_priced(VenueMarks(error=venue_error))
+
+    with pytest.raises(RuntimeError) as raised:
+        if leg == "open":
+            await adapter.build_open_order(
+                OpenOrderSpec(
+                    side=OrderSide.BUY,
+                    client_order_id="c-mark-4",
+                    symbol="STXUSDT.P",
+                    granted=Decimal("20"),
+                    price=VENUE_MARK,
+                )
+            )
+        else:
+            await adapter.build_close_order(
+                CloseOrderSpec(
+                    side=OrderSide.SELL,
+                    client_order_id="c-mark-4",
+                    symbol="STXUSDT.P",
+                    base_size=Decimal("43"),
+                    reference_price=VENUE_MARK,
+                )
+            )
+    assert raised.value is venue_error
+
+
+def test_an_exchange_says_whether_its_fills_are_priced_by_the_venue() -> None:
+    assert _venue_priced(VenueMarks()).prices_from_venue is True
+    assert FakeExchangeAdapter(exchange="bybit", fee_rate=BYBIT_RATE).prices_from_venue is False

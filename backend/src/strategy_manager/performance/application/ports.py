@@ -17,10 +17,10 @@ from strategy_manager.performance.domain.open_position import (
     InFlightAttemptElement,
     OpenAllocationElement,
     PoolLabel,
+    StrategyPage,
 )
 from strategy_manager.performance.domain.operation import OperationFill, PricingFacts
 from strategy_manager.performance.domain.public_capital import LiveSeat
-from strategy_manager.performance.domain.public_record import RecordSignal
 
 
 @dataclass(frozen=True, slots=True)
@@ -111,6 +111,7 @@ class PositionFacts:
     strategy_id: UUID
     strategy_name: str
     strategy_archived: bool
+    strategy_page: StrategyPage | None
     margin_granted: Decimal
     reservation_status: str
     leverage: Decimal | None
@@ -177,16 +178,21 @@ class PublicStrategiesSourcePort(Protocol):
     ``listing`` as well, so a caller cannot reach one by its id.
 
     Each method is ONE statement however many strategies it is asked about. A
-    strategy with no signal or no seat is absent from those two answers.
+    strategy with no real fill of its author or no seat is absent from those two
+    answers.
     """
 
     async def listings(self) -> Sequence[PublicListing]: ...
 
     async def listing(self, strategy_id: UUID) -> PublicListing | None: ...
 
-    async def signals(
+    async def author_fills(
         self, strategy_ids: Sequence[UUID]
-    ) -> Mapping[UUID, Sequence[RecordSignal]]: ...
+    ) -> Mapping[UUID, Sequence[FillGroup]]:
+        """Each strategy's real fills by its own author, folded per allocation as
+        ``AllocationFillsSourcePort`` folds them. No rehearsal fill, and no fill
+        of anyone else."""
+        ...
 
     async def live_seats(
         self, strategy_ids: Sequence[UUID]

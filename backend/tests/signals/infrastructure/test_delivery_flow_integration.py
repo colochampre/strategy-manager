@@ -113,6 +113,11 @@ class _Fake(FakeExchangeAdapter):
         self.orders.append(order)
         return await super().place(order)
 
+    def forget_orders(self) -> None:
+        """The venue no longer knows any of them: each now answers ``OrderNotFound``,
+        what a settle reads for an order that never landed."""
+        self._placed.clear()
+
 
 @dataclass
 class World:
@@ -235,7 +240,9 @@ async def _queued(world: World, signal_id: UUID) -> dict[UUID, tuple[UUID, str]]
     return queued
 
 
-async def _work(world: World, user: UUID, delivery_id: UUID, halves: object) -> None:
+async def _work(
+    world: World, user: UUID, delivery_id: UUID, halves: object, poll: int = 0
+) -> None:
     """One ``delivery.process`` job as the worker runs it, with ``user``'s venue."""
     pools = {
         (member, MARKET): PoolConfig(
@@ -257,7 +264,7 @@ async def _work(world: World, user: UUID, delivery_id: UUID, halves: object) -> 
             _Reader(world.totals[user]),  # type: ignore[arg-type]
             in_both_modes(VenuePositionReaderRegistry([])),
         )
-        await handler.handle(delivery_id, halves)
+        await handler.handle(delivery_id, halves, poll)
         await session.commit()
 
 

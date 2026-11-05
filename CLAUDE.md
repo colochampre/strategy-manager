@@ -189,21 +189,28 @@ UUID4 is exactly 36, and 40 DATED futures (`BTCUSDT-25DEC26`) sit beside 800
 perpetuals under the one `linear` category — so `contractType` is checked
 before every order, because a dated contract settles underneath a position.
 
-## Credentials: one key per exchange, in the vault
+## Credentials: one key per user and exchange, in the vault
 
-Each exchange has ONE key, envelope-encrypted in the vault, and it signs
-everything: balance reads, reconciliation reads and orders alike (owner
-decision 18). `.env` holds no Bybit or Binance key: `Settings` has no field for
-one, `tests/shared/test_no_dotenv_credentials.py` pins that, and a leftover
-`BYBIT_*` or `BINANCE_*` line in `.env` is ignored without a word.
+Each user has at most ONE key per exchange, envelope-encrypted in the vault, and
+it signs everything for that user: their balance reads, reconciliation reads and
+orders alike (owner decision 18, made per user by the multi-user design AD2). No
+user's key ever signs for another. `.env` holds no Bybit or Binance key:
+`Settings` has no field for one, `tests/shared/test_no_dotenv_credentials.py`
+pins that, and a leftover `BYBIT_*` or `BINANCE_*` line in `.env` is ignored
+without a word.
 
 This replaced an earlier split, a read-only key in `.env` beside a trade key in
-the vault. Anything that still describes two keys is stale.
+the vault, and then one key per exchange for the whole system. Anything that
+still describes two keys, or one key shared by every user, is stale.
 
-- **Saving a key supersedes the active one.** There is one active row per
-  exchange (`ux_exchange_credentials_one_active_per_exchange`); the previous
-  row is deactivated and kept. Sealing a read-only key therefore replaces the
-  trading key.
+- **Saving a key supersedes that user's active one.** There is one active row
+  per user and exchange (`ux_exchange_credentials_one_active_per_exchange`, on
+  `(user_id, exchange)` since migration 0030; the name is older and kept); the
+  previous row is deactivated and kept. Sealing a read-only key therefore
+  replaces that user's trading key, and no other user's.
+- **A user with no key is not a fault.** An enabled pool whose user has no
+  active key is DEGRADED for that user alone (decision 20): their reads are
+  skipped and logged, and every other user's reads go on.
 - **A read-only key is accepted, with a warning** (`READ_ONLY_KEY`), and
   recorded as not trade-capable. An opening that would run live on that exchange
   is refused up front, before any capital is reserved, and again inside the pool
@@ -215,13 +222,13 @@ the vault. Anything that still describes two keys is stale.
   key that can trade.
 - **How capability is known differs by exchange.** Bybit's is read from the
   venue when the key is saved. Binance's cannot be read from the VPS, so the
-  owner confirms it (decisions 24 and 30).
+  user saving the key confirms it (decisions 24 and 30).
 - **Only the worker decrypts.** The API seals a key on save and never opens
-  one: its write port has no `load`. The worker opens every active key at
-  startup and refuses to start if one does not open.
+  one: its write port has no `load`. The worker opens every user's active key
+  at startup and refuses to start if one does not open, whoever it belongs to.
 - **Every probe that signs loads from the vault** through
-  `backend/scripts/probe_credentials.py` and prints which key it runs as
-  (`Signing as ***last4`). Keep it that way: a probe once signed a write with a
+  `backend/scripts/probe_credentials.py`, for the user its required
+  `--user-email` names, and prints which key it runs as (`Signing as ***last4`). Keep it that way: a probe once signed a write with a
   read-only key, the venue answered `AUTH_UNAVAILABLE`, exactly what a venue
   that forbids the write answers, and that produced one wrong conclusion.
 - **Pionex is the one exception, and only for probes.** `PIONEX_API_KEY` and
@@ -377,8 +384,8 @@ resume work.
 **Safety**
 - Never print credentials or DSNs, never enable traceback locals, never ask
   the owner to paste a credential.
-- One active vault key per exchange. Never seal a read-only key: it would
-  supersede the trading key.
+- One active vault key per user and exchange. Never seal a read-only key for a
+  user who trades: it would supersede their trading key.
 
 **Tooling on this Windows machine**
 - If the Bash tool cannot find `git`, use PowerShell.

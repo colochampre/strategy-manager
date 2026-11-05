@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AppRoutes } from "@/app/router";
 import en from "@/shared/i18n/locales/en.json";
 import es from "@/shared/i18n/locales/es.json";
+import { ExchangeTabs } from "@/shared/layout/ExchangeTabs";
 import {
   type CredentialsStub,
   type ExtraRoute,
@@ -42,6 +43,20 @@ beforeEach(() => {
 afterEach(() => {
   vi.unstubAllGlobals();
   lock();
+});
+
+describe("for a signed-in user who is not the admin", () => {
+  it("draws the tabs, so a user keyed on two exchanges can switch between them", async () => {
+    const notTheAdmin: ExtraRoute = (url) =>
+      url.endsWith("/api/me")
+        ? Promise.resolve(jsonResponse({ email: "a@example.com", is_admin: false, mode: "SIMULATION", dry_run_brake: false }))
+        : undefined;
+    stubApi(HEALTH, [], TWO_EXCHANGES, {}, notTheAdmin);
+    renderAt(<ExchangeTabs />);
+
+    const bar = await screen.findByRole("navigation", { name: "Exchanges" });
+    expect((await within(bar).findAllByRole("button")).map(drawnName)).toEqual(["Bybit", "Binance"]);
+  });
 });
 
 describe("which routes show the tabs", () => {

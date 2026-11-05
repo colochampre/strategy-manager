@@ -186,13 +186,15 @@ const CONFIRMED_MS = 60_000;
 /**
  * Query key `['reconciliation','confirmed']`: ONE key, read by the navigation's badge and by the page, so one
  * request answers both and they cannot disagree. Stale after 60 s and read again every 60 s (a state the owner
- * acts on, not a history); the window focus refetch is the client's default.
+ * acts on, not a history); the window focus refetch is the client's default. The list is the admin's: a caller
+ * that also renders for anyone else passes `enabled`, and no request is sent to be refused.
  */
-export function useConfirmedDiscrepancies() {
+export function useConfirmedDiscrepancies({ enabled = true }: { enabled?: boolean } = {}) {
   return useQuery({
     queryKey: CONFIRMED_KEY,
     queryFn: fetchConfirmed,
     staleTime: CONFIRMED_MS,
     refetchInterval: CONFIRMED_MS,
+    enabled,
   });
 }

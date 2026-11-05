@@ -3,10 +3,12 @@
 Safety). ``is_live = False`` so the startup invariant never allows
 ``dry_run=false`` against it (CLAUDE.md rule 1).
 
-Since owner decision 45 it fills each order at the price its alert carried,
-exactly, and charges the venue's taker fee in USDT on the notional (see the
-class docstring). Rehearsal ids keep their ``fake-fill-`` / ``fake-order-``
-prefixes: the prefix, no longer the price, is what marks a rehearsal row.
+In production it fills each order at the venue's mark price, read from the
+venue's public market data when the order is built (decision 35, which
+supersedes decision 45's alert price), and charges the venue's taker fee in
+USDT on the notional (see the class docstring). Rehearsal ids keep their
+``fake-fill-`` / ``fake-order-`` prefixes: the prefix, no longer the price, is
+what marks a rehearsal row.
 """
 
 import logging
@@ -42,6 +44,7 @@ from strategy_manager.execution.domain.order import (
 from strategy_manager.execution.domain.placeable import PlaceableOrder
 from strategy_manager.execution.infrastructure.fake_venue_book import FakeVenueBook
 from strategy_manager.execution.infrastructure.simulated_fee_rates import SIMULATED_FEE_CURRENCY
+from strategy_manager.execution.infrastructure.venue_mark_prices import MarkPriceSource
 from strategy_manager.shared.domain.errors import InvariantViolation
 from strategy_manager.shared.domain.money import Exchange, Venue
 
@@ -73,14 +76,22 @@ class FakeExchangeAdapter:
     Accepts an order and fills it immediately and in full, with no real API
     credential:
 
-    * **Price.** At the price of the alert behind the order, exactly: an
-      opening order's own price, a closing order's ``reference_price``. Each
-      build remembers its price under the client order id and ``place`` takes
-      it back, so orders built before either is placed keep their own. No
-      rounding, no tick, no slippage. An order with no usable price (absent,
-      not finite, not above zero) is refused with ``ExchangeError``: there is
-      no fallback, not to 1, not to the last price seen. An explicit
-      ``fill_price`` is the FIXED mode (tests only): every order fills at it.
+    * **Price.** With ``mark_prices`` (production), at the venue's mark price,
+      read when the order is built, for an opening and a close alike: it sizes
+      the opening and prices both fills, and the alert's price is never read.
+      An alert's price is what its author typed, or what a Heikin Ashi chart
+      computed; it would print results no real fill could have had
+      (decision 35). An unreadable mark raises the venue's own error from the
+      build, so the job retries it, exactly as a live opening's unread price.
+      Without ``mark_prices`` (tests that pin the arithmetic), at the price of
+      the alert behind the order, exactly: an opening order's own price, a
+      closing order's ``reference_price``. Either way each build remembers its
+      price under the client order id and ``place`` takes it back, so orders
+      built before either is placed keep their own. No rounding, no tick, no
+      slippage. An order with no usable price (absent, not finite, not above
+      zero) is refused with ``ExchangeError``: there is no fallback, not to 1,
+      not to the last price seen. An explicit ``fill_price`` is the FIXED mode
+      (tests only): every order fills at it.
     * **Size.** At leverage 1 (``FAKE_LEVERAGE``): a futures position's
       notional equals the capital granted, and a spot buy's quantity is the
       granted amount over the price of its fill.
@@ -115,6 +126,7 @@ class FakeExchangeAdapter:
         fill_latency_polls: int = 0,
         *,
         fee_rate: Decimal,
+        mark_prices: MarkPriceSource | None = None,
     ) -> None:
         """``exchange`` is per instance, not per class: the registry is keyed by
         it, so a dry run needs one fake standing in for each configured
@@ -141,6 +153,7 @@ class FakeExchangeAdapter:
                 f"the simulated fee rate must be at least 0 and below 1, got {fee_rate}"
             )
         self._fee_rate = fee_rate
+        self._mark_prices = mark_prices
         # The price each order was built with, keyed by client order id: ``place``
         # is handed only the order, and no order type carries a price (design
         # § B). Written by the two ``build_*`` methods, popped by ``place``.
@@ -157,6 +170,13 @@ class FakeExchangeAdapter:
         a code path that never runs live for a futures strategy, and the
         first real exercise of the futures shape would be with real money.
         """
+        # The venue's mark sizes the order AND prices its fill, as it sizes a
+        # live opening: an alert's price would size by it too (decision 35).
+        price = (
+            spec.price
+            if self._mark_prices is None
+            else await self._mark_prices.mark_price(spec.symbol)
+        )
         order: PlaceableOrder
         if is_perpetual(spec.symbol):
             order = open_futures_order(
@@ -165,7 +185,7 @@ class FakeExchangeAdapter:
                 symbol=spec.symbol,
                 granted=spec.granted,
                 leverage=self.FAKE_LEVERAGE,
-                price=spec.price,
+                price=price,
             )
         else:
             order = market_order(
@@ -173,11 +193,11 @@ class FakeExchangeAdapter:
                 client_order_id=spec.client_order_id,
                 symbol=spec.symbol,
                 granted=spec.granted,
-                price=spec.price,
+                price=price,
             )
         # Remembered only once the domain accepted the order, so a refused
         # build leaves nothing behind.
-        self._reference_prices[spec.client_order_id] = spec.price
+        self._reference_prices[spec.client_order_id] = price
         return order
 
     async def build_close_order(self, spec: CloseOrderSpec) -> PlaceableOrder:
@@ -189,7 +209,7 @@ class FakeExchangeAdapter:
                 symbol=spec.symbol,
                 base_size=spec.base_size,
             )
-            self._remember_close_price(spec)
+            await self._remember_close_price(spec)
             return order
         if spec.side is not OrderSide.SELL:
             # Mirrors the live spot adapter: a spot market buy cannot be sized
@@ -205,10 +225,18 @@ class FakeExchangeAdapter:
             symbol=spec.symbol,
             base_size=spec.base_size,
         )
-        self._remember_close_price(spec)
+        await self._remember_close_price(spec)
         return order
 
-    def _remember_close_price(self, spec: CloseOrderSpec) -> None:
+    async def _remember_close_price(self, spec: CloseOrderSpec) -> None:
+        # Priced by the venue, the alert's reference price is never read: a
+        # crafted close would print a crafted result (decision 35). An
+        # unreadable mark raises the venue's own error, and the job retries.
+        if self._mark_prices is not None:
+            self._reference_prices[spec.client_order_id] = await self._mark_prices.mark_price(
+                spec.symbol
+            )
+            return
         # A close with no price remembers nothing: absent stays absent here,
         # and ``place`` is where that is answered.
         if spec.reference_price is not None:
@@ -288,13 +316,19 @@ class FakeExchangeAdapter:
         return self._fee_rate
 
     @property
+    def prices_from_venue(self) -> bool:
+        """Whether each fill prints at the venue's mark (production) rather than
+        at its alert's price (tests that pin the alert-priced arithmetic)."""
+        return self._mark_prices is not None
+
+    @property
     def book(self) -> FakeVenueBook | None:
         return self._book
 
     @property
     def fixed_fill_price(self) -> Decimal | None:
         """The price every order fills at, or ``None`` when each order fills at
-        the price of its own alert (the production mode)."""
+        its own price: the venue's mark in production, its alert's in tests."""
         return self._fixed_fill_price
 
     @staticmethod

@@ -11,6 +11,11 @@ hint or subscriber row can reach it, and
 what an unknown id answers, to everyone and to its own author, who has their own
 page. Nobody can tell one of those from a strategy that does not exist.
 
+**A return the wire cannot write** answers that same 404, and leaves the list, with
+a log line. An alert's price is whatever its sender writes, so one strategy can
+compound past what ``ratio`` rounds, and it must not cost everyone the whole list
+(tasks.md G.1).
+
 **The return says what it is.** ``unleveraged_return_before_fees`` is a fraction
 that reads as if the whole capital were on each trade, and its name carries both
 limits so that no client can show it without them. Zero closed trades answers
@@ -22,6 +27,8 @@ when nobody trades live. ``created_at`` is the strategy's age.
 Both routes read in one read-only ``REPEATABLE READ`` snapshot.
 """
 
+import logging
+from decimal import InvalidOperation
 from typing import Annotated
 from uuid import UUID
 
@@ -41,7 +48,9 @@ from strategy_manager.performance.infrastructure.public_strategies_source import
     SqlAlchemyPublicStrategiesSource,
 )
 from strategy_manager.shared.config import get_settings
-from strategy_manager.shared.infrastructure.wire import Instant, Money, Ratio
+from strategy_manager.shared.infrastructure.wire import Instant, Money, Ratio, ratio
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/public/strategies",
@@ -92,14 +101,26 @@ def _reader(source: PublicStrategiesSourcePort) -> ReadPublicStrategies:
     return ReadPublicStrategies(source, brake=get_settings().dry_run)
 
 
+def _writable(strategy: PublicStrategy) -> bool:
+    try:
+        ratio(strategy.record.total_return)
+    except InvalidOperation:
+        logger.warning(
+            "public strategy %s is off the list: its return does not fit the wire",
+            strategy.listing.strategy_id,
+        )
+        return False
+    return True
+
+
 @router.get("", response_model=list[PublicStrategyBody])
 async def list_public_strategies(source: SourceDep) -> list[PublicStrategyBody]:
-    return [_body(strategy) for strategy in await _reader(source).read_all()]
+    return [_body(strategy) for strategy in await _reader(source).read_all() if _writable(strategy)]
 
 
 @router.get("/{strategy_id}", response_model=PublicStrategyBody)
 async def read_public_strategy(strategy_id: UUID, source: SourceDep) -> PublicStrategyBody:
     strategy = await _reader(source).read_one(strategy_id)
-    if strategy is None:
+    if strategy is None or not _writable(strategy):
         raise HTTPException(status_code=404, detail="no such strategy")
     return _body(strategy)

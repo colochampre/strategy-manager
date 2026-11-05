@@ -193,17 +193,34 @@ class VenueDisagreement:
     last_observed_at: datetime
 
 
+class StrategyPage(StrEnum):
+    """Which page of a position's strategy its holder can open. A strategy with
+    neither is named and not linked: its detail is the author's, and it is off the
+    public list."""
+
+    AUTHORED = "AUTHORED"
+    LISTED = "LISTED"
+
+
+def strategy_page_of(*, authored: bool, listed: bool) -> StrategyPage | None:
+    if authored:
+        return StrategyPage.AUTHORED
+    return StrategyPage.LISTED if listed else None
+
+
 @dataclass(frozen=True, slots=True)
 class OpenPosition:
     """One open allocation. ``strategy_id``, ``strategy_archived``,
     ``opened_at``, ``fees``, ``margin_granted``, ``leverage`` and
     ``reservation_status`` are ``None`` only with ``NO_FACTS``: a zero would say
-    the position paid no fee."""
+    the position paid no fee. ``strategy_page`` is ``None`` then too, and also on a
+    strategy this user can open no page of."""
 
     allocation_id: UUID
     strategy_id: UUID | None
     strategy_name: str
     strategy_archived: bool | None
+    strategy_page: StrategyPage | None
     pool: PoolLabel
     markets: tuple[str, ...]
     origin: Origin

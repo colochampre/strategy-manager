@@ -119,14 +119,23 @@ const COLUMNS = 8;
 /** Where Fees sits among the cells of `cellsOf`. */
 const FEES_INDEX = 5;
 
+/** The page this user can open: the detail is the author's, and a subscriber reaches the public page while it is listed. */
+function strategyHref({ strategy_id: id, strategy_page: page }: OpenPosition): string | null {
+  if (id === null) return null;
+  if (page === "AUTHORED") return `/strategies/${id}`;
+  return page === "LISTED" ? `/strategies/explore/${id}` : null;
+}
+
 /**
- * The strategy's name, the pool variant's first column: a link to the strategy's page when the row has a
- * strategy id, plain text when it has none (a position the facts could not decorate). Never matched by name.
+ * The strategy's name, the pool variant's first column: a link to the page the server says this user can open,
+ * plain text when there is none (a position the facts could not decorate, or a subscriber's strategy off the
+ * list). Never matched by name.
  */
 function StrategyName({ position }: { position: OpenPosition }) {
-  if (position.strategy_id === null) return <span className="font-sans">{position.strategy_name}</span>;
+  const href = strategyHref(position);
+  if (href === null) return <span className="font-sans">{position.strategy_name}</span>;
   return (
-    <Link to={`/strategies/${position.strategy_id}`} className="font-sans text-gain hover:text-gain-bright">
+    <Link to={href} className="font-sans text-gain hover:text-gain-bright">
       {position.strategy_name}
     </Link>
   );

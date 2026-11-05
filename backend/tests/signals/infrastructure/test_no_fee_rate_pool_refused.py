@@ -38,6 +38,7 @@ from strategy_manager.shared.infrastructure.job_queue import PostgresJobQueue
 from strategy_manager.signals.infrastructure.models import SignalDeliveryRow, SignalRow
 from tests.owner import OWNER_ID, ensure_author_subscription
 from tests.signals.infrastructure.conftest import seed_strategy
+from tests.venue_marks import VenueMarks, install
 
 pytestmark = pytest.mark.integration
 
@@ -225,6 +226,7 @@ async def test_the_same_worker_still_fills_a_bybit_signal_and_a_binance_signal_e
     binance_strategy = await seed_strategy_on(pg_session_factory, BINANCE_POOL)
     await seed_open_signal(pg_session_factory, bybit_strategy, price=Decimal("0.4512"))
     await seed_open_signal(pg_session_factory, binance_strategy, price=Decimal("0.4633"))
+    install(monkeypatch, VenueMarks(Decimal("0.4633")))
     runner = main.build_worker_runner(
         [BYBIT_POOL, BINANCE_POOL, PIONEX_POOL], session_factory_override=pg_session_factory
     )

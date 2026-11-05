@@ -4,7 +4,8 @@ tasks.md 12f.9.4).
 
 The route reads ``Settings.webhook_public_origin`` and answers the origin
 ``parse_webhook_origin`` makes of it, or ``null`` for an unset or a malformed
-value. It needs no database. The cases of the shared list
+value. Only ``current_user`` reads the database, so these tests answer it with
+``without_a_database``. The cases of the shared list
 (``webhook-origin.cases.json``) are the panel's own: accepted values are served
 normalised, refused ones are served as ``null``.
 """
@@ -20,7 +21,13 @@ from httpx import ASGITransport, AsyncClient
 from strategy_manager.identity.infrastructure.dependencies import UNAUTHORIZED_DETAIL
 from strategy_manager.main import create_app
 from strategy_manager.shared.config import Settings, get_settings
-from tests.identity_auth import ADMIN_HEADERS, FORGED_HEADERS, sign_in_as_admin
+from tests.identity_auth import (
+    ADMIN_HEADERS,
+    FORGED_HEADERS,
+    OTHER_HEADERS,
+    sign_in_as_admin,
+    without_a_database,
+)
 
 SECRET = "wh-s3cret-5b2e7a10-must-never-leak"
 PATH = "/api/webhook-origin"
@@ -47,7 +54,7 @@ def _configure(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.fixture
 async def client() -> AsyncIterator[AsyncClient]:
     async with AsyncClient(
-        transport=ASGITransport(app=create_app()), base_url="http://test"
+        transport=ASGITransport(app=without_a_database(create_app())), base_url="http://test"
     ) as api:
         yield api
 
@@ -122,7 +129,19 @@ async def test_the_body_never_contains_the_webhook_secret(
     assert SECRET not in "".join(f"{k}{v}" for k, v in response.headers.items())
 
 
-async def test_the_route_requires_a_signed_in_admin(
+async def test_any_signed_in_user_is_served_the_origin(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Every author builds a webhook URL from it, so it is not the admin's alone."""
+    _set_origin(monkeypatch, "https://hook.example.com")
+
+    response = await client.get(PATH, headers=OTHER_HEADERS)
+
+    assert response.status_code == 200
+    assert response.json() == {"origin": "https://hook.example.com"}
+
+
+async def test_the_route_requires_a_signed_in_user(
     client: AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A missing and a forged assertion are the one 401, before the handler: the

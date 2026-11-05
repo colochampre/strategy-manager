@@ -37,10 +37,10 @@ from strategy_manager.execution.infrastructure.pionex_futures_exchange import (
 )
 from strategy_manager.shared.infrastructure.binance.read_client import EXCHANGE_INFO_PATH
 from strategy_manager.shared.infrastructure.binance.trade_client import (
-    ORDER_PATH as BINANCE_ORDER_PATH,
+    ACCOUNT_CONFIG_PATH as BINANCE_ACCOUNT_CONFIG_PATH,
 )
 from strategy_manager.shared.infrastructure.binance.trade_client import (
-    POSITION_MODE_PATH as BINANCE_POSITION_MODE_PATH,
+    ORDER_PATH as BINANCE_ORDER_PATH,
 )
 from strategy_manager.shared.infrastructure.binance.trade_client import BinanceTradeClient
 from strategy_manager.shared.infrastructure.bybit.read_client import INSTRUMENTS_PATH
@@ -145,7 +145,7 @@ def _binance_adapter(recorded: list[SentRequest]) -> BinanceFuturesExchangeAdapt
         recorded.append(_snapshot(request))
         if request.method == "GET" and request.url.path == EXCHANGE_INFO_PATH:
             return httpx.Response(200, json={"symbols": [BINANCE_STX]})
-        if request.method == "GET" and request.url.path == BINANCE_POSITION_MODE_PATH:
+        if request.method == "GET" and request.url.path == BINANCE_ACCOUNT_CONFIG_PATH:
             # A close is only sent into a one-way account.
             return httpx.Response(200, json={"dualSidePosition": False})
         assert (request.method, request.url.path) == ("POST", BINANCE_ORDER_PATH)

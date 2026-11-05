@@ -182,6 +182,47 @@ async def test_run_forever_runs_the_tick_hook_on_every_iteration() -> None:
     assert ticks == 3
 
 
+class _LaneRecordingQueue:
+    """Claims nothing, and records which task asked and whether as a lane."""
+
+    def __init__(self, stop: asyncio.Event, claims_before_stop: int) -> None:
+        self._stop = stop
+        self._left = claims_before_stop
+        self.claims: list[tuple[object, bool]] = []
+
+    async def claim(self, *, lane_only: bool = False) -> ClaimedJob | None:
+        self.claims.append((asyncio.current_task(), lane_only))
+        self._left -= 1
+        if self._left <= 0:
+            self._stop.set()
+        return None
+
+
+async def test_lanes_run_beside_the_first_loop_claiming_only_as_lanes_and_ticking_never() -> None:
+    """Only the first loop claims every kind and carries the tick hook (tasks.md G.7)."""
+    stop = asyncio.Event()
+    queue = _LaneRecordingQueue(stop, claims_before_stop=40)
+    runner = WorkerRunner(
+        queue_factory=_queue_factory(queue),  # type: ignore[arg-type]
+        handlers={},
+        poll_interval_seconds=0.001,
+        lanes=3,
+    )
+    ticked_by: set[object] = set()
+
+    async def tick() -> None:
+        ticked_by.add(asyncio.current_task())
+
+    await runner.run_forever(stop, on_tick=tick)
+
+    first = {task for task, lane_only in queue.claims if not lane_only}
+    lanes = {task for task, lane_only in queue.claims if lane_only}
+    assert len(first) == 1
+    assert len(lanes) == 3
+    assert not first & lanes
+    assert ticked_by == first
+
+
 async def test_a_failing_tick_hook_does_not_stop_the_loop() -> None:
     """Maintenance is not the job. A hook that cannot reach the database must
     not take down the worker that is still processing signals."""

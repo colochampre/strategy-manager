@@ -42,6 +42,7 @@ function strategy(overrides: Record<string, unknown> = {}) {
     secret_last4: "x4F2",
     subscribers: 1,
     live_subscribers: 0,
+    capital: null,
     ...overrides,
   };
 }
@@ -117,6 +118,24 @@ describe("the strategies list", () => {
 
     const row = await screen.findByTestId("strategy-row");
     expect(within(row).getByTestId("strategy-subscribers")).toHaveTextContent(text);
+  });
+
+  it("tells its author the capital in the strategy's own currency", async () => {
+    const api = strategiesApi([strategy({ capital: "300" })]);
+    stubApi(HEALTH, [], POOLS, {}, api.route);
+    renderAt(<AppRoutes />, "/strategies/authored");
+
+    const row = await screen.findByTestId("strategy-row");
+    expect(within(row).getByTestId("strategy-capital")).toHaveTextContent("Capital: 300.00 USDT");
+  });
+
+  it("claims no capital under the server's brake", async () => {
+    const api = strategiesApi([strategy({ capital: null })]);
+    stubApi(HEALTH, [], POOLS, {}, api.route);
+    renderAt(<AppRoutes />, "/strategies/authored");
+
+    const row = await screen.findByTestId("strategy-row");
+    expect(within(row).queryByTestId("strategy-capital")).not.toBeInTheDocument();
   });
 
   it("draws an aria-hidden Plus left of New strategy and leaves its name as it was", async () => {

@@ -21,13 +21,25 @@ seen on the very next signal. A key replaced between this read and
 
 from uuid import UUID
 
-from sqlalchemy import exists, select
+from sqlalchemy import ColumnElement, exists, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import InstrumentedAttribute
 
 from strategy_manager.accounts.infrastructure.models import ExchangeCredentialRow
 from strategy_manager.shared.domain.trade_capability import TradeCapability
 
 _ROW = ExchangeCredentialRow
+
+
+def has_trade_capable_key(
+    user_id: InstrumentedAttribute[UUID], exchange: InstrumentedAttribute[str]
+) -> ColumnElement[bool]:
+    """``capability`` as a clause, for a read across users: whether the user in
+    ``user_id`` holds an active key that can trade on the exchange in ``exchange``.
+    A seat without one opens nothing, whatever its mode (tasks.md G.3)."""
+    return exists().where(
+        _ROW.user_id == user_id, _ROW.exchange == exchange, _ROW.is_active, _ROW.trade_capable
+    )
 
 
 class VaultTradeCapabilityAdapter:

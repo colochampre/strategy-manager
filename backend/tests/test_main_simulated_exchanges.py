@@ -18,6 +18,8 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from strategy_manager import main
 from strategy_manager.accounts.domain.pool_config import PoolConfig
+from strategy_manager.execution.application.ports import OpenOrderSpec
+from strategy_manager.execution.domain.order import OrderSide
 from strategy_manager.execution.infrastructure.fake_exchange import FakeExchangeAdapter
 from strategy_manager.execution.infrastructure.simulated_fee_rates import (
     SIMULATED_TAKER_FEE_RATES,
@@ -25,6 +27,7 @@ from strategy_manager.execution.infrastructure.simulated_fee_rates import (
 from strategy_manager.shared.config import get_settings
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 from tests.owner import OWNER_ID
+from tests.venue_marks import VenueMarks, install
 
 MAIN_LOGGER = "strategy_manager.main"
 
@@ -88,7 +91,8 @@ def test_a_dry_run_worker_logs_one_info_naming_each_exchange_and_its_taker_rate(
     lines = _simulated_lines(caplog, logging.INFO)
     assert len(lines) == 1
     text = lines[0].getMessage()
-    assert "prices each fill at its alert's price" in text
+    assert "prices each fill at the venue's mark price" in text
+    assert "alert" not in text
     assert "bybit=0.00055" in text
     assert "binance=0.0005" in text
     assert "dry run" not in text.lower()
@@ -105,6 +109,57 @@ def test_a_dry_run_worker_logs_the_rates_it_actually_built_the_exchanges_with(
     assert rates == {"bybit": Decimal("0.00055"), "binance": Decimal("0.0005")}
     assert rates == dict(SIMULATED_TAKER_FEE_RATES)
     assert all(fake.fixed_fill_price is None for fake in built)
+    assert all(fake.prices_from_venue for fake in built)
+
+
+async def test_each_simulated_exchange_fills_at_its_own_venues_mark_never_the_alerts(
+    monkeypatch: pytest.MonkeyPatch, built: list[FakeExchangeAdapter]
+) -> None:
+    """Decision 35 through the production wiring: each exchange reads the mark
+    of ITS venue, by key, and the alert's price is not what the fill prints."""
+    marks = install(monkeypatch, VenueMarks(Decimal("0.4633")))
+    marks.by_exchange = {"bybit": Decimal("0.4633"), "binance": Decimal("0.4640")}
+    _build_worker(monkeypatch, [BYBIT_POOL])
+
+    printed: dict[str, Decimal] = {}
+    for fake in built:
+        order = await fake.build_open_order(
+            OpenOrderSpec(
+                side=OrderSide.BUY,
+                client_order_id=f"c-{fake.exchange}",
+                symbol="STXUSDT.P",
+                granted=Decimal("20"),
+                price=Decimal("0.04633"),
+            )
+        )
+        await fake.place(order)
+        [fill] = await fake.fetch_fills(f"c-{fake.exchange}", "STXUSDT.P")
+        printed[fake.exchange] = fill.price
+    assert printed == marks.by_exchange
+    assert sorted(marks.asked) == [("binance", "STXUSDT.P"), ("bybit", "STXUSDT.P")]
+
+
+def test_a_simulated_exchange_priced_at_its_alert_is_one_startup_warning_naming_it(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Production never builds one; this is what makes a later edit of
+    ``main.py`` that drops the venue's price visible in the journal."""
+    caplog.set_level(logging.INFO, logger=MAIN_LOGGER)
+    alert_priced = FakeExchangeAdapter(exchange="bybit", fee_rate=Decimal("0.00055"))
+    venue_priced = FakeExchangeAdapter(
+        exchange="binance",
+        fee_rate=Decimal("0.0005"),
+        mark_prices=VenueMarks(Decimal("1")).source("binance"),
+    )
+
+    main.log_simulated_exchange_startup({"bybit": alert_priced, "binance": venue_priced})
+
+    [warning] = _simulated_lines(caplog, logging.WARNING)
+    assert "'bybit'" in warning.getMessage()
+    assert "alert's price" in warning.getMessage()
+    [info] = _simulated_lines(caplog, logging.INFO)
+    assert "binance=0.0005" in info.getMessage()
+    assert "bybit" not in info.getMessage()
 
 
 def test_a_dry_run_worker_logs_no_warning_about_a_fixed_price(
@@ -128,16 +183,20 @@ def test_a_simulated_exchange_built_with_a_fixed_price_is_one_startup_warning_na
     fixed = FakeExchangeAdapter(
         exchange="bybit", fill_price=Decimal("1"), fee_rate=Decimal("0.00055")
     )
-    alert_priced = FakeExchangeAdapter(exchange="binance", fee_rate=Decimal("0.0005"))
+    venue_priced = FakeExchangeAdapter(
+        exchange="binance",
+        fee_rate=Decimal("0.0005"),
+        mark_prices=VenueMarks(Decimal("1")).source("binance"),
+    )
 
-    main.log_simulated_exchange_startup({"bybit": fixed, "binance": alert_priced})
+    main.log_simulated_exchange_startup({"bybit": fixed, "binance": venue_priced})
 
     warnings = _simulated_lines(caplog, logging.WARNING)
     assert len(warnings) == 1
     text = warnings[0].getMessage()
     assert "'bybit'" in text
     assert "fixed price of 1" in text
-    # The exchange that is alert-priced is still reported, at INFO, with its rate.
+    # The exchange that is venue-priced is still reported, at INFO, with its rate.
     [info] = _simulated_lines(caplog, logging.INFO)
     assert "binance=0.0005" in info.getMessage()
     assert "bybit" not in info.getMessage()

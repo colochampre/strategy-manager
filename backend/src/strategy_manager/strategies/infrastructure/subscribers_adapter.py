@@ -20,11 +20,15 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from strategy_manager.accounts.infrastructure.models import CapitalPoolRow
+from strategy_manager.accounts.infrastructure.trade_capability_adapter import (
+    has_trade_capable_key,
+)
 from strategy_manager.identity.infrastructure.models import UserRow
 from strategy_manager.ledger.application.read_symbol_holdings import ReadSymbolHoldings
 from strategy_manager.ledger.infrastructure.repository import SqlAlchemyLedgerRepository
 from strategy_manager.shared.domain.mode import Mode
 from strategy_manager.strategies.application.ports import SubscriberCounts, SubscriberPool
+from strategy_manager.strategies.infrastructure.models import StrategyRow
 from strategy_manager.subscriptions.domain.subscription import SubscriptionStatus
 from strategy_manager.subscriptions.infrastructure.adapters import OpenAllocationAdapter
 from strategy_manager.subscriptions.infrastructure.models import SubscriptionRow
@@ -90,7 +94,8 @@ class StrategySubscribersAdapter:
 
     async def counts(self, strategy_ids: Sequence[UUID]) -> dict[UUID, SubscriberCounts]:
         """How many hold an ACTIVE subscription of each strategy, and how many of
-        those are in ``LIVE``, in ONE statement; a strategy nobody holds is absent.
+        those are in ``LIVE`` with a key that can trade on its exchange, in ONE
+        statement; a strategy nobody holds is absent.
 
         ``LEAVING`` counts for neither, because it opens nothing: the same rule as
         the public list's seats. The brake is the caller's: it is one value for
@@ -100,9 +105,15 @@ class StrategySubscribersAdapter:
             select(
                 SubscriptionRow.strategy_id,
                 func.count().label("subscribers"),
-                func.count().filter(UserRow.mode == Mode.LIVE.value).label("live"),
+                func.count()
+                .filter(
+                    UserRow.mode == Mode.LIVE.value,
+                    has_trade_capable_key(SubscriptionRow.user_id, StrategyRow.exchange),
+                )
+                .label("live"),
             )
             .join(UserRow, UserRow.id == SubscriptionRow.user_id)
+            .join(StrategyRow, StrategyRow.id == SubscriptionRow.strategy_id)
             .where(
                 SubscriptionRow.strategy_id.in_(strategy_ids),
                 SubscriptionRow.status == SubscriptionStatus.ACTIVE.value,

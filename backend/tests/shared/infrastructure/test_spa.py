@@ -26,7 +26,7 @@ from httpx import ASGITransport, AsyncClient, Response
 
 from strategy_manager.main import create_app
 from strategy_manager.shared.config import get_settings
-from tests.identity_auth import ADMIN_HEADERS, sign_in_as_admin
+from tests.identity_auth import ADMIN_HEADERS, sign_in_as_admin, without_a_database
 
 WEBHOOK_SECRET = "wh-s3cret-spa-tests"
 
@@ -81,7 +81,7 @@ async def client(
 ) -> AsyncIterator[AsyncClient]:
     monkeypatch.setattr(get_settings(), "panel_dist_dir", str(layout.dist))
     async with AsyncClient(
-        transport=ASGITransport(app=create_app()), base_url="http://test"
+        transport=ASGITransport(app=without_a_database(create_app())), base_url="http://test"
     ) as api:
         yield api
 

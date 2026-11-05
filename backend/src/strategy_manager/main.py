@@ -114,6 +114,7 @@ from strategy_manager.execution.infrastructure.simulated_fee_rates import (
     SIMULATED_TAKER_FEE_RATES,
 )
 from strategy_manager.execution.infrastructure.simulated_venues import SimulatedVenues
+from strategy_manager.execution.infrastructure.venue_mark_prices import public_mark_prices
 from strategy_manager.execution.infrastructure.venue_support import (
     describe_unserved,
     unserved_pools,
@@ -260,6 +261,7 @@ from strategy_manager.shared.infrastructure.validation_errors import (
     redacted_validation_handler,
 )
 from strategy_manager.shared.infrastructure.worker_runner import JobHandler, WorkerRunner
+from strategy_manager.signals.application.close_after_open import CloseAfterOpen
 from strategy_manager.signals.application.close_orphans import CloseOrphans
 from strategy_manager.signals.application.fan_out_signal import FanOutSignal
 from strategy_manager.signals.application.holding_guard import HoldingGuard
@@ -270,6 +272,7 @@ from strategy_manager.signals.application.process_signal import (
 )
 from strategy_manager.signals.infrastructure.delivery_adapters import (
     SqlAlchemyDeliveries,
+    SqlAlchemyOpeningStates,
     SqlAlchemySubscriptionReservations,
 )
 from strategy_manager.signals.infrastructure.exhausted_job_recorder import (
@@ -304,6 +307,7 @@ from strategy_manager.signals.infrastructure.settle_outcome_recorder import (
 )
 from strategy_manager.signals.infrastructure.signal_context import SignalContextAdapter
 from strategy_manager.signals.infrastructure.skip_recorder import SignalSkipRecorder
+from strategy_manager.signals.infrastructure.user_job_lanes import USER_JOB_LANES
 from strategy_manager.signals.infrastructure.venue_net_position import VenueNetPositionAdapter
 from strategy_manager.signals.infrastructure.webhook_origin_check import log_webhook_origin
 from strategy_manager.signals.infrastructure.webhook_origin_router import (
@@ -389,32 +393,40 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 def log_simulated_exchange_startup(fakes: Mapping[str, FakeExchangeAdapter]) -> None:
-    """The two startup lines of decision 45 (design § J), taken from each
+    """The startup lines of decisions 45 and 35 (design § J), taken from each
     instance's OWN mode and rate: one INFO per process, so the journal shows
-    from which start fills carry their alert's price and which taker rate was
-    charged; and one WARNING per simulated exchange built with a fixed price,
-    which would silently restore the old behaviour (every fill at one price).
+    from which start fills print at the venue's mark price and which taker rate
+    was charged; and one WARNING per simulated exchange that does not, which
+    would silently restore an old behaviour: a fixed price (every fill at one
+    price) or the alert's price (a crafted alert prints a crafted result).
 
-    Production never builds a fixed-price exchange; the function takes the
-    instances so a later edit of this module cannot do it quietly."""
-    alert_priced: dict[str, FakeExchangeAdapter] = {}
+    Production builds neither; the function takes the instances so a later
+    edit of this module cannot do it quietly."""
+    venue_priced: dict[str, FakeExchangeAdapter] = {}
     for name, fake in sorted(fakes.items()):
-        if fake.fixed_fill_price is None:
-            alert_priced[name] = fake
-        else:
+        if fake.fixed_fill_price is not None:
             logger.warning(
                 "the simulated exchange '%s' is built with a fixed price of %s: every "
-                "fill is priced at it, not at its alert's price",
+                "fill is priced at it, not at the venue's mark price",
                 name,
                 format(fake.fixed_fill_price.normalize(), "f"),
             )
-    if alert_priced:
+        elif not fake.prices_from_venue:
+            logger.warning(
+                "the simulated exchange '%s' prices each fill at its alert's price, "
+                "not at the venue's mark price: an alert's price reaches its "
+                "subscribers' simulated results",
+                name,
+            )
+        else:
+            venue_priced[name] = fake
+    if venue_priced:
         logger.info(
-            "the simulated exchange prices each fill at its alert's price "
+            "the simulated exchange prices each fill at the venue's mark price "
             "and charges the venue's taker fee in USDT (%s)",
             ", ".join(
                 f"{name}={format(fake.fee_rate.normalize(), 'f')}"
-                for name, fake in alert_priced.items()
+                for name, fake in venue_priced.items()
             ),
         )
 
@@ -651,6 +663,13 @@ def _build_process_delivery(
         tradable_pools=tradable_pools,
         outcomes=delivery_outcomes,
         trade_capability=trade_capability,
+        close_after_open=CloseAfterOpen(
+            openings=SqlAlchemyOpeningStates(session),
+            queue=_job_queue(session, settings),
+            clock=SystemClock(),
+            timeout_seconds=settings.close_after_open_timeout_seconds,
+            poll_interval_seconds=settings.open_after_close_poll_interval_seconds,
+        ),
         user_mode=user_mode,
         allocation_modes=allocation_modes,
     )
@@ -1203,9 +1222,17 @@ def build_worker_runner(
             )
             return [(position.symbol, position.net_base) for position in positions]
 
+    # Decision 35: a simulated fill prints at the venue's mark price, read from
+    # its public market data, never at the alert's. Looked up by key, never with
+    # a default: an exchange with no source would quietly print at the alert.
+    mark_prices = public_mark_prices(settings)
+
     def simulated_exchange(exchange: str, book: FakeVenueBook | None) -> FakeExchangeAdapter:
         return FakeExchangeAdapter(
-            exchange=exchange, book=book, fee_rate=SIMULATED_TAKER_FEE_RATES[exchange]
+            exchange=exchange,
+            book=book,
+            fee_rate=SIMULATED_TAKER_FEE_RATES[exchange],
+            mark_prices=mark_prices[exchange],
         )
 
     # BYBIT_EXCHANGE and BINANCE_EXCHANGE are unconditional, on top of
@@ -1730,7 +1757,12 @@ def build_worker_runner(
                 #
                 # ``halves`` goes in as the payload carries it: ``FanOutSignal``
                 # wrote it, and the handler refuses, loudly, one that is missing.
-                await handler.handle(delivery_id, job.payload.get("halves"))
+                #
+                # ``poll`` is the wait of a close for its opening: only the jobs
+                # ``CloseAfterOpen`` seeds carry one, and the first run is poll 0.
+                await handler.handle(
+                    delivery_id, job.payload.get("halves"), int(job.payload.get("poll", 0))
+                )
                 # Required since S5: the guard's in-flight branch may seed a
                 # continuation (``enqueue_unique``, which never commits) without
                 # otherwise writing anything through this handler. Every other
@@ -2219,6 +2251,9 @@ def build_worker_runner(
                 ),
                 backoff_base_seconds=settings.job_retry_backoff_base_seconds,
                 backoff_max_seconds=settings.job_retry_backoff_max_seconds,
+                # One user's trading jobs one at a time and in order, other users'
+                # beside them on the runner's lanes (tasks.md G.7).
+                lanes=USER_JOB_LANES,
             )
 
     handlers: Mapping[JobKind, JobHandler] = {
@@ -2237,6 +2272,7 @@ def build_worker_runner(
         queue_factory=queue_factory,
         handlers=handlers,
         poll_interval_seconds=settings.worker_poll_interval_seconds,
+        lanes=settings.worker_delivery_lanes,
     )
 
 

@@ -5,6 +5,8 @@ from uuid import UUID
 
 from strategy_manager.shared.domain.mode import Mode
 from strategy_manager.shared.domain.trade_capability import TradeCapability
+from strategy_manager.signals.application.close_after_open import CloseStep
+from strategy_manager.signals.application.fan_out_signal import DeliveryHalves
 
 
 @dataclass
@@ -87,6 +89,21 @@ class FixedUserMode:
     async def current_mode(self, user_id: UUID) -> Mode:
         self.users.append(user_id)
         return self.mode
+
+
+@dataclass
+class OpeningsSettled:
+    """``CloseAfterOpenPort`` for tests that are not about the wait: every opening has
+    landed, so every close proceeds. ``seeded`` records any poll, which is a defect in
+    such a test."""
+
+    seeded: list[tuple[UUID, DeliveryHalves, int]] = field(default_factory=list)
+
+    async def step(self, user_id: UUID, allocation_id: UUID) -> CloseStep:
+        return CloseStep.PROCEED
+
+    async def seed(self, delivery_id: UUID, halves: DeliveryHalves, poll: int) -> None:
+        self.seeded.append((delivery_id, halves, poll))
 
 
 @dataclass

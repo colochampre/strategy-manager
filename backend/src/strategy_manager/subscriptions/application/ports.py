@@ -16,13 +16,15 @@ Market = tuple[str, str, str]
 class StrategyMarket:
     """What subscribing and leaving need to know about a strategy: where it trades,
     whether it still takes subscribers, who wrote it (an author cannot leave) and
-    whether it is private (only its author may subscribe, decision 21)."""
+    whether it is offered to anyone else: public (decision 21) and with an author
+    who has a name (tasks.md G.2)."""
 
     id: UUID
     market: Market
     archived: bool
     author_id: UUID
     visibility: Visibility
+    author_named: bool
 
 
 @dataclass(frozen=True, slots=True)

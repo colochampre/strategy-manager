@@ -23,6 +23,7 @@ from strategy_manager.shared.infrastructure.bybit.errors import BybitApiError
 from strategy_manager.shared.infrastructure.bybit.read_client import (
     INSTRUMENTS_PATH,
     POSITIONS_PATH,
+    TICKERS_PATH,
 )
 from strategy_manager.shared.infrastructure.bybit.signer import (
     KEY_HEADER,
@@ -70,6 +71,19 @@ def _client(
                     "retMsg": "OK",
                     "result": {
                         "list": [{"symbol": "STXUSDT", "leverage": "3"}],
+                    },
+                },
+            )
+        if request.url.path == TICKERS_PATH:
+            # An opening is sized at the venue's price (decision 35).
+            return httpx.Response(
+                200,
+                json={
+                    "retCode": 0,
+                    "retMsg": "OK",
+                    "result": {
+                        "category": "linear",
+                        "list": [{"symbol": "STXUSDT", "markPrice": "2"}],
                     },
                 },
             )

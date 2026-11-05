@@ -10,14 +10,14 @@ interface SignInGateProps {
 }
 
 /**
- * Shows the panel only to the admin (multi-user design AD1 and AD11).
+ * Shows the panel to every signed-in user (multi-user design AD1 and AD11, PR G).
  *
  * Cloudflare Access has already signed the person in when this renders; the
- * gate asks the API who that is (`GET /api/me`). Until PR B scopes the data by
- * user, every other route is admin-only, so a signed-in user who is not the
- * admin is told so by e-mail instead of meeting a page of refusals.
+ * gate asks the API who that is (`GET /api/me`), and any user it confirms is let
+ * through. Every route scopes its data to that user, and the admin's own pages
+ * stay behind `AdminRoute`. Who may sign in at all is Access's policy.
  *
- * Every state that is not a confirmed admin keeps the children out:
+ * Every state that is not a confirmed user keeps the children out:
  * - checking: a neutral line;
  * - 503: the API cannot check sign-in right now (Access's keys unreachable); retry;
  * - any other failure: the session could not be renewed (`apiFetch` already
@@ -27,14 +27,12 @@ export function SignInGate({ children }: SignInGateProps) {
   const { t } = useTranslation();
   const me = useMe();
 
-  if (me.data?.isAdmin === true) {
+  if (me.data !== undefined) {
     return children;
   }
 
   let body: ReactNode;
-  if (me.data !== undefined) {
-    body = <p className="text-sm text-ink">{t("auth.gate.notOpen", { email: me.data.email })}</p>;
-  } else if (me.isError && me.error instanceof ApiError && me.error.status === 503) {
+  if (me.isError && me.error instanceof ApiError && me.error.status === 503) {
     body = (
       <>
         <p className="text-sm text-ink">{t("auth.gate.unavailable")}</p>

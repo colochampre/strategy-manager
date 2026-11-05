@@ -23,18 +23,26 @@ from sqlalchemy import event, text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 import strategy_manager
+from strategy_manager.execution.domain.fill import REHEARSAL_FILL_ID_PREFIX
+from strategy_manager.ledger.infrastructure.models import LedgerEntryRow
 from strategy_manager.main import create_app
 from strategy_manager.shared import db as shared_db
 from strategy_manager.shared.config import get_settings
 from strategy_manager.signals.infrastructure.models import SignalRow
 from tests.identity_auth import ADMIN_HEADERS, OTHER_HEADERS, seed_admin, sign_in_as_admin
-from tests.ledger.infrastructure.conftest import seed_strategy
-from tests.owner import seed_other_user, seed_pool, seed_snapshot
+from tests.ledger.infrastructure.conftest import (
+    seed_execution_attempt,
+    seed_reservation,
+    seed_signal,
+    seed_strategy,
+)
+from tests.owner import seed_other_user, seed_pool, seed_snapshot, seed_trade_key
 
 MARKET = ("bybit", "usdt-m", "USDT")
 OTHER_MARKET = ("bybit", "spot", "USDT")
 T0 = datetime(2026, 9, 1, 12, tzinfo=UTC)
 LIST = "/api/public/strategies"
+ROUTER_LOGGER = "strategy_manager.performance.infrastructure.public_strategies_router"
 
 #: A body is an explicit list. Anything added to it has to be added here too.
 BODY_KEYS = {
@@ -140,6 +148,69 @@ async def _signal(
         await session.commit()
 
 
+async def _trade(
+    factory: Factory,
+    user: UUID,
+    strategy_id: UUID,
+    *,
+    bought: str = "100",
+    sold: str | None = "110",
+    at: datetime = T0,
+    rehearsal: bool = False,
+) -> UUID:
+    """``user``'s allocation in ``strategy_id``: a BUY of one STX at ``bought`` and,
+    unless ``sold`` is None, a SELL of it an hour later. The ledger holds the venue's
+    ``STXUSDT``; the alerts say ``STXUSDT.P``. A fee is charged on both legs, so a
+    record that counted fees would show it."""
+    signal_id, allocation, attempt = uuid4(), uuid4(), uuid4()
+    await seed_signal(
+        factory, signal_id=signal_id, strategy_id=strategy_id, idempotency_key=f"key-{signal_id}"
+    )
+    await seed_reservation(
+        factory,
+        reservation_id=allocation,
+        strategy_id=strategy_id,
+        signal_id=signal_id,
+        status="FILLED",
+        user_id=user,
+    )
+    await seed_execution_attempt(
+        factory, attempt_id=attempt, reservation_id=allocation, symbol="STXUSDT", status="FILLED"
+    )
+    legs = [("BUY", bought, at)]
+    if sold is not None:
+        legs.append(("SELL", sold, at + timedelta(hours=1)))
+    prefix = REHEARSAL_FILL_ID_PREFIX if rehearsal else "fill-"
+    async with factory() as session:
+        for side, price, filled_at in legs:
+            entry = uuid4()
+            session.add(
+                LedgerEntryRow(
+                    id=entry,
+                    user_id=user,
+                    strategy_id=strategy_id,
+                    allocation_id=allocation,
+                    execution_attempt_id=attempt,
+                    exchange=MARKET[0],
+                    venue=MARKET[1],
+                    settlement_currency=MARKET[2],
+                    symbol="STXUSDT",
+                    side=side,
+                    quantity=Decimal("1"),
+                    price=Decimal(price),
+                    fee=Decimal("0.5"),
+                    fee_currency="USDT",
+                    notional=Decimal(price),
+                    exchange_order_id=f"order-{entry}",
+                    exchange_fill_id=f"{prefix}{entry}",
+                    filled_at=filled_at,
+                    usd_rate_at_fill=Decimal("1"),
+                )
+            )
+        await session.commit()
+    return allocation
+
+
 async def _subscribe(
     factory: Factory,
     user: UUID,
@@ -148,11 +219,15 @@ async def _subscribe(
     share: str,
     total: str | None,
     status: str = "ACTIVE",
+    key: bool = True,
 ) -> UUID:
-    """``user``'s subscription through a pool of their own on ``MARKET``. Half the
-    balance is free, so a read of ``available`` instead of the total shows."""
+    """``user``'s subscription through a pool of their own on ``MARKET``, with a key
+    that can trade there unless ``key`` is false. Half the balance is free, so a read
+    of ``available`` instead of the total shows."""
     subscription = uuid4()
     async with factory() as session:
+        if key:
+            await seed_trade_key(session, user)
         pool = await seed_pool(session, MARKET, user_id=user)
         if total is not None:
             await seed_snapshot(
@@ -194,7 +269,7 @@ class _Api:
                 yield session
 
         app.dependency_overrides[shared_db.get_session] = _session
-        transport = ASGITransport(app=app)
+        transport = ASGITransport(app=app, raise_app_exceptions=False)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             return await client.get(path, headers=headers)
 
@@ -241,16 +316,7 @@ async def test_the_page_says_what_the_list_says(pg_session_factory: Factory, api
     author = await _new_user(pg_session_factory)
     strategy_id = await _strategy(pg_session_factory, author)
     await _subscribe(pg_session_factory, author, strategy_id, share="50", total="1000")
-    await _signal(
-        pg_session_factory, strategy_id, position_size="1", price="100", at=T0
-    )
-    await _signal(
-        pg_session_factory,
-        strategy_id,
-        position_size="0",
-        price="110",
-        at=T0 + timedelta(hours=1),
-    )
+    await _trade(pg_session_factory, author, strategy_id)
 
     [listed] = await api.listed()
 
@@ -275,7 +341,7 @@ async def test_the_list_runs_oldest_first_and_its_ties_are_stable(
     assert order == [str(each) for each in expected]
 
 
-async def test_no_signal_read_answers_zero_trades_and_zero_return(
+async def test_a_strategy_with_no_real_trade_answers_zero_trades_and_zero_return(
     pg_session_factory: Factory, api: _Api
 ) -> None:
     author = await _new_user(pg_session_factory)
@@ -290,27 +356,12 @@ async def test_no_signal_read_answers_zero_trades_and_zero_return(
 # --- the record -----------------------------------------------------------------------
 
 
-async def test_the_record_reads_every_stored_signal_whatever_its_status(
+async def test_the_record_is_the_authors_real_closed_trades_before_fees(
     pg_session_factory: Factory, api: _Api
 ) -> None:
     author = await _new_user(pg_session_factory)
     strategy_id = await _strategy(pg_session_factory, author)
-    await _signal(
-        pg_session_factory,
-        strategy_id,
-        position_size="1",
-        price="100",
-        at=T0,
-        status="REJECTED",
-    )
-    await _signal(
-        pg_session_factory,
-        strategy_id,
-        position_size="0",
-        price="110",
-        at=T0 + timedelta(hours=1),
-        status="ACCEPTED",
-    )
+    await _trade(pg_session_factory, author, strategy_id, bought="100", sold="110")
 
     listed = await api.page(strategy_id)
 
@@ -318,74 +369,59 @@ async def test_the_record_reads_every_stored_signal_whatever_its_status(
     assert listed["unleveraged_return_before_fees"] == "0.1000000000"
 
 
-async def test_each_spelling_keeps_its_chain_and_an_open_trade_counts_for_nothing(
-    pg_session_factory: Factory, api: _Api
-) -> None:
+async def test_signals_alone_build_no_record(pg_session_factory: Factory, api: _Api) -> None:
+    """An alert's price is not a price anybody traded at (decision 34)."""
     author = await _new_user(pg_session_factory)
     strategy_id = await _strategy(pg_session_factory, author)
-    day = timedelta(days=1)
-    await _signal(
-        pg_session_factory, strategy_id, symbol="STXUSDT.P", position_size="1", price="100", at=T0
-    )
+    await _signal(pg_session_factory, strategy_id, position_size="1", price="100", at=T0)
     await _signal(
         pg_session_factory,
         strategy_id,
-        symbol="STXUSDT",
         position_size="0",
         price="500",
         at=T0 + timedelta(hours=1),
     )
-    await _signal(
-        pg_session_factory,
-        strategy_id,
-        symbol="STXUSDT.P",
-        position_size="0",
-        price="110",
-        at=T0 + day,
-    )
-    await _signal(
-        pg_session_factory,
-        strategy_id,
-        symbol="ETHUSDT.P",
-        position_size="1",
-        price="2000",
-        at=T0 + day,
-    )
+
+    listed = await api.page(strategy_id)
+
+    assert listed["closed_trade_count"] == 0
+    assert Decimal(listed["unleveraged_return_before_fees"]) == 0
+
+
+async def test_a_subscribers_trades_give_the_strategy_no_record(
+    pg_session_factory: Factory, api: _Api
+) -> None:
+    author = await _new_user(pg_session_factory)
+    subscriber = await _new_user(pg_session_factory)
+    strategy_id = await _strategy(pg_session_factory, author)
+    await _trade(pg_session_factory, subscriber, strategy_id, bought="100", sold="150")
+
+    listed = await api.page(strategy_id)
+
+    assert listed["closed_trade_count"] == 0
+    assert Decimal(listed["unleveraged_return_before_fees"]) == 0
+
+
+async def test_the_authors_simulated_trades_give_the_strategy_no_record(
+    pg_session_factory: Factory, api: _Api
+) -> None:
+    author = await _new_user(pg_session_factory)
+    strategy_id = await _strategy(pg_session_factory, author)
+    await _trade(pg_session_factory, author, strategy_id, sold="150", rehearsal=True)
+    await _trade(pg_session_factory, author, strategy_id, bought="100", sold="90")
 
     listed = await api.page(strategy_id)
 
     assert listed["closed_trade_count"] == 1
-    assert listed["unleveraged_return_before_fees"] == "0.1000000000"
+    assert listed["unleveraged_return_before_fees"] == "-0.1000000000"
 
 
-async def test_two_signals_of_one_instant_read_in_the_order_of_their_ids(
-    pg_session_factory: Factory, api: _Api
-) -> None:
-    """The close is stored first and its idempotency key sorts first, so a table
-    scan and an index scan both meet it first. Only the read's ``id`` tiebreak
-    gives one closed trade."""
+async def test_an_open_trade_counts_for_nothing(pg_session_factory: Factory, api: _Api) -> None:
     author = await _new_user(pg_session_factory)
     strategy_id = await _strategy(pg_session_factory, author)
-    await _signal(
-        pg_session_factory,
-        strategy_id,
-        position_size="0",
-        price="110",
-        at=T0,
-        signal_id=UUID("00000000-0000-4000-8000-000000000002"),
-        idempotency_key="a-close",
-    )
-    await _signal(
-        pg_session_factory,
-        strategy_id,
-        position_size="1",
-        price="100",
-        at=T0,
-        signal_id=UUID("00000000-0000-4000-8000-000000000001"),
-        idempotency_key="b-open",
-    )
+    await _trade(pg_session_factory, author, strategy_id, sold=None)
 
-    assert (await api.page(strategy_id))["closed_trade_count"] == 1
+    assert (await api.page(strategy_id))["closed_trade_count"] == 0
 
 
 async def test_a_record_is_its_own_strategys(pg_session_factory: Factory, api: _Api) -> None:
@@ -395,10 +431,7 @@ async def test_a_record_is_its_own_strategys(pg_session_factory: Factory, api: _
     author = await _new_user(pg_session_factory)
     quiet = await _strategy(pg_session_factory, author, created_at=T0)
     traded = await _strategy(pg_session_factory, author, created_at=T0 + timedelta(days=1))
-    await _signal(pg_session_factory, traded, position_size="1", price="100", at=T0)
-    await _signal(
-        pg_session_factory, traded, position_size="0", price="110", at=T0 + timedelta(hours=1)
-    )
+    await _trade(pg_session_factory, author, traded)
 
     counts = {each["id"]: each["closed_trade_count"] for each in await api.listed()}
 
@@ -470,6 +503,36 @@ async def test_a_simulated_subscriber_shows_no_money_at_no_risk(
     strategy_id = await _strategy(pg_session_factory, await _new_user(pg_session_factory))
     simulating = await _new_user(pg_session_factory, mode="SIMULATION")
     await _subscribe(pg_session_factory, simulating, strategy_id, share="50", total="400")
+
+    listed = await api.page(strategy_id)
+
+    assert listed["live_subscribers"] == 0
+    assert Decimal(listed["capital"]) == 0
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        pytest.param(None, id="no key at all"),
+        pytest.param({"trade_capable": False}, id="a read-only key"),
+        pytest.param({"active": False}, id="a key that was replaced or deleted"),
+        pytest.param({"exchange": "pionex"}, id="a key on another exchange"),
+    ],
+)
+async def test_a_seat_whose_key_cannot_trade_there_is_not_trading_live(
+    key: dict[str, Any] | None, pg_session_factory: Factory, api: _Api
+) -> None:
+    """A live seat with no key that trades on the market opens nothing, however much
+    its pool holds (tasks.md G.3, decision 30)."""
+    strategy_id = await _strategy(pg_session_factory, await _new_user(pg_session_factory))
+    subscriber = await _new_user(pg_session_factory)
+    await _subscribe(
+        pg_session_factory, subscriber, strategy_id, share="50", total="400", key=False
+    )
+    if key is not None:
+        async with pg_session_factory() as session:
+            await seed_trade_key(session, subscriber, **key)
+            await session.commit()
 
     listed = await api.page(strategy_id)
 
@@ -643,6 +706,67 @@ async def test_the_author_of_a_strategy_off_the_list_gets_the_same_404(
     assert response.status_code == 404
 
 
+async def _crafted_record(factory: Factory, author: UUID, strategy_id: UUID) -> None:
+    """Two days of the widest notionals a fill can hold (tasks.md G.1). Since
+    decision 34 an alert's price no longer reaches the record, and no venue fills
+    at these, but the wire's guard stands: compounded, this return needs more
+    digits than the wire can round."""
+    for day in range(2):
+        await _trade(
+            factory,
+            author,
+            strategy_id,
+            bought="0.000000000000000001",
+            sold="99999999999999999999",
+            at=T0 + timedelta(days=day),
+        )
+
+
+async def test_one_strategy_the_wire_cannot_write_leaves_the_rest_of_the_list(
+    pg_session_factory: Factory, api: _Api
+) -> None:
+    author = await _new_user(pg_session_factory)
+    crafted = await _strategy(pg_session_factory, author, created_at=T0)
+    honest = await _strategy(pg_session_factory, author, created_at=T0 + timedelta(hours=1))
+    await _crafted_record(pg_session_factory, author, crafted)
+
+    response = await api.get(LIST)
+
+    assert response.status_code == 200
+    assert [each["id"] for each in response.json()] == [str(honest)]
+
+
+async def test_the_page_of_a_strategy_the_wire_cannot_write_answers_as_off_the_list(
+    pg_session_factory: Factory, api: _Api
+) -> None:
+    author = await _new_user(pg_session_factory)
+    crafted = await _strategy(pg_session_factory, author)
+    await _crafted_record(pg_session_factory, author, crafted)
+
+    response = await api.get(f"{LIST}/{crafted}")
+    unknown = await api.get(f"{LIST}/{uuid4()}")
+
+    assert response.status_code == 404
+    assert response.json() == unknown.json()
+
+
+async def test_a_strategy_left_out_for_its_return_says_so_in_the_log(
+    pg_session_factory: Factory, api: _Api, caplog: pytest.LogCaptureFixture
+) -> None:
+    author = await _new_user(pg_session_factory)
+    crafted = await _strategy(pg_session_factory, author)
+    await _crafted_record(pg_session_factory, author, crafted)
+
+    with caplog.at_level("WARNING", logger=ROUTER_LOGGER):
+        await api.get(LIST)
+
+    assert [
+        record.getMessage()
+        for record in caplog.records
+        if record.name == ROUTER_LOGGER and str(crafted) in record.getMessage()
+    ], "nothing says why a strategy left the list"
+
+
 async def test_another_user_reads_a_public_strategy(
     pg_session_factory: Factory, api: _Api
 ) -> None:
@@ -679,8 +803,8 @@ async def _trading_strategy(factory: Factory) -> UUID:
     strategy_id = await _strategy(factory, author)
     await _subscribe(factory, author, strategy_id, share="10", total="1000")
     await _subscribe(factory, subscriber, strategy_id, share="50", total="400")
-    await _signal(factory, strategy_id, position_size="1", price="100", at=T0)
-    await _signal(factory, strategy_id, position_size="0", price="110", at=T0 + timedelta(hours=1))
+    await _trade(factory, author, strategy_id)
+    await _trade(factory, subscriber, strategy_id)
     return strategy_id
 
 
@@ -709,7 +833,7 @@ async def test_the_statement_count_is_the_same_for_one_strategy_and_for_twenty(
     assert len(page) == len(one)
 
 
-async def test_the_read_runs_in_one_read_only_snapshot_and_touches_no_ledger_or_payload(
+async def test_the_read_runs_in_one_read_only_snapshot_and_touches_no_signal_or_payload(
     pg_session_factory: Factory, pg_engine: AsyncEngine, api: _Api
 ) -> None:
     await _trading_strategy(pg_session_factory)
@@ -719,16 +843,18 @@ async def test_the_read_runs_in_one_read_only_snapshot_and_touches_no_ledger_or_
     transaction = [each for each in statements if "SET TRANSACTION" in each]
     assert transaction == ["SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY"]
     read = statements[statements.index(transaction[0]) :]
-    assert len(read) == 4, "the snapshot, the listings, the signals and the seats"
-    assert not [each for each in statements if "ledger_entries" in each]
+    assert len(read) == 4, "the snapshot, the listings, the author's fills and the seats"
+    assert not [each for each in read if "signals" in each]
     assert not [each for each in statements if "raw_payload" in each]
 
 
-def test_the_public_read_imports_nothing_of_the_ledger() -> None:
-    """A public figure comes from signals. The port, the use case and the source
-    name no ledger module, so no fill can reach a public body."""
+def test_the_public_read_imports_nothing_of_the_signals() -> None:
+    """A public figure comes from the author's fills (decision 34). The record,
+    the port, the use case and the source name no signals module, so no alert's
+    price can reach a public record."""
     root = Path(strategy_manager.__file__).parent / "performance"
     for module in (
+        root / "domain" / "public_record.py",
         root / "application" / "ports.py",
         root / "application" / "read_public_strategies.py",
         root / "infrastructure" / "public_strategies_source.py",
@@ -738,4 +864,4 @@ def test_the_public_read_imports_nothing_of_the_ledger() -> None:
             node.module for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)
         ]
         assert imported, module
-        assert not [name for name in imported if name and ".ledger" in name], module
+        assert not [name for name in imported if name and ".signals" in name], module

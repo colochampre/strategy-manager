@@ -138,6 +138,7 @@ class PositionBody(BaseModel):
     strategy_id: UUID | None
     strategy_name: str
     strategy_archived: bool | None
+    strategy_page: str | None
     pool: PoolBody
     currency: str
     markets: list[str]
@@ -191,6 +192,7 @@ def _position_body(position: OpenPosition) -> PositionBody:
         strategy_id=position.strategy_id,
         strategy_name=position.strategy_name,
         strategy_archived=position.strategy_archived,
+        strategy_page=None if position.strategy_page is None else position.strategy_page.value,
         pool=_pool(position.pool),
         currency=position.pool.settlement_currency,
         markets=list(position.markets),

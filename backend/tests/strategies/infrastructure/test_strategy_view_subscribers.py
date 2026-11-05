@@ -11,6 +11,8 @@ user under test, who is not the admin.
 """
 
 from collections.abc import AsyncIterator, Callable
+from datetime import UTC, datetime
+from decimal import Decimal
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -33,6 +35,7 @@ from tests.ledger.infrastructure.conftest import (  # noqa: F401
     pg_engine,
     pg_session_factory,
 )
+from tests.owner import seed_snapshot, seed_trade_key
 from tests.subscriptions.infrastructure import seeds
 
 pytestmark = pytest.mark.integration
@@ -57,6 +60,7 @@ VIEW_KEYS = {
     "secret_last4",
     "subscribers",
     "live_subscribers",
+    "capital",
 }
 
 
@@ -92,9 +96,12 @@ async def client_for(
         await api.aclose()
 
 
-async def _user(factory: Factory, mode: str = "LIVE") -> tuple[UUID, int]:
-    """A user with a name, in ``mode``, with their own pool. The names differ
-    because ``users`` is not truncated between tests."""
+async def _user(
+    factory: Factory, mode: str = "LIVE", *, key: bool = True, balance: str | None = None
+) -> tuple[UUID, int]:
+    """A user with a name, in ``mode``, with their own pool and, unless ``key`` is
+    false, a key that can trade on it. The names differ because ``users`` is not
+    truncated between tests."""
     user_id, pool_id = await seeds.user(factory)
     assert pool_id is not None
     async with factory() as session:
@@ -102,6 +109,17 @@ async def _user(factory: Factory, mode: str = "LIVE") -> tuple[UUID, int]:
             text("UPDATE users SET mode = :mode, display_name = :name WHERE id = :id"),
             {"mode": mode, "name": f"Author {uuid4().hex[:8]}", "id": user_id},
         )
+        if key:
+            await seed_trade_key(session, user_id)
+        if balance is not None:
+            await seed_snapshot(
+                session,
+                seeds.MARKET,
+                total=Decimal(balance),
+                available=Decimal(balance) / 2,
+                observed_at=datetime(2026, 9, 1, tzinfo=UTC),
+                user_id=user_id,
+            )
         await session.commit()
     return user_id, pool_id
 
@@ -317,6 +335,8 @@ async def test_the_author_and_the_public_list_agree_on_who_trades_live(
     await seeds.subscription(
         pg_session_factory, leaving, strategy_id, leaving_pool, status="LEAVING"
     )
+    keyless, keyless_pool = await _user(pg_session_factory, key=False)
+    await seeds.subscription(pg_session_factory, keyless, strategy_id, keyless_pool)
     monkeypatch.setattr(get_settings(), "dry_run", brake)
     api = client_for(author)
 
@@ -326,3 +346,94 @@ async def test_the_author_and_the_public_list_agree_on_who_trades_live(
     assert public.status_code == 200, public.text
     assert public.json()["live_subscribers"] == live
     assert listed[str(strategy_id)]["live_subscribers"] == live
+
+
+# --- the capital (decisions 10 and 30, tasks.md G.3) --------------------------------
+
+
+async def _held_by_two_with_money(
+    factory: Factory, *, visibility: str = "PUBLIC"
+) -> tuple[UUID, UUID]:
+    """The author at 10 % of 1000, a subscriber at 50 % of 400 and a simulated one
+    whose balance must not count: 300."""
+    author, author_pool = await _user(factory, balance="1000")
+    live, live_pool = await _user(factory, balance="400")
+    simulated, simulated_pool = await _user(factory, "SIMULATION", balance="9000")
+    strategy_id = await seeds.strategy(factory, author_id=author, visibility=visibility)
+    await seeds.subscription(factory, author, strategy_id, author_pool, share="10")
+    await seeds.subscription(factory, live, strategy_id, live_pool, share="50")
+    await seeds.subscription(factory, simulated, strategy_id, simulated_pool, share="50")
+    return author, strategy_id
+
+
+@pytest.mark.parametrize("visibility", ["PUBLIC", "PRIVATE"])
+async def test_an_author_reads_the_capital_of_their_strategy_private_or_not(
+    pg_session_factory: Factory,  # noqa: F811
+    client_for: ClientFor,
+    visibility: str,
+) -> None:
+    author, strategy_id = await _held_by_two_with_money(
+        pg_session_factory, visibility=visibility
+    )
+
+    listed = await _listed(client_for(author))
+
+    assert Decimal(listed[str(strategy_id)]["capital"]) == Decimal("300")
+
+
+async def test_each_strategy_shows_its_own_capital_and_nobody_live_adds_up_to_zero(
+    pg_session_factory: Factory,  # noqa: F811
+    client_for: ClientFor,
+) -> None:
+    author, held = await _held_by_two_with_money(pg_session_factory)
+    quiet = await seeds.strategy(pg_session_factory, author_id=author)
+
+    listed = await _listed(client_for(author))
+
+    assert {strategy: Decimal(row["capital"]) for strategy, row in listed.items()} == {
+        str(held): Decimal("300"),
+        str(quiet): Decimal(0),
+    }
+
+
+async def test_the_detail_and_a_write_answer_the_same_capital(
+    pg_session_factory: Factory,  # noqa: F811
+    client_for: ClientFor,
+) -> None:
+    author, strategy_id = await _held_by_two_with_money(pg_session_factory)
+    api = client_for(author)
+
+    detail = await api.get(f"/api/strategies/{strategy_id}")
+    renamed = await api.patch(f"/api/strategies/{strategy_id}", json={"name": "Renamed"})
+
+    assert Decimal(detail.json()["capital"]) == Decimal("300")
+    assert Decimal(renamed.json()["capital"]) == Decimal("300")
+
+
+async def test_under_the_brake_the_authors_capital_is_null(
+    monkeypatch: pytest.MonkeyPatch,
+    pg_session_factory: Factory,  # noqa: F811
+    client_for: ClientFor,
+) -> None:
+    author, strategy_id = await _held_by_two_with_money(pg_session_factory)
+    monkeypatch.setattr(get_settings(), "dry_run", True)
+    api = client_for(author)
+
+    listed = await _listed(api)
+    detail = await api.get(f"/api/strategies/{strategy_id}")
+
+    assert listed[str(strategy_id)]["capital"] is None
+    assert detail.json()["capital"] is None
+
+
+async def test_the_author_and_the_public_list_read_one_capital(
+    pg_session_factory: Factory,  # noqa: F811
+    client_for: ClientFor,
+) -> None:
+    author, strategy_id = await _held_by_two_with_money(pg_session_factory)
+    api = client_for(author)
+
+    listed = await _listed(api)
+    public = await api.get(f"/api/public/strategies/{strategy_id}")
+
+    assert public.json()["capital"] == listed[str(strategy_id)]["capital"]

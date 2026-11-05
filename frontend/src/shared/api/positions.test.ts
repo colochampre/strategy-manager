@@ -26,6 +26,7 @@ afterEach(() => {
 const NO_FACTS = openPosition({
   strategy_id: null,
   strategy_archived: null,
+  strategy_page: null,
   figures_missing: "NO_FACTS",
   side: null,
   base_currency: null,
@@ -100,7 +101,7 @@ describe("fetchOpenPositions", () => {
     expect(answer.positions[0]?.leverage).toBeNull();
   });
 
-  it.each(["opened_at", "fees", "margin_granted", "leverage", "strategy_id", "side", "venue_disagreement"] as const)(
+  it.each(["opened_at", "fees", "margin_granted", "leverage", "strategy_id", "strategy_page", "side", "venue_disagreement"] as const)(
     "refuses a position whose %s is missing, where null would be accepted",
     async (key) => {
       respond(openState([without(NO_FACTS, key) as ReturnType<typeof openPosition>]));
@@ -108,6 +109,20 @@ describe("fetchOpenPositions", () => {
       await expect(fetchOpenPositions()).rejects.toBeInstanceOf(ApiError);
     },
   );
+
+  it.each(["AUTHORED", "LISTED", null] as const)("accepts a position whose strategy_page is %s", async (page) => {
+    respond(openState([openPosition({ strategy_page: page })]));
+
+    const answer = await fetchOpenPositions();
+
+    expect(answer.positions[0]?.strategy_page).toBe(page);
+  });
+
+  it("refuses a strategy_page nobody knows: a link to a guessed page leads nowhere", async () => {
+    respond(openState([{ ...openPosition(), strategy_page: "SUBSCRIBED" } as unknown as ReturnType<typeof openPosition>]));
+
+    await expect(fetchOpenPositions()).rejects.toBeInstanceOf(ApiError);
+  });
 
   it("accepts an order whose strategy_name is null (N3), and one the facts could not decorate", async () => {
     respond(

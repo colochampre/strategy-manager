@@ -62,6 +62,7 @@ function strategy(): Strategy {
     secret_last4: "x4F2",
     subscribers: 1,
     live_subscribers: 0,
+    capital: null,
   };
 }
 
@@ -135,6 +136,7 @@ function held(pair: string, pool: OpenPool = USDT_POOL, overrides: Partial<OpenP
 function noFacts(overrides: Partial<OpenPosition> = {}): OpenPosition {
   return openPosition({
     strategy_id: null,
+    strategy_page: null,
     strategy_name: "Unattributed",
     markets: ["STXUSDT"],
     origin: "live",
@@ -272,15 +274,30 @@ describe("the columns and the cells (T13; example 22)", () => {
 });
 
 describe("the strategy's name (T13)", () => {
-  it("is a link to the strategy's page when the row has a strategy id", async () => {
+  it("is a link to the strategy's page for its author", async () => {
     await mountList(answering([aave()]));
 
     const link = within(onlyRow()[COLUMN.strategy] as HTMLElement).getByRole("link", { name: "STX 4h - RSI Divergences" });
     expect(link).toHaveAttribute("href", `/strategies/${STX}`);
   });
 
+  it("is a link to the public page for a subscriber of a listed strategy", async () => {
+    await mountList(answering([aave({ strategy_page: "LISTED" })]));
+
+    const link = within(onlyRow()[COLUMN.strategy] as HTMLElement).getByRole("link", { name: "STX 4h - RSI Divergences" });
+    expect(link).toHaveAttribute("href", `/strategies/explore/${STX}`);
+  });
+
+  it("is plain text for a subscriber of a strategy off the list, whose detail is the author's", async () => {
+    await mountList(answering([aave({ strategy_page: null })]));
+
+    const cell = onlyRow()[COLUMN.strategy] as HTMLElement;
+    expect(cell).toHaveTextContent("STX 4h - RSI Divergences");
+    expect(within(cell).queryByRole("link")).not.toBeInTheDocument();
+  });
+
   it("is plain text when the row has no strategy id", async () => {
-    await mountList(answering([noFacts()]));
+    await mountList(answering([noFacts({ strategy_page: null })]));
 
     const cell = onlyRow()[COLUMN.strategy] as HTMLElement;
     expect(cell).toHaveTextContent("Unattributed");

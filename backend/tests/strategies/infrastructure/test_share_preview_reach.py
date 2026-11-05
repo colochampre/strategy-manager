@@ -121,6 +121,43 @@ async def test_a_stranger_never_reads_an_archived_strategy(
     assert response.status_code == 404
 
 
+async def test_a_stranger_never_reads_a_strategy_whose_author_has_no_name(
+    pg_session_factory: Factory,  # noqa: F811
+) -> None:
+    """The public page answers 404 for it, and the preview follows the page (G.2)."""
+    author, _ = await _user_with_balance(pg_session_factory, "1000")
+    stranger, _ = await _user_with_balance(pg_session_factory, "200")
+    strategy_id = await seeds.strategy(pg_session_factory, author_id=author, named=False)
+
+    response = await _preview(pg_session_factory, stranger, strategy_id)
+
+    assert response.status_code == 404
+
+
+async def test_an_author_with_no_name_keeps_reading_their_own_strategy(
+    pg_session_factory: Factory,  # noqa: F811
+) -> None:
+    author, _ = await _user_with_balance(pg_session_factory, "1000")
+    strategy_id = await seeds.strategy(pg_session_factory, author_id=author, named=False)
+
+    response = await _preview(pg_session_factory, author, strategy_id)
+
+    assert response.status_code == 200, response.text
+
+
+async def test_a_holder_keeps_reading_a_strategy_whose_author_has_no_name(
+    pg_session_factory: Factory,  # noqa: F811
+) -> None:
+    author, _ = await _user_with_balance(pg_session_factory, "1000")
+    holder, pool = await _user_with_balance(pg_session_factory, "200")
+    strategy_id = await seeds.strategy(pg_session_factory, author_id=author, named=False)
+    await seeds.subscription(pg_session_factory, holder, strategy_id, pool)
+
+    response = await _preview(pg_session_factory, holder, strategy_id)
+
+    assert response.status_code == 200, response.text
+
+
 @pytest.mark.parametrize("status", ["ACTIVE", "LEAVING"])
 async def test_a_subscriber_keeps_reading_a_strategy_that_turned_private(
     pg_session_factory: Factory,  # noqa: F811

@@ -35,8 +35,9 @@ export interface Pool {
 
 /**
  * One row of `GET /api/public/strategies` (`PublicStrategyBody`): what any signed-in user sees of a strategy on
- * the public list. `unleveraged_return_before_fees` is a ratio string, read from the strategy's signals and not
- * from anyone's fills, so a reader must be told what it leaves out. `capital` is money in the strategy's own
+ * the public list. `unleveraged_return_before_fees` is a ratio string, read from the fills of its author's real
+ * closed trades (decision 34) and "0" while there is none, so a reader must be told what it leaves out and
+ * `closed_trade_count` says whether there is a return at all. `capital` is money in the strategy's own
  * currency: null under the brake, when nobody trades live, and "0" with the brake off and nobody live.
  */
 export interface PublicStrategy {
@@ -161,7 +162,8 @@ export interface Subscription {
  * `archived_at` is null while the strategy is live. `secret_last4` is the last four characters of its
  * webhook secret, the only part of it the API ever serves again: the panel masks the secret with them.
  * `subscribers` counts every ACTIVE subscription, the author's and simulated ones included, and
- * `live_subscribers` those trading it live, 0 under the brake (decisions 10 and 30).
+ * `live_subscribers` those trading it live, 0 under the brake (decisions 10 and 30). `capital` is the one
+ * figure the public list shows, private strategies included, and null under the brake.
  */
 export interface Strategy {
   id: string;
@@ -179,6 +181,7 @@ export interface Strategy {
   secret_last4: string;
   subscribers: number;
   live_subscribers: number;
+  capital: string | null;
 }
 
 /**

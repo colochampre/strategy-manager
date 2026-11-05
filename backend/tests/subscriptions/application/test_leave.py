@@ -62,6 +62,7 @@ class _Strategies:
             archived=False,
             author_id=self._author_id,
             visibility=Visibility.PRIVATE,
+            author_named=True,
         )
 
 

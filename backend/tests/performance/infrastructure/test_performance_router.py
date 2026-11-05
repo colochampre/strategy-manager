@@ -979,9 +979,10 @@ async def test_cross_user_b_reads_nothing_of_a_ledger_and_a_still_reads_all_of_i
 ) -> None:
     """B.6. B is the e-mail ``OTHER_HEADERS`` signs in, not the admin and not the
     fixtures' owner, through the real ``current_user``. A (the owner) holds a
-    pool and a closed trade of a strategy B can name. B's pool report is the
-    pool 404, B's strategy report and trade list are empty, A's operation is
-    the one 404 an unknown one gets. A reads the same trade afterwards."""
+    pool and a closed trade of a strategy B can name. B never held a seat on it,
+    so all of it is the 404 an unknown id gets, the strategy's market included:
+    B's pool report, B's strategy report, B's trade list and A's operation. A
+    reads the same trade afterwards."""
     strategy_id = await _strategy(pg_session_factory)
     mine = await _trade(pg_session_factory, strategy_id, DAY1, exit_="110")
     app = create_app()
@@ -1007,11 +1008,9 @@ async def test_cross_user_b_reads_nothing_of_a_ledger_and_a_still_reads_all_of_i
 
     assert pool.status_code == 404
     assert pool.json() == {"detail": "no such pool"}
-    assert strategy.status_code == 200
-    assert Decimal(_json(strategy)["total_pnl"]) == Decimal("0")
-    assert trades.status_code == 200
-    assert _json(trades)["trades"] == []
-    assert fills.status_code == 404
+    for refused in (strategy, trades, fills):
+        assert refused.status_code == 404
+        assert refused.json() == {"detail": "no such strategy"}
     kept = await client.get(
         f"/api/performance/strategies/{strategy_id}/trades", headers=ADMIN_HEADERS
     )
