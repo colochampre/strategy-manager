@@ -54,6 +54,7 @@ from strategy_manager.execution.domain.order import MarketBuy, MarketSell, Order
 from strategy_manager.execution.domain.placeable import PlaceableOrder
 from strategy_manager.shared.application.job import Job, JobKind
 from strategy_manager.shared.application.ports import ClockPort, JobQueuePort
+from strategy_manager.shared.domain.leverage import Leverage
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +86,9 @@ class PlaceCommand:
     symbol: str
     side: OrderSide
     price: Decimal
+    # The subscription's own choice (decision 38): every opening of it is placed at
+    # this leverage, a REVERSE's opening included.
+    leverage: Leverage
 
 
 @dataclass(frozen=True, slots=True)
@@ -169,6 +173,7 @@ class PlaceOrder:
                     side=command.side,
                     granted=reservation.amount,
                     price=command.price,
+                    leverage=command.leverage,
                 )
             )
         except OrderNotPlaceable as exc:

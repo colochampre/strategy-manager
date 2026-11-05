@@ -25,6 +25,7 @@ from typing import Any
 from uuid import UUID
 
 from strategy_manager.allocation.application.ports import StrategyPolicySnapshot
+from strategy_manager.shared.domain.leverage import NEW_SEAT_LEVERAGE
 from strategy_manager.signals.application.fan_out_signal import DeliveryHalves
 from strategy_manager.signals.application.process_signal import (
     Delivery,
@@ -64,6 +65,7 @@ class SoleSubscriberDeliveries:
             subscription_id=signal_id,
             user_id=policy.author_id,
             allocation_percent=policy.allocation_percent,
+            leverage=NEW_SEAT_LEVERAGE,
         )
 
 

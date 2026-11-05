@@ -92,9 +92,10 @@ class FakeExchangeAdapter:
       zero) is refused with ``ExchangeError``: there is no fallback, not to 1,
       not to the last price seen. An explicit ``fill_price`` is the FIXED mode
       (tests only): every order fills at it.
-    * **Size.** At leverage 1 (``FAKE_LEVERAGE``): a futures position's
-      notional equals the capital granted, and a spot buy's quantity is the
-      granted amount over the price of its fill.
+    * **Size.** A perpetual is sized the way the live futures adapter sizes
+      one, at the spec's leverage, the subscription's own (PR H, H-Q3): its
+      notional is the capital granted times that leverage. A spot buy takes no
+      leverage: its quantity is the granted amount over the price of its fill.
     * **Fee.** ``quantity x price x fee_rate``, in USDT, quantised once to 18
       places half-even, on both sides; the base quantity is never touched. A
       market not quoted in USDT is refused rather than charged in another
@@ -111,12 +112,6 @@ class FakeExchangeAdapter:
     # loophole: DRY_RUN is what stands between this adapter and a real
     # exchange, and nothing it "trades" reaches one.
     venues = frozenset({Venue.SPOT.value, Venue.USDT_M.value, Venue.COIN_M.value})
-
-    # A dry run rehearses the real shapes, so the fake sizes a perpetual the
-    # way the live futures adapter does. Leverage is 1 because there is no
-    # account to read one from -- what a dry run exercises is the ORDER SHAPE
-    # and the routing, not the multiple.
-    FAKE_LEVERAGE = Decimal("1")
 
     def __init__(
         self,
@@ -184,7 +179,9 @@ class FakeExchangeAdapter:
                 client_order_id=spec.client_order_id,
                 symbol=spec.symbol,
                 granted=spec.granted,
-                leverage=self.FAKE_LEVERAGE,
+                # The subscription's own (H-Q3): "Si, las simuladas usan el
+                # apalancamineto elegido." There is no venue to set it on.
+                leverage=Decimal(spec.leverage.value),
                 price=price,
             )
         else:

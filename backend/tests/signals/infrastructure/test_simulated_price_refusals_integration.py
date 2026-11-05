@@ -31,6 +31,7 @@ from strategy_manager.execution.infrastructure.fake_exchange import FakeExchange
 from strategy_manager.ledger.application.read_held_base import ReadHeldBase
 from strategy_manager.ledger.infrastructure.models import LedgerEntryRow
 from strategy_manager.ledger.infrastructure.repository import SqlAlchemyLedgerRepository
+from strategy_manager.shared.domain.leverage import NEW_SEAT_LEVERAGE
 from tests.owner import OWNER_ID
 from tests.signals.infrastructure import test_order_outcomes_integration as order_h
 from tests.signals.infrastructure import test_settle_outcomes_integration as settle_h
@@ -325,6 +326,7 @@ async def test_a_refused_opening_on_a_market_not_quoted_in_usdt_releases_its_res
                 symbol="ETHBTC",
                 side=OrderSide.BUY,
                 price=Decimal("0.05"),
+                leverage=NEW_SEAT_LEVERAGE,
             )
         )
 

@@ -35,6 +35,7 @@ from strategy_manager.execution.infrastructure.exchange_registry import (
 )
 from strategy_manager.shared.application.job import Job, JobKind
 from strategy_manager.shared.domain.errors import InvariantViolation
+from strategy_manager.shared.domain.leverage import NEW_SEAT_LEVERAGE, Leverage
 from strategy_manager.shared.domain.mode import Mode
 from tests.execution.fakes import OneRegistry, RecordingOrderOutcomes
 
@@ -227,7 +228,9 @@ def _build(
 
 
 def _command(
-    price: Decimal = Decimal("50"), side: OrderSide = OrderSide.BUY
+    price: Decimal = Decimal("50"),
+    side: OrderSide = OrderSide.BUY,
+    leverage: Leverage = NEW_SEAT_LEVERAGE,
 ) -> PlaceCommand:
     return PlaceCommand(
         user_id=OWNER,
@@ -236,7 +239,18 @@ def _command(
         symbol="BTC_USDT",
         side=side,
         price=price,
+        leverage=leverage,
     )
+
+
+async def test_the_order_is_built_at_the_commands_leverage() -> None:
+    """The subscription's leverage reaches the adapter (decision 38, H.4); how it
+    sizes by it is the adapter's business."""
+    use_case, _, _, _, exchange, _ = _build()
+
+    await use_case.place(_command(leverage=Leverage(7)))
+
+    assert [spec.leverage for spec in exchange.built] == [Leverage(7)]
 
 
 @pytest.mark.parametrize("mode", list(Mode))

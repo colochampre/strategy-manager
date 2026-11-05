@@ -22,6 +22,7 @@ from strategy_manager.execution.domain.mode_origin import (
 from strategy_manager.execution.domain.order import OrderSide
 from strategy_manager.execution.domain.placeable import PlaceableOrder
 from strategy_manager.shared.domain.errors import DomainError
+from strategy_manager.shared.domain.leverage import NEW_SEAT_LEVERAGE, Leverage
 from strategy_manager.shared.domain.mode import Mode
 
 
@@ -130,6 +131,10 @@ class OpenOrderSpec:
     side: OrderSide
     granted: Decimal
     price: Decimal
+    # The subscription's choice (decision 38). A simulated exchange sizes at it. The
+    # live adapters still size at the leverage the venue reports, until they set this
+    # one on the venue first (PR H, H.5 and H.6). A spec that names none is one times.
+    leverage: Leverage = NEW_SEAT_LEVERAGE
 
 
 @dataclass(frozen=True, slots=True)

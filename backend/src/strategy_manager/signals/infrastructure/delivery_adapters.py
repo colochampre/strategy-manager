@@ -17,33 +17,36 @@ from strategy_manager.execution.domain.execution_attempt import ExecutionStatus
 from strategy_manager.execution.domain.market_symbol import market_spellings
 from strategy_manager.execution.infrastructure.models import ExecutionAttemptRow
 from strategy_manager.ledger.infrastructure.models import LedgerEntryRow
+from strategy_manager.shared.domain.leverage import Leverage
 from strategy_manager.signals.application.close_after_open import OpeningState
 from strategy_manager.signals.application.process_signal import Delivery, UnknownDeliveryError
 from strategy_manager.signals.infrastructure.models import SignalDeliveryRow, SignalRow
 from strategy_manager.subscriptions.infrastructure.models import SubscriptionRow
 
-_DeliveryColumns = tuple[UUID, UUID, UUID, UUID, Decimal]
+_DeliveryColumns = tuple[UUID, UUID, UUID, UUID, Decimal, int]
 
 
 def _delivery_query() -> Select[_DeliveryColumns]:
-    """A delivery with its SUBSCRIPTION's share, never the strategy's copy."""
+    """A delivery with its SUBSCRIPTION's share and leverage, never the strategy's."""
     return select(
         SignalDeliveryRow.id,
         SignalDeliveryRow.signal_id,
         SignalDeliveryRow.subscription_id,
         SignalDeliveryRow.user_id,
         SubscriptionRow.allocation_percent,
+        SubscriptionRow.leverage,
     ).join(SubscriptionRow, SubscriptionRow.id == SignalDeliveryRow.subscription_id)
 
 
 def _delivery(row: Row[_DeliveryColumns]) -> Delivery:
-    delivery_id, signal_id, subscription_id, user_id, allocation_percent = row
+    delivery_id, signal_id, subscription_id, user_id, allocation_percent, leverage = row
     return Delivery(
         delivery_id=delivery_id,
         signal_id=signal_id,
         subscription_id=subscription_id,
         user_id=user_id,
         allocation_percent=allocation_percent,
+        leverage=Leverage(leverage),
     )
 
 

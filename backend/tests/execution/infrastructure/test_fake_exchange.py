@@ -5,6 +5,7 @@ fill").
 """
 
 import logging
+from dataclasses import replace
 from decimal import Decimal, InvalidOperation
 
 import pytest
@@ -16,12 +17,16 @@ from strategy_manager.execution.application.ports import (
     OrderNotFound,
 )
 from strategy_manager.execution.domain.fill import Fill
-from strategy_manager.execution.domain.futures_order import close_futures_order
+from strategy_manager.execution.domain.futures_order import (
+    FuturesMarketOrder,
+    close_futures_order,
+)
 from strategy_manager.execution.domain.order import OrderSide
 from strategy_manager.execution.domain.placeable import PlaceableOrder
 from strategy_manager.execution.infrastructure.fake_exchange import FakeExchangeAdapter
 from strategy_manager.execution.infrastructure.fake_venue_book import FakeVenueBook
 from strategy_manager.shared.domain.errors import InvariantViolation
+from strategy_manager.shared.domain.leverage import Leverage
 
 
 class FakeLedgerReader:
@@ -318,16 +323,18 @@ async def _open_and_fill(
     price: Decimal,
     granted: Decimal = Decimal("564"),
     client_order_id: str = "open-1",
+    leverage: Leverage | None = None,
 ) -> Fill:
-    order = await adapter.build_open_order(
-        OpenOrderSpec(
-            side=side,
-            client_order_id=client_order_id,
-            symbol=symbol,
-            granted=granted,
-            price=price,
-        )
+    spec = OpenOrderSpec(
+        side=side,
+        client_order_id=client_order_id,
+        symbol=symbol,
+        granted=granted,
+        price=price,
     )
+    if leverage is not None:
+        spec = replace(spec, leverage=leverage)
+    order = await adapter.build_open_order(spec)
     return await _fill_of(adapter, order, symbol)
 
 
@@ -521,11 +528,59 @@ async def test_a_spot_buy_fills_the_granted_amount_over_the_alert_price() -> Non
     assert fill.quantity * fill.price == Decimal("100")
 
 
-async def test_a_dry_run_sizes_at_leverage_one_and_the_gross_result_is_one_leverage_th() -> None:
-    """Owner answer to decision 45's second question: a dry run keeps sizing at
-    1x. Alerts at 0.4512 then 0.4633 on 1250 STXUSDT earn 15.125 gross, never
-    the 45.375 that 3x would. The adapter holds no client, so it cannot read
-    a venue's leverage."""
+async def test_a_simulated_opening_sizes_at_the_subscriptions_leverage() -> None:
+    """PR H, H-Q3 (owner, 2026-11-05): "Si, las simuladas usan el apalancamineto
+    elegido." 564 granted at 3x and 0.4512 is 3750 STXUSDT, and the move to 0.4633
+    earns 45.375 gross. The order carries the 3, which is what the attempt records.
+    The adapter still reads no venue: it holds no client."""
+    adapter = _stx_adapter()
+
+    order = await adapter.build_open_order(
+        OpenOrderSpec(
+            side=OrderSide.BUY,
+            client_order_id="open-3x",
+            symbol=STX_PERP,
+            granted=Decimal("564"),
+            price=Decimal("0.4512"),
+            leverage=Leverage(3),
+        )
+    )
+    opened = await _fill_of(adapter, order, STX_PERP)
+    closed = await _close_and_fill(
+        adapter,
+        symbol=STX_PERP,
+        side=OrderSide.SELL,
+        base_size=opened.quantity,
+        reference_price=Decimal("0.4633"),
+    )
+
+    assert isinstance(order, FuturesMarketOrder)
+    assert order.leverage == Decimal("3")
+    assert opened.quantity == Decimal("3750")
+    assert closed.quantity * closed.price - opened.quantity * opened.price == Decimal("45.375")
+    assert not any(hasattr(adapter, name) for name in ("_client", "client", "leverage_for"))
+
+
+async def test_a_spot_buy_takes_no_leverage_whatever_the_spec_says() -> None:
+    adapter = _stx_adapter()
+
+    opened = await _open_and_fill(
+        adapter,
+        symbol="STX_USDT",
+        side=OrderSide.BUY,
+        price=Decimal("0.4"),
+        granted=Decimal("100"),
+        leverage=Leverage(5),
+    )
+
+    assert opened.quantity * opened.price == Decimal("100")
+
+
+async def test_a_spec_with_no_leverage_named_sizes_at_one_and_the_gross_is_one_leverage_th() -> (
+    None
+):
+    """A spec that names no leverage is placed at the smallest: alerts at 0.4512 then
+    0.4633 on 1250 STXUSDT earn 15.125 gross, never the 45.375 that 3x would."""
     adapter = _stx_adapter()
 
     opened = await _open_and_fill(
@@ -547,8 +602,6 @@ async def test_a_dry_run_sizes_at_leverage_one_and_the_gross_result_is_one_lever
     assert opened.quantity == Decimal("1250")
     assert gross == Decimal("15.125")
     assert gross != Decimal("45.375")
-    assert FakeExchangeAdapter.FAKE_LEVERAGE == Decimal("1")
-    assert not any(hasattr(adapter, name) for name in ("_client", "client", "leverage_for"))
 
 
 async def test_the_default_is_the_alert_price_mode() -> None:

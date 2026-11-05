@@ -1665,7 +1665,13 @@ The follow-up of the PNUT incident above, and decision 38. Branch `feat/subscrip
   - The preview the panel shows before subscribing is the public page's body, so it carries it through `PublicStrategyBody`; the share preview (`SharePreviewBody`) is untouched.
   - RED was seen on assertions, against stubs that carried the field and did nothing. 26 mutations (`mutate_h3.ps1`, `mutate_h3b.ps1`): the first run killed 21 of 24. Two survivors led to changes. `strip()` in place of the four characters survived, so a test now pins that a non-breaking space at the edge is kept, as `btrim` keeps it. `strict=True` on the request field survived because pydantic already refuses a number or a list for a `str`, so it was removed. One mutant did not apply, because the new file is LF; it was rerun, and both reruns were killed.
   - Gate: ruff 0, mypy 0, pytest exit 0 with no failing test.
-- [ ] H.4 The leverage reaches the order: `Delivery`, then `PlaceCommand`, then `OpenOrderSpec`, the REVERSE's opening included. The simulated exchange sizes at that leverage (H-Q3), and sets nothing, since it has no venue.
+- [x] H.4 The leverage reaches the order: `Delivery`, then `PlaceCommand`, then `OpenOrderSpec`, the REVERSE's opening included. The simulated exchange sizes at that leverage (H-Q3), and sets nothing, since it has no venue.
+  - *Built 2026-11-05.* The delivery query reads `subscriptions.leverage` in the same statement as the share. `Delivery.leverage` and `PlaceCommand.leverage` are required, so a new constructor cannot forget it. `OpenOrderSpec.leverage` defaults to one: `PlaceOrder.place` is its only constructor, and the default keeps the adapters' tests, which name none, at the smallest.
+  - A REVERSE's opening and every deferred opening go through `open_now`, which loads the same `Delivery` and builds the same `PlaceCommand`, so they needed no wiring of their own. The `open_now` test pins it.
+  - The fake sizes a perpetual at `spec.leverage` (564 granted at 3x and 0.4512 is 3750 STX), and `FAKE_LEVERAGE` is gone. A spot buy takes no leverage. The attempt records what the order carries, through the unchanged `_sizes`.
+  - The live adapters receive the leverage and still size at the venue's until H.5 and H.6. Nothing is deployed in between.
+  - RED was seen on assertions in the fake, `PlaceOrder`, `ProcessDelivery` and the delivery load. 6 of 6 mutations were killed (`mutate_h4.ps1`).
+  - Gate: ruff 0, mypy 0, pytest exit 0 with no failing test.
 - [ ] H.5 Binance applies it before an opening, in the order above.
   - New `set_leverage` and `set_margin_type` on the trade client, with each refusal code classified.
   - `LeverageNotApplied` is a definitive refusal in `PlaceOrder`.
