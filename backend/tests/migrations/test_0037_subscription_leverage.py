@@ -1,7 +1,7 @@
 """Migration ``0037`` -- a subscription's leverage and a strategy's description
 (multi-user decisions 38 and 39; tasks.md H.1).
 
-* ``subscriptions.leverage`` is an integer from 1 to 125, ``NOT NULL``. Every
+* ``subscriptions.leverage`` is an integer from 1 to 20, ``NOT NULL``. Every
   subscription that exists gets 2, the owner's stated default; a row written
   without one gets 1, where every new seat starts.
 * ``strategies.description`` is optional text, trimmed, of 1 to 2,000
@@ -164,7 +164,7 @@ def test_a_subscription_written_without_a_leverage_gets_one(at_0036: str) -> Non
     assert world.leverage(world.subscription(strategy)) == 1
 
 
-@pytest.mark.parametrize("leverage", [0, -1, 126])
+@pytest.mark.parametrize("leverage", [0, -1, 21, 125])
 def test_the_check_refuses_a_leverage_out_of_range(at_0036: str, leverage: int) -> None:
     world = World(at_0036)
     subscription = world.subscription(world.strategy())
@@ -180,12 +180,12 @@ def test_the_check_refuses_a_leverage_out_of_range(at_0036: str, leverage: int) 
     )
 
 
-def test_the_check_takes_one_and_one_hundred_twenty_five(at_0036: str) -> None:
+def test_the_check_takes_one_and_twenty(at_0036: str) -> None:
     world = World(at_0036)
     subscription = world.subscription(world.strategy())
     _alembic(at_0036, "upgrade", "0037")
 
-    for leverage in (1, 125):
+    for leverage in (1, 20):
         _query(
             at_0036,
             "UPDATE subscriptions SET leverage = :l WHERE id = :id",

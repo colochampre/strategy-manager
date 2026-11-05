@@ -59,7 +59,7 @@ class SubscriptionRow(Base):
             name="ck_subscriptions_allocation_percent_range",
         ),
         CheckConstraint("status IN ('ACTIVE', 'LEAVING', 'ENDED')", name="ck_subscriptions_status"),
-        CheckConstraint("leverage BETWEEN 1 AND 125", name="ck_subscriptions_leverage_range"),
+        CheckConstraint("leverage BETWEEN 1 AND 20", name="ck_subscriptions_leverage_range"),
         Index(
             "ux_subscriptions_one_live_per_strategy",
             "user_id",

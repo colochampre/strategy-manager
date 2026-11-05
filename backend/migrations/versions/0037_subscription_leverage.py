@@ -4,7 +4,8 @@
 Each user chooses the leverage of each of their subscriptions, and the system
 sets it on the venue before every opening (decision 38), after a first opening
 went out at Binance's 20x default on 2026-11-05. ``subscriptions.leverage`` holds
-it: an integer from 1 to 125, the venue's own range on Binance. Every
+it: an integer from 1 to 20, the owner's cap (2026-11-05). It is also the edge
+Binance gates behind extra account checks above 20x. Every
 subscription that exists gets 2, the owner's stated default for all of them. The
 column keeps a default of 1, where every new seat starts, so a writer that
 forgets it opens at the smallest leverage, never at a larger one.
@@ -51,7 +52,7 @@ def upgrade() -> None:
         )
     )
     op.create_check_constraint(
-        _LEVERAGE_CHECK, _SUBSCRIPTIONS, f"{_LEVERAGE} BETWEEN 1 AND 125"
+        _LEVERAGE_CHECK, _SUBSCRIPTIONS, f"{_LEVERAGE} BETWEEN 1 AND 20"
     )
 
     op.add_column(_STRATEGIES, sa.Column(_DESCRIPTION, sa.Text(), nullable=True))

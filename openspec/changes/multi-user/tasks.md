@@ -1609,7 +1609,7 @@ The follow-up of the PNUT incident above, and decision 38. Branch `feat/subscrip
   - the spelling of `marginType` in `symbolConfig` for an isolated symbol. Compare it ignoring case until H.9 reads it.
 
 **Decisions stated, not asked:**
-- **The leverage is an integer from 1 to 125**, the venue's own range on Binance. Each pair's maximum is the venue's to enforce, and its refusal ends the opening.
+- **The leverage is an integer from 1 to 20.** The owner set the cap: "Pongamos x20 tope" (2026-11-05). It replaced 125, the highest per-pair maximum known on Binance, which no document states as a global limit. Binance also gates leverage above 20x behind account checks (`-4202`, `-4203`, `-4205`). A pair's own lower maximum is the venue's to enforce, and its refusal ends the opening.
 - **The order of a live opening** is chosen so that no venue setting changes when the opening is refused for another reason:
   1. The adapter sizes at the chosen leverage first.
   2. It runs the step and notional checks.
@@ -1636,8 +1636,13 @@ The follow-up of the PNUT incident above, and decision 38. Branch `feat/subscrip
 - Built as follows. Both forms start at 0 % and cannot be sent until the user types a share above 0. `RegisterRequest` requires the share, so leaving it out answers 422. The database keeps refusing 0 (`ck_subscriptions_allocation_percent_range`). The preview of a user with no seat no longer assumes 100.
 
 **Tasks.** Each is a work-unit commit.
-- [ ] H.1 Migration `0037`.
-  - `subscriptions.leverage` integer, with a CHECK of 1 to 125 and the backfill of H-Q1.
+- [x] H.1 Migration `0037`, `cc879d4`, with the x20 cap in the next commit.
+  - *Built 2026-11-05.* `0037_subscription_leverage.py` and `tests/migrations/test_0037_subscription_leverage.py`, 14 tests.
+  - The column keeps a default of 1, so a writer that forgets the leverage opens at the smallest one. The description CHECK trims tabs and line breaks too, not only spaces.
+  - RED from mutations: `mutate_h1.ps1`. Before the cap, 10 of 11 were killed. The survivor, the downgrade without its explicit leverage-CHECK drop, is equivalent: PostgreSQL drops a CHECK on a column together with the column.
+  - `rehearse_0037.sh` is in the session scratchpad. Its queries were run on a local copy at `0037`, its syntax checked with `bash -n`, and its database swap checked against a fake env file: the copy is `sm_rehearsal_0037` and the rest of the URL is kept. The deploy script is written at H.D.3, once the code is final.
+  - Gate at `cc879d4`: ruff 0, mypy 0, pytest exit 0 with no failing test.
+  - `subscriptions.leverage` integer, with a CHECK of 1 to 20 and the backfill of H-Q1.
   - `strategies.description` text, nullable, with a CHECK of length ≤ 2,000.
   - The ORM rows for both.
   - Rehearsal and deploy scripts, every query exercised locally.
@@ -1659,6 +1664,7 @@ The follow-up of the PNUT incident above, and decision 38. Branch `feat/subscrip
 - [ ] H.6 Bybit, the same way: `marginMode` parsed and required to be `ISOLATED_MARGIN`, leverage set when it differs and read back.
 - [ ] H.7 The panel's leverage.
   - A control in the subscribe form, in My subscriptions beside the share, on the author's seat on the strategy page, and in the new-strategy dialog.
+  - The control is built like the share's `ShareSlider` (`ShareSlider.tsx`: a text field plus a range): a slider from 1 to 20 in steps of 1, beside a numeric field, with the value read as "x5". The owner asked for a slider like the pool share's (2026-11-05).
   - EN/ES copy, including what it means ("applies at the next opening; the system sets it on the exchange").
 - [ ] H.8 The panel's description: written at creation, edited on the strategy page, shown on the public page above its figures. EN/ES.
 - [ ] H.10 Decision 39, the share is typed by hand.
