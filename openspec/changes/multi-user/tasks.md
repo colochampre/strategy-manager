@@ -1543,8 +1543,13 @@ The panel opens to every signed-in user, and Access opens last. Until G.D's last
     - **A2.** The `OpenOrderSpec` docstring now says `price` sizes no real order and prices no fill. It names the dormant Pionex adapters as the one remaining reader of `price`.
     - **A4.** The trade-execution spec's startup line now says "venue's mark price". It also adds the alert-priced WARNING.
     - A3, A5 and A6 are left as recorded.
-- [ ] G.D.2 Push and PR (owner's word), merge (owner), with a merge commit.
-- [ ] G.D.3 Deploy, then pps.6. No migration to rehearse. Access unchanged.
+- [x] G.D.2 Push and PR (owner's word), merge (owner), with a merge commit.
+  - Pushed and opened as #94 on the owner's "Si, por favor", 21 commits over `60e5fb3`. Merged by the owner on 2026-11-05 as `b5129b0`.
+- [x] G.D.3 Deploy, then pps.6. No migration to rehearse. Access unchanged.
+  - Deployed by the owner on 2026-11-05.
+  - Backend: pulled as `strategy` to `b5129b0fc6fb`, and restarted both services, both `active`.
+  - The worker's start line reads "the simulated exchange prices each fill at the venue's mark price and charges the venue's taker fee in USDT (binance=0.0005, bybit=0.00055)". No ERROR or Traceback line followed the restart.
+  - Then pps.6: the assistant built the bundle from a detached worktree of `origin/main` at `b5129b0fc6fb`, 22 entries, SHA-256 `75bcdbef54d3b7842053b0501ece991437c716ece9f0eb874e8c2a9bb034fb39`. The owner's block printed `OK`, `readable`, and `bundle` and `checkout` both at `b5129b0fc6fb`.
 - [ ] G.D.4 D.2, owner-run: add one test address to the Access policy and sign in with it, by one-time PIN and by Google. Check the `email` claim on a real token, that the user is created, and that they see nothing of the owner's. Google has to be enabled as an identity provider first.
 - [ ] G.D.5 Owner-run: the Access policy admits every authenticated identity (decision 2), and seat expiration turns on (Zero Trust > Settings > Admin controls). Delivery log and "Production now".
 
