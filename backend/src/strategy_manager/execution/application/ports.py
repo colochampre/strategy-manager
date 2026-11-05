@@ -10,7 +10,7 @@ from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
-from typing import Protocol
+from typing import ClassVar, Protocol
 from uuid import UUID
 
 from strategy_manager.execution.domain.execution_attempt import ExecutionAttempt
@@ -70,6 +70,45 @@ class OrderNotPlaceable(ExchangeError):
         self.size = size
         self.minimum = minimum
         self.step = step
+
+
+class OpeningSettingRefused(ExchangeError):
+    """A pair setting the opening depends on did not hold (decision 38).
+
+    Before a live futures opening the adapter makes the pair ISOLATED and sets
+    the leverage the subscription chose, then reads both back. Each subclass
+    names one way that ends the opening for good: the venue refused the write,
+    or read back something else, or the user already holds the pair at
+    settings this opening would have to change. Retrying asks a question whose
+    answer does not change on its own, so ``PlaceOrder`` releases the
+    reservation and rejects the signal under ``reason_code``.
+
+    A write whose outcome is unknown (a timeout, a 5xx, a rate limit) is NOT
+    this type: it propagates unchanged and the job retries, as a failed read
+    does.
+    """
+
+    reason_code: ClassVar[str] = "OPENING_SETTING_REFUSED"
+
+
+class LeverageNotApplied(OpeningSettingRefused):
+    """The venue refused the chosen leverage, or read back another one."""
+
+    reason_code: ClassVar[str] = "LEVERAGE_NOT_APPLIED"
+
+
+class MarginNotIsolated(OpeningSettingRefused):
+    """The pair could not be made ISOLATED, or is held on cross margin."""
+
+    reason_code: ClassVar[str] = "MARGIN_NOT_ISOLATED"
+
+
+class LeverageConflict(OpeningSettingRefused):
+    """The user already holds the pair at another leverage. Changing it would
+    change the risk of the position already open, which this opening was never
+    asked to touch."""
+
+    reason_code: ClassVar[str] = "LEVERAGE_CONFLICT"
 
 
 class OrderNotFound(DomainError):

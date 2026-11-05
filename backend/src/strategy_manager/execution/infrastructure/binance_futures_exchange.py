@@ -16,12 +16,16 @@ a leveraged position. Those propagate as ``BinanceApiError``, the job retries,
 and the settle job enqueued before the network call resolves the truth by
 client order id.
 
-Sizing an opening order reads the account's leverage for the symbol, because
-``AllocateCapital`` grants MARGIN out of the wallet and the position that
-margin supports is ``granted * leverage / price``. The read is refused rather
-than defaulted: a default would size a position at the wrong multiple of the
-capital actually reserved, silently. The price is the venue's mark price, read
-the same way and refused the same way, never the alert's (decision 35).
+``AllocateCapital`` grants MARGIN out of the wallet, and the position that
+margin supports is ``granted * leverage / price``. The leverage is the one the
+subscription chose (decision 38), and the adapter makes the venue hold it:
+before an opening it makes the pair ISOLATED and sets that leverage, reads
+both back, and refuses the opening on any mismatch. It never changes a pair
+the user already holds -- that would change the risk of an open position --
+so a held pair at other settings is refused instead. The account config is
+read rather than assumed, and an unread config refuses the opening. The price
+is the venue's mark price, read the same way and refused the same way, never
+the alert's (decision 35).
 
 The size is rounded and validated at BUILD time, so the number ``PlaceOrder``
 commits to its transaction is exactly the number that goes on the wire.
@@ -47,10 +51,14 @@ explicitly on the way into the domain.
 """
 
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 
 from strategy_manager.execution.application.ports import (
     CloseOrderSpec,
     ExchangeError,
+    LeverageConflict,
+    LeverageNotApplied,
+    MarginNotIsolated,
     OpenOrderSpec,
     OrderNotFound,
     OrderNotPlaceable,
@@ -69,6 +77,9 @@ from strategy_manager.shared.infrastructure.binance.errors import (
     BinanceApiError,
     BinanceOrderNotFound,
     BinanceRuleRefusal,
+)
+from strategy_manager.shared.infrastructure.binance.read_client import (
+    SymbolConfig,
 )
 from strategy_manager.shared.infrastructure.binance.trade_client import (
     AMBIGUOUS_CODES,
@@ -102,12 +113,14 @@ class BinanceFuturesExchangeAdapter:
         self._client = client
 
     async def build_open_order(self, spec: OpenOrderSpec) -> PlaceableOrder:
-        """Sizes a position from reserved margin at the account's leverage.
+        """Sizes a position from reserved margin at the subscription's
+        leverage, then makes the venue hold it.
 
-        Three things happen here that cannot happen anywhere else: the
-        leverage and the price are read from the venue, the size is truncated
-        to the contract's step, and every limit that would get the order
-        rejected is checked at that same price.
+        Four things happen here that cannot happen anywhere else: the pair's
+        config and the price are read from the venue, the size is truncated
+        to the contract's step, every limit that would get the order rejected
+        is checked at that same price, and only then are the pair's margin
+        type and leverage written and read back.
 
         The price is the venue's mark price, never the alert's
         (``spec.price``, decision 35): an author who posted a tenth of the
@@ -116,9 +129,12 @@ class BinanceFuturesExchangeAdapter:
         refuses the opening as an unread leverage does.
         """
         symbol = _venue_symbol(spec.symbol)
-        leverage = await self._client.leverage_for(symbol)
+        config = await self._client.symbol_config(symbol)
         rules = await self._client.perp_rules(symbol)
         price = await self._client.mark_price(symbol)
+        # Sized at the leverage the subscription chose (decision 38), which is
+        # the leverage the pair will hold once the settings below are applied.
+        leverage = Decimal(spec.leverage.value)
 
         raw = futures_position_size(granted=spec.granted, leverage=leverage, price=price)
         qty = rules.round_qty(raw)
@@ -146,6 +162,9 @@ class BinanceFuturesExchangeAdapter:
                 step=rules.qty_step,
             ) from exc
 
+        # Only now, with an order known to be placeable, is anything written.
+        await self._apply_settings(symbol, config, spec.leverage.value)
+
         return FuturesMarketOrder(
             client_order_id=spec.client_order_id,
             symbol=symbol,
@@ -154,6 +173,74 @@ class BinanceFuturesExchangeAdapter:
             leverage=leverage,
             reduce_only=False,
         )
+
+    async def _apply_settings(
+        self, symbol: str, config: SymbolConfig, chosen: int
+    ) -> None:
+        """Makes the pair ISOLATED at the chosen leverage, then reads both back
+        (decision 38, the PNUT incident of 2026-11-05).
+
+        Nothing is written when the pair already holds both. Otherwise the
+        position is read first: a pair the user already holds is never changed
+        underneath it, because a new leverage or margin type would change the
+        risk of a position this opening was never asked to touch. Margin goes
+        before leverage, so a leverage is never set on a cross-margin pair.
+
+        A definitive refusal ends the opening as the setting it refused. An
+        outcome nobody knows -- a timeout, a 5xx, a rate limit -- propagates
+        unchanged and the job retries: the next attempt reads the config again
+        and finds whatever the venue actually did.
+        """
+        isolated = _is_isolated(config.margin_type)
+        if isolated and config.leverage == chosen:
+            return
+
+        position = await self._client.position_for(symbol)
+        if position is not None and position.is_open:
+            if not isolated:
+                raise MarginNotIsolated(
+                    f"{symbol} is held on {config.margin_type} margin; this "
+                    "system only opens on ISOLATED, and switching would change "
+                    "the position already open"
+                )
+            raise LeverageConflict(
+                f"{symbol} is held at {config.leverage}x and this opening asks "
+                f"{chosen}x; changing the leverage would change the position "
+                "already open"
+            )
+
+        if not isolated:
+            try:
+                await self._client.set_margin_type_isolated(symbol)
+            except BinanceApiError as exc:
+                if _is_definitive_rejection(exc):
+                    raise MarginNotIsolated(
+                        f"Binance refused ISOLATED margin on {symbol} "
+                        f"(code={exc.code}): {exc}"
+                    ) from exc
+                raise
+        if config.leverage != chosen:
+            try:
+                await self._client.set_leverage(symbol, chosen)
+            except BinanceApiError as exc:
+                if _is_definitive_rejection(exc):
+                    raise LeverageNotApplied(
+                        f"Binance refused {chosen}x on {symbol} "
+                        f"(code={exc.code}): {exc}"
+                    ) from exc
+                raise
+
+        applied = await self._client.symbol_config(symbol)
+        if not _is_isolated(applied.margin_type):
+            raise MarginNotIsolated(
+                f"{symbol} read back as {applied.margin_type} margin after "
+                "being set to ISOLATED"
+            )
+        if applied.leverage != chosen:
+            raise LeverageNotApplied(
+                f"{symbol} read back at {applied.leverage}x after being set "
+                f"to {chosen}x"
+            )
 
     async def build_close_order(self, spec: CloseOrderSpec) -> PlaceableOrder:
         """Builds the reduce-only order that flattens what the ledger holds.
@@ -280,6 +367,12 @@ def _venue_symbol(symbol: str) -> str:
     disagreement between the two diagnosable later.
     """
     return strip_contract_marker(symbol).upper()
+
+
+def _is_isolated(margin_type: str) -> bool:
+    """How ``symbolConfig`` spells an isolated pair is not documented, so the
+    comparison ignores case until a live read settles it (H.9)."""
+    return margin_type.upper() == "ISOLATED"
 
 
 def _is_definitive_rejection(error: BinanceApiError) -> bool:

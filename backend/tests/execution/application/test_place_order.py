@@ -16,6 +16,9 @@ from strategy_manager.execution.application.place_order import PlaceCommand, Pla
 from strategy_manager.execution.application.ports import (
     CloseOrderSpec,
     ExchangeError,
+    LeverageConflict,
+    LeverageNotApplied,
+    MarginNotIsolated,
     OpenOrderSpec,
     OrderNotPlaceable,
     PlacedOrder,
@@ -615,6 +618,39 @@ async def test_an_order_not_placeable_rejects_the_signal_on_its_release_commit(
     assert outcomes.rejected == [(DELIVERY_ID, "ORDER_NOT_PLACEABLE", logged[0])]
     assert "BTCUSDT is too small to open a position" in logged[0]
     assert outcomes.processing == []
+    assert log == ["outcome.rejected", "commit"]
+
+
+@pytest.mark.parametrize(
+    ("refusal", "code"),
+    [
+        (LeverageNotApplied("BTCUSDT read back at 20x, not 2x"), "LEVERAGE_NOT_APPLIED"),
+        (MarginNotIsolated("BTCUSDT read back as CROSSED"), "MARGIN_NOT_ISOLATED"),
+        (LeverageConflict("BTCUSDT is held at 3x, this opening asks 2x"), "LEVERAGE_CONFLICT"),
+    ],
+    ids=["not-applied", "not-isolated", "conflict"],
+)
+async def test_a_refused_setting_releases_the_reservation_and_rejects_by_name_as_an_error(
+    caplog: pytest.LogCaptureFixture, refusal: Exception, code: str
+) -> None:
+    """Decision 38 (H.5): the venue decided, so the opening ends here, as an
+    unplaceable size does, but as an ERROR: it reaches Telegram, because a
+    setting the user chose did not hold. Nothing was written to the attempts."""
+    caplog.set_level("WARNING", logger="strategy_manager.execution.application.place_order")
+    outcomes = RecordingOrderOutcomes()
+    use_case, reservations, attempts, queue, exchange, log = _build(
+        build_open_raises=refusal, outcomes=outcomes
+    )
+
+    result = await use_case.place(_command())
+
+    errors = [r.getMessage() for r in caplog.records if r.levelname == "ERROR"]
+    assert result.status == "REFUSED"
+    assert reservations.marks == [(RESERVATION_ID, "RELEASED")]
+    assert outcomes.rejected == [(DELIVERY_ID, code, errors[0])]
+    assert str(refusal) in errors[0]
+    assert str(RESERVATION_ID) in errors[0]
+    assert exchange.orders == []
     assert log == ["outcome.rejected", "commit"]
 
 

@@ -24,6 +24,7 @@ from strategy_manager.execution.infrastructure.binance_futures_exchange import (
 from strategy_manager.execution.infrastructure.bybit_futures_exchange import (
     BybitFuturesExchangeAdapter,
 )
+from strategy_manager.shared.domain.leverage import Leverage
 from strategy_manager.shared.infrastructure.binance.read_client import (
     EXCHANGE_INFO_PATH,
     PREMIUM_INDEX_PATH,
@@ -81,6 +82,8 @@ def _open() -> OpenOrderSpec:
         side=OrderSide.BUY,
         granted=GRANTED,
         price=ALERT_PRICE,
+        # The pair already holds it, so the Binance opening writes no setting.
+        leverage=Leverage(3),
     )
 
 
@@ -134,7 +137,7 @@ def _binance_adapter(recorded: list[httpx.Request]) -> BinanceFuturesExchangeAda
                 {
                     "symbol": "STXUSDT",
                     "leverage": 3,
-                    "marginType": "CROSSED",
+                    "marginType": "ISOLATED",
                     "isAutoAddMargin": False,
                 }
             ],

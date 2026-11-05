@@ -1672,11 +1672,19 @@ The follow-up of the PNUT incident above, and decision 38. Branch `feat/subscrip
   - The live adapters receive the leverage and still size at the venue's until H.5 and H.6. Nothing is deployed in between.
   - RED was seen on assertions in the fake, `PlaceOrder`, `ProcessDelivery` and the delivery load. 6 of 6 mutations were killed (`mutate_h4.ps1`).
   - Gate: ruff 0, mypy 0, pytest exit 0 with no failing test.
-- [ ] H.5 Binance applies it before an opening, in the order above.
+- [x] H.5 Binance applies it before an opening, in the order above.
   - New `set_leverage` and `set_margin_type` on the trade client, with each refusal code classified.
   - `LeverageNotApplied` is a definitive refusal in `PlaceOrder`.
   - `LEVERAGE_CONFLICT` is checked against the user's open allocations on that pair.
   - `CLAUDE.md` "Open risks" no longer says nothing sets the leverage.
+  - *Built 2026-11-05.* The trade client gains `set_leverage` (`POST /fapi/v1/leverage`) and `set_margin_type_isolated` (`POST /fapi/v1/marginType`, `ISOLATED` only). A leverage outside 1..20, or a bool, is refused before any request. -4046 ("No need to change margin type") is not a refusal; every other code is kept on the `BinanceApiError`, so -4047, -4048, -4168 and -4028 reach the adapter intact.
+  - `build_open_order`, in order: reads `symbolConfig`, the contract and the mark price; sizes at the CHOSEN leverage and runs the step and tradable checks, so an unplaceable opening writes nothing; returns with no write when the pair is already isolated (compared ignoring case, until H.9 reads the real spelling) at the chosen leverage; otherwise reads the position; sets ISOLATED first, then the leverage; reads the config back; builds the order at the chosen leverage.
+  - Three refusals, all `OpeningSettingRefused` with a `reason_code`: `LEVERAGE_NOT_APPLIED` (refused or read back otherwise), `MARGIN_NOT_ISOLATED` (refused, read back otherwise, or held on cross margin), `LEVERAGE_CONFLICT`. A write the venue answered definitively becomes the refusal with the venue's code in its message; an unknown outcome (-1001, -1007, 408, 429, a 5xx, no answer) propagates unchanged and the job retries, and the retry reads the config again.
+  - `PlaceOrder` releases the reservation and rejects the delivery under the exception's `reason_code` on one commit, as for an unplaceable size, but logs at ERROR, so it reaches Telegram.
+  - **Deviation from the plan.** The conflict is checked against the venue's position on the pair, read only when a write is needed, not against the user's open allocations in the ledger. The venue's position is what a new leverage would change, whatever opened it: another strategy of the same user, a position opened by hand, or one the ledger has not settled yet. The ledger cannot see the last two.
+  - `test_real_adapters_size_from_the_venue_price.py`: its Binance pair is now ISOLATED at 3x and its spec asks 3x, so the test stays about the price and writes nothing. `test_a_grant_too_small_to_reach_one_step_is_refused_by_name` now asks 1x itself, since the venue's leverage no longer sizes.
+  - RED was seen on assertions, against stubs: exception classes caught and ignored in `PlaceOrder`, and trade client methods that did nothing. 30 of 30 mutations were killed (`mutate_h5.ps1`), after a test for an unknown outcome on the margin write was added.
+  - Gate: ruff 0, mypy 0, pytest exit 0 with no failing test.
 - [ ] H.6 Bybit, the same way: `marginMode` parsed and required to be `ISOLATED_MARGIN`, leverage set when it differs and read back.
 - [ ] H.7 The panel's leverage.
   - A control in the subscribe form, in My subscriptions beside the share, on the author's seat on the strategy page, and in the new-strategy dialog.

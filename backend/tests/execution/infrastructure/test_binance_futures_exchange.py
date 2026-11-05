@@ -20,6 +20,9 @@ import pytest
 from strategy_manager.execution.application.ports import (
     CloseOrderSpec,
     ExchangeError,
+    LeverageConflict,
+    LeverageNotApplied,
+    MarginNotIsolated,
     OpenOrderSpec,
     OrderNotFound,
     OrderNotPlaceable,
@@ -29,12 +32,17 @@ from strategy_manager.execution.domain.order import MarketBuy, OrderSide
 from strategy_manager.execution.infrastructure.binance_futures_exchange import (
     BinanceFuturesExchangeAdapter,
 )
+from strategy_manager.shared.domain.leverage import Leverage
 from strategy_manager.shared.domain.money import Exchange, Venue
 from strategy_manager.shared.infrastructure.binance.errors import (
     BinanceApiError,
     BinanceOrderNotFound,
 )
-from strategy_manager.shared.infrastructure.binance.read_client import PerpContract
+from strategy_manager.shared.infrastructure.binance.read_client import (
+    PerpContract,
+    Position,
+    SymbolConfig,
+)
 from strategy_manager.shared.infrastructure.binance.trade_client import (
     BinanceExecution,
     BinanceOrderAck,
@@ -87,7 +95,20 @@ class FakeTradeClient:
         order_id_raises: Exception | None = None,
         mark_price: Decimal = PRICE,
         price_raises: Exception | None = None,
+        margin_type: str = "ISOLATED",
+        position: Decimal = Decimal("0"),
+        leverage_write_raises: Exception | None = None,
+        margin_write_raises: Exception | None = None,
+        writes_apply: bool = True,
     ) -> None:
+        # Every call that reads or writes an account setting, in order: what
+        # proves that nothing is written before the size is known to be placeable.
+        self.calls: list[str] = []
+        self._margin_type = margin_type
+        self._position = position
+        self._leverage_write_raises = leverage_write_raises
+        self._margin_write_raises = margin_write_raises
+        self._writes_apply = writes_apply
         self.orders: list[dict[str, object]] = []
         self.lookups: list[tuple[str, str]] = []
         self.fill_reads: list[tuple[str, int]] = []
@@ -109,6 +130,47 @@ class FakeTradeClient:
         if self._leverage_raises is not None:
             raise self._leverage_raises
         return self._leverage
+
+    async def symbol_config(self, symbol: str) -> SymbolConfig:
+        self.calls.append("read config")
+        self.leverage_reads.append(symbol)
+        if self._leverage_raises is not None:
+            raise self._leverage_raises
+        return SymbolConfig(
+            symbol=symbol,
+            leverage=self._leverage,
+            margin_type=self._margin_type,
+            is_auto_add_margin=False,
+        )
+
+    async def position_for(self, symbol: str) -> Position | None:
+        self.calls.append("read position")
+        if self._position == 0:
+            return None
+        return Position(
+            symbol=symbol,
+            position_side="BOTH",
+            signed_size=self._position,
+            entry_price=PRICE,
+            mark_price=PRICE,
+            notional=self._position * PRICE,
+            unrealized_profit=Decimal("0"),
+            liquidation_price=None,
+        )
+
+    async def set_leverage(self, symbol: str, leverage: int) -> None:
+        self.calls.append(f"set leverage {leverage}")
+        if self._leverage_write_raises is not None:
+            raise self._leverage_write_raises
+        if self._writes_apply:
+            self._leverage = Decimal(leverage)
+
+    async def set_margin_type_isolated(self, symbol: str) -> None:
+        self.calls.append("set isolated")
+        if self._margin_write_raises is not None:
+            raise self._margin_write_raises
+        if self._writes_apply:
+            self._margin_type = "ISOLATED"
 
     async def mark_price(self, symbol: str) -> Decimal:
         self.price_reads.append(symbol)
@@ -160,14 +222,20 @@ def _adapter(client: FakeTradeClient) -> BinanceFuturesExchangeAdapter:
 
 
 def _open(
-    side: OrderSide = OrderSide.BUY, granted: str = "100", symbol: str = SYMBOL
+    side: OrderSide = OrderSide.BUY,
+    granted: str = "100",
+    symbol: str = SYMBOL,
+    leverage: int = 2,
 ) -> OpenOrderSpec:
+    """At 2x by default, the fake account's own leverage, so a test about
+    something else writes no setting."""
     return OpenOrderSpec(
         client_order_id=CLIENT_ORDER_ID,
         symbol=symbol,
         side=side,
         granted=Decimal(granted),
         price=PRICE,
+        leverage=Leverage(leverage),
     )
 
 
@@ -231,12 +299,13 @@ async def test_an_opening_order_is_margin_times_leverage_over_price() -> None:
 
 
 async def test_the_leverage_actually_changes_the_size() -> None:
-    """The regression that costs the whole multiple."""
-    at_2x = await _adapter(FakeTradeClient(leverage=Decimal("2"))).build_open_order(
-        _open()
+    """The regression that costs the whole multiple. The subscription's
+    leverage sizes it, whatever the account was at before (decision 38)."""
+    at_2x = await _adapter(FakeTradeClient(leverage=Decimal("4"))).build_open_order(
+        _open(leverage=2)
     )
-    at_4x = await _adapter(FakeTradeClient(leverage=Decimal("4"))).build_open_order(
-        _open()
+    at_4x = await _adapter(FakeTradeClient(leverage=Decimal("2"))).build_open_order(
+        _open(leverage=4)
     )
 
     assert isinstance(at_2x, FuturesMarketOrder)
@@ -301,7 +370,7 @@ async def test_a_grant_too_small_to_reach_one_step_is_refused_by_name() -> None:
     adapter = _adapter(FakeTradeClient(leverage=Decimal("1")))
 
     with pytest.raises(OrderNotPlaceable, match="too small to open a position") as caught:
-        await adapter.build_open_order(_open(granted="10", symbol=f"{SYMBOL}.P"))
+        await adapter.build_open_order(_open(granted="10", symbol=f"{SYMBOL}.P", leverage=1))
 
     exc = caught.value
     assert exc.symbol == SYMBOL
@@ -603,3 +672,210 @@ async def test_a_failed_lookup_is_not_evidence_of_absence() -> None:
 
     assert not isinstance(caught.value, OrderNotFound)
     assert client.fill_reads == []
+
+
+# --- the subscription's leverage, set before the opening (PR H, H.5) ------------------
+
+
+async def test_a_pair_already_isolated_at_the_chosen_leverage_writes_nothing() -> None:
+    """The common case costs nothing beyond the read it already made."""
+    client = FakeTradeClient(leverage=Decimal("3"), margin_type="ISOLATED")
+
+    order = await _adapter(client).build_open_order(_open(leverage=3))
+
+    assert client.calls == ["read config"]
+    assert isinstance(order, FuturesMarketOrder)
+    assert order.leverage == Decimal("3")
+
+
+async def test_another_leverage_is_set_then_read_back_then_sized_at() -> None:
+    """The PNUT incident (2026-11-05): a pair never traded sat at Binance's 20x
+    default while the user believed it was at 2x. The chosen leverage is set,
+    and the order is sized at what the venue reads back."""
+    client = FakeTradeClient(leverage=Decimal("20"), margin_type="ISOLATED")
+
+    order = await _adapter(client).build_open_order(_open(leverage=2))
+
+    assert client.calls == ["read config", "read position", "set leverage 2", "read config"]
+    assert isinstance(order, FuturesMarketOrder)
+    assert order.leverage == Decimal("2")
+    assert order.base_size == Decimal("1.6")
+
+
+async def test_cross_margin_is_switched_to_isolated_and_read_back() -> None:
+    client = FakeTradeClient(leverage=Decimal("2"), margin_type="CROSSED")
+
+    await _adapter(client).build_open_order(_open(leverage=2))
+
+    assert client.calls == ["read config", "read position", "set isolated", "read config"]
+
+
+async def test_both_are_set_when_both_differ_margin_first() -> None:
+    client = FakeTradeClient(leverage=Decimal("20"), margin_type="CROSSED")
+
+    order = await _adapter(client).build_open_order(_open(leverage=5))
+
+    assert client.calls == [
+        "read config",
+        "read position",
+        "set isolated",
+        "set leverage 5",
+        "read config",
+    ]
+    assert isinstance(order, FuturesMarketOrder)
+    assert order.leverage == Decimal("5")
+
+
+async def test_isolated_is_recognised_whatever_its_case() -> None:
+    """How ``symbolConfig`` spells an isolated symbol is not documented; it is
+    compared ignoring case until the owner's probe reads it (H.9)."""
+    client = FakeTradeClient(leverage=Decimal("2"), margin_type="isolated")
+
+    await _adapter(client).build_open_order(_open(leverage=2))
+
+    assert client.calls == ["read config"]
+
+
+async def test_an_opening_refused_for_its_size_changes_no_setting() -> None:
+    """The order of an opening: sized and checked first, written only after."""
+    client = FakeTradeClient(leverage=Decimal("20"), margin_type="CROSSED")
+
+    with pytest.raises(OrderNotPlaceable):
+        await _adapter(client).build_open_order(_open(granted="0.01", leverage=2))
+
+    assert not any(call.startswith("set") for call in client.calls)
+
+
+async def test_a_leverage_the_venue_does_not_read_back_refuses_the_opening() -> None:
+    client = FakeTradeClient(leverage=Decimal("20"), writes_apply=False)
+
+    with pytest.raises(LeverageNotApplied) as caught:
+        await _adapter(client).build_open_order(_open(leverage=2))
+
+    assert "20" in str(caught.value)
+    assert caught.value.reason_code == "LEVERAGE_NOT_APPLIED"
+
+
+async def test_a_margin_the_venue_does_not_read_back_as_isolated_refuses_the_opening() -> None:
+    client = FakeTradeClient(margin_type="CROSSED", writes_apply=False)
+
+    with pytest.raises(MarginNotIsolated) as caught:
+        await _adapter(client).build_open_order(_open(leverage=2))
+
+    assert caught.value.reason_code == "MARGIN_NOT_ISOLATED"
+
+
+async def test_a_leverage_the_venue_refuses_ends_the_opening_definitively() -> None:
+    client = FakeTradeClient(
+        leverage=Decimal("20"),
+        leverage_write_raises=BinanceApiError(
+            "Leverage 15 is not valid", code="-4028", http_status=400
+        ),
+    )
+
+    with pytest.raises(LeverageNotApplied) as caught:
+        await _adapter(client).build_open_order(_open(leverage=15))
+
+    assert "-4028" in str(caught.value)
+
+
+@pytest.mark.parametrize("code", ["-4047", "-4048", "-4168"])
+async def test_a_margin_type_the_venue_refuses_ends_the_opening_definitively(code: str) -> None:
+    client = FakeTradeClient(
+        margin_type="CROSSED",
+        margin_write_raises=BinanceApiError("refused", code=code, http_status=400),
+    )
+
+    with pytest.raises(MarginNotIsolated) as caught:
+        await _adapter(client).build_open_order(_open(leverage=2))
+
+    assert code in str(caught.value)
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        BinanceApiError("timeout", code="-1007", http_status=408),
+        BinanceApiError("gateway", http_status=502),
+        BinanceApiError("throttled", http_status=429),
+        BinanceApiError("no answer"),
+    ],
+    ids=["unknown-status", "5xx", "429", "transport"],
+)
+async def test_a_write_whose_outcome_is_unknown_is_retried_not_refused(
+    failure: BinanceApiError,
+) -> None:
+    client = FakeTradeClient(leverage=Decimal("20"), leverage_write_raises=failure)
+
+    with pytest.raises(BinanceApiError) as caught:
+        await _adapter(client).build_open_order(_open(leverage=2))
+
+    assert not isinstance(caught.value, ExchangeError)
+    assert caught.value is failure
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        BinanceApiError("timeout", code="-1007", http_status=408),
+        BinanceApiError("gateway", http_status=502),
+    ],
+    ids=["unknown-status", "5xx"],
+)
+async def test_a_margin_write_whose_outcome_is_unknown_is_retried_not_refused(
+    failure: BinanceApiError,
+) -> None:
+    client = FakeTradeClient(margin_type="CROSSED", margin_write_raises=failure)
+
+    with pytest.raises(BinanceApiError) as caught:
+        await _adapter(client).build_open_order(_open(leverage=2))
+
+    assert not isinstance(caught.value, ExchangeError)
+    assert caught.value is failure
+
+
+@pytest.mark.parametrize("held", [Decimal("1.5"), Decimal("-0.3")], ids=["long", "short"])
+async def test_a_pair_held_at_another_leverage_is_a_conflict_and_nothing_is_written(
+    held: Decimal,
+) -> None:
+    """Changing the venue's leverage would change the position already open
+    under it, whichever strategy opened it (decision 38)."""
+    client = FakeTradeClient(leverage=Decimal("3"), position=held)
+
+    with pytest.raises(LeverageConflict) as caught:
+        await _adapter(client).build_open_order(_open(leverage=2))
+
+    assert caught.value.reason_code == "LEVERAGE_CONFLICT"
+    assert not any(call.startswith("set") for call in client.calls)
+
+
+async def test_a_pair_held_on_cross_margin_is_refused_and_nothing_is_written() -> None:
+    client = FakeTradeClient(margin_type="CROSSED", position=Decimal("1"))
+
+    with pytest.raises(MarginNotIsolated):
+        await _adapter(client).build_open_order(_open(leverage=2))
+
+    assert not any(call.startswith("set") for call in client.calls)
+
+
+async def test_a_pair_held_at_the_same_settings_opens_without_a_write() -> None:
+    client = FakeTradeClient(leverage=Decimal("2"), position=Decimal("1"))
+
+    order = await _adapter(client).build_open_order(_open(leverage=2))
+
+    assert client.calls == ["read config"]
+    assert isinstance(order, FuturesMarketOrder)
+
+
+async def test_an_unreadable_position_before_a_write_is_retried_not_refused() -> None:
+    class _NoPosition(FakeTradeClient):
+        async def position_for(self, symbol: str) -> Position | None:
+            raise BinanceApiError("gateway", http_status=502)
+
+    client = _NoPosition(leverage=Decimal("20"))
+
+    with pytest.raises(BinanceApiError) as caught:
+        await _adapter(client).build_open_order(_open(leverage=2))
+
+    assert not isinstance(caught.value, ExchangeError)
+    assert not any(call.startswith("set") for call in client.calls)

@@ -288,10 +288,15 @@ What that settled, none of which a read could:
   are not deterministic, there is no `reduceOnly`, and the ledger would have to
   reconstruct positions from bot state instead of fills. Signal bots cannot be
   created over the API at all — only `futures_grid` and `spot_grid` can.
-- Leverage and margin mode ARE writable on Pionex, verified 2026-08-25. The
-  system still only reads them, on either venue; nothing sets them. On Bybit
-  that means the position is opened at whatever leverage the symbol carries,
-  so changing it in the UI changes the size of the next order.
+- Leverage and margin mode ARE writable on Pionex, verified 2026-08-25.
+  Each subscription chooses a leverage from 1 to 20 (decision 38). On Binance
+  the system SETS it before every opening: the pair is made ISOLATED, then the
+  leverage is set, both are read back, and a mismatch refuses the opening
+  (`LEVERAGE_NOT_APPLIED`, `MARGIN_NOT_ISOLATED`). A pair the user already
+  holds at other settings is never changed underneath the position; the
+  opening is refused (`LEVERAGE_CONFLICT`). On Bybit nothing sets it yet
+  (H.6): the position opens at whatever leverage the symbol carries, so
+  changing it in the UI changes the size of the next order.
 - `tradeMode` on a Bybit position is NOT the margin mode. It reported `0`
   while the account was demonstrably on isolated margin (UI and
   `account/info` both said so). The account-level `marginMode` is what
