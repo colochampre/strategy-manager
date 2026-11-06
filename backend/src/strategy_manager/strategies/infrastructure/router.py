@@ -33,7 +33,7 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from pydantic import BaseModel, Field, field_validator
+from pydantic import AfterValidator, BaseModel, Field, field_validator
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -61,6 +61,8 @@ from strategy_manager.reconciliation.infrastructure.booking_proposal_repository 
 )
 from strategy_manager.shared.config import get_settings
 from strategy_manager.shared.db import get_session
+from strategy_manager.shared.domain.errors import InvariantViolation
+from strategy_manager.shared.domain.leverage import MAX_LEVERAGE, NEW_SEAT_LEVERAGE, Leverage
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 from strategy_manager.shared.infrastructure.clock import SystemClock
 from strategy_manager.shared.infrastructure.wire import Instant, Money
@@ -94,12 +96,14 @@ from strategy_manager.strategies.application.replace_allowed_pairs import (
 )
 from strategy_manager.strategies.application.subscriber_locks import SubscribersChanged
 from strategy_manager.strategies.application.update_strategy import (
+    UNCHANGED,
     StrategyArchived,
     UnknownStrategy,
     UpdateCommand,
     UpdateStrategy,
 )
 from strategy_manager.strategies.domain.allowed_pairs import EmptyAllowedPairs
+from strategy_manager.strategies.domain.description import description_of
 from strategy_manager.strategies.domain.enablement import EnablementEvent, Uptime, uptime
 from strategy_manager.strategies.domain.pair_catalog import (
     PairCatalogNotServed,
@@ -200,6 +204,8 @@ class StrategyView(BaseModel):
 
     id: UUID
     name: str
+    # The author's own words, plain text (decision 38), or null.
+    description: str | None
     exchange: Exchange
     venue: Venue
     settlement_currency: Currency
@@ -238,6 +244,7 @@ class StrategyView(BaseModel):
         return cls(
             id=strategy.id,
             name=strategy.name,
+            description=strategy.description,
             exchange=strategy.policy.exchange,
             venue=strategy.policy.venue,
             settlement_currency=strategy.policy.settlement_currency,
@@ -311,6 +318,24 @@ class EnablementEventView(BaseModel):
         return cls(enabled=event.enabled, occurred_at=event.occurred_at, origin=event.origin.value)
 
 
+def _stored_description(value: str | None) -> str | None:
+    try:
+        return description_of(value)
+    except InvariantViolation as exc:
+        # A ``ValueError`` is what the 422 handler answers, with its fixed message.
+        raise ValueError(str(exc)) from None
+
+
+#: The author's description as the API takes it: a JSON string or null (pydantic
+#: turns no number or list into a string), then put in its stored shape (trimmed, a
+#: blank one made null) or refused with a 422.
+Description = Annotated[str | None, AfterValidator(_stored_description)]
+
+#: The author's seat's leverage as the API takes it: a JSON integer from 1 to the
+#: cap, strict, as ``POST /api/subscriptions`` takes a subscriber's (decision 38).
+LeverageInput = Annotated[int, Field(strict=True, ge=1, le=MAX_LEVERAGE)]
+
+
 class RegisterRequest(BaseModel):
     """``id`` is the alert's ``signalType``. It is required, and there is no
     server-side default, because a generated one would match no alert."""
@@ -321,10 +346,14 @@ class RegisterRequest(BaseModel):
     venue: Venue
     settlement_currency: Currency
     fill_mode: FillMode
-    allocation_percent: Share = Decimal("100")
+    # Typed by hand, never assumed (decision 39).
+    allocation_percent: Share
     allowed_pairs: list[str] = Field(min_length=1)
     # Nothing turns public without the author's choice (decision 21).
     visibility: Visibility = Visibility.PRIVATE
+    description: Description = None
+    # The author's seat's, like the share above; it starts at 1x unless chosen.
+    leverage: LeverageInput = NEW_SEAT_LEVERAGE.value
 
 
 class UpdateRequest(BaseModel):
@@ -338,6 +367,8 @@ class UpdateRequest(BaseModel):
     fill_mode: FillMode | None = None
     enabled: bool | None = None
     visibility: Visibility | None = None
+    # Unlike the fields above, null here clears it; leaving it out keeps it.
+    description: Description = None
     # The share is each subscriber's now (``PATCH /api/subscriptions/{id}``). A body
     # that still carries one is refused, whatever its value, rather than accepted
     # and ignored: the validator below fires for any value present, ``null``
@@ -388,7 +419,8 @@ class SharePreviewStepBody(BaseModel):
 
 class SharePreviewBody(BaseModel):
     """``balance``, ``exact`` and ``steps`` are null, null and empty together: a
-    pool nothing has synced has no amount, never a zero."""
+    pool nothing has synced has no amount, never a zero. ``exact`` is also null
+    when the caller holds no seat and asked no share (decision 39)."""
 
     strategy_id: UUID
     pool: SharePreviewPoolBody
@@ -620,6 +652,8 @@ async def register_strategy(
                 allowed_pairs=body.allowed_pairs,
                 author_id=user.id,
                 visibility=body.visibility,
+                description=body.description,
+                leverage=Leverage(body.leverage),
             )
         )
     except StrategyAlreadyRegistered as exc:
@@ -783,15 +817,11 @@ async def preview_share(
     policy = strategy.policy
     pool = PoolKey(policy.exchange, policy.venue, policy.settlement_currency)
     # No ``share`` asked: the signed-in user's own subscription's share, since that
-    # is what sizes their next opening (tasks.md C.6). A user who holds none is
-    # shown a full share, the default a new subscription starts from (N4).
+    # is what sizes their next opening (tasks.md C.6). A user who holds none has no
+    # share to size, so none is assumed and ``exact`` is null (decision 39).
     previewed = share
-    if previewed is None:
-        previewed = (
-            subscription.allocation_percent.value
-            if subscription is not None
-            else Decimal("100")
-        )
+    if previewed is None and subscription is not None:
+        previewed = subscription.allocation_percent.value
     try:
         # The SIGNED-IN user's own pool on the strategy's market (C.4b): a share is
         # a part of the subscriber's pool, so another user previews against theirs,
@@ -858,6 +888,10 @@ async def update_strategy(
                 fill_mode=body.fill_mode,
                 enabled=body.enabled,
                 visibility=body.visibility,
+                # Sent, null included, is a change; left out is not.
+                description=(
+                    body.description if "description" in body.model_fields_set else UNCHANGED
+                ),
             )
         )
     except UnknownStrategy as exc:

@@ -333,6 +333,7 @@ async def test_no_api_response_carries_a_secret_or_a_hash_except_the_two_that_is
             "venue": "usdt-m",
             "settlement_currency": "USDT",
             "fill_mode": "PARTIAL",
+            "allocation_percent": "100",
             "allowed_pairs": ["ETHUSDT"],
         }
     elif body is None and method == "POST" and template == "/api/subscriptions":

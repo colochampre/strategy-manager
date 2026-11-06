@@ -9,6 +9,7 @@ from typing import Protocol
 from uuid import UUID
 
 from strategy_manager.shared.domain.errors import DomainError
+from strategy_manager.shared.domain.leverage import Leverage
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 from strategy_manager.strategies.domain.enablement import EnablementEvent
 from strategy_manager.strategies.domain.strategy import AllocationPercent, Strategy
@@ -152,9 +153,11 @@ class AuthorSubscriptionPort(Protocol):
     commits: the caller commits once, so a failure here leaves neither row.
     """
 
-    async def subscribe_author(self, strategy: Strategy, share: AllocationPercent) -> None:
+    async def subscribe_author(
+        self, strategy: Strategy, share: AllocationPercent, leverage: Leverage
+    ) -> None:
         """An ACTIVE subscription of ``strategy.author_id``, in the author's own
-        pool for the strategy's market, at ``share``. Raises
+        pool for the strategy's market, at ``share`` and ``leverage``. Raises
         ``PoolNotAvailable`` when the author has no pool for the market."""
         ...
 

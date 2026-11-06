@@ -25,9 +25,10 @@ interface Serve {
   pools?: Parameters<typeof stubApi>[2];
   me?: Record<string, unknown>;
   subscribe?: () => Promise<Response>;
+  preview?: Record<string, unknown>;
 }
 
-function serve({ strategy, held, pools, me, subscribe }: Serve = {}) {
+function serve({ strategy, held, pools, me, subscribe, preview }: Serve = {}) {
   return stubApi({ kind: "ok", body: {} }, [], pools ?? { kind: "ok", body: [pool("bybit")] }, {}, (url, init) => {
     if (url.endsWith(`/api/public/strategies/${ID}`)) {
       return strategy?.() ?? Promise.resolve(jsonResponse(publicStrategy({ id: ID })));
@@ -36,7 +37,9 @@ function serve({ strategy, held, pools, me, subscribe }: Serve = {}) {
     if (url.endsWith("/api/subscriptions") && init?.method === "POST") {
       return subscribe?.() ?? Promise.resolve(jsonResponse(subscriptionOf(ID, "100"), 201));
     }
-    if (url.includes(`/strategies/${ID}/share-preview`)) return Promise.resolve(jsonResponse(unsyncedSharePreview(ID)));
+    if (url.includes(`/strategies/${ID}/share-preview`)) {
+      return Promise.resolve(jsonResponse(preview ?? unsyncedSharePreview(ID)));
+    }
     if (url.endsWith("/api/me")) {
       return Promise.resolve(
         jsonResponse({ email: "a@example.com", is_admin: true, mode: "LIVE", dry_run_brake: false, ...me }),
@@ -91,6 +94,55 @@ describe("the public page", () => {
       "href",
       "/strategies/explore",
     );
+  });
+
+  it("shows the author's description above the figures, line breaks kept, under its own heading", async () => {
+    const text = "Trend follower.\nRecommended leverage: x3.";
+    serve({ strategy: () => Promise.resolve(jsonResponse(publicStrategy({ id: ID, description: text }))) });
+    open();
+    await screen.findByRole("heading", { level: 1, name: "Alpha" });
+
+    const section = screen.getByTestId("public-description");
+    expect(section).toHaveTextContent(/Trend follower\.\s*Recommended leverage: x3\./);
+    expect(within(section).getByRole("heading", { level: 2, name: "About this strategy" })).toBeInTheDocument();
+    const body = within(section).getByText(/Trend follower/);
+    expect(body.textContent).toBe(text);
+    expect(body).toHaveClass("whitespace-pre-line", "break-words");
+    expect(section.compareDocumentPosition(screen.getByTestId("public-return")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 1, name: "Alpha" }).compareDocumentPosition(section)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+  });
+
+  it("names the description's heading in Spanish", async () => {
+    await act(() => i18n.changeLanguage("es"));
+    serve({ strategy: () => Promise.resolve(jsonResponse(publicStrategy({ id: ID, description: "Seguidor de tendencia." }))) });
+    open();
+    await screen.findByRole("heading", { level: 1, name: "Alpha" });
+
+    expect(within(screen.getByTestId("public-description")).getByRole("heading", { name: "Acerca de esta estrategia" })).toBeInTheDocument();
+    await act(() => i18n.changeLanguage("en"));
+  });
+
+  it("draws nothing for a strategy with no description", async () => {
+    serve();
+    open();
+    await screen.findByRole("heading", { level: 1, name: "Alpha" });
+
+    expect(screen.queryByTestId("public-description")).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "About this strategy" })).not.toBeInTheDocument();
+  });
+
+  it("shows markup and Markdown literally: no element is created from the text", async () => {
+    const text = "<b>x</b> <img src=x onerror=alert(1)> <script>alert(1)</script>\n[link](https://example.com) **bold** https://example.org";
+    serve({ strategy: () => Promise.resolve(jsonResponse(publicStrategy({ id: ID, description: text }))) });
+    open();
+    await screen.findByRole("heading", { level: 1, name: "Alpha" });
+
+    const section = screen.getByTestId("public-description");
+    expect(within(section).getByText(/<b>x<\/b>/).textContent).toBe(text);
+    expect(section.querySelector("b, img, script, strong, a")).toBeNull();
+    expect(within(section).queryByRole("link")).not.toBeInTheDocument();
   });
 
   it("explains the return and the capital on request, closed by default", async () => {
@@ -241,16 +293,77 @@ describe("subscribing", () => {
     expect(screen.getByText(i18n.t("strategies.subscribe.publicSum"))).toBeInTheDocument();
   });
 
-  it("starts from a full share and sends it as a string", async () => {
+  it("starts from no share at all: 0, a hint asking for one, no refusal, nothing to press (decision 39)", async () => {
     const fetchMock = serve();
     open();
 
-    expect(await shareField()).toHaveValue("100");
+    const field = await shareField();
+    expect(field).toHaveValue("0");
+    expect(field).toHaveAttribute("aria-invalid", "false");
+    expect(screen.getByText(i18n.t("strategies.detail.share.startHint"))).toBeInTheDocument();
+    expect(screen.queryByText(i18n.t("strategies.detail.share.outOfRange"))).not.toBeInTheDocument();
+    expect(screen.queryByText(i18n.t("strategies.detail.share.amountError"))).not.toBeInTheDocument();
+    expect(await subscribeButton()).toBeDisabled();
+    fireEvent.submit(field.closest("form") as HTMLFormElement);
+    await whatWasPressedHasRun();
+    expect(posts(fetchMock)).toHaveLength(0);
+  });
+
+  it("sends the share typed over the starting 0 as a string", async () => {
+    const fetchMock = serve();
+    open();
+
+    fireEvent.change(await shareField(), { target: { value: "25" } });
+    expect(screen.queryByText(i18n.t("strategies.detail.share.startHint"))).not.toBeInTheDocument();
     fireEvent.click(await subscribeButton());
 
     await waitFor(() => expect(posts(fetchMock)).toHaveLength(1));
     const [, init] = posts(fetchMock)[0] as [string, RequestInit];
-    expect(init.body).toBe(`{"strategy_id":"${ID}","allocation_percent":"100"}`);
+    expect(init.body).toBe(`{"strategy_id":"${ID}","allocation_percent":"25","leverage":1}`);
+  });
+
+  it("refuses a 0 typed by hand in words, drops the hint and sends nothing", async () => {
+    const fetchMock = serve();
+    open();
+
+    const field = await shareField();
+    fireEvent.change(field, { target: { value: "25" } });
+    fireEvent.change(field, { target: { value: "0" } });
+
+    expect(field).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByText(i18n.t("strategies.detail.share.outOfRange"))).toBeInTheDocument();
+    expect(screen.queryByText(i18n.t("strategies.detail.share.startHint"))).not.toBeInTheDocument();
+    expect(await subscribeButton()).toBeDisabled();
+    fireEvent.submit(field.closest("form") as HTMLFormElement);
+    await whatWasPressedHasRun();
+    expect(posts(fetchMock)).toHaveLength(0);
+  });
+
+  it("shows the amount of a whole share from the steps when the preview served no exact figure", async () => {
+    const fetchMock = serve({
+      preview: {
+        ...unsyncedSharePreview(ID),
+        balance: { total: "1000", observed_at: "2026-11-05T10:00:00Z", stale: false },
+        exact: null,
+        steps: Array.from({ length: 100 }, (_, index) => ({
+          share: index + 1,
+          amount: String((index + 1) * 10),
+          below_pool_minimum: false,
+        })),
+      },
+    });
+    open();
+
+    const field = await shareField();
+    await waitFor(() =>
+      expect(fetchMock.mock.calls.some(([url]) => String(url).includes(`/strategies/${ID}/share-preview`))).toBe(true),
+    );
+    await whatWasPressedHasRun();
+    expect(screen.queryByText(i18n.t("strategies.detail.share.amountError"))).not.toBeInTheDocument();
+    expect(screen.queryByText(/Asks for about/)).not.toBeInTheDocument();
+
+    fireEvent.change(field, { target: { value: "25" } });
+    expect(await screen.findByText(/Asks for about 250/)).toBeInTheDocument();
   });
 
   it("sends the share the user typed, in plain form", async () => {
@@ -262,7 +375,40 @@ describe("subscribing", () => {
 
     await waitFor(() => expect(posts(fetchMock)).toHaveLength(1));
     const [, init] = posts(fetchMock)[0] as [string, RequestInit];
-    expect(init.body).toBe(`{"strategy_id":"${ID}","allocation_percent":"12.5"}`);
+    expect(init.body).toBe(`{"strategy_id":"${ID}","allocation_percent":"12.5","leverage":1}`);
+  });
+
+  it("offers a leverage that starts at x1 and sends the one the user chose, as a number, with the share", async () => {
+    const fetchMock = serve();
+    open();
+
+    const leverage = await screen.findByRole("textbox", { name: i18n.t("strategies.leverage.label") });
+    expect(leverage).toHaveValue("1");
+    expect(screen.getByRole("slider", { name: i18n.t("strategies.leverage.label") })).toHaveValue("1");
+    fireEvent.click(screen.getByRole("button", { name: i18n.t("strategies.leverage.stop", { value: 10 }) }));
+    expect(leverage).toHaveValue("10");
+    fireEvent.change(leverage, { target: { value: "6" } });
+    fireEvent.change(await shareField(), { target: { value: "100" } });
+    fireEvent.click(await subscribeButton());
+
+    await waitFor(() => expect(posts(fetchMock)).toHaveLength(1));
+    const [, init] = posts(fetchMock)[0] as [string, RequestInit];
+    expect(init.body).toBe(`{"strategy_id":"${ID}","allocation_percent":"100","leverage":6}`);
+  });
+
+  it.each(["0", "21", "2.5", ""])("refuses a leverage of %j in words and sends nothing", async (text) => {
+    const fetchMock = serve();
+    open();
+
+    const leverage = await screen.findByRole("textbox", { name: i18n.t("strategies.leverage.label") });
+    fireEvent.change(leverage, { target: { value: text } });
+
+    expect(await subscribeButton()).toBeDisabled();
+    expect(leverage).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByText(i18n.t("strategies.leverage.invalid"))).toBeInTheDocument();
+    fireEvent.submit(leverage.closest("form") as HTMLFormElement);
+    await whatWasPressedHasRun();
+    expect(posts(fetchMock)).toHaveLength(0);
   });
 
   it("asks for the amount on this strategy, not on any other", async () => {
@@ -290,6 +436,7 @@ describe("subscribing", () => {
     const fetchMock = serve({ subscribe: () => new Promise<Response>(() => undefined) });
     open();
 
+    fireEvent.change(await shareField(), { target: { value: "100" } });
     fireEvent.click(await subscribeButton());
     expect(await screen.findByRole("button", { name: i18n.t("strategies.subscribe.pending") })).toBeDisabled();
     fireEvent.submit((await shareField()).closest("form") as HTMLFormElement);
@@ -310,6 +457,7 @@ describe("subscribing", () => {
     });
     open();
 
+    fireEvent.change(await shareField(), { target: { value: "100" } });
     fireEvent.click(await subscribeButton());
 
     expect(await screen.findByText(i18n.t("strategies.subscribe.held", { share: "100" }))).toBeInTheDocument();
@@ -328,6 +476,7 @@ describe("subscribing", () => {
     serve({ subscribe: () => Promise.resolve(jsonResponse({ detail }, status)) });
     open();
 
+    fireEvent.change(await shareField(), { target: { value: "100" } });
     fireEvent.click(await subscribeButton());
 
     expect(await screen.findByRole("alert")).toHaveTextContent(i18n.t(key));

@@ -45,6 +45,7 @@ from typing import Any, Final
 
 import httpx
 
+from strategy_manager.shared.domain.leverage import MAX_LEVERAGE
 from strategy_manager.shared.infrastructure.binance.errors import (
     BinanceApiError,
     BinanceOrderNotFound,
@@ -52,6 +53,8 @@ from strategy_manager.shared.infrastructure.binance.errors import (
 from strategy_manager.shared.infrastructure.binance.read_client import (
     BinanceReadOnlyClient,
     PerpContract,
+    Position,
+    SymbolConfig,
     parse_contract,
 )
 from strategy_manager.shared.infrastructure.binance.signer import BinanceSigner
@@ -66,6 +69,10 @@ USER_TRADES_PATH = "/fapi/v1/userTrades"
 # job, and at fifty subscribers the dearer read alone pushed one signal past
 # the 2400-per-minute ceiling, where Binance answers 429 and then bans the IP.
 ACCOUNT_CONFIG_PATH = "/fapi/v1/accountConfig"
+LEVERAGE_PATH = "/fapi/v1/leverage"
+MARGIN_TYPE_PATH = "/fapi/v1/marginType"
+# "No need to change margin type": the symbol already has the type asked for.
+MARGIN_ALREADY_SET_CODE: Final = "-4046"
 
 MARKET = "MARKET"
 
@@ -196,6 +203,54 @@ class BinanceTradeClient:
         engine granted.
         """
         return await self._read.leverage_for(symbol)
+
+    async def symbol_config(self, symbol: str) -> SymbolConfig:
+        """The leverage and margin type the account holds this symbol at."""
+        return await self._read.symbol_config(symbol)
+
+    async def position_for(self, symbol: str) -> Position | None:
+        """The account's position on this symbol, or None when it holds none."""
+        return await self._read.position_for(symbol)
+
+    async def set_leverage(self, symbol: str, leverage: int) -> None:
+        """Sets the symbol's leverage (decision 38). This WRITES an account
+        setting.
+
+        Checked against 1..20 before any request, because the venue accepts
+        up to 125 on some markets and a value outside this system's range can
+        only be a bug upstream. Every refusal keeps its code, so the caller
+        can tell a definitive answer from an unknown outcome.
+        """
+        if (
+            isinstance(leverage, bool)
+            or not isinstance(leverage, int)
+            or not 1 <= leverage <= MAX_LEVERAGE
+        ):
+            raise BinanceApiError(
+                f"refusing to set {symbol} leverage to {leverage!r}: this "
+                f"system only sets a leverage from 1 to {MAX_LEVERAGE}"
+            )
+        await self._transport.post(
+            LEVERAGE_PATH, {"symbol": symbol, "leverage": str(leverage)}
+        )
+
+    async def set_margin_type_isolated(self, symbol: str) -> None:
+        """Makes the symbol ISOLATED (decision 38). This WRITES an account
+        setting.
+
+        -4046 means the symbol already is: what was asked holds, so it is not
+        a refusal. Every other refusal keeps its code -- -4047 and -4048 (open
+        orders or a position on the symbol) and -4168 (Multi-Assets mode)
+        among them.
+        """
+        try:
+            await self._transport.post(
+                MARGIN_TYPE_PATH, {"symbol": symbol, "marginType": "ISOLATED"}
+            )
+        except BinanceApiError as exc:
+            if exc.code == MARGIN_ALREADY_SET_CODE:
+                return
+            raise
 
     async def mark_price(self, symbol: str) -> Decimal:
         """The venue's price an opening is sized at, never the alert's

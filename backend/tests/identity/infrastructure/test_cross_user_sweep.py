@@ -141,6 +141,7 @@ _NEW_STRATEGY = {
     "venue": SHARED_MARKET[1],
     "settlement_currency": SHARED_MARKET[2],
     "fill_mode": "PARTIAL",
+    "allocation_percent": "100",
     "allowed_pairs": ["ETHUSDT"],
 }
 

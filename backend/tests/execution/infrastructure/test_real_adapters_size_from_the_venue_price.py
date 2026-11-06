@@ -24,6 +24,7 @@ from strategy_manager.execution.infrastructure.binance_futures_exchange import (
 from strategy_manager.execution.infrastructure.bybit_futures_exchange import (
     BybitFuturesExchangeAdapter,
 )
+from strategy_manager.shared.domain.leverage import Leverage
 from strategy_manager.shared.infrastructure.binance.read_client import (
     EXCHANGE_INFO_PATH,
     PREMIUM_INDEX_PATH,
@@ -36,6 +37,9 @@ from strategy_manager.shared.infrastructure.binance.trade_client import (
     ORDER_PATH as BINANCE_ORDER_PATH,
 )
 from strategy_manager.shared.infrastructure.binance.trade_client import BinanceTradeClient
+from strategy_manager.shared.infrastructure.bybit.read_client import (
+    ACCOUNT_INFO_PATH as BYBIT_ACCOUNT_INFO_PATH,
+)
 from strategy_manager.shared.infrastructure.bybit.read_client import (
     INSTRUMENTS_PATH,
     POSITIONS_PATH,
@@ -81,6 +85,8 @@ def _open() -> OpenOrderSpec:
         side=OrderSide.BUY,
         granted=GRANTED,
         price=ALERT_PRICE,
+        # The pair already holds it, so the Binance opening writes no setting.
+        leverage=Leverage(3),
     )
 
 
@@ -89,7 +95,22 @@ def _bybit_adapter(recorded: list[httpx.Request]) -> BybitFuturesExchangeAdapter
         return httpx.Response(200, json={"retCode": 0, "retMsg": "OK", "result": result})
 
     responses = {
-        ("GET", POSITIONS_PATH): envelope({"list": [{"symbol": "STXUSDT", "leverage": "3"}]}),
+        # A flat STX record at the 3x the spec asks, so no setting is written.
+        ("GET", POSITIONS_PATH): envelope(
+            {
+                "list": [
+                    {
+                        "symbol": "STXUSDT",
+                        "side": "",
+                        "size": "0",
+                        "avgPrice": "0",
+                        "leverage": "3",
+                        "positionIdx": 0,
+                    }
+                ]
+            }
+        ),
+        ("GET", BYBIT_ACCOUNT_INFO_PATH): envelope({"marginMode": "ISOLATED_MARGIN"}),
         ("GET", INSTRUMENTS_PATH): envelope(
             {"list": [BYBIT_STX], "category": "linear", "nextPageCursor": ""}
         ),
@@ -134,7 +155,7 @@ def _binance_adapter(recorded: list[httpx.Request]) -> BinanceFuturesExchangeAda
                 {
                     "symbol": "STXUSDT",
                     "leverage": 3,
-                    "marginType": "CROSSED",
+                    "marginType": "ISOLATED",
                     "isAutoAddMargin": False,
                 }
             ],

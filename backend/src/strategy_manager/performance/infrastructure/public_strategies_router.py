@@ -69,6 +69,8 @@ SourceDep = Annotated[PublicStrategiesSourcePort, Depends(get_public_source)]
 class PublicStrategyBody(BaseModel):
     id: UUID
     name: str
+    # Plain text, for the panel to render as text and never as HTML or Markdown.
+    description: str | None
     author_name: str
     exchange: str
     venue: str
@@ -85,6 +87,7 @@ def _body(strategy: PublicStrategy) -> PublicStrategyBody:
     return PublicStrategyBody(
         id=listing.strategy_id,
         name=listing.name,
+        description=listing.description,
         author_name=listing.author_name,
         exchange=listing.exchange,
         venue=listing.venue,

@@ -3,9 +3,11 @@ import { UserPlus } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router";
 
+import { LeverageSlider } from "@/features/strategies/LeverageSlider";
 import { ShareAmount } from "@/features/strategies/ShareAmount";
 import { ShareSlider } from "@/features/strategies/ShareSlider";
 import { readStored } from "@/features/strategies/share-value";
+import { LEVERAGE_REFUSAL_TEXT, useLeverageDraft } from "@/features/strategies/useLeverageDraft";
 import { DRAFT_REFUSAL_TEXT, useShareDraft } from "@/features/strategies/useShareDraft";
 import { ApiError } from "@/shared/api/client";
 import { useMe } from "@/shared/api/me";
@@ -13,10 +15,13 @@ import { usePools } from "@/shared/api/pools";
 import { useHeldSubscriptions, useSubscribe } from "@/shared/api/subscriptions";
 import type { PublicStrategy } from "@/shared/api/types";
 import { exchangeName } from "@/shared/exchanges/exchange-name";
+import { InfoButton, InfoText, useInfoDisclosure } from "@/shared/ui/InfoDisclosure";
 import { StatusButton } from "@/shared/ui/StatusButton";
 
-/** The share the form starts from (N4). */
-const STARTING_SHARE = "100";
+/** The share the form starts from: none (decision 39). It is never sent; the user types how much to use. */
+const STARTING_SHARE = "0";
+/** The leverage the form starts from: the API's own default. */
+const STARTING_LEVERAGE = 1;
 const LINK = "text-sm text-gain hover:text-gain-bright";
 
 /** The text of a refused subscribe: the status and the code decide, never the server's wording. */
@@ -34,13 +39,18 @@ function refusalText(error: unknown): string {
 function SubscribeForm({ strategyId }: { strategyId: string }) {
   const { t } = useTranslation();
   const ids = { field: useId(), label: useId(), problem: useId() };
+  const leverageIds = { field: useId(), label: useId(), problem: useId() };
   const subscribe = useSubscribe(strategyId);
-  const { text, reading, handle, amount, changeText, changeStep } = useShareDraft(strategyId, STARTING_SHARE);
+  const { text, reading, handle, amount, edited, changeText, changeStep } = useShareDraft(strategyId, STARTING_SHARE);
+  const leverage = useLeverageDraft(STARTING_LEVERAGE);
+  const leverageInfo = useInfoDisclosure();
   const busy = subscribe.isPending;
 
   const send = (event: FormEvent) => {
     event.preventDefault();
-    if (reading.valid && !busy) subscribe.mutate(reading.canonical);
+    if (reading.valid && leverage.reading.valid && !busy) {
+      subscribe.mutate({ share: reading.canonical, leverage: leverage.reading.value });
+    }
   };
   const submitText = t("strategies.subscribe.submit");
   const pendingText = t("strategies.subscribe.pending");
@@ -57,16 +67,48 @@ function SubscribeForm({ strategyId }: { strategyId: string }) {
         handle={handle}
         value={reading.valid ? reading.canonical : null}
         disabled={busy}
-        invalid={!reading.valid}
+        invalid={!reading.valid && edited}
         describedBy={reading.valid ? undefined : ids.problem}
         onText={changeText}
         onHandle={changeStep}
         onStop={changeStep}
       />
       <ShareAmount view={amount} />
-      {!reading.valid && (
-        <p id={ids.problem} className="text-xs text-loss">
-          {t(DRAFT_REFUSAL_TEXT[reading.refusal])}
+      {!reading.valid &&
+        (edited ? (
+          <p id={ids.problem} className="text-xs text-loss">
+            {t(DRAFT_REFUSAL_TEXT[reading.refusal])}
+          </p>
+        ) : (
+          <p id={ids.problem} className="text-xs text-ink-3">
+            {t("strategies.detail.share.startHint")}
+          </p>
+        ))}
+      <div className="flex items-start">
+        <label id={leverageIds.label} htmlFor={leverageIds.field} className="text-sm leading-5 text-ink-2">
+          {t("strategies.leverage.label")}
+        </label>
+        <InfoButton disclosure={leverageInfo} label={t("strategies.leverage.info")} />
+      </div>
+      <InfoText disclosure={leverageInfo}>
+        <p className="text-xs text-ink-3">{t("strategies.leverage.hint")}</p>
+      </InfoText>
+      <LeverageSlider
+        fieldId={leverageIds.field}
+        labelId={leverageIds.label}
+        text={leverage.text}
+        handle={leverage.handle}
+        value={leverage.reading.valid ? leverage.reading.value : null}
+        disabled={busy}
+        invalid={!leverage.reading.valid}
+        describedBy={leverage.reading.valid ? undefined : leverageIds.problem}
+        onText={leverage.changeText}
+        onHandle={leverage.changeStep}
+        onStop={leverage.changeStep}
+      />
+      {!leverage.reading.valid && (
+        <p id={leverageIds.problem} className="text-xs text-loss">
+          {t(LEVERAGE_REFUSAL_TEXT[leverage.reading.refusal])}
         </p>
       )}
       <p className="text-xs text-ink-3">{t("strategies.subscribe.publicSum")}</p>
@@ -76,7 +118,7 @@ function SubscribeForm({ strategyId }: { strategyId: string }) {
           shown={busy ? pendingText : submitText}
           message={null}
           submit
-          disabled={busy || !reading.valid}
+          disabled={busy || !reading.valid || !leverage.reading.valid}
           icon={UserPlus}
           className="min-h-11 rounded-md bg-gain px-3 text-sm font-medium text-ground hover:opacity-90 disabled:opacity-50"
         />

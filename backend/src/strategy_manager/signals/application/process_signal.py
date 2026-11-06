@@ -88,6 +88,7 @@ from strategy_manager.execution.domain.execution_attempt import ExecutionAttempt
 from strategy_manager.execution.domain.market_symbol import is_perpetual, market_key
 from strategy_manager.execution.domain.order import OrderSide
 from strategy_manager.shared.application.ports import AllocationModePort, CommitPort
+from strategy_manager.shared.domain.leverage import Leverage
 from strategy_manager.shared.domain.mode import Mode
 from strategy_manager.shared.domain.money import Currency, Money
 from strategy_manager.shared.domain.trade_capability import TradeCapability, key_refusal
@@ -209,13 +210,15 @@ class Delivery:
     for, and at what share. ``user_id`` is the subscriber, which is the strategy's
     author only when the author is the subscriber. Every read and write of a
     delivery's work is made as this user, in this user's pool, with this user's
-    key; ``allocation_percent`` is the SUBSCRIPTION's share, not the strategy's."""
+    key; ``allocation_percent`` is the SUBSCRIPTION's share, not the strategy's, and
+    ``leverage`` the subscription's own choice (decision 38), read with it."""
 
     delivery_id: UUID
     signal_id: UUID
     subscription_id: UUID
     user_id: UUID
     allocation_percent: Decimal
+    leverage: Leverage
 
 
 class UnknownDeliveryError(Exception):
@@ -805,6 +808,7 @@ class ProcessDelivery:
                 symbol=context.symbol,
                 side=_consuming_side(context.position_size),
                 price=context.price,
+                leverage=delivery.leverage,
             )
         )
         return ProcessSignalResult(transition.kind.value, result.reservation_id, True)

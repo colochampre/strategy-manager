@@ -25,7 +25,7 @@ conversation — you need a second alert, because one alert cannot mean two
 different pools.
 
 Everything that does NOT change where the money comes from is editable:
-``name``, ``fill_mode`` and ``enabled``.
+``name``, ``fill_mode``, ``enabled``, ``visibility`` and ``description``.
 
 **The share is not editable here any more** (multi-user C.4b). It is each
 subscriber's, changed through ``ChangeShare``. The strategy's own copy is written
@@ -45,6 +45,16 @@ from strategy_manager.strategies.application.ports import (
     StrategyRepositoryPort,
 )
 from strategy_manager.strategies.domain.strategy import FillMode, Strategy, Visibility
+
+
+class Unchanged:
+    """Says "leave it as it is" for a field whose None means something."""
+
+    def __repr__(self) -> str:
+        return "UNCHANGED"
+
+
+UNCHANGED = Unchanged()
 
 
 class UnknownStrategy(DomainError):
@@ -71,6 +81,9 @@ class UpdateCommand:
     fill_mode: FillMode | None = None
     enabled: bool | None = None
     visibility: Visibility | None = None
+    # The one field that can be emptied, so "leave it" is ``UNCHANGED`` and None
+    # clears it. Otherwise in its stored shape (``description_of``).
+    description: str | None | Unchanged = UNCHANGED
 
 
 class UpdateStrategy:
@@ -132,6 +145,11 @@ class UpdateStrategy:
             enabled=strategy.enabled if command.enabled is None else command.enabled,
             visibility=(
                 strategy.visibility if command.visibility is None else command.visibility
+            ),
+            description=(
+                strategy.description
+                if isinstance(command.description, Unchanged)
+                else command.description
             ),
         )
 

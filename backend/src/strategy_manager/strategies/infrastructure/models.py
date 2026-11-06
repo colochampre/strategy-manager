@@ -42,7 +42,8 @@ class StrategyRow(Base):
     """Mirrors the ``strategies`` table created by migration ``0003``,
     extended with ``author_id`` by migration ``0030`` and with the secret hash,
     the visibility and the per-author name by ``0033``, which also dropped
-    ``allocation_percent``, and with the secret's last four by ``0034``."""
+    ``allocation_percent``, with the secret's last four by ``0034``, and with the
+    author's description by ``0037``."""
 
     __tablename__ = "strategies"
     __table_args__ = (
@@ -51,6 +52,11 @@ class StrategyRow(Base):
         CheckConstraint(
             "char_length(webhook_secret_last4) = 4",
             name="ck_strategies_webhook_secret_last4_length",
+        ),
+        CheckConstraint(
+            "description IS NULL OR (description = btrim(description, E' \\t\\r\\n') "
+            "AND char_length(description) BETWEEN 1 AND 2000)",
+            name="ck_strategies_description_shape",
         ),
         UniqueConstraint("author_id", "name", name="ux_strategies_author_name"),
         Index("ix_strategies_author_id", "author_id"),
@@ -79,6 +85,9 @@ class StrategyRow(Base):
     visibility: Mapped[str] = mapped_column(
         Text, nullable=False, server_default=text("'PRIVATE'")
     )
+    # Migration ``0037`` (decision 38): what the author writes about how the strategy
+    # trades and the configuration they recommend. Optional, trimmed, 1 to 2,000 chars.
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
     # ``ck_strategies_allowed_pairs_no_null`` (migration 0024): entries are
     # market_key()-normalized symbols this strategy may OPEN on.
     allowed_pairs: Mapped[list[str]] = mapped_column(

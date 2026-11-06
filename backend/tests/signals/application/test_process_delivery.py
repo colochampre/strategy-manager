@@ -24,6 +24,7 @@ from strategy_manager.execution.domain.execution_attempt import (
     ExecutionStatus,
 )
 from strategy_manager.execution.domain.order import OrderSide
+from strategy_manager.shared.domain.leverage import Leverage
 from strategy_manager.signals.application.fan_out_signal import DeliveryHalves
 from strategy_manager.signals.application.holding_guard import GuardOutcome
 from strategy_manager.signals.application.process_signal import (
@@ -69,6 +70,7 @@ PRIOR_RESERVATION = UUID("5b5b5b5b-0000-4000-8000-0000000000c5")
 # The delivery carries the subscription's 25%: sizing from anything else (a full
 # share) would ask for 1000, not 250.
 SUBSCRIPTION_SHARE = Decimal("25")
+SUBSCRIPTION_LEVERAGE = Leverage(7)
 POOL_TOTAL = Decimal("1000")
 
 _REVERSE_SYMBOL = "ETHUSDT.P"
@@ -128,6 +130,7 @@ def _rig(
         subscription_id=SUBSCRIPTION,
         user_id=SUBSCRIBER,
         allocation_percent=SUBSCRIPTION_SHARE,
+        leverage=SUBSCRIPTION_LEVERAGE,
     )
     deliveries = _Deliveries(delivery)
     balance = PoolBalance(total=POOL_TOTAL, available=POOL_TOTAL, min_order_size=Decimal("1"))
@@ -262,6 +265,14 @@ async def test_the_order_is_placed_as_the_deliverys_user() -> None:
     rig = await _opened()
 
     assert [call.user_id for call in rig.place.calls] == [SUBSCRIBER]
+
+
+async def test_the_order_is_placed_at_the_subscriptions_leverage() -> None:
+    """Decision 38 (H.4): each user's own choice, carried by their delivery. A
+    REVERSE's opening reaches the same placement through ``open_now``."""
+    rig = await _opened()
+
+    assert [call.leverage for call in rig.place.calls] == [SUBSCRIPTION_LEVERAGE]
 
 
 async def test_the_ask_is_the_subscriptions_share_of_the_pool_not_the_strategys() -> None:
@@ -465,6 +476,9 @@ async def test_open_now_opens_for_the_delivery_it_is_given_in_its_users_pool_and
     ]
     assert [call.user_id for call in rig.place.calls] == [SUBSCRIBER]
     assert [call.delivery_id for call in rig.place.calls] == [DELIVERY]
+    # A REVERSE's opening, and any deferred one, is placed at the subscription's
+    # leverage too (H.4).
+    assert [call.leverage for call in rig.place.calls] == [SUBSCRIPTION_LEVERAGE]
 
 
 async def test_open_now_deferring_again_seeds_the_next_poll_for_the_delivery() -> None:

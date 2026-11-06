@@ -70,12 +70,29 @@ function selectPool(poolValue: string, text: Locale = en) {
   fireEvent.change(screen.getByLabelText(text.strategies.new.pool), { target: { value: poolValue } });
 }
 
-/** Name, pool and fill mode; the pairs are chosen separately, from the pool's list. */
-function fill(name: string, poolValue = "usdt-m/USDT", fillMode = "SKIP", text: Locale = en) {
+/**
+ * Name, pool, fill mode and the share, which has no default and is typed by hand (decision 39); the pairs are
+ * chosen separately, from the pool's list.
+ */
+function fill(name: string, poolValue = "usdt-m/USDT", fillMode = "SKIP", text: Locale = en, share = "100") {
   fireEvent.change(screen.getByLabelText(text.strategies.new.name), { target: { value: name } });
   selectPool(poolValue, text);
   fireEvent.change(screen.getByLabelText(text.strategies.new.fillMode), { target: { value: fillMode } });
+  fireEvent.change(shareField(text), { target: { value: share } });
 }
+
+function shareField(text: Locale = en) {
+  return screen.getByRole("textbox", { name: text.strategies.new.share });
+}
+
+/** A request would leave on a later task, so "nothing was sent" is read after one has had its chance. */
+const whatWasPressedHasRun = () =>
+  act(
+    () =>
+      new Promise<void>((resolve) => {
+        setTimeout(resolve, 0);
+      }),
+  );
 
 /**
  * Chooses each symbol the way an operator does: waits for the list, types the
@@ -99,6 +116,13 @@ async function choose(symbols: readonly string[], text: Locale = en) {
 function refusal(locale: Locale, key: "unknown" | "venueUnavailable" | "notServed", symbols = ""): string {
   const errors = (locale.strategies.pairs as { errors?: Record<string, string> }).errors;
   return (errors?.[key] ?? `<missing strategies.pairs.errors.${key}>`).replace("{{symbols}}", symbols);
+}
+
+/** The pairs have no free-text field: the only multi-line field of the dialog is the description. */
+function textareasOtherThanDescription(dialog: HTMLElement): HTMLTextAreaElement[] {
+  return Array.from(dialog.querySelectorAll("textarea")).filter(
+    (field) => field.labels?.[0]?.textContent !== en.strategies.description.label,
+  );
 }
 
 function submitButton(text: Locale = en) {
@@ -145,7 +169,7 @@ describe("the new-strategy dialog", () => {
     expect(within(group).getByText(en.strategies.pairs.choosePool)).toBeInTheDocument();
     expect(within(group).getByRole("searchbox", { name: en.strategies.pairs.search })).toBeDisabled();
     expect(within(group).queryAllByRole("checkbox")).toEqual([]);
-    expect(dialog.querySelector("textarea")).toBeNull();
+    expect(textareasOtherThanDescription(dialog)).toEqual([]);
     expect(pairsRequests(fetchMock)).toEqual([]);
 
     selectPool("usdt-m/USDT");
@@ -165,7 +189,7 @@ describe("the new-strategy dialog", () => {
     // Exactly one request, for the chosen pool; a symbol the venue does not list has no option.
     expect(pairsRequests(fetchMock)).toEqual([expect.stringMatching(/\/api\/pools\/bybit\/usdt-m\/USDT\/available-pairs$/)]);
     expect(within(chosen).queryByRole("checkbox", { name: "YPF" })).not.toBeInTheDocument();
-    expect(dialog.querySelector("textarea")).toBeNull();
+    expect(textareasOtherThanDescription(dialog)).toEqual([]);
   });
 
   it("test_selected_pairs_are_submitted_in_market_key_form", async () => {
@@ -263,7 +287,7 @@ describe("the new-strategy dialog", () => {
 
     const group = within(dialog).getByRole("group", { name: en.strategies.new.pairs });
     expect(await within(group).findByText(en.strategies.pairs.loadFailed, {}, { timeout: 4000 })).toBeInTheDocument();
-    expect(dialog.querySelector("textarea")).toBeNull();
+    expect(textareasOtherThanDescription(dialog)).toEqual([]);
     expect(within(group).getByRole("searchbox", { name: en.strategies.pairs.search })).toBeDisabled();
     expect(within(group).queryAllByRole("checkbox")).toEqual([]);
     expect(submitButton()).toBeDisabled();
@@ -367,7 +391,7 @@ describe("the new-strategy dialog", () => {
 
     expect(await within(dialog).findByText(refusal(en, "notServed"), {}, { timeout: 4000 })).toBeInTheDocument();
     expect(submitButton()).toBeDisabled();
-    expect(dialog.querySelector("textarea")).toBeNull();
+    expect(textareasOtherThanDescription(dialog)).toEqual([]);
     expect(api.posted).toEqual([]);
   });
 
@@ -392,10 +416,136 @@ describe("the new-strategy dialog", () => {
       settlement_currency: "USDT",
       fill_mode: "SKIP",
       allocation_percent: "100",
+      leverage: 1,
       visibility: "PRIVATE",
       allowed_pairs: ["STXUSDT"],
     });
     expect(api.posted[0]?.url).toMatch(/\/api\/strategies$/);
+  });
+
+  it("offers the author's leverage at x1 and posts the one chosen, as a number", async () => {
+    const api = creationApi(created);
+    stubApi(HEALTH, [], POOLS, {}, api.route);
+    renderAt(<AppRoutes />, "/strategies/authored");
+    await screen.findByText(en.strategies.empty);
+    openDialog();
+
+    const field = screen.getByRole("textbox", { name: en.strategies.leverage.label });
+    expect(field).toHaveValue("1");
+    expect(screen.getByRole("slider", { name: en.strategies.leverage.label })).toHaveValue("1");
+    fireEvent.click(screen.getByRole("button", { name: i18n.t("strategies.leverage.stop", { value: 15 }) }));
+    expect(field).toHaveValue("15");
+    fireEvent.change(field, { target: { value: "4" } });
+    fill("Delta");
+    await choose(["STXUSDT"]);
+    fireEvent.click(submitButton());
+
+    await waitFor(() => expect(api.posted).toHaveLength(1));
+    expect(api.posted[0]?.body.leverage).toBe(4);
+    expect(api.posted[0]?.body.allocation_percent).toBe("100");
+  });
+
+  it.each(["0", "21", "2.5", ""])("refuses a leverage of %j in words, disables the submit and posts nothing", async (text) => {
+    const api = creationApi(created);
+    stubApi(HEALTH, [], POOLS, {}, api.route);
+    renderAt(<AppRoutes />, "/strategies/authored");
+    await screen.findByText(en.strategies.empty);
+    const dialog = openDialog();
+    fill("Delta");
+    await choose(["STXUSDT"]);
+    expect(submitButton()).toBeEnabled();
+
+    const field = screen.getByRole("textbox", { name: en.strategies.leverage.label });
+    fireEvent.change(field, { target: { value: text } });
+
+    expect(field).toHaveAttribute("aria-invalid", "true");
+    expect(within(dialog).getByText(en.strategies.leverage.invalid)).toBeInTheDocument();
+    expect(submitButton()).toBeDisabled();
+    fireEvent.submit(field.closest("form") as HTMLFormElement);
+    // A request would leave on a later task, so the check waits for one to have had its chance.
+    await act(
+      () =>
+        new Promise<void>((resolve) => {
+          setTimeout(resolve, 0);
+        }),
+    );
+    expect(api.posted).toEqual([]);
+  });
+
+  it("starts the share at 0 with a hint asking for one, no refusal, and sends nothing, button or Enter", async () => {
+    const api = creationApi(created);
+    stubApi(HEALTH, [], POOLS, {}, api.route);
+    renderAt(<AppRoutes />, "/strategies/authored");
+    await screen.findByText(en.strategies.empty);
+    const dialog = openDialog();
+
+    const field = shareField();
+    expect(field).toHaveValue("0");
+    expect(field).toHaveAttribute("aria-invalid", "false");
+    expect(within(dialog).getByText(en.strategies.detail.share.startHint)).toBeInTheDocument();
+    expect(within(dialog).queryByText(en.strategies.detail.share.outOfRange)).not.toBeInTheDocument();
+    // The share is the field before the leverage field.
+    const leverageField = screen.getByRole("textbox", { name: en.strategies.leverage.label });
+    expect(field.compareDocumentPosition(leverageField) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText(en.strategies.new.name), { target: { value: "Delta" } });
+    selectPool("usdt-m/USDT");
+    fireEvent.change(screen.getByLabelText(en.strategies.new.fillMode), { target: { value: "SKIP" } });
+    await choose(["STXUSDT"]);
+    expect(submitButton()).toBeDisabled();
+    fireEvent.click(submitButton());
+    fireEvent.submit(field.closest("form") as HTMLFormElement);
+    await whatWasPressedHasRun();
+    expect(api.posted).toEqual([]);
+  });
+
+  it("posts exactly the share typed by hand", async () => {
+    const api = creationApi(created);
+    stubApi(HEALTH, [], POOLS, {}, api.route);
+    renderAt(<AppRoutes />, "/strategies/authored");
+    await screen.findByText(en.strategies.empty);
+    const dialog = openDialog();
+
+    fill("Delta", "usdt-m/USDT", "SKIP", en, "12,5");
+    await choose(["STXUSDT"]);
+    expect(within(dialog).queryByText(en.strategies.detail.share.startHint)).not.toBeInTheDocument();
+    fireEvent.click(submitButton());
+
+    await waitFor(() => expect(api.posted).toHaveLength(1));
+    expect(api.posted[0]?.body.allocation_percent).toBe("12.5");
+  });
+
+  it("refuses a share of 0 typed by hand in words, drops the hint and sends nothing", async () => {
+    const api = creationApi(created);
+    stubApi(HEALTH, [], POOLS, {}, api.route);
+    renderAt(<AppRoutes />, "/strategies/authored");
+    await screen.findByText(en.strategies.empty);
+    const dialog = openDialog();
+
+    fill("Delta");
+    await choose(["STXUSDT"]);
+    expect(submitButton()).toBeEnabled();
+    const field = shareField();
+    fireEvent.change(field, { target: { value: "0" } });
+
+    expect(field).toHaveAttribute("aria-invalid", "true");
+    expect(within(dialog).getByText(en.strategies.detail.share.outOfRange)).toBeInTheDocument();
+    expect(within(dialog).queryByText(en.strategies.detail.share.startHint)).not.toBeInTheDocument();
+    expect(submitButton()).toBeDisabled();
+    fireEvent.submit(field.closest("form") as HTMLFormElement);
+    await whatWasPressedHasRun();
+    expect(api.posted).toEqual([]);
+  });
+
+  it("asks for no amount of the share: there is no strategy to ask about yet", async () => {
+    const fetchMock = stubApi(HEALTH, [], POOLS, {}, creationApi(created).route);
+    renderAt(<AppRoutes />, "/strategies/authored");
+    await screen.findByText(en.strategies.empty);
+    openDialog();
+
+    fireEvent.change(shareField(), { target: { value: "25" } });
+    await whatWasPressedHasRun();
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes("/share-preview"))).toBe(false);
   });
 
   it("offers the visibility, private by default, and posts the one chosen", async () => {
@@ -533,8 +683,9 @@ describe("the new-strategy dialog", () => {
     // No pool: there is nothing to choose pairs from, and submit is not available.
     expect(submitButton()).toBeDisabled();
 
-    // A pool and a pair, but no name and no behaviour.
+    // A pool, a pair and a share, but no name and no behaviour.
     selectPool("usdt-m/USDT");
+    fireEvent.change(shareField(), { target: { value: "30" } });
     await choose(["STXUSDT"]);
     fireEvent.click(submitButton());
 
@@ -673,6 +824,131 @@ describe("the new-strategy dialog", () => {
 
     expect(screen.getByText(en.strategies.new.noPools)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: en.strategies.new.submit })).toBeDisabled();
+  });
+});
+
+/** One task, so a request that would leave has had its chance before a test asserts that none did. */
+function nextTask() {
+  return act(
+    () =>
+      new Promise<void>((resolve) => {
+        setTimeout(resolve, 0);
+      }),
+  );
+}
+
+describe("the description in the new-strategy dialog", () => {
+  async function openFilled() {
+    const api = creationApi(created);
+    stubApi(HEALTH, [], POOLS, {}, api.route);
+    renderAt(<AppRoutes />, "/strategies/authored");
+    await screen.findByText(en.strategies.empty);
+    const dialog = openDialog();
+    fill("Delta");
+    await choose(["STXUSDT"]);
+    return { api, dialog };
+  }
+
+  it("offers an optional multi-line field, empty, with a counter", async () => {
+    const { dialog } = await openFilled();
+
+    const field = within(dialog).queryByRole("textbox", { name: "Description" });
+    expect(field).toBeInTheDocument();
+    expect(field?.tagName).toBe("TEXTAREA");
+    expect(field).toHaveValue("");
+    expect(field).not.toBeRequired();
+    expect(within(dialog).getByText("0 / 2000")).toBeInTheDocument();
+    expect(submitButton()).toBeEnabled();
+
+    fireEvent.change(field as HTMLElement, { target: { value: "Runs at 3x" } });
+    expect(within(dialog).getByText("10 / 2000")).toBeInTheDocument();
+  });
+
+  it("explains itself in an information disclosure", async () => {
+    const { dialog } = await openFilled();
+
+    expect(within(dialog).queryByText(i18n.t("strategies.description.hint"))).not.toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: en.strategies.description.info }));
+    expect(within(dialog).getByText(en.strategies.description.hint)).toBeInTheDocument();
+  });
+
+  it("leaves description out of the body when it is untouched", async () => {
+    const { api } = await openFilled();
+    fireEvent.click(submitButton());
+
+    await waitFor(() => expect(api.posted).toHaveLength(1));
+    expect("description" in (api.posted[0]?.body ?? {})).toBe(false);
+  });
+
+  it("leaves description out of the body when it reads as blank", async () => {
+    const { api, dialog } = await openFilled();
+    fireEvent.change(within(dialog).getByRole("textbox", { name: "Description" }), { target: { value: " \t\r\n  " } });
+    fireEvent.click(submitButton());
+
+    await waitFor(() => expect(api.posted).toHaveLength(1));
+    expect("description" in (api.posted[0]?.body ?? {})).toBe(false);
+  });
+
+  it("sends the text as typed, line breaks and padding included", async () => {
+    const { api, dialog } = await openFilled();
+    const typed = "  Recommended leverage x3.\nSecond line <b>x</b>\n";
+    fireEvent.change(within(dialog).getByRole("textbox", { name: "Description" }), { target: { value: typed } });
+    fireEvent.click(submitButton());
+
+    await waitFor(() => expect(api.posted).toHaveLength(1));
+    expect(api.posted[0]?.body.description).toBe(typed);
+  });
+
+  it("accepts exactly 2,000 characters", async () => {
+    const { api, dialog } = await openFilled();
+    const field = within(dialog).getByRole("textbox", { name: "Description" });
+    fireEvent.change(field, { target: { value: "a".repeat(2000) } });
+
+    expect(within(dialog).getByText("2000 / 2000")).toBeInTheDocument();
+    expect(field).not.toHaveAttribute("aria-invalid", "true");
+    expect(submitButton()).toBeEnabled();
+    fireEvent.click(submitButton());
+    await waitFor(() => expect(api.posted).toHaveLength(1));
+    expect(api.posted[0]?.body.description).toBe("a".repeat(2000));
+  });
+
+  it("refuses 2,001 characters in words, disables the submit and posts nothing", async () => {
+    const { api, dialog } = await openFilled();
+    const field = within(dialog).getByRole("textbox", { name: "Description" });
+    fireEvent.change(field, { target: { value: "a".repeat(2001) } });
+
+    expect(within(dialog).getByText("2001 / 2000")).toBeInTheDocument();
+    expect(field).toHaveAttribute("aria-invalid", "true");
+    const problem = within(dialog).getByText(en.strategies.description.tooLong);
+    expect(field).toHaveAccessibleDescription(expect.stringContaining(en.strategies.description.tooLong));
+    expect(problem).toBeInTheDocument();
+    expect(submitButton()).toBeDisabled();
+    fireEvent.submit(field.closest("form") as HTMLFormElement);
+    await nextTask();
+    expect(api.posted).toEqual([]);
+  });
+
+  it("counts characters, not UTF-16 units, and ignores the padding the server trims", async () => {
+    const { dialog } = await openFilled();
+    const field = within(dialog).getByRole("textbox", { name: "Description" });
+
+    fireEvent.change(field, { target: { value: "\u{1F600}".repeat(2000) } });
+    expect(within(dialog).getByText("2000 / 2000")).toBeInTheDocument();
+    expect(submitButton()).toBeEnabled();
+
+    fireEvent.change(field, { target: { value: `  ${"a".repeat(2000)}\n` } });
+    expect(within(dialog).getByText("2000 / 2000")).toBeInTheDocument();
+    expect(submitButton()).toBeEnabled();
+  });
+
+  it("is labelled in Spanish", async () => {
+    await act(() => i18n.changeLanguage("es"));
+    stubApi(HEALTH, [], POOLS, {}, creationApi(created).route);
+    renderAt(<AppRoutes />, "/strategies/authored");
+    await screen.findByText(es.strategies.empty);
+    const dialog = openDialog(es as Locale);
+
+    expect(within(dialog).getByRole("textbox", { name: "Descripción" })).toBeInTheDocument();
   });
 });
 

@@ -52,6 +52,8 @@ export interface PublicStrategy {
   unleveraged_return_before_fees: string;
   live_subscribers: number;
   capital: string | null;
+  /** The author's plain text about the strategy, shown as text and never as markup; null when there is none. */
+  description: string | null;
 }
 
 /** The three values that name one capital pool (`PoolRef` on the server). */
@@ -150,6 +152,8 @@ export interface Subscription {
   strategy_id: string;
   pool_id: number;
   allocation_percent: string;
+  /** The leverage the system sets on the exchange before this subscription's next opening: a whole number from 1 to 20. */
+  leverage: number;
   status: SubscriptionStatus;
   created_at: string | null;
   left_at: string | null;
@@ -179,6 +183,8 @@ export interface Strategy {
   uptime: StrategyUptime;
   visibility: Visibility;
   secret_last4: string;
+  /** The author's plain text about the strategy, up to 2,000 characters; null when there is none. */
+  description: string | null;
   subscribers: number;
   live_subscribers: number;
   capital: string | null;
@@ -213,8 +219,17 @@ export interface RegisterStrategyBody {
   settlement_currency: string;
   fill_mode: FillMode;
   allocation_percent: string;
+  /** The leverage of the author's own subscription, a whole number from 1 to 20. */
+  leverage: number;
   visibility: Visibility;
   allowed_pairs: string[];
+  /** Left out when the author wrote none; the server trims it and turns a blank one into null. */
+  description?: string | null;
+}
+
+/** The body of `PATCH /api/strategies/{id}` for the description alone: null clears it. */
+export interface UpdateStrategyDescriptionBody {
+  description: string | null;
 }
 
 /**
@@ -263,7 +278,9 @@ export interface SharePreviewStep {
 /**
  * `GET /api/strategies/{id}/share-preview` (`SharePreviewBody`). `balance`,
  * `exact` and `steps` are null, null and empty together: a pool nothing has
- * synced has no amount, never a zero.
+ * synced has no amount, never a zero. `exact` is also null when the caller
+ * holds no seat and asked no share (decision 39): `balance` and the hundred
+ * `steps` are still served, and the panel draws no figure until a share is typed.
  */
 export interface SharePreview {
   strategy_id: string;

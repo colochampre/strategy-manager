@@ -39,6 +39,7 @@ from strategy_manager.execution.application.ports import (
     ExchangeError,
     ExecutionAttemptRepositoryPort,
     ModeExchangesPort,
+    OpeningSettingRefused,
     OpenOrderSpec,
     OrderNotPlaceable,
     OrderOutcomeRecorderPort,
@@ -54,6 +55,7 @@ from strategy_manager.execution.domain.order import MarketBuy, MarketSell, Order
 from strategy_manager.execution.domain.placeable import PlaceableOrder
 from strategy_manager.shared.application.job import Job, JobKind
 from strategy_manager.shared.application.ports import ClockPort, JobQueuePort
+from strategy_manager.shared.domain.leverage import Leverage
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +87,9 @@ class PlaceCommand:
     symbol: str
     side: OrderSide
     price: Decimal
+    # The subscription's own choice (decision 38): every opening of it is placed at
+    # this leverage, a REVERSE's opening included.
+    leverage: Leverage
 
 
 @dataclass(frozen=True, slots=True)
@@ -169,7 +174,29 @@ class PlaceOrder:
                     side=command.side,
                     granted=reservation.amount,
                     price=command.price,
+                    leverage=command.leverage,
                 )
+            )
+        except OpeningSettingRefused as exc:
+            # Decision 38: the leverage or margin the opening depends on did
+            # not hold, and the venue's answer was definitive. Same shape as
+            # an unplaceable size -- nothing written yet, release and reject
+            # on one commit -- but logged as an ERROR, because a setting the
+            # user chose was refused and an operator has to look.
+            await self._reservations.mark(command.user_id, reservation.id, RELEASED, now)
+            setting_refused = (
+                "opening setting refused, releasing reservation: "
+                f"reservation={reservation.id} strategy={reservation.strategy_id} "
+                f"symbol={command.symbol} leverage=x{command.leverage.value} "
+                f"reason={exc}"
+            )
+            await self._outcomes.record_rejected(
+                command.delivery_id, exc.reason_code, setting_refused
+            )
+            await self._commit.commit()
+            logger.error("%s", setting_refused)
+            return PlaceResult(
+                status="REFUSED", execution_attempt_id=None, error=str(exc)
             )
         except OrderNotPlaceable as exc:
             # Definitive: the venue's own per-symbol rules make this size

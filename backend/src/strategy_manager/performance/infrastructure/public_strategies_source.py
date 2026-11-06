@@ -71,6 +71,7 @@ def _listings_query() -> Select[Any]:
             StrategyRow.venue,
             StrategyRow.settlement_currency,
             StrategyRow.created_at,
+            StrategyRow.description,
         )
         .join(UserRow, UserRow.id == StrategyRow.author_id)
         .where(*LISTED)
@@ -86,6 +87,7 @@ def _listing(row: Row[Any]) -> PublicListing:
         venue=row.venue,
         settlement_currency=row.settlement_currency,
         created_at=row.created_at,
+        description=row.description,
     )
 
 

@@ -50,6 +50,7 @@ from decimal import Decimal
 from typing import Any
 from uuid import uuid4
 
+from held_leverage import held_leverage
 from probe_credentials import add_user_email_argument, announce, vault_credentials
 
 from strategy_manager.accounts.infrastructure.bybit_balance_reader import (
@@ -209,6 +210,19 @@ async def main() -> int:
             price = await reader.last_price(symbol)
             print(f"  available {available} USDT   last price {price}")
 
+            # The adapter SETS the spec's leverage (decision 38). Asking for the
+            # one the symbol already holds keeps the preview from changing it.
+            venue_leverage = await reader.leverage_for(symbol)
+            asked = held_leverage(venue_leverage)
+            if asked is None:
+                print(
+                    f"REFUSING: {symbol} is at {venue_leverage}x, which this "
+                    "system cannot ask for (a whole number from 1 to 20). Set "
+                    "it in Bybit first.",
+                    file=sys.stderr,
+                )
+                return 1
+
             if available < granted:
                 print(
                     f"REFUSING: the pool has {available} USDT, less than the "
@@ -229,6 +243,7 @@ async def main() -> int:
                         side=OrderSide.BUY,
                         granted=granted,
                         price=price,
+                        leverage=asked,
                     )
                 )
             except (ExchangeError, BybitApiError) as exc:

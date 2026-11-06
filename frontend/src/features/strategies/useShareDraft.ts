@@ -115,6 +115,8 @@ export function useShareDraft(strategyId: string, stored: string | null, onEdit?
     reading,
     handle,
     amount,
+    /** Whether the user has moved the control since the stored value was last the starting point. */
+    edited: current !== null,
     // When the balance was read, from the first read; there is no time to name until a balance exists.
     readAt: preview.data?.balance?.observed_at ?? null,
     changeText,

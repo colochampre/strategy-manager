@@ -49,6 +49,7 @@ from strategy_manager.ledger.application.read_symbol_holdings import ReadSymbolH
 from strategy_manager.ledger.application.record_fill import RecordFill
 from strategy_manager.ledger.infrastructure.models import LedgerEntryRow
 from strategy_manager.ledger.infrastructure.repository import SqlAlchemyLedgerRepository
+from strategy_manager.shared.domain.leverage import NEW_SEAT_LEVERAGE
 from strategy_manager.shared.domain.money import Currency
 from strategy_manager.shared.infrastructure.job_queue import PostgresJobQueue
 from strategy_manager.shared.infrastructure.usd_rate import FixedUsdRateProvider
@@ -298,6 +299,7 @@ async def _place_open(
                 symbol=_TRADINGVIEW,
                 side=OrderSide.BUY,
                 price=Decimal("2"),
+                leverage=NEW_SEAT_LEVERAGE,
             )
         )
     assert result.status == "PLACED"

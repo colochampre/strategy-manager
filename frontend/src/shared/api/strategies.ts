@@ -44,6 +44,8 @@ function isStrategy(value: unknown): value is Strategy {
     value.secret_last4.length === SECRET_LAST4_LENGTH &&
     isCount(value.subscribers) &&
     isCount(value.live_subscribers) &&
+    // The author's free text, or null when there is none. Never absent.
+    (value.description === null || typeof value.description === "string") &&
     // Null under the brake, when nobody trades live. Never absent.
     (value.capital === null || typeof value.capital === "string")
   );
@@ -145,6 +147,22 @@ export async function setStrategyVisibility(strategyId: string, visibility: Visi
   return body;
 }
 
+/**
+ * `PATCH /api/strategies/{id}` with only `description`: every other field stays unchanged. The text goes as typed
+ * (the server trims it and reads a blank one as none); `null` clears it. The answer is checked, as for a read.
+ */
+export async function setStrategyDescription(strategyId: string, description: string | null): Promise<Strategy> {
+  const body = await apiFetch<unknown>(`/strategies/${encodeURIComponent(strategyId)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ description }),
+  });
+  if (!isStrategy(body)) {
+    throw new ApiError(200, { detail: "Unexpected response shape from PATCH /strategies/{id}: expected a strategy" });
+  }
+  return body;
+}
+
 /** Every strategy mutation ends here, so the list and the detail never show a stale state. */
 export function useInvalidateStrategies() {
   const queryClient = useQueryClient();
@@ -189,6 +207,24 @@ export function useSetStrategyVisibility(strategyId: string) {
   const queryClient = useQueryClient();
   return useMutation<Strategy, Error, Visibility>({
     mutationFn: (visibility) => setStrategyVisibility(strategyId, visibility),
+    onSuccess: (saved) => {
+      queryClient.setQueryData(["strategy", strategyId], saved);
+    },
+    onSettled: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["strategies"] });
+      await queryClient.invalidateQueries({ queryKey: ["strategy", strategyId] });
+    },
+  });
+}
+
+/**
+ * Changes the description. On success the checked answer is written into `['strategy', id]`, so the page shows
+ * what the server kept (trimmed); settled, both keys are read again, so a refusal leaves the page on the stored state.
+ */
+export function useSetStrategyDescription(strategyId: string) {
+  const queryClient = useQueryClient();
+  return useMutation<Strategy, Error, string | null>({
+    mutationFn: (description) => setStrategyDescription(strategyId, description),
     onSuccess: (saved) => {
       queryClient.setQueryData(["strategy", strategyId], saved);
     },

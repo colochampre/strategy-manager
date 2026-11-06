@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { Fragment, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { useParams } from "react-router";
 
@@ -9,6 +9,8 @@ import { DeleteStrategyControl } from "@/features/strategies/DeleteStrategyContr
 import { EnablementHistory } from "@/features/strategies/EnablementHistory";
 import { EnableToggle } from "@/features/strategies/EnableToggle";
 import { PoolShareEditor } from "@/features/strategies/PoolShareEditor";
+import { StrategyDescriptionEditor } from "@/features/strategies/StrategyDescriptionEditor";
+import { SubscriptionLeverageEditor } from "@/features/strategies/SubscriptionLeverageEditor";
 import { BackToStrategies, StrategyHeader } from "@/features/strategies/StrategyHeader";
 import { StrategyPerformance } from "@/features/strategies/StrategyPerformance";
 import { TradesTable } from "@/features/strategies/TradesTable";
@@ -81,7 +83,12 @@ export function StrategyDetailPage() {
             <h2 className="font-display text-base font-semibold text-ink">{t("strategies.detail.settings")}</h2>
             <VisibilityControl strategy={subject} />
           </div>
-          <PoolShareEditor key={subject.id} strategy={subject} />
+          {/* One key for the three: each starts over for another strategy, and sibling keys stay unique. */}
+          <Fragment key={subject.id}>
+            <PoolShareEditor strategy={subject} />
+            <SubscriptionLeverageEditor strategy={subject} />
+            <StrategyDescriptionEditor strategy={subject} />
+          </Fragment>
           <AllowedPairsEditor strategy={subject} />
           <div className="flex flex-col gap-2 border-t border-rule pt-4">
             <EnableToggle strategy={subject} />

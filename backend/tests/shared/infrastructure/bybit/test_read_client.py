@@ -220,6 +220,59 @@ async def test_leverage_for_a_symbol_the_venue_omits_fails_loudly(
         await client.leverage_for("BTCUSDT")
 
 
+async def test_the_position_of_a_symbol_is_matched_by_symbol_with_its_size_and_leverage(
+    signer: BybitSigner, recorded: list[httpx.Request]
+) -> None:
+    """One read answers both questions an opening asks before it writes: the
+    pair's leverage, and whether the user already holds it (decision 38)."""
+    other = {**POSITION, "symbol": "ETHUSDT", "leverage": "3", "size": "0"}
+    responses = {
+        POSITIONS_PATH: httpx.Response(200, json=_envelope({"list": [other, POSITION]}))
+    }
+    client = _client(signer, responses, recorded)
+
+    position = await client.position_for("BTCUSDT")
+
+    assert (position.symbol, position.leverage, position.signed_size) == (
+        "BTCUSDT",
+        Decimal("10"),
+        Decimal("0.015"),
+    )
+    assert recorded[0].url.params["symbol"] == "BTCUSDT"
+    assert recorded[0].url.params["category"] == "linear"
+
+
+async def test_the_position_of_a_symbol_the_venue_omits_fails_loudly(
+    signer: BybitSigner, recorded: list[httpx.Request]
+) -> None:
+    responses = {POSITIONS_PATH: httpx.Response(200, json=_envelope({"list": []}))}
+    client = _client(signer, responses, recorded)
+
+    with pytest.raises(BybitApiError, match="no position"):
+        await client.position_for("BTCUSDT")
+
+
+async def test_the_margin_mode_is_read_from_the_account(
+    signer: BybitSigner, recorded: list[httpx.Request]
+) -> None:
+    payload = _envelope({"marginMode": "ISOLATED_MARGIN", "unifiedMarginStatus": 6})
+    client = _client(signer, {ACCOUNT_INFO_PATH: httpx.Response(200, json=payload)}, recorded)
+
+    assert await client.margin_mode() == "ISOLATED_MARGIN"
+
+
+@pytest.mark.parametrize("result", [{}, {"marginMode": ""}, {"marginMode": 1}])
+async def test_a_margin_mode_that_cannot_be_read_fails_loudly(
+    signer: BybitSigner, recorded: list[httpx.Request], result: dict[str, Any]
+) -> None:
+    client = _client(
+        signer, {ACCOUNT_INFO_PATH: httpx.Response(200, json=_envelope(result))}, recorded
+    )
+
+    with pytest.raises(BybitApiError, match="marginMode"):
+        await client.margin_mode()
+
+
 async def test_balances_are_read_from_the_nested_unified_account(
     signer: BybitSigner, recorded: list[httpx.Request]
 ) -> None:

@@ -41,6 +41,7 @@ function strategy(overrides: Partial<Strategy> = {}): Strategy {
     uptime: { seconds: 0, first_enabled_at: null, baseline: false },
     visibility: "PRIVATE",
     secret_last4: "x4F2",
+    description: null,
     subscribers: 1,
     live_subscribers: 0,
     capital: null,
@@ -453,7 +454,7 @@ describe("StrategyDetailPage", () => {
     const [header, first] = Array.from(settings.children) as [HTMLElement, HTMLElement];
     expect(header).toContainElement(within(settings).getByRole("heading", { level: 2, name: en.strategies.detail.settings }));
     expect(first).toContainElement(slider);
-    expect(within(settings).getByRole("textbox")).toHaveValue("37.5");
+    expect(within(settings).getByRole("textbox", { name: en.strategies.detail.share.label })).toHaveValue("37.5");
     const pairs = within(settings).getByRole("list", { name: en.strategies.pairs.selected });
     expect(first).not.toContainElement(pairs);
     expect(first.compareDocumentPosition(pairs) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -494,6 +495,58 @@ describe("StrategyDetailPage", () => {
     expect(header.textContent).not.toContain(en.strategies.detail.share.label);
   });
 
+  it("test_the_leverage_control_follows_the_share_control_in_the_settings_column", async () => {
+    renderPage(strategy({ subscription: subscriptionOf(ID, "37.5", { leverage: 4 }) }));
+    await heading("ETH Breakout");
+
+    const settings = screen.getByRole("complementary", { name: en.strategies.detail.settings });
+    const share = within(settings).getByRole("slider", { name: en.strategies.detail.share.label });
+    const leverage = within(settings).getByRole("slider", { name: en.strategies.leverage.label });
+    expect(within(settings).getByRole("textbox", { name: en.strategies.leverage.label })).toHaveValue("4");
+    expect(leverage).toHaveValue("4");
+    expect(share.compareDocumentPosition(leverage) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const pairs = within(settings).getByRole("list", { name: en.strategies.pairs.selected });
+    expect(leverage.compareDocumentPosition(pairs) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(settings).getByRole("button", { name: en.strategies.leverage.save })).toBeDisabled();
+  });
+
+  it("puts the description editor in the settings column after the leverage, and saves only the description", async () => {
+    const patched: unknown[] = [];
+    renderPage(strategy({ description: "Runs at 3x" }), {
+      patch: (body) => {
+        patched.push(body);
+        return jsonResponse(strategy({ description: "Runs at 5x" }));
+      },
+    });
+    await heading("ETH Breakout");
+
+    const settings = screen.getByRole("complementary", { name: en.strategies.detail.settings });
+    const description = within(settings).getByRole("textbox", { name: en.strategies.description.label });
+    expect(description).toHaveValue("Runs at 3x");
+    const leverage = within(settings).getByRole("slider", { name: en.strategies.leverage.label });
+    expect(leverage.compareDocumentPosition(description) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    fireEvent.change(description, { target: { value: "Runs at 5x" } });
+    fireEvent.click(within(settings).getByRole("button", { name: en.strategies.description.save }));
+
+    await waitFor(() => expect(patched).toEqual([{ description: "Runs at 5x" }]));
+  });
+
+  it("shows the description editor read-only on an archived strategy", async () => {
+    renderPage(strategy({ archived_at: "2026-09-01T00:00:00+00:00", description: "Runs at 3x" }));
+    await heading("ETH Breakout");
+
+    const description = screen.getByRole("textbox", { name: en.strategies.description.label });
+    expect(description).toBeDisabled();
+    expect(description).toHaveValue("Runs at 3x");
+  });
+
+  it("test_an_archived_strategy_shows_the_leverage_control_read_only", async () => {
+    renderPage(strategy({ archived_at: "2026-09-01T00:00:00+00:00" }));
+    await heading("ETH Breakout");
+    expect(screen.getByRole("slider", { name: en.strategies.leverage.label })).toBeDisabled();
+  });
+
   it("test_an_archived_strategy_shows_the_control_read_only", async () => {
     renderPage(strategy({ subscription: subscriptionOf(ID, "37.5"), archived_at: "2026-09-01T00:00:00+00:00" }));
     await heading("ETH Breakout");
@@ -502,8 +555,8 @@ describe("StrategyDetailPage", () => {
     const slider = within(settings).queryByRole("slider", { name: en.strategies.detail.share.label });
     expect(slider).toBeInTheDocument();
     expect(slider).toBeDisabled();
-    expect(within(settings).getByRole("textbox")).toBeDisabled();
-    expect(within(settings).getByRole("textbox")).toHaveValue("37.5");
+    expect(within(settings).getByRole("textbox", { name: en.strategies.detail.share.label })).toBeDisabled();
+    expect(within(settings).getByRole("textbox", { name: en.strategies.detail.share.label })).toHaveValue("37.5");
     expect(within(settings).getByRole("button", { name: en.strategies.detail.share.save })).toBeDisabled();
     expect(within(settings).getByRole("button", { name: i18n.t("strategies.detail.share.stop", { value: 25 }) })).toBeDisabled();
   });
@@ -530,16 +583,50 @@ describe("StrategyDetailPage", () => {
     await heading("ETH Breakout");
 
     // Both strategies store 100. A value typed on the first, and an explanation opened on it, are its own.
-    fireEvent.change(screen.getByRole("textbox"), { target: { value: "40" } });
+    fireEvent.change(screen.getByRole("textbox", { name: en.strategies.detail.share.label }), { target: { value: "40" } });
     fireEvent.click(screen.getByRole("button", { name: en.strategies.detail.share.info }));
-    expect(screen.getByRole("textbox")).toHaveValue("40");
+    expect(screen.getByRole("textbox", { name: en.strategies.detail.share.label })).toHaveValue("40");
     expect(screen.getByText(en.strategies.detail.share.hint)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("link", { name: "next strategy" }));
     await heading("SOL Trend");
 
-    expect(screen.getByRole("textbox")).toHaveValue("100");
+    expect(screen.getByRole("textbox", { name: en.strategies.detail.share.label })).toHaveValue("100");
     expect(screen.queryByText(en.strategies.detail.share.hint)).toBeNull();
+  });
+
+  it("test_returning_to_a_cached_strategy_draws_one_of_each_editor", async () => {
+    // Verifier A1: three sibling editors once shared one key, so switching to a strategy whose query was
+    // already cached (no pending render in between) left the previous strategy's editors on screen.
+    const OTHER = "22222222-2222-4222-8222-222222222222";
+    const first = strategyRoute(ID, "ETH Breakout");
+    const second = strategyRoute(OTHER, "SOL Trend");
+    stubApi(HEALTH, [], undefined, {}, (url, init) => first(url, init) ?? second(url, init));
+    renderAt(
+      <Routes>
+        <Route
+          path="strategies/:strategyId"
+          element={
+            <>
+              <Link to={`/strategies/${ID}`}>first strategy</Link>
+              <Link to={`/strategies/${OTHER}`}>second strategy</Link>
+              <StrategyDetailPage />
+            </>
+          }
+        />
+      </Routes>,
+      `/strategies/${OTHER}`,
+    );
+    await heading("SOL Trend");
+    fireEvent.click(screen.getByRole("link", { name: "first strategy" }));
+    await heading("ETH Breakout");
+
+    fireEvent.click(screen.getByRole("link", { name: "second strategy" }));
+    await heading("SOL Trend");
+
+    const settings = screen.getByRole("complementary", { name: en.strategies.detail.settings });
+    expect(within(settings).getAllByRole("textbox", { name: en.strategies.detail.share.label })).toHaveLength(1);
+    expect(within(settings).getAllByRole("slider", { name: en.strategies.leverage.label })).toHaveLength(1);
   });
 
   it("test_every_new_key_exists_in_both_languages", () => {
@@ -558,9 +645,9 @@ describe("StrategyDetailPage", () => {
       ].sort();
 
     expect(newKeys(es)).toEqual(newKeys(en));
-    // 26 share texts (with the subscription's not-active, leaving and none), "Saved", six webhook texts and
-    // the Win rate heading.
-    expect(newKeys(en)).toHaveLength(26 + 1 + 6 + 1);
+    // 27 share texts (with the subscription's not-active, leaving and none, and the start hint), "Saved", six
+    // webhook texts and the Win rate heading.
+    expect(newKeys(en)).toHaveLength(27 + 1 + 6 + 1);
     for (const key of newKeys(en)) {
       expect(i18n.exists(key, { lng: "en" })).toBe(true);
       // Without the fallback to English, so a Spanish key that was deleted is not found.

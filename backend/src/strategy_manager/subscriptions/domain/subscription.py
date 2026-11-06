@@ -11,6 +11,7 @@ from enum import StrEnum
 from uuid import UUID
 
 from strategy_manager.shared.domain.errors import InvariantViolation
+from strategy_manager.shared.domain.leverage import NEW_SEAT_LEVERAGE, Leverage
 from strategy_manager.strategies.domain.strategy import AllocationPercent
 
 
@@ -35,13 +36,16 @@ _LEGAL_TRANSITIONS: dict[SubscriptionStatus, frozenset[SubscriptionStatus]] = {
 @dataclass(frozen=True, slots=True)
 class Subscription:
     """Mirrors a row of ``subscriptions``. ``pool_id`` is the subscriber's own
-    pool for the strategy's market; the database enforces both halves."""
+    pool for the strategy's market; the database enforces both halves.
+    ``leverage`` is the subscriber's own choice (decision 38); a new seat starts
+    at one times."""
 
     id: UUID
     user_id: UUID
     strategy_id: UUID
     pool_id: int
     allocation_percent: AllocationPercent
+    leverage: Leverage = NEW_SEAT_LEVERAGE
     status: SubscriptionStatus = SubscriptionStatus.ACTIVE
     created_at: datetime | None = None
     left_at: datetime | None = None
@@ -66,6 +70,17 @@ class Subscription:
                 f"only an ACTIVE subscription changes its share, this one is {self.status}"
             )
         return replace(self, allocation_percent=allocation_percent)
+
+    def change_leverage(self, leverage: Leverage) -> "Subscription":
+        """A new leverage, for an ACTIVE subscription only, for the same reason as
+        the share. It applies from the next opening: one already open keeps the
+        leverage it was placed at."""
+
+        if self.status is not SubscriptionStatus.ACTIVE:
+            raise InvariantViolation(
+                f"only an ACTIVE subscription changes its leverage, this one is {self.status}"
+            )
+        return replace(self, leverage=leverage)
 
     def _move_to(self, new_status: SubscriptionStatus) -> "Subscription":
         if new_status not in _LEGAL_TRANSITIONS[self.status]:

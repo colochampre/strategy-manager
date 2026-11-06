@@ -86,6 +86,7 @@ async def subscription(
     *,
     status: str = "ACTIVE",
     share: str = "30",
+    leverage: int | None = None,
     created_at: datetime | None = None,
 ) -> UUID:
     subscription_id = uuid4()
@@ -101,6 +102,9 @@ async def subscription(
         if created_at is not None:
             # Otherwise the column's server default stamps it.
             row.created_at = created_at
+        if leverage is not None:
+            # Otherwise the column's server default, one.
+            row.leverage = leverage
         session.add(row)
         await session.commit()
     return subscription_id
@@ -205,6 +209,7 @@ async def rows(factory: Factory) -> list[tuple[Any, ...]]:
                 SubscriptionRow.strategy_id,
                 SubscriptionRow.pool_id,
                 SubscriptionRow.allocation_percent,
+                SubscriptionRow.leverage,
                 SubscriptionRow.status,
                 SubscriptionRow.left_at,
                 SubscriptionRow.ended_at,

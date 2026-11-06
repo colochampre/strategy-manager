@@ -195,6 +195,28 @@ describe("changing a share", () => {
     expect(init.body).toBe('{"allocation_percent":"45"}');
   });
 
+  it("opens the leverage control beside the share and saves only the leverage on that subscription", async () => {
+    const row = heldSubscription({ leverage: 2 });
+    const fetchMock = serve({
+      held: () => Promise.resolve(jsonResponse([row])),
+      patch: () => Promise.resolve(jsonResponse({ ...row, leverage: 9 })),
+    });
+    open();
+
+    expect(await screen.findByTestId("subscription-row")).toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: i18n.t("strategies.leverage.label") })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: i18n.t("strategies.subscriptions.changeShare") }));
+    const field = await screen.findByRole("textbox", { name: i18n.t("strategies.leverage.label") });
+    expect(field).toHaveValue("2");
+    fireEvent.change(field, { target: { value: "9" } });
+    fireEvent.click(screen.getByRole("button", { name: i18n.t("strategies.leverage.save") }));
+
+    await waitFor(() => expect(requestsTo(fetchMock, `/api/subscriptions/${row.id}`)).toHaveLength(1));
+    const [, init] = requestsTo(fetchMock, `/api/subscriptions/${row.id}`)[0] as [string, RequestInit];
+    expect(init.method).toBe("PATCH");
+    expect(init.body).toBe('{"leverage":9}');
+  });
+
   it("closes the editor again from the same button", async () => {
     serve({ held: () => Promise.resolve(jsonResponse([heldSubscription()])) });
     open();

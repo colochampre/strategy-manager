@@ -16,10 +16,12 @@ from dataclasses import dataclass
 from uuid import UUID, uuid4
 
 import pytest
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from strategy_manager.shared.application.job import ClaimedJob, JobKind
 from strategy_manager.shared.domain.errors import InvariantViolation
+from strategy_manager.shared.domain.leverage import Leverage
 from strategy_manager.signals.application.process_signal import UnknownDeliveryError
 from strategy_manager.signals.infrastructure.delivery_adapters import SqlAlchemyDeliveries
 from strategy_manager.signals.infrastructure.exhausted_job_recorder import FailedJobTarget
@@ -107,6 +109,34 @@ async def test_a_delivery_knows_its_signal_whoever_its_user_is(
         ]
 
     assert answers == [first.signal_id, first.signal_id, second.signal_id]
+
+
+async def test_a_loaded_delivery_carries_its_own_subscriptions_leverage(
+    pg_session_factory: Factory,  # noqa: F811
+) -> None:
+    """Decision 38 (H.4): the author's and another user's deliveries of one signal
+    each carry the leverage of their OWN subscription, read in the same statement
+    as its share."""
+    scenario = await _signal(pg_session_factory)
+    async with pg_session_factory() as session:
+        for user_id, leverage in ((OWNER_ID, 4), (scenario.other, 9)):
+            await session.execute(
+                text(
+                    "UPDATE subscriptions SET leverage = :leverage WHERE user_id = :user "
+                    "AND id IN (SELECT subscription_id FROM signal_deliveries "
+                    "WHERE signal_id = :signal)"
+                ),
+                {"leverage": leverage, "user": user_id, "signal": scenario.signal_id},
+            )
+        await session.commit()
+
+    async with pg_session_factory() as session:
+        deliveries = SqlAlchemyDeliveries(session)
+        author = await deliveries.load(scenario.author_delivery)  # type: ignore[arg-type]
+        other = await deliveries.load(scenario.other_delivery)  # type: ignore[arg-type]
+
+    assert (author.user_id, author.leverage) == (OWNER_ID, Leverage(4))
+    assert (other.user_id, other.leverage) == (scenario.other, Leverage(9))
 
 
 async def test_an_unknown_delivery_has_no_signal(

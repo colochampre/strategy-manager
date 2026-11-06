@@ -47,6 +47,7 @@ ClientFor = Callable[[UUID], AsyncClient]
 VIEW_KEYS = {
     "id",
     "name",
+    "description",
     "exchange",
     "venue",
     "settlement_currency",

@@ -16,6 +16,7 @@ from decimal import Decimal
 from uuid import UUID, uuid4
 
 from strategy_manager.allocation.domain.reservation import Reservation, ReservationStatus
+from strategy_manager.shared.domain.leverage import NEW_SEAT_LEVERAGE
 from strategy_manager.shared.domain.mode import Mode
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 from strategy_manager.signals.application.process_signal import Delivery
@@ -95,6 +96,7 @@ def _delivery(signal_id: UUID, user_id: UUID = OWNER_ID) -> Delivery:
         subscription_id=uuid4(),
         user_id=user_id,
         allocation_percent=Decimal("30"),
+        leverage=NEW_SEAT_LEVERAGE,
     )
 
 

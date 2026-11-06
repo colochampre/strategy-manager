@@ -32,6 +32,7 @@ from typing import Any, Final
 
 import httpx
 
+from strategy_manager.shared.domain.leverage import MAX_LEVERAGE
 from strategy_manager.shared.infrastructure.bybit.errors import (
     BybitApiError,
     BybitOrderNotFound,
@@ -39,6 +40,7 @@ from strategy_manager.shared.infrastructure.bybit.errors import (
 from strategy_manager.shared.infrastructure.bybit.read_client import (
     BybitReadOnlyClient,
     PerpContract,
+    Position,
 )
 from strategy_manager.shared.infrastructure.bybit.signer import BybitSigner
 from strategy_manager.shared.infrastructure.bybit.transport import BybitTransport
@@ -47,6 +49,9 @@ CREATE_ORDER_PATH = "/v5/order/create"
 OPEN_ORDERS_PATH = "/v5/order/realtime"
 ORDER_HISTORY_PATH = "/v5/order/history"
 EXECUTIONS_PATH = "/v5/execution/list"
+SET_LEVERAGE_PATH = "/v5/position/set-leverage"
+# "leverage not modified": the symbol already holds the leverage asked for.
+LEVERAGE_ALREADY_SET_CODE: Final = "110043"
 
 LINEAR = "linear"
 MARKET = "Market"
@@ -160,6 +165,49 @@ class BybitTradeClient:
         allocation engine granted.
         """
         return await self._read.leverage_for(symbol)
+
+    async def position_for(self, symbol: str) -> Position:
+        """The symbol's position record, flat or not: leverage and size."""
+        return await self._read.position_for(symbol)
+
+    async def margin_mode(self) -> str:
+        """The account-wide margin mode. Read, never written: switching it
+        would change every position in the account."""
+        return await self._read.margin_mode()
+
+    async def set_leverage(self, symbol: str, leverage: int) -> None:
+        """Sets the symbol's leverage (decision 38). This WRITES an account
+        setting.
+
+        One-way mode takes the same value for both sides. Checked against
+        1..20 before any request, because a value outside this system's range
+        can only be a bug upstream. 110043 means the symbol already holds it;
+        every other refusal keeps its code, so the caller can tell a
+        definitive answer from an unknown outcome.
+        """
+        if (
+            isinstance(leverage, bool)
+            or not isinstance(leverage, int)
+            or not 1 <= leverage <= MAX_LEVERAGE
+        ):
+            raise BybitApiError(
+                f"refusing to set {symbol} leverage to {leverage!r}: this "
+                f"system only sets a leverage from 1 to {MAX_LEVERAGE}"
+            )
+        try:
+            await self._transport.post(
+                SET_LEVERAGE_PATH,
+                {
+                    "category": LINEAR,
+                    "symbol": symbol,
+                    "buyLeverage": str(leverage),
+                    "sellLeverage": str(leverage),
+                },
+            )
+        except BybitApiError as exc:
+            if exc.code == LEVERAGE_ALREADY_SET_CODE:
+                return
+            raise
 
     async def mark_price(self, symbol: str) -> Decimal:
         """The venue's price an opening is sized at, never the alert's

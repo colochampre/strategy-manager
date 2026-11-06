@@ -3,6 +3,7 @@
 from uuid import UUID, uuid4
 
 from strategy_manager.shared.application.ports import ClockPort
+from strategy_manager.shared.domain.leverage import Leverage
 from strategy_manager.strategies.domain.strategy import AllocationPercent, offered_to_others
 from strategy_manager.subscriptions.application.errors import (
     AlreadySubscribed,
@@ -35,7 +36,11 @@ class Subscribe:
         self._clock = clock
 
     async def subscribe(
-        self, user_id: UUID, strategy_id: UUID, allocation_percent: AllocationPercent
+        self,
+        user_id: UUID,
+        strategy_id: UUID,
+        allocation_percent: AllocationPercent,
+        leverage: Leverage,
     ) -> Subscription:
         """Raises ``StrategyNotFound``, ``StrategyArchived``, ``NoPoolForMarket`` or
         ``AlreadySubscribed``, each before anything is written. The last one is
@@ -68,6 +73,7 @@ class Subscribe:
             strategy_id=strategy_id,
             pool_id=pool_id,
             allocation_percent=allocation_percent,
+            leverage=leverage,
             created_at=self._clock.now(),
         )
         await self._subscriptions.insert(subscription)

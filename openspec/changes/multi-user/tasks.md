@@ -1432,6 +1432,19 @@ Asked by the owner on 2026-11-02, after PR F's deploy, not built. None blocks PR
 - "La curva se empezó a dibujar directamente a partir de aproximadamente 3% de PnL y cayendo a 0% nuevamente. Idealmente, la curva debería empezar desde 0%, y subir al 3% en el primer tramo." Settled as decision 36: the 0 goes on the day the first trade opened, and needs one origin date in the curve's response.
 - "Actualmente veo como pestañas Binance, Bybit y Pionex a pesar de solo tener la key configurada de Binance. Quisiera que solo se muestren las pestañas de exchanges configurados." Settled as decision 37: a tab shows with a key, an open position, or an active strategy or subscription on that exchange. The panel cannot tell that from what it reads today, so the server has to say it.
 
+- Asked on 2026-11-06, to build together with decision 36 (the curve starts at 0): "En las curvas de overview y de las estrategias, cuando se elige la visibilidad All no aparece la fecha de comienzo ni la actual, ni fechas intermedias para tener de referencia. Es un detalle a agregar junto con los ajustes del gráfico partiendo de 0."
+
+## Possible improvements
+
+Noted on the owner's word, not built, not scheduled.
+
+- **Same-day returns are summed, which is exact only for trades that overlap** (raised by the owner 2026-11-06). Decision 17 sums `r_i = pnl_i / pool_total_at_open_i` within a UTC day and compounds across days (`performance/domain/curve.py`).
+  - The owner's case: "Es común que dos pares operen el mismo día, y ambas suelen abrir con el mismo monto, pero a veces una deja una ganancia y la otra abre con un monto mayor. O si la primera pierde, la siguiente abre con monto menor."
+  - Two trades that overlap in time are sized against the same capital, so their sum is exact. When the second opens after the first closed, its denominator already holds the first's result. For those trades compounding is exact, and the sum misses `r1 * r2`. Two sequential +3 % trades show +6.00 % where the pool grew +6.09 %. Two -3 % trades show -6.00 % against a real -5.91 %. +3 % then -3 % shows 0.00 % against a real -0.09 %.
+  - The error accumulates. The curve's ratio to the truth is about `exp(-sum of r1*r2)` over the sequential pairs. When same-day results share a sign the error always leans conservative (gains under-reported, losses over-reported), and it grows linearly with the number of such days. Mixed days cancel part of it. It scales with the square of the per-trade return: 100 same-sign days at 1 % per trade cost about 1 % of the index, and at 3 % about 9 %.
+  - The exact rule compounds trades in close order when one opened after the other closed, and sums only trades that overlap. Cost: a more involved rule, and the whole published history is recomputed.
+  - Before deciding, measure it on real fills: compute both curves over production's ledger, per pool and per strategy, and compare their end indices.
+
 ## PR G
 
 Planned in `design.md`, "Delivery": readiness D.1 to D.5, `SignInGate` opens, the Access policy opens, seat expiration turns on. Its tasks are written when PR F is merged. D.5 is the price check of decision 29. Advisory A3 of PR E2 is still open and needs its design before sign-up opens: it reaches any subscriber. Found in F.6, to close before sign-up opens: `PositionsTable` and `StrategyLink` link every strategy to `/strategies/:strategyId`, which is author-only, so a subscriber's own position links to a page that answers not found. Found by PR F's verifier, to close before sign-up opens: the public list must survive one strategy of crafted prices (`wire.py:48` raises `InvalidOperation` above 80 digits, and decision 29 says an author can post them), and preview and subscribe must follow the page for a strategy that is off the list.
@@ -1543,8 +1556,13 @@ The panel opens to every signed-in user, and Access opens last. Until G.D's last
     - **A2.** The `OpenOrderSpec` docstring now says `price` sizes no real order and prices no fill. It names the dormant Pionex adapters as the one remaining reader of `price`.
     - **A4.** The trade-execution spec's startup line now says "venue's mark price". It also adds the alert-priced WARNING.
     - A3, A5 and A6 are left as recorded.
-- [ ] G.D.2 Push and PR (owner's word), merge (owner), with a merge commit.
-- [ ] G.D.3 Deploy, then pps.6. No migration to rehearse. Access unchanged.
+- [x] G.D.2 Push and PR (owner's word), merge (owner), with a merge commit.
+  - Pushed and opened as #94 on the owner's "Si, por favor", 21 commits over `60e5fb3`. Merged by the owner on 2026-11-05 as `b5129b0`.
+- [x] G.D.3 Deploy, then pps.6. No migration to rehearse. Access unchanged.
+  - Deployed by the owner on 2026-11-05.
+  - Backend: pulled as `strategy` to `b5129b0fc6fb`, and restarted both services, both `active`.
+  - The worker's start line reads "the simulated exchange prices each fill at the venue's mark price and charges the venue's taker fee in USDT (binance=0.0005, bybit=0.00055)". No ERROR or Traceback line followed the restart.
+  - Then pps.6: the assistant built the bundle from a detached worktree of `origin/main` at `b5129b0fc6fb`, 22 entries, SHA-256 `75bcdbef54d3b7842053b0501ece991437c716ece9f0eb874e8c2a9bb034fb39`. The owner's block printed `OK`, `readable`, and `bundle` and `checkout` both at `b5129b0fc6fb`.
 - [ ] G.D.4 D.2, owner-run: add one test address to the Access policy and sign in with it, by one-time PIN and by Google. Check the `email` claim on a real token, that the user is created, and that they see nothing of the owner's. Google has to be enabled as an identity provider first.
 - [ ] G.D.5 Owner-run: the Access policy admits every authenticated identity (decision 2), and seat expiration turns on (Zero Trust > Settings > Admin controls). Delivery log and "Production now".
 
@@ -1564,3 +1582,174 @@ The panel opens to every signed-in user, and Access opens last. Until G.D's last
   - The author only recommends one, in a new optional strategy description written in strategy management.
   - The system sets the leverage and isolated margin on the pair before every opening, reads both back, and refuses on a mismatch. On Bybit the margin mode is account-wide, so it is checked, not set.
   - A second open position on the same pair at a different leverage is refused.
+
+## PR H: each user's leverage, set on the venue before every opening
+
+The follow-up of the PNUT incident above, and decision 38. Branch `feat/subscription-leverage`, cut from `b5129b0`. One PR with one migration, `0037`. Strict TDD, owner's word per unit. **Access stays closed (G.D.4 and G.D.5 wait) until this PR is in production**: until then any new user would meet the same 20x default.
+
+### PR H's plan (2026-11-05)
+
+**The map, read at `b5129b0`:**
+- **a. Subscriptions.**
+  - A subscription's one setting is `allocation_percent` (`0031_subscriptions.py:104-125`, ORM `subscriptions/infrastructure/models.py:70-90`). It is edited by `PATCH /api/subscriptions/{id}` (`subscriptions/infrastructure/router.py:200-216`, `change_share.py:265-297`).
+  - The author trades through an ordinary subscription row. `RegisterStrategy` writes it (`author_subscription_adapter.py:27-46`), and the author edits it on the strategy page, not in My subscriptions (`MySubscriptionsPage.tsx:196`).
+- **b. The delivery already carries the setting.** It is loaded with its subscription joined (`delivery_adapters.py:28-47`), so a leverage column reaches `Delivery`, `PlaceCommand` (`place_order.py:64-87`) and `OpenOrderSpec` (`execution/application/ports.py:105-132`) with no new query.
+- **c. Refusals in `PlaceOrder`.**
+  - `build_open_order` runs before any write (`place_order.py:164-173`).
+  - `OrderNotPlaceable` is the one definitive refusal there. The reservation is released, the delivery is recorded `REJECTED` with its reason, and it is not retried (`:174-195`).
+  - Anything else raised from the build retries.
+  - No panel code reads a delivery's `outcome_reason`.
+- **d. Venue writes.** Nothing in the repo writes leverage or margin mode today. The adapters read `leverage_for` and size `granted * leverage / mark` (`binance_futures_exchange.py:119-147`, the Bybit twin).
+  - Binance already reads `/fapi/v1/symbolConfig` on every opening, weight 5, carrying `leverage` and `marginType`; the parser exists (`read_client.py:296-304`).
+  - Bybit reads leverage from `/v5/position/list` (`read_client.py:406-421`). `account_info()` exists but `marginMode` is unparsed (`:479-484`).
+  - The signed POST helpers serve only `place_market_order`. The definitive-versus-ambiguous classifier is private to each adapter's `place()` (`binance_futures_exchange.py:285-303`).
+- **e. The simulated exchange sizes at a fixed 1x** (`fake_exchange.py:119`, `:187`).
+- **f. Strategies have no description.** A description would reach the public page and the preview through `PublicListing` (`performance/application/ports.py:160-171`) and `public_strategies_source.py:67-73`. The author edits it through `PATCH /api/strategies/{id}` (`strategies/infrastructure/router.py:842-880`).
+- **g. The holding guard is per strategy** (`holding_guard.py`). Two strategies of one user can each hold the same pair, and the venue nets them, since the account is one-way. This pre-dates PR H; it is recorded here, not fixed.
+
+**The venues, from their documentation (2026-11-05):**
+- **Binance.**
+  - `POST /fapi/v1/leverage` takes an integer from 1 to the symbol's maximum, weight 1. The maximum is bracket 1's `initialLeverage` in `/fapi/v1/leverageBracket`.
+  - `POST /fapi/v1/marginType` takes `ISOLATED` or `CROSSED`, weight 1.
+  - Its refusals: `-4046` the type is already set, `-4047` open orders, `-4048` an open position, `-4168` isolated is forbidden under Multi-Assets mode, `-4161` leverage cannot be lowered in isolated with a position open.
+  - Sources: [legacy docs, Change Initial Leverage](https://developers.binance.com/legacy-docs/derivatives/usds-margined-futures/trade/rest-api/Change-Initial-Leverage), [Change Margin Type](https://developers.binance.com/legacy-docs/derivatives/usds-margined-futures/trade/rest-api/Change-Margin-Type), [error codes](https://developers.binance.com/docs/derivatives/usds-margined-futures/error-code).
+- **Bybit.**
+  - `POST /v5/position/set-leverage` takes equal `buyLeverage` and `sellLeverage` in one-way mode; `110043` means unchanged.
+  - On a UTA the margin mode is account-wide: `marginMode` of `/v5/account/info`, `ISOLATED_MARGIN`. The per-symbol switch is abandoned for UTA 2.0.
+  - Sources: [Set Leverage](https://bybit-exchange.github.io/docs/v5/position/leverage), [Account Info](https://bybit-exchange.github.io/docs/v5/account/account-info), [abandoned cross/isolate](https://bybit-exchange.github.io/docs/v5/abandon/cross-isolate).
+- **Not documented, to read live (H.9):**
+  - which code each venue answers for a leverage above the symbol's maximum;
+  - the spelling of `marginType` in `symbolConfig` for an isolated symbol. Compare it ignoring case until H.9 reads it.
+
+**Decisions stated, not asked:**
+- **The leverage is an integer from 1 to 20.** The owner set the cap: "Pongamos x20 tope" (2026-11-05). It replaced 125, the highest per-pair maximum known on Binance, which no document states as a global limit. Binance also gates leverage above 20x behind account checks (`-4202`, `-4203`, `-4205`). A pair's own lower maximum is the venue's to enforce, and its refusal ends the opening.
+- **The order of a live opening** is chosen so that no venue setting changes when the opening is refused for another reason:
+  1. The adapter sizes at the chosen leverage first.
+  2. It runs the step and notional checks.
+  3. Only then does it write to the venue.
+  - On Binance, it reads `symbolConfig` (already read today). It writes `marginType=ISOLATED` only when the type differs, and `leverage` only when the value differs. After a write it reads `symbolConfig` back. Whatever does not read ISOLATED at the chosen leverage refuses.
+  - On Bybit, it reads the account's `marginMode`, and anything but `ISOLATED_MARGIN` refuses. **It is never switched by the system**, because it would change every position in the account. It writes leverage only when the value differs, and reads it back.
+- **Weight.** A pair already at the user's settings costs nothing more than today. A change costs at most two writes of weight 1 and one read-back of weight 5.
+- **A definitive venue refusal ends the opening**: `LEVERAGE_NOT_APPLIED` or `MARGIN_NOT_ISOLATED`, the reservation released, logged as an ERROR so it reaches Telegram. An ambiguous one (transport, 5xx, 408 or 429) retries, as every other build failure does.
+- **A user who holds a pair through one strategy** cannot open it through another at a different leverage: `LEVERAGE_CONFLICT`. Changing the venue's leverage would change the open position under it.
+- **A change of a subscription's leverage applies at its next opening.** It changes nothing open.
+- **The author's seat** takes its leverage at registration and changes it on the strategy page, like its share.
+- **The description is plain text, optional, up to 2,000 characters**, written by the author at creation or on the strategy page. It is shown on the public page and in the preview, and rendered as text, never as HTML or Markdown. Any recommended leverage is written in it; there is no separate field (the owner: "El autor solo recomienda el apalancamiento").
+- **Left out:**
+  - a panel view of an opening's refusal reason (none exists for any reason today; the ERROR line reaches Telegram);
+  - the cross-strategy netting of map g.
+
+**Open, asked one at a time:**
+- **H-Q1, answered (owner, 2026-11-05):** "Van con default. En el caso de las estrategias existentes, todas son x2, pero una estrategia nueva debe empezar con x1." `0037` fills every existing subscription with 2.
+- **H-Q2, answered by the same words:** every new seat starts at x1, the author's at registration and a subscriber's at subscribe. This reading is stated to the owner, not asked.
+- **H-Q3, answered (owner, 2026-11-05):** "Si, las simuladas usan el apalancamineto elegido." A simulated opening sizes at the seat's leverage instead of `FAKE_LEVERAGE = 1`, and records it on the attempt. Simulated trades before the deploy stay at 1x.
+
+**Added by the owner, same message (decision 39):** "el capital que se le asigna a una estrategia nueva es 100%. Cambialo por 0% y que el usuario ponga a mano cuánto quiere usar. No puede olvidarse accidentalmente y que la estrategia opere con 100%, menos si pueden surgir incidentes como el de hoy."
+- Today the new-strategy dialog asks no share at all and sends a fixed 100 (`NewStrategyDialog.tsx:17`, `:121`). `RegisterRequest` defaults to 100 when the share is left out (`strategies/infrastructure/router.py:324`). The subscribe form starts at 100 (`SubscribePanel.tsx:19`), and the preview of a user with no seat shows 100 (`strategies/infrastructure/router.py:788-794`).
+- Built as follows. Both forms start at 0 % and cannot be sent until the user types a share above 0. `RegisterRequest` requires the share, so leaving it out answers 422. The database keeps refusing 0 (`ck_subscriptions_allocation_percent_range`). The preview of a user with no seat no longer assumes 100.
+
+**Tasks.** Each is a work-unit commit.
+- [x] H.1 Migration `0037`, `cc879d4`, with the x20 cap in the next commit.
+  - *Built 2026-11-05.* `0037_subscription_leverage.py` and `tests/migrations/test_0037_subscription_leverage.py`, 14 tests.
+  - The column keeps a default of 1, so a writer that forgets the leverage opens at the smallest one. The description CHECK trims tabs and line breaks too, not only spaces.
+  - RED from mutations: `mutate_h1.ps1`. Before the cap, 10 of 11 were killed. The survivor, the downgrade without its explicit leverage-CHECK drop, is equivalent: PostgreSQL drops a CHECK on a column together with the column.
+  - `rehearse_0037.sh` is in the session scratchpad. Its queries were run on a local copy at `0037`, its syntax checked with `bash -n`, and its database swap checked against a fake env file: the copy is `sm_rehearsal_0037` and the rest of the URL is kept. The deploy script is written at H.D.3, once the code is final.
+  - Gate at `cc879d4`: ruff 0, mypy 0, pytest exit 0 with no failing test.
+  - `subscriptions.leverage` integer, with a CHECK of 1 to 20 and the backfill of H-Q1.
+  - `strategies.description` text, nullable, with a CHECK of length ≤ 2,000.
+  - The ORM rows for both.
+  - Rehearsal and deploy scripts, every query exercised locally.
+  - RED from mutations of the CHECKs and the backfill.
+- [x] H.2 The leverage of a subscription.
+  - `POST /api/subscriptions` takes it, `PATCH /api/subscriptions/{id}` changes it, and the views and the held view carry it.
+  - Registration gives the author's seat one.
+  - Refusals: a value out of range (422), and a change to an ended subscription (as the share's).
+  - *Built 2026-11-05.* `shared/domain/leverage.py` holds `Leverage` (an integer from 1 to `MAX_LEVERAGE` = 20, a `bool` refused), and `NEW_SEAT_LEVERAGE` is one. `Subscription.leverage` defaults to it, so the author's seat written by `RegisterStrategy` starts at one with no change to that path. `change_leverage` is ACTIVE-only, like `change_share`.
+  - `POST` takes `leverage` as a strict JSON integer from 1 to 20 and defaults to one when it is not sent. A string, a fraction, `true`, `null` and any value out of range are each answered 422, and nothing is written. The `PATCH` takes a share, a leverage or both; what is not sent is left as it is; a body that names neither is 422; a LEAVING or ENDED subscription is 409 `SUBSCRIPTION_NOT_ACTIVE`; another user's is 404.
+  - `ChangeShare` logs a real leverage change after the commit (`leverage changed from x1 to x5`), ids and values only, and only when the value differs.
+  - RED was seen on assertions, against stubs that carried the field and did nothing. 24 of 24 mutations were killed (`mutate_h2.ps1`).
+  - Gate: ruff 0, mypy 0, pytest exit 0 with no failing test. The panel ignores the new field until H.7.
+- [x] H.3 The description.
+  - Register and `PATCH /api/strategies/{id}` take it, and `StrategyView` carries it.
+  - `PublicListing`, the public body and the preview carry it.
+  - It is trimmed, an empty one is stored as none, and one over 2,000 characters is refused.
+  - *Built 2026-11-05.* `strategies/domain/description.py`: `description_of` trims the same four characters as the 0037 CHECK, makes a blank one null, counts 2,000 characters after the trim, keeps lines and tabs inside, and refuses any other control character (NUL included, which PostgreSQL would refuse with an unreadable error; not asked for, added so no description answers 500). `Strategy` holds it only in that shape.
+  - `PATCH`: a sent description, null included, is a change; a left-out one is not (`model_fields_set` and the `UNCHANGED` sentinel on `UpdateCommand`). Null or blank clears it. A non-string, an over-long or a control-character one answers 422 and changes nothing; an archived strategy's is 409, like every other field.
+  - The preview the panel shows before subscribing is the public page's body, so it carries it through `PublicStrategyBody`; the share preview (`SharePreviewBody`) is untouched.
+  - RED was seen on assertions, against stubs that carried the field and did nothing. 26 mutations (`mutate_h3.ps1`, `mutate_h3b.ps1`): the first run killed 21 of 24. Two survivors led to changes. `strip()` in place of the four characters survived, so a test now pins that a non-breaking space at the edge is kept, as `btrim` keeps it. `strict=True` on the request field survived because pydantic already refuses a number or a list for a `str`, so it was removed. One mutant did not apply, because the new file is LF; it was rerun, and both reruns were killed.
+  - Gate: ruff 0, mypy 0, pytest exit 0 with no failing test.
+- [x] H.4 The leverage reaches the order: `Delivery`, then `PlaceCommand`, then `OpenOrderSpec`, the REVERSE's opening included. The simulated exchange sizes at that leverage (H-Q3), and sets nothing, since it has no venue.
+  - *Built 2026-11-05.* The delivery query reads `subscriptions.leverage` in the same statement as the share. `Delivery.leverage` and `PlaceCommand.leverage` are required, so a new constructor cannot forget it. `OpenOrderSpec.leverage` defaults to one: `PlaceOrder.place` is its only constructor, and the default keeps the adapters' tests, which name none, at the smallest.
+  - A REVERSE's opening and every deferred opening go through `open_now`, which loads the same `Delivery` and builds the same `PlaceCommand`, so they needed no wiring of their own. The `open_now` test pins it.
+  - The fake sizes a perpetual at `spec.leverage` (564 granted at 3x and 0.4512 is 3750 STX), and `FAKE_LEVERAGE` is gone. A spot buy takes no leverage. The attempt records what the order carries, through the unchanged `_sizes`.
+  - The live adapters receive the leverage and still size at the venue's until H.5 and H.6. Nothing is deployed in between.
+  - RED was seen on assertions in the fake, `PlaceOrder`, `ProcessDelivery` and the delivery load. 6 of 6 mutations were killed (`mutate_h4.ps1`).
+  - Gate: ruff 0, mypy 0, pytest exit 0 with no failing test.
+- [x] H.5 Binance applies it before an opening, in the order above.
+  - New `set_leverage` and `set_margin_type` on the trade client, with each refusal code classified.
+  - `LeverageNotApplied` is a definitive refusal in `PlaceOrder`.
+  - `LEVERAGE_CONFLICT` is checked against the user's open allocations on that pair.
+  - `CLAUDE.md` "Open risks" no longer says nothing sets the leverage.
+  - *Built 2026-11-05.* The trade client gains `set_leverage` (`POST /fapi/v1/leverage`) and `set_margin_type_isolated` (`POST /fapi/v1/marginType`, `ISOLATED` only). A leverage outside 1..20, or a bool, is refused before any request. -4046 ("No need to change margin type") is not a refusal; every other code is kept on the `BinanceApiError`, so -4047, -4048, -4168 and -4028 reach the adapter intact.
+  - `build_open_order`, in order: reads `symbolConfig`, the contract and the mark price; sizes at the CHOSEN leverage and runs the step and tradable checks, so an unplaceable opening writes nothing; returns with no write when the pair is already isolated (compared ignoring case, until H.9 reads the real spelling) at the chosen leverage; otherwise reads the position; sets ISOLATED first, then the leverage; reads the config back; builds the order at the chosen leverage.
+  - Three refusals, all `OpeningSettingRefused` with a `reason_code`: `LEVERAGE_NOT_APPLIED` (refused or read back otherwise), `MARGIN_NOT_ISOLATED` (refused, read back otherwise, or held on cross margin), `LEVERAGE_CONFLICT`. A write the venue answered definitively becomes the refusal with the venue's code in its message; an unknown outcome (-1001, -1007, 408, 429, a 5xx, no answer) propagates unchanged and the job retries, and the retry reads the config again.
+  - `PlaceOrder` releases the reservation and rejects the delivery under the exception's `reason_code` on one commit, as for an unplaceable size, but logs at ERROR, so it reaches Telegram.
+  - **Deviation from the plan.** The conflict is checked against the venue's position on the pair, read only when a write is needed, not against the user's open allocations in the ledger. The venue's position is what a new leverage would change, whatever opened it: another strategy of the same user, a position opened by hand, or one the ledger has not settled yet. The ledger cannot see the last two.
+  - `test_real_adapters_size_from_the_venue_price.py`: its Binance pair is now ISOLATED at 3x and its spec asks 3x, so the test stays about the price and writes nothing. `test_a_grant_too_small_to_reach_one_step_is_refused_by_name` now asks 1x itself, since the venue's leverage no longer sizes.
+  - RED was seen on assertions, against stubs: exception classes caught and ignored in `PlaceOrder`, and trade client methods that did nothing. 30 of 30 mutations were killed (`mutate_h5.ps1`), after a test for an unknown outcome on the margin write was added.
+  - Gate: ruff 0, mypy 0, pytest exit 0 with no failing test.
+- [x] H.6 Bybit, the same way: `marginMode` parsed and required to be `ISOLATED_MARGIN`, leverage set when it differs and read back.
+  - *Built 2026-11-05.* The read client gains `position_for` (the symbol's record from `/v5/position/list`, matched by symbol, flat or not, so one read gives the leverage and whether the pair is held) and `margin_mode` (`marginMode` of `/v5/account/info`, a non-empty string or a loud failure). The trade client gains `set_leverage` (`POST /v5/position/set-leverage`, equal `buyLeverage` and `sellLeverage`, 1..20 checked before any request, 110043 "leverage not modified" not a refusal, every other code kept). The read client still has no writing method.
+  - `build_open_order`, in order: reads the position record, the contract and the mark price; sizes at the chosen leverage and runs the step and tradable checks; reads the account's margin mode on EVERY opening and refuses anything but `ISOLATED_MARGIN`, compared exactly (`MARGIN_NOT_ISOLATED`, never switched); returns when the symbol already holds the chosen leverage; refuses a held symbol at another leverage (`LEVERAGE_CONFLICT`); sets the leverage and reads the position back (`LEVERAGE_NOT_APPLIED` on a definitive refusal or a mismatch; an unknown outcome propagates and retries).
+  - Fixtures that served a trimmed position record (`{"symbol", "leverage"}`) now serve a complete flat one plus the account's margin mode, at the leverage their spec asks, so they write nothing: `test_trade_client_catalogue.py`, `test_real_adapters_size_from_the_venue_price.py`.
+  - **Found while building H.6, and a defect H.5 left:** `check_binance_round_trip.py`, `check_bybit_round_trip.py` and `check_bybit_sizing.py` build through the production adapters with no leverage in the spec, so 1x. Since H.5 the Binance preview would have set the pair to 1x and isolated before printing "PREVIEW ONLY. Nothing was placed, nothing was changed". The three now ask for the leverage the pair already holds (`scripts/held_leverage.py`, refused when it is not a whole number from 1 to 20), so they keep sizing at the account's leverage and their previews write nothing. The Binance round trip also refuses a pair not already ISOLATED, rather than letting the adapter switch it. `mypy` on `check_bybit_round_trip.py` still reports two `list-item` errors at the `BybitBalanceReader` pool tuples, which were already there and are outside the gate.
+  - RED was seen on assertions, against stubs (a positional `position_for`, an empty `margin_mode`, a `set_leverage` that did nothing, a `held_leverage` that always answered 1x). 23 of 23 mutations were killed (`mutate_h6.ps1`).
+  - Gate: ruff 0, mypy 0, pytest exit 0 with no failing test.
+- [x] H.7 The panel's leverage.
+  - A control in the subscribe form, in My subscriptions beside the share, on the author's seat on the strategy page, and in the new-strategy dialog.
+  - The control is built like the share's `ShareSlider` (`ShareSlider.tsx`: a text field plus a range): a slider from 1 to 20 in steps of 1, beside a numeric field, with the value read as "x5". The owner asked for a slider like the pool share's (2026-11-05).
+  - EN/ES copy, including what it means ("applies at the next opening; the system sets it on the exchange").
+  - *Built 2026-11-05.* **Backend gap closed first.** `POST /strategies` took no leverage, so every new strategy's author seat was born at 1x although the plan says the seat takes its leverage at registration. It now takes an optional `leverage` (strict JSON integer 1..20, default 1); `RegisterCommand.leverage` reaches `AuthorSubscriptionPort.subscribe_author`. 7 of 7 mutations killed (`mutate_h7a.ps1`).
+  - **Panel** (written by a Sonnet writer, reviewed by the parent): `leverage-value.ts` (`parseLeverage`: a trimmed whole number 1..20, "05" reads 5; `leveragePosition`), `LeverageSlider.tsx` (the field with an "x" before the number, a 1..20 range, stops at x5, x10, x15, x20 in fixed classes a test holds to the position function; it reuses `ShareSlider`'s `RANGE_CLASS`), `useLeverageDraft.ts`, and `SubscriptionLeverageEditor.tsx` with its own Save, which sends only `{"leverage": n}` and is read-only when archived or not ACTIVE. The editor sits after `PoolShareEditor` on the author's seat and in My subscriptions; the subscribe form and the new-strategy dialog start at x1 and send `leverage` as a number. `isSubscription` requires an integer `leverage`. The My subscriptions button now reads "Change share and leverage", since it opens both.
+  - 14 of 14 mutations killed (`mutate_h7b.ps1`, `mutate_h7c.ps1`). The first run left one survivor: the new-strategy dialog's guard against a submit by Enter with an invalid leverage. Its test asserted nothing was posted synchronously, before a request could have left; it now waits a task first, and the mutant dies.
+  - Gate: backend ruff 0, mypy 0, pytest exit 0 with no failing test; frontend lint 0, vitest 121 files and 3,273 tests passed.
+- [x] H.8 The panel's description: written at creation, edited on the strategy page, shown on the public page above its figures. EN/ES.
+  - *Built 2026-11-05* (written by a Sonnet writer, reviewed by the parent). `description-value.ts` reads a description as the server does: it trims only space, tab, CR and LF (a non-breaking space is kept, as `btrim` keeps it), a blank one is nothing, and the length is counted in code points, so 2,000 passes and 2,001 is refused. The control-character rule is left to the server's 422.
+  - `DescriptionField` (textarea, label, info hint, "n / 2000" counter) is shared by the new-strategy dialog and `StrategyDescriptionEditor`. The dialog sends `description` as typed only when it is not blank, and refuses to submit over the limit, by button or by Enter. The editor, on the author's strategy page after the leverage, has its own Save. It compares what the server would keep with what it keeps, sends only `{"description": text}` or `null` when blank, and is read-only on an archived strategy. Its refusals: 422, 409 and 404 in words.
+  - The public page, which is also the preview before subscribing, shows it between the header and the figures as plain text with its line breaks (`whitespace-pre-line`). Nothing is drawn when it is null. A test shows `<b>`, `<img onerror>`, `<script>`, Markdown and a bare URL literally and finds no element made from them.
+  - Both shape guards, the author's strategy and the public body, now require `description` (a string or null). The API restarts before the panel moves, so a deployed panel never reads a body without it. `description: null` was added to the strategy fixtures of 19 test files.
+  - 15 of 15 mutations killed (`mutate_h8.ps1`).
+  - Gate: frontend lint 0, vitest 124 files and 3,321 tests passed; no backend change.
+- [x] H.10 Decision 39, the share is typed by hand.
+  - The new-strategy dialog gets a share field and the subscribe form starts at 0 %. Neither can be sent with 0.
+  - `RegisterRequest` requires `allocation_percent`.
+  - The preview with no seat and no share asked shows no sizing instead of 100 %.
+  - EN/ES copy.
+  - *Built 2026-11-06.* Backend by the parent, panel by a Sonnet writer reviewed by the parent.
+  - Backend: `RegisterRequest.allocation_percent` has no default, so leaving it out answers 422 naming the field and writes no row. `PreviewShare.preview` takes `share: Decimal | None`; with `None` there is no `exact`, while the balance and the hundred steps are still served. The route hands `None` when the caller holds no live seat and asked no share. Every test registration body now carries a share.
+  - Panel: the subscribe form and the new-strategy dialog both start at "0". Untouched, the field shows a neutral hint (`strategies.detail.share.startHint`) and is not marked invalid; after any edit the usual refusal applies. Neither form sends while the share is invalid, by button or by Enter. The dialog's field (`useShareInput`, no preview: there is no strategy yet) sits before the leverage and sends the share as typed.
+  - Found by the writer: the panel's preview validator refused `exact: null` beside a balance, which would have read "The amount could not be loaded" at the untouched start. It now accepts it.
+  - RED on assertions: 422 (`assert 201 == 422`), the two no-seat preview tests (`exact` was the full share), the use case (after a stub, so it failed on the assertion, not a `TypeError`), and the panel's start states and POST body.
+  - Mutations: backend 4 of 4 killed (`mutate_h10be.ps1`), panel 13 of 13 (`mutate_h10fe.ps1`).
+  - Gate: backend ruff 0, mypy 0, pytest 0 with nothing failing; frontend lint 0, vitest 124 files and 3,328 tests passed.
+- [x] H.9 Owner-run, before the deploy: a probe that reads `symbolConfig` for one isolated pair (the spelling of `marginType`). It also asks for a leverage above one pair's maximum while flat on it, so the venue refuses with the code H.5 classifies.
+  - *Probe written 2026-11-06:* `backend/scripts/check_binance_leverage.py --user-email <e-mail> --symbol <PAIR> [--confirm]`. The preview reads `symbolConfig`, `leverageBracket` and the position, and sends nothing. `--confirm` sends one `POST /fapi/v1/leverage` at the pair's maximum plus one, only on a flat pair, prints the code and what `_is_definitive_rejection` makes of it, and reads the settings back. If Binance ever accepted it, the original leverage is written back and the run fails.
+  - `bracket_max` and `spelling_verdict` are tested in `tests/scripts/test_check_binance_leverage.py`; 6 of 6 mutations killed (`mutate_h9.ps1`).
+  - *Run by the owner on the VPS 2026-11-06*, on AAVEUSDT (isolated, 2x, flat, maximum 75x), piped over ssh onto the deployed checkout (`5a7a9a3` let it run without H.5's `_is_isolated`):
+    - `symbolConfig` answers a list and spells `"marginType": "ISOLATED"`, upper case, as `_is_isolated` expects.
+    - Asking 76x answered HTTP 400, `code=-4028`, "Leverage 76 is not valid". `_is_definitive_rejection` reads it as a refusal, so an over-maximum leverage ends the opening as LEVERAGE_NOT_APPLIED and is never retried.
+    - Read back: still ISOLATED at 2x; nothing changed.
+
+**Delivery.**
+- [x] H.D.1 Gate (backend and frontend), and an independent verifier over the whole PR. It names items 1 (`0037`), 3 (the subscribe and strategy contracts) and the venue writes of a live opening.
+  - *2026-11-06.* Gate before the verifier: backend ruff 0, mypy 0, pytest 0 with nothing failing; frontend lint 0, vitest 124 files and 3,328 tests.
+  - Opus verifier over `b5129b0..56adf0d`: migration 0037, Bybit writes (H.6), order flow and sizing (H.4), API contracts and panel pass; probes write nothing in preview. One blocker:
+  - **B1, fixed.** Binance answers a rate limit as HTTP 429 with `code=-1003`, and an overload as 503 with `-1008`; the transport copies the code onto the error and `_is_definitive_rejection` reads the code first, so a throttled setting write ended the opening as LEVERAGE_NOT_APPLIED or MARGIN_NOT_ISOLATED instead of retrying, against decision 38. The tests had built the 429 with no code. Now `_is_definitive_setting_refusal` reads 408, 429 and any 5xx as unknown whatever the code, and both setting writes use it. The order path (`place`) keeps its classifier, as at baseline. 5 of 5 mutations killed (`mutate_hd1.ps1`).
+  - Advisories:
+    - A1, fixed on the owner's word ("Dale, como decis"): `StrategyDetailPage.tsx:86-88` gave three sibling editors the same `key={subject.id}`; React warned of duplicate keys, and a change of `:strategyId` while the page stays mounted with the next strategy cached left the previous strategy's share and leverage editors on screen. The three now sit in one keyed `Fragment`. A test visits B, then A, then the cached B and finds one share field and one leverage slider; it failed with two share fields before the fix.
+    - A2: the deployed panel's `isSharePreview` refuses `exact: null`, so between the API deploy and the panel move a user with no seat sees "The amount could not be loaded" on the subscribe form. Subscribing still works.
+    - A3, fixed on the owner's word: a successful margin or leverage write on a user's account logged nothing; only refusals logged. Each adapter now logs one INFO line once the venue's read-back confirms the write, naming the pair, the state before and after, and the order's client id ("Binance AAVEUSDT set to ISOLATED at 5x, was CROSSED at 20x, before order …"; "Bybit BTCUSDT leverage set from 20x to 3x before order …"). Nothing is logged when nothing was written or the read-back refuses. 6 of 6 mutations killed (`mutate_a3.ps1`).
+    - A4: the read-back right after a successful write has not been seen live; a lagging read would refuse that one opening definitively.
+    - A5: a Bybit 403 "access too frequent" (no retCode) on set-leverage is definitive; a retry inside the ban would fail too.
+- [ ] H.D.2 Push and PR (owner's word), merge (owner), with a merge commit.
+- [ ] H.D.3 Rehearse `0037` on a fresh backup, deploy, then pps.6 after the API.

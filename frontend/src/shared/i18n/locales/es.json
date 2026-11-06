@@ -232,7 +232,7 @@
       "noAuthorName": "autor todavía sin nombre",
       "share": "{{share}} % de su pool por operación",
       "leaving": "Saliendo: ya no abre nada más y termina cuando se cierre su posición abierta.",
-      "changeShare": "Cambiar la cuota",
+      "changeShare": "Cambiar la cuota y el apalancamiento",
       "closeShare": "Cerrar",
       "leave": "Salir"
     },
@@ -323,6 +323,34 @@
       "saveFailed": "La visibilidad no se guardó. Inténtelo de nuevo.",
       "needsName": "Primero elija su nombre en Configuración: una estrategia pública muestra a su autor."
     },
+    "leverage": {
+      "label": "Apalancamiento",
+      "info": "Acerca del apalancamiento",
+      "hint": "El sistema fija este apalancamiento en el exchange antes de cada apertura, así que se aplica desde la próxima apertura. Una posición que ya está abierta conserva el apalancamiento con el que se abrió. Cuanto mayor es, más mueve el mismo margen, tanto en ganancias como en pérdidas.",
+      "valueText": "x{{value}}",
+      "stop": "Fijar el apalancamiento en x{{value}}",
+      "invalid": "Ingrese un número entero del 1 al 20.",
+      "save": "Guardar apalancamiento",
+      "saving": "Guardando…",
+      "saveFailed": "No se guardó el apalancamiento. Inténtelo de nuevo.",
+      "outOfRange": "El apalancamiento debe ser un número entero del 1 al 20.",
+      "notActive": "Su suscripción a esta estrategia ya no está activa, así que su apalancamiento ya no se puede cambiar.",
+      "gone": "Esta estrategia ya no existe."
+    },
+    "description": {
+      "label": "Descripción",
+      "info": "Acerca de la descripción",
+      "hint": "Opcional. Quien abra esta estrategia la verá en su página pública y antes de suscribirse, como texto sin formato. Es un buen lugar para indicar qué apalancamiento recomienda. Hasta 2.000 caracteres.",
+      "counter": "{{length}} / {{max}}",
+      "tooLong": "La descripción puede tener como máximo 2.000 caracteres.",
+      "save": "Guardar descripción",
+      "saving": "Guardando…",
+      "saveFailed": "No se guardó la descripción. Inténtelo de nuevo.",
+      "invalid": "La descripción es demasiado larga o contiene un carácter que no se puede conservar.",
+      "archived": "Esta estrategia está archivada, así que su descripción ya no se puede cambiar.",
+      "gone": "Esta estrategia ya no existe.",
+      "publicHeading": "Acerca de esta estrategia"
+    },
     "new": {
       "open": "Nueva estrategia",
       "title": "Nueva estrategia",
@@ -331,6 +359,7 @@
       "poolPlaceholder": "Elija un pool",
       "fillMode": "Cuando falta capital",
       "fillModePlaceholder": "Elija un comportamiento",
+      "share": "Porcentaje de su pool por operación",
       "fillModes": {
         "SKIP": "Omitir la señal",
         "PARTIAL": "Abrir con lo disponible"
@@ -424,6 +453,7 @@
         "valueText": "{{value}} % del pool",
         "stop": "Fijar el porcentaje en {{value}} %",
         "notNumber": "Escriba un número, por ejemplo 25 o 33,5.",
+        "startHint": "Escriba qué parte de su pool puede usar esta estrategia. Empieza en 0 para que nunca opere con un porcentaje que usted no eligió.",
         "outOfRange": "El porcentaje debe ser mayor que 0 y como máximo 100.",
         "tooManyDecimals": "El porcentaje tiene como máximo 18 decimales.",
         "amount": "Pide alrededor de {{amount}} {{currency}} por operación",

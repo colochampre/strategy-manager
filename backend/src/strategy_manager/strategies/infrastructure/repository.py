@@ -50,6 +50,7 @@ class SqlAlchemyStrategyRepository:
                 webhook_secret_hash=webhook_secret_hash,
                 webhook_secret_last4=secret_last4,
                 allowed_pairs=strategy.allowed_pairs.sorted(),
+                description=strategy.description,
             )
         )
         await self._session.flush()
@@ -128,6 +129,7 @@ class SqlAlchemyStrategyRepository:
         row.visibility = strategy.visibility.value
         row.fill_mode = strategy.policy.fill_mode.value
         row.allowed_pairs = strategy.allowed_pairs.sorted()
+        row.description = strategy.description
         # Archive is terminal (design.md § 8): every OTHER caller of
         # ``update()`` (``UpdateStrategy``, ``ReplaceAllowedPairs``) reads
         # ``strategy`` from this same row first and only replaces unrelated
@@ -248,6 +250,7 @@ def _to_domain(row: StrategyRow) -> Strategy:
         enabled=row.enabled,
         visibility=Visibility(row.visibility),
         allowed_pairs=AllowedPairs(frozenset(row.allowed_pairs)),
+        description=row.description,
         archived_at=row.archived_at,
         created_at=row.created_at,
         updated_at=row.updated_at,

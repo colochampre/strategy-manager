@@ -30,6 +30,8 @@ from strategy_manager.shared.infrastructure.binance.signer import (
 from strategy_manager.shared.infrastructure.binance.trade_client import (
     ACCOUNT_CONFIG_PATH,
     AMBIGUOUS_CODES,
+    LEVERAGE_PATH,
+    MARGIN_TYPE_PATH,
     ORDER_PATH,
     USER_TRADES_PATH,
     BinanceTradeClient,
@@ -676,3 +678,101 @@ async def test_a_mark_price_that_cannot_be_read_is_refused_rather_than_guessed(
     symbol, written as a string, is no price at all."""
     with pytest.raises(BinanceApiError):
         await _priced(recorded, body).mark_price(SYMBOL)
+
+
+# --- the opening's settings (PR H, H.5) ---------------------------------------
+
+
+def _settings_client(
+    recorded: list[httpx.Request], response: httpx.Response
+) -> BinanceTradeClient:
+    return _client(
+        recorded,
+        overrides={("POST", LEVERAGE_PATH): response, ("POST", MARGIN_TYPE_PATH): response},
+    )
+
+
+async def test_the_leverage_is_written_as_a_signed_integer_for_the_symbol(
+    recorded: list[httpx.Request],
+) -> None:
+    client = _settings_client(
+        recorded,
+        httpx.Response(
+            200, json={"leverage": 5, "maxNotionalValue": "1000000", "symbol": SYMBOL}
+        ),
+    )
+
+    await client.set_leverage(SYMBOL, 5)
+
+    [posted] = [request for request in recorded if request.method == "POST"]
+    assert posted.url.path == LEVERAGE_PATH
+    sent = dict(parse_qsl(posted.content.decode()))
+    assert (sent["symbol"], sent["leverage"]) == (SYMBOL, "5")
+    assert "signature" in sent
+
+
+async def test_isolated_margin_is_written_for_the_symbol(
+    recorded: list[httpx.Request],
+) -> None:
+    client = _settings_client(recorded, httpx.Response(200, json={"code": 200, "msg": "success"}))
+
+    await client.set_margin_type_isolated(SYMBOL)
+
+    [posted] = [request for request in recorded if request.method == "POST"]
+    assert posted.url.path == MARGIN_TYPE_PATH
+    sent = dict(parse_qsl(posted.content.decode()))
+    assert (sent["symbol"], sent["marginType"]) == (SYMBOL, "ISOLATED")
+
+
+async def test_a_margin_type_already_isolated_is_not_a_refusal(
+    recorded: list[httpx.Request],
+) -> None:
+    """-4046 is "No need to change margin type": what was asked is already so."""
+    client = _settings_client(
+        recorded,
+        httpx.Response(400, json={"code": -4046, "msg": "No need to change margin type."}),
+    )
+
+    await client.set_margin_type_isolated(SYMBOL)
+
+
+@pytest.mark.parametrize(
+    ("code", "message"),
+    [
+        (-4047, "Margin type cannot be changed if there exists open orders."),
+        (-4048, "Margin type cannot be changed if there exists position."),
+        (-4168, "Unable to adjust to isolated-margin mode under the Multi-Assets mode."),
+    ],
+)
+async def test_any_other_margin_refusal_keeps_its_code(
+    recorded: list[httpx.Request], code: int, message: str
+) -> None:
+    client = _settings_client(recorded, httpx.Response(400, json={"code": code, "msg": message}))
+
+    with pytest.raises(BinanceApiError) as caught:
+        await client.set_margin_type_isolated(SYMBOL)
+
+    assert caught.value.code == str(code)
+
+
+async def test_a_leverage_refusal_keeps_its_code(recorded: list[httpx.Request]) -> None:
+    client = _settings_client(
+        recorded, httpx.Response(400, json={"code": -4028, "msg": "Leverage 20 is not valid"})
+    )
+
+    with pytest.raises(BinanceApiError) as caught:
+        await client.set_leverage(SYMBOL, 20)
+
+    assert caught.value.code == "-4028"
+
+
+@pytest.mark.parametrize("leverage", [0, 21, True])
+async def test_a_leverage_outside_one_to_twenty_never_reaches_the_venue(
+    recorded: list[httpx.Request], leverage: int
+) -> None:
+    client = _settings_client(recorded, httpx.Response(200, json={}))
+
+    with pytest.raises(BinanceApiError, match="leverage"):
+        await client.set_leverage(SYMBOL, leverage)
+
+    assert recorded == []

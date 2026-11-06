@@ -17,12 +17,16 @@ that timed out may well have opened a leveraged position. Those propagate as
 ``BybitApiError``, the job retries, and the settle job enqueued before the
 network call resolves the truth by client order id.
 
-Sizing an opening order reads the account's leverage for the symbol, because
-``AllocateCapital`` grants MARGIN out of the wallet and the position that
-margin supports is ``granted * leverage / price``. The read is refused rather
-than defaulted: a default would size a position at the wrong multiple of the
-capital actually reserved, silently. The price is the venue's mark price, read
-the same way and refused the same way, never the alert's (decision 35).
+``AllocateCapital`` grants MARGIN out of the wallet, and the position that
+margin supports is ``granted * leverage / price``. The leverage is the one the
+subscription chose (decision 38), and the adapter makes the venue hold it:
+the account must already be on ``ISOLATED_MARGIN`` (account-wide on a Unified
+Trading Account, so read and never switched), and the symbol's leverage is
+set when it differs, then read back. A symbol the user already holds at
+another leverage is refused rather than changed underneath the position. The
+position record is read rather than assumed, and an unread one refuses the
+opening. The price is the venue's mark price, read the same way and refused
+the same way, never the alert's (decision 35).
 
 The size is rounded and validated at BUILD time, so the number ``PlaceOrder``
 commits to its transaction is exactly the number that goes on the wire.
@@ -43,11 +47,16 @@ alongside 800 perpetuals under one ``linear`` category, and a dated contract
 traded as a perpetual settles underneath the position.
 """
 
+import logging
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 
 from strategy_manager.execution.application.ports import (
     CloseOrderSpec,
     ExchangeError,
+    LeverageConflict,
+    LeverageNotApplied,
+    MarginNotIsolated,
     OpenOrderSpec,
     OrderNotFound,
     OrderNotPlaceable,
@@ -67,6 +76,9 @@ from strategy_manager.shared.infrastructure.bybit.errors import (
     BybitOrderNotFound,
     BybitRuleRefusal,
 )
+from strategy_manager.shared.infrastructure.bybit.read_client import (
+    Position,
+)
 from strategy_manager.shared.infrastructure.bybit.trade_client import (
     AMBIGUOUS_CODES,
     BybitExecution,
@@ -78,7 +90,12 @@ _EPOCH = datetime.fromtimestamp(0, UTC)
 # HTTP statuses that mean the venue answered, but not with a decision about
 # this order. 408 is a timeout it reported itself; 429 is throttling; 5xx is
 # its own failure.
+logger = logging.getLogger(__name__)
+
 AMBIGUOUS_STATUSES = frozenset({408, 429})
+
+# The only account margin mode an opening runs under (decision 38).
+ISOLATED_MARGIN = "ISOLATED_MARGIN"
 
 
 class BybitFuturesExchangeAdapter:
@@ -99,12 +116,14 @@ class BybitFuturesExchangeAdapter:
         self._client = client
 
     async def build_open_order(self, spec: OpenOrderSpec) -> PlaceableOrder:
-        """Sizes a position from reserved margin at the account's leverage.
+        """Sizes a position from reserved margin at the subscription's
+        leverage, then makes the venue hold it.
 
-        Three things happen here that cannot happen anywhere else: the
-        leverage and the price are read from the venue, the size is truncated
-        to the contract's step, and every limit that would get the order
-        rejected is checked at that same price.
+        Four things happen here that cannot happen anywhere else: the
+        symbol's position record and the price are read from the venue, the
+        size is truncated to the contract's step, every limit that would get
+        the order rejected is checked at that same price, and only then is
+        the margin mode checked and the leverage written and read back.
 
         The price is the venue's mark price, never the alert's
         (``spec.price``, decision 35): an author who posted a tenth of the
@@ -113,9 +132,12 @@ class BybitFuturesExchangeAdapter:
         refuses the opening as an unread leverage does.
         """
         symbol = _venue_symbol(spec.symbol)
-        leverage = await self._client.leverage_for(symbol)
+        position = await self._client.position_for(symbol)
         rules = await self._client.perp_rules(symbol)
         price = await self._client.mark_price(symbol)
+        # Sized at the leverage the subscription chose (decision 38), which is
+        # the leverage the symbol will hold once it is applied below.
+        leverage = Decimal(spec.leverage.value)
 
         raw = futures_position_size(granted=spec.granted, leverage=leverage, price=price)
         qty = rules.round_qty(raw)
@@ -143,6 +165,11 @@ class BybitFuturesExchangeAdapter:
                 step=rules.qty_step,
             ) from exc
 
+        # Only now, with an order known to be placeable, is anything written.
+        await self._apply_settings(
+            symbol, position, spec.leverage.value, spec.client_order_id
+        )
+
         return FuturesMarketOrder(
             client_order_id=spec.client_order_id,
             symbol=symbol,
@@ -150,6 +177,62 @@ class BybitFuturesExchangeAdapter:
             base_size=qty,
             leverage=leverage,
             reduce_only=False,
+        )
+
+    async def _apply_settings(
+        self, symbol: str, position: Position, chosen: int, order_id: str
+    ) -> None:
+        """Requires an isolated account and sets the chosen leverage, then
+        reads it back (decision 38).
+
+        On a Unified Trading Account the margin mode is account-wide, so it is
+        read on every opening and never written: switching it would change
+        every position in the account. Anything but ``ISOLATED_MARGIN``
+        refuses.
+
+        The leverage is written only when it differs, and never under a
+        position the user already holds, because it would change the risk of
+        that position. A definitive refusal ends the opening; an unknown
+        outcome propagates unchanged and the job retries, and the retry reads
+        the position again.
+        """
+        mode = await self._client.margin_mode()
+        if mode != ISOLATED_MARGIN:
+            raise MarginNotIsolated(
+                f"the Bybit account is on {mode}, not {ISOLATED_MARGIN}; this "
+                "system only opens on isolated margin and never switches the "
+                "account's mode"
+            )
+        if position.leverage == chosen:
+            return
+        if position.size != 0:
+            raise LeverageConflict(
+                f"{symbol} is held at {position.leverage}x and this opening "
+                f"asks {chosen}x; changing the leverage would change the "
+                "position already open"
+            )
+        try:
+            await self._client.set_leverage(symbol, chosen)
+        except BybitApiError as exc:
+            if _is_definitive_rejection(exc):
+                raise LeverageNotApplied(
+                    f"Bybit refused {chosen}x on {symbol} (code={exc.code}): {exc}"
+                ) from exc
+            raise
+        applied = await self._client.position_for(symbol)
+        if applied.leverage != chosen:
+            raise LeverageNotApplied(
+                f"{symbol} read back at {applied.leverage}x after being set "
+                f"to {chosen}x"
+            )
+        # A change on the user's account, confirmed by the venue: who changed
+        # the pair, and why, must be answerable from the log (verifier A3).
+        logger.info(
+            "Bybit %s leverage set from %sx to %sx before order %s",
+            symbol,
+            position.leverage,
+            applied.leverage,
+            order_id,
         )
 
     async def build_close_order(self, spec: CloseOrderSpec) -> PlaceableOrder:

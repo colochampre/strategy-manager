@@ -29,8 +29,9 @@ from strategy_manager.allocation.domain.share_preview import (
 
 @dataclass(frozen=True, slots=True)
 class SharePreview:
-    """``balance``, ``exact`` and ``steps`` are present together or absent together:
-    with no snapshot there is no amount, never a zero."""
+    """``balance`` and ``steps`` are present together or absent together: with no
+    snapshot there is no amount, never a zero. ``exact`` is absent with them, and
+    also when no share was handed over (decision 39)."""
 
     pool: PoolKey
     pool_minimum: Decimal
@@ -43,9 +44,13 @@ class PreviewShare:
     def __init__(self, sizing: PoolSizingPort) -> None:
         self._sizing = sizing
 
-    async def preview(self, user_id: UUID, pool: PoolKey, share: Decimal) -> SharePreview:
-        """``share`` is the percentage to preview as ``exact``: the strategy's stored
-        share, or the one the caller asked about. The hundred steps do not depend on it.
+    async def preview(
+        self, user_id: UUID, pool: PoolKey, share: Decimal | None
+    ) -> SharePreview:
+        """``share`` is the percentage to preview as ``exact``: the caller's stored
+        share, or the one the caller asked about. ``None`` when there is neither, and
+        then there is no ``exact``: a share is never assumed (decision 39). The
+        hundred steps do not depend on it.
 
         ``user_id`` is whose pool on that market is read: the strategy's author's
         (B.5), the pool a signal of that strategy is allocated in.
@@ -77,6 +82,10 @@ class PreviewShare:
             pool=pool,
             pool_minimum=sizing.min_order_size,
             balance=snapshot,
-            exact=share_amount(snapshot.total, share, sizing.min_order_size),
+            exact=(
+                None
+                if share is None
+                else share_amount(snapshot.total, share, sizing.min_order_size)
+            ),
             steps=step_amounts(snapshot.total, sizing.min_order_size),
         )

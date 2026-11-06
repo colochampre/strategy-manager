@@ -101,9 +101,18 @@ describe("fetchSharePreview", () => {
     expect(body.pool_minimum).toBe("5.000000000000000000");
   });
 
+  it("accepts a balance and the hundred steps with no exact value: no seat and no share asked (decision 39)", async () => {
+    stubFetch(preview({ exact: null }));
+
+    const body = await fetchSharePreview(ID);
+
+    expect(body.exact).toBeNull();
+    expect(body.balance?.total).toBe("1000.000000000000000000");
+    expect(body.steps).toHaveLength(100);
+  });
+
   it.each([
     ["a balance and no steps", preview({ steps: [] })],
-    ["a balance and no exact value", preview({ exact: null })],
     ["exact without a balance", preview({ balance: null, steps: [] })],
     ["steps without a balance", preview({ balance: null, exact: null })],
     ["99 steps", preview({ steps: steps().slice(0, 99) })],

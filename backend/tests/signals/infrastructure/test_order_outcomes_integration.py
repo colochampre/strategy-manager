@@ -46,6 +46,7 @@ from strategy_manager.ledger.application.read_held_base import ReadHeldBase
 from strategy_manager.ledger.application.record_fill import RecordFill
 from strategy_manager.ledger.infrastructure.repository import SqlAlchemyLedgerRepository
 from strategy_manager.shared.application.job import Job, JobKind
+from strategy_manager.shared.domain.leverage import NEW_SEAT_LEVERAGE
 from strategy_manager.shared.infrastructure.job_queue import PostgresJobQueue
 from strategy_manager.shared.infrastructure.models import JobRow
 from strategy_manager.signals.infrastructure.models import SignalDeliveryRow, SignalRow
@@ -237,6 +238,7 @@ async def _place_command(
         symbol=_TRADINGVIEW,
         side=OrderSide.BUY,
         price=Decimal("2"),
+        leverage=NEW_SEAT_LEVERAGE,
     )
 
 

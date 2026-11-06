@@ -159,6 +159,7 @@ async def _register(client: AsyncClient, **overrides: Any) -> UUID:
         "venue": "spot",
         "settlement_currency": "USDT",
         "fill_mode": "PARTIAL",
+        "allocation_percent": overrides.pop("allocation_percent", "100"),
         "allowed_pairs": overrides.pop("allowed_pairs", ["ETHUSDT"]),
     }
     body.update(overrides)
@@ -347,6 +348,7 @@ async def test_post_strategies_requires_min_one_pair_422(client: AsyncClient) ->
         "venue": "spot",
         "settlement_currency": "USDT",
         "fill_mode": "PARTIAL",
+        "allocation_percent": "100",
         "allowed_pairs": [],
     }
 
@@ -561,6 +563,7 @@ def _post_body(**overrides: Any) -> dict[str, Any]:
         "venue": "spot",
         "settlement_currency": "USDT",
         "fill_mode": "PARTIAL",
+        "allocation_percent": "100",
         "allowed_pairs": ["ETHUSDT"],
     }
     body.update(overrides)
@@ -625,6 +628,21 @@ async def test_put_keeping_a_delisted_stored_pair_200(api: AsyncClient, catalog:
 
     assert response.status_code == 200
     assert response.json()["allowed_pairs"] == ["ETHUSDT", "SOLUSDT"]
+
+
+async def test_post_without_a_share_422_names_the_share_and_no_row(api: AsyncClient) -> None:
+    """A new strategy's share is typed by hand (decision 39): leaving it out is
+    refused, never read as a full share."""
+    body = _post_body()
+    del body["allocation_percent"]
+
+    response = await api.post("/strategies", json=body, headers=ADMIN_HEADERS)
+
+    assert response.status_code == 422
+    assert [error["loc"] for error in response.json()["detail"]] == [
+        ["body", "allocation_percent"]
+    ]
+    assert await _row_count(api, body["id"]) == 0
 
 
 async def test_post_unreadable_catalogue_502_pair_catalogue_unavailable_and_no_row(
@@ -1212,6 +1230,57 @@ async def test_delete_archived_with_no_history_204(deleting: AsyncClient) -> Non
 # --------------------------------------------------------------------------
 
 
+async def _stored_seat_leverage(
+    pg_session_factory: async_sessionmaker[AsyncSession], strategy_id: UUID
+) -> int:
+    async with pg_session_factory() as session:
+        value = await session.scalar(
+            text("SELECT leverage FROM subscriptions WHERE strategy_id = :id"),
+            {"id": strategy_id},
+        )
+    assert isinstance(value, int)
+    return value
+
+
+async def test_the_authors_seat_is_registered_at_the_leverage_sent(
+    client: AsyncClient, pg_session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """Decision 38: the author chooses their seat's leverage at registration."""
+    strategy_id = await _register(client, leverage=7)
+
+    assert await _stored_seat_leverage(pg_session_factory, strategy_id) == 7
+
+
+async def test_a_registration_with_no_leverage_seats_the_author_at_1x(
+    client: AsyncClient, pg_session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    strategy_id = await _register(client)
+
+    assert await _stored_seat_leverage(pg_session_factory, strategy_id) == 1
+
+
+@pytest.mark.parametrize("leverage", [0, 21, "5", 2.5, True])
+async def test_a_registration_with_a_leverage_out_of_range_is_refused(
+    client: AsyncClient, leverage: Any
+) -> None:
+    body = {
+        "id": str(uuid4()),
+        "name": "refused",
+        "exchange": "pionex",
+        "venue": "spot",
+        "settlement_currency": "USDT",
+        "fill_mode": "PARTIAL",
+        "allocation_percent": "100",
+        "allowed_pairs": ["ETHUSDT"],
+        "leverage": leverage,
+    }
+
+    response = await client.post("/strategies", json=body, headers=ADMIN_HEADERS)
+
+    assert response.status_code == 422
+    assert [error["loc"] for error in response.json()["detail"]] == [["body", "leverage"]]
+
+
 async def _stored_share(
     pg_session_factory: async_sessionmaker[AsyncSession], strategy_id: UUID
 ) -> Decimal:
@@ -1342,3 +1411,207 @@ async def test_patching_an_unknown_strategy_is_404_with_its_existing_body(
 
     assert response.status_code == 404
     assert response.json() == {"detail": f"no strategy registered under id {unknown}"}
+
+
+# --------------------------------------------------------------------------
+# H.3 -- the author's description (decision 38)
+# --------------------------------------------------------------------------
+
+
+async def _stored_description(
+    pg_session_factory: async_sessionmaker[AsyncSession], strategy_id: UUID
+) -> str | None:
+    async with pg_session_factory() as session:
+        value = await session.scalar(
+            text("SELECT description FROM strategies WHERE id = :id"), {"id": strategy_id}
+        )
+    assert value is None or isinstance(value, str)
+    return value
+
+
+async def _count_strategies(pg_session_factory: async_sessionmaker[AsyncSession]) -> int:
+    async with pg_session_factory() as session:
+        found = await session.scalar(text("SELECT count(*) FROM strategies"))
+    assert isinstance(found, int)
+    return found
+
+
+async def test_a_strategy_registered_without_a_description_has_none(
+    client: AsyncClient, pg_session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    strategy_id = await _register(client)
+
+    shown = await client.get(f"/strategies/{strategy_id}", headers=ADMIN_HEADERS)
+
+    assert shown.json()["description"] is None
+    assert await _stored_description(pg_session_factory, strategy_id) is None
+
+
+async def test_a_description_given_at_registration_is_stored_trimmed_and_shown(
+    client: AsyncClient, pg_session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    strategy_id = uuid4()
+
+    response = await client.post(
+        "/strategies",
+        json={
+            "id": str(strategy_id),
+            "name": "described",
+            "exchange": "pionex",
+            "venue": "spot",
+            "settlement_currency": "USDT",
+            "fill_mode": "PARTIAL",
+            "allocation_percent": "100",
+            "allowed_pairs": ["ETHUSDT"],
+            "description": "  Trades the 4h close.\n\nRecommended: x3, isolated.\n",
+        },
+        headers=ADMIN_HEADERS,
+    )
+
+    assert response.status_code == 201, response.text
+    written = "Trades the 4h close.\n\nRecommended: x3, isolated."
+    assert response.json()["description"] == written
+    assert await _stored_description(pg_session_factory, strategy_id) == written
+    shown = await client.get(f"/strategies/{strategy_id}", headers=ADMIN_HEADERS)
+    assert shown.json()["description"] == written
+
+
+async def test_a_blank_description_at_registration_is_stored_as_none(
+    client: AsyncClient, pg_session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    strategy_id = await _register(client, description=" \n\t ")
+
+    assert await _stored_description(pg_session_factory, strategy_id) is None
+
+
+@pytest.mark.parametrize(
+    "description",
+    ["x" * 2001, "a\x00b", 123, ["text"]],
+    ids=["too-long", "nul", "number", "list"],
+)
+async def test_an_unacceptable_description_at_registration_is_a_422_and_writes_nothing(
+    client: AsyncClient,
+    pg_session_factory: async_sessionmaker[AsyncSession],
+    description: object,
+) -> None:
+    before = await _count_strategies(pg_session_factory)
+
+    response = await client.post(
+        "/strategies",
+        json={
+            "id": str(uuid4()),
+            "name": "refused",
+            "exchange": "pionex",
+            "venue": "spot",
+            "settlement_currency": "USDT",
+            "fill_mode": "PARTIAL",
+            "allocation_percent": "100",
+            "allowed_pairs": ["ETHUSDT"],
+            "description": description,
+        },
+        headers=ADMIN_HEADERS,
+    )
+
+    assert response.status_code == 422
+    assert await _count_strategies(pg_session_factory) == before
+
+
+async def test_a_patch_writes_the_description_trimmed(
+    client: AsyncClient, pg_session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    strategy_id = await _register(client)
+
+    patched = await client.patch(
+        f"/strategies/{strategy_id}",
+        json={"description": "\tRecommended: x2.\r\n"},
+        headers=ADMIN_HEADERS,
+    )
+
+    assert patched.status_code == 200
+    assert patched.json()["description"] == "Recommended: x2."
+    assert await _stored_description(pg_session_factory, strategy_id) == "Recommended: x2."
+
+
+@pytest.mark.parametrize("cleared", [None, "", "  \n "], ids=["null", "empty", "blank"])
+async def test_a_patch_with_a_null_or_blank_description_clears_it(
+    client: AsyncClient,
+    pg_session_factory: async_sessionmaker[AsyncSession],
+    cleared: str | None,
+) -> None:
+    strategy_id = await _register(client, description="Recommended: x2.")
+
+    patched = await client.patch(
+        f"/strategies/{strategy_id}", json={"description": cleared}, headers=ADMIN_HEADERS
+    )
+
+    assert patched.status_code == 200
+    assert patched.json()["description"] is None
+    assert await _stored_description(pg_session_factory, strategy_id) is None
+
+
+async def test_a_patch_without_a_description_leaves_it_as_it_is(
+    client: AsyncClient, pg_session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    strategy_id = await _register(client, description="Recommended: x2.")
+
+    patched = await client.patch(
+        f"/strategies/{strategy_id}",
+        json={"name": "renamed", "enabled": True},
+        headers=ADMIN_HEADERS,
+    )
+
+    assert patched.status_code == 200
+    assert patched.json()["description"] == "Recommended: x2."
+    assert await _stored_description(pg_session_factory, strategy_id) == "Recommended: x2."
+
+
+async def test_a_patch_of_the_description_alone_leaves_the_rest_as_it_is(
+    client: AsyncClient,
+) -> None:
+    strategy_id = await _register(client, name="kept", allowed_pairs=["ETHUSDT", "SOLUSDT"])
+    before = (await client.get(f"/strategies/{strategy_id}", headers=ADMIN_HEADERS)).json()
+
+    patched = await client.patch(
+        f"/strategies/{strategy_id}", json={"description": "New."}, headers=ADMIN_HEADERS
+    )
+
+    after = patched.json()
+    assert after.pop("description") == "New."
+    before.pop("description")
+    assert after == before
+
+
+@pytest.mark.parametrize(
+    "description", ["x" * 2001, "a\x07b", 7], ids=["too-long", "bell", "number"]
+)
+async def test_an_unacceptable_description_in_a_patch_is_a_422_and_changes_nothing(
+    client: AsyncClient,
+    pg_session_factory: async_sessionmaker[AsyncSession],
+    description: object,
+) -> None:
+    strategy_id = await _register(client, description="Recommended: x2.")
+
+    patched = await client.patch(
+        f"/strategies/{strategy_id}",
+        json={"name": "renamed", "description": description},
+        headers=ADMIN_HEADERS,
+    )
+
+    assert patched.status_code == 422
+    assert await _stored_description(pg_session_factory, strategy_id) == "Recommended: x2."
+    kept = await client.get(f"/strategies/{strategy_id}", headers=ADMIN_HEADERS)
+    assert kept.json()["name"] != "renamed"
+
+
+async def test_an_archived_strategys_description_cannot_be_changed(
+    client: AsyncClient, pg_session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    strategy_id = await _register(client, description="Recommended: x2.")
+    await _archive_directly(pg_session_factory, strategy_id)
+
+    patched = await client.patch(
+        f"/strategies/{strategy_id}", json={"description": None}, headers=ADMIN_HEADERS
+    )
+
+    assert patched.status_code == 409
+    assert await _stored_description(pg_session_factory, strategy_id) == "Recommended: x2."

@@ -109,7 +109,8 @@ async def test_registering_writes_the_authors_active_subscription_in_their_pool_
         rows = (
             await session.execute(
                 text(
-                    "SELECT user_id, pool_id, allocation_percent, status FROM subscriptions "
+                    "SELECT user_id, pool_id, allocation_percent, status, leverage "
+                    "FROM subscriptions "
                     "WHERE strategy_id = :id"
                 ),
                 {"id": strategy_id},
@@ -127,6 +128,8 @@ async def test_registering_writes_the_authors_active_subscription_in_their_pool_
         Decimal("40"),
         "ACTIVE",
     )
+    # A new seat starts at one times, the author's included (decision 38).
+    assert row.leverage == 1
     # The share lives on the subscription alone (migration 0033, tasks.md D.1).
     assert "allocation_percent" not in strategy_columns
 
