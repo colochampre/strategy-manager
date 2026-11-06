@@ -382,10 +382,27 @@ def test_a_range_counts_a_no_capital_trade_in_pnl_but_not_in_its_return() -> Non
     assert seven_day.value == Decimal("0.01")
 
 
+def test_the_origin_is_the_utc_day_the_first_trade_with_a_return_opened() -> None:
+    """Decision 36: the curve starts at 0 on the day its first trade opened. A
+    trade with no capital at open never reaches the curve, so it is not the
+    origin even when it opened first; an opening at 22:00 in UTC-3 is the next
+    UTC day."""
+    no_capital = _trade("5", day(5), capital=None, opened_at=day(1))
+    first = _trade(
+        "20", day(6), opened_at=datetime(2026, 9, 2, 22, 0, tzinfo=UTC_MINUS_3)
+    )
+    later = _trade("10", day(7), opened_at=day(4))
+
+    report = build_pool_performance(POOL, _derived(later, no_capital, first), 0, NOW)
+
+    assert report.origin == date(2026, 9, 3)
+
+
 def test_no_qualifying_trades_yields_empty_result_not_error() -> None:
     report = build_pool_performance(POOL, _derived(), 0, NOW)
 
     assert report.pool == POOL
+    assert report.origin is None
     assert report.curve == ()
     assert report.monthly == ()
     assert report.closed_trade_count == 0

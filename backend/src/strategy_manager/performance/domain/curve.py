@@ -132,7 +132,12 @@ class Exclusions:
 
 @dataclass(frozen=True, slots=True)
 class PoolPerformance:
+    """One pool's report. ``origin`` is the UTC day the first trade with a
+    return opened, where the curve starts at 0 (decision 36); ``None`` with no
+    such trade."""
+
     pool: PoolKey
+    origin: date | None
     curve: tuple[CurvePoint, ...]
     monthly: tuple[MonthReturn, ...]
     ranges: tuple[RangeSummary, ...]
@@ -329,6 +334,10 @@ def build_pool_performance(
 
     return PoolPerformance(
         pool=pool,
+        origin=min(
+            (_utc(t.opened_at).date() for t in trades if trade_return(t) is not None),
+            default=None,
+        ),
         curve=tuple(
             CurvePoint(p.day, p.daily_return, p.index, dd)
             for p, dd in zip(points, dds, strict=True)

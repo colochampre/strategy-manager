@@ -322,6 +322,25 @@ async def test_get_pool_performance_returns_curve_drawdown_monthly_and_ranges(
         assert ranges[name]["trade_count"] == 3, name
 
 
+async def test_pool_and_strategy_performance_carry_the_day_the_first_trade_opened(
+    client: AsyncClient, pg_session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """Decision 36: closed at 00:30 UTC on September 21, opened an hour before,
+    on September 20. The curve's first point is the close; the origin is the
+    open, where the panel draws the 0."""
+    strategy_id = await _strategy(pg_session_factory)
+    await _trade(pg_session_factory, strategy_id, datetime(2026, 9, 21, 0, 30, tzinfo=UTC))
+    await _trade(pg_session_factory, strategy_id, DAY2, exit_="110")
+
+    pool = _json(await client.get(POOL_URL, headers=ADMIN_HEADERS))
+    strategy = _json(
+        await client.get(f"/api/performance/strategies/{strategy_id}", headers=ADMIN_HEADERS)
+    )
+
+    assert pool["origin"] == strategy["origin"] == "2026-09-20"
+    assert pool["curve"][0]["date"] == "2026-09-21"
+
+
 async def test_pool_performance_trades_without_capital_count_in_pnl_not_in_the_curve(
     client: AsyncClient, pg_session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
@@ -756,6 +775,7 @@ async def test_get_strategy_trades_page_size_defaults_to_50_max_200_else_422(
 
 def _assert_empty_report(body: dict[str, Any], *, rehearsal: int = 0) -> None:
     assert body["trade_count"] == 0
+    assert body["origin"] is None
     assert Decimal(body["total_pnl"]) == Decimal("0")
     assert body["max_drawdown"] == "0.0000000000"
     assert body["curve"] == []
