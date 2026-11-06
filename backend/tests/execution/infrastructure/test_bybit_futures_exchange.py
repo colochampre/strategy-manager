@@ -7,6 +7,7 @@ And the separation of "no fills yet" from "no such order", which on this venue
 are two different calls because an empty execution list means both.
 """
 
+import logging
 from dataclasses import replace
 from decimal import Decimal
 
@@ -732,3 +733,53 @@ async def test_a_pair_held_at_the_same_leverage_opens_without_a_write() -> None:
 
     assert client.calls == ["read position", "read margin mode"]
     assert isinstance(order, FuturesMarketOrder)
+
+
+# ---------------------------------------------------------------------------
+# A leverage written on a user's account leaves one line (verifier A3)
+# ---------------------------------------------------------------------------
+
+BYBIT_LOGGER = "strategy_manager.execution.infrastructure.bybit_futures_exchange"
+
+
+def _setting_lines(caplog: pytest.LogCaptureFixture) -> list[logging.LogRecord]:
+    return [r for r in caplog.records if r.name == BYBIT_LOGGER and r.levelno == logging.INFO]
+
+
+async def test_a_leverage_written_and_read_back_is_logged_once_with_what_changed(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    client = FakeTradeClient(leverage=Decimal("20"))
+
+    with caplog.at_level(logging.INFO, logger=BYBIT_LOGGER):
+        await _adapter(client).build_open_order(_open(leverage=3))
+
+    lines = _setting_lines(caplog)
+    assert len(lines) == 1
+    message = lines[0].getMessage()
+    for fragment in (SYMBOL, "from 20x to 3x", CLIENT_ORDER_ID):
+        assert fragment in message
+
+
+async def test_a_leverage_not_read_back_logs_no_setting_line(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Only a change the venue confirmed is announced; a refusal is logged by
+    PlaceOrder, at ERROR."""
+    client = FakeTradeClient(leverage=Decimal("20"), writes_apply=False)
+
+    with caplog.at_level(logging.INFO, logger=BYBIT_LOGGER), pytest.raises(LeverageNotApplied):
+        await _adapter(client).build_open_order(_open(leverage=3))
+
+    assert _setting_lines(caplog) == []
+
+
+async def test_a_pair_already_at_the_leverage_logs_no_setting_line(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    client = FakeTradeClient()
+
+    with caplog.at_level(logging.INFO, logger=BYBIT_LOGGER):
+        await _adapter(client).build_open_order(_open())
+
+    assert _setting_lines(caplog) == []

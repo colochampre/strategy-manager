@@ -50,6 +50,7 @@ The ids arrive as JSON integers rather than strings, so they are converted
 explicitly on the way into the domain.
 """
 
+import logging
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
@@ -92,6 +93,8 @@ _EPOCH = datetime.fromtimestamp(0, UTC)
 # HTTP statuses that mean the venue answered, but not with a decision about
 # this order. 408 is a timeout it reported itself and 429 is throttling; every
 # 5xx is its own failure and is already excluded by the 4xx range below.
+logger = logging.getLogger(__name__)
+
 AMBIGUOUS_STATUSES = frozenset({408, 429})
 
 
@@ -163,7 +166,9 @@ class BinanceFuturesExchangeAdapter:
             ) from exc
 
         # Only now, with an order known to be placeable, is anything written.
-        await self._apply_settings(symbol, config, spec.leverage.value)
+        await self._apply_settings(
+            symbol, config, spec.leverage.value, spec.client_order_id
+        )
 
         return FuturesMarketOrder(
             client_order_id=spec.client_order_id,
@@ -175,7 +180,7 @@ class BinanceFuturesExchangeAdapter:
         )
 
     async def _apply_settings(
-        self, symbol: str, config: SymbolConfig, chosen: int
+        self, symbol: str, config: SymbolConfig, chosen: int, order_id: str
     ) -> None:
         """Makes the pair ISOLATED at the chosen leverage, then reads both back
         (decision 38, the PNUT incident of 2026-11-05).
@@ -241,6 +246,17 @@ class BinanceFuturesExchangeAdapter:
                 f"{symbol} read back at {applied.leverage}x after being set "
                 f"to {chosen}x"
             )
+        # A change on the user's account, confirmed by the venue: who changed
+        # the pair, and why, must be answerable from the log (verifier A3).
+        logger.info(
+            "Binance %s set to %s at %sx, was %s at %sx, before order %s",
+            symbol,
+            applied.margin_type,
+            applied.leverage,
+            config.margin_type,
+            config.leverage,
+            order_id,
+        )
 
     async def build_close_order(self, spec: CloseOrderSpec) -> PlaceableOrder:
         """Builds the reduce-only order that flattens what the ledger holds.

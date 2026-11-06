@@ -12,6 +12,7 @@ Binance's own:
     perpetuals, and an unrecognised contract type must never read as tradable.
 """
 
+import logging
 from dataclasses import replace
 from decimal import Decimal
 
@@ -905,3 +906,40 @@ async def test_an_unreadable_position_before_a_write_is_retried_not_refused() ->
 
     assert not isinstance(caught.value, ExchangeError)
     assert not any(call.startswith("set") for call in client.calls)
+
+
+# ---------------------------------------------------------------------------
+# A setting written on a user's account leaves one line (verifier A3)
+# ---------------------------------------------------------------------------
+
+BINANCE_LOGGER = "strategy_manager.execution.infrastructure.binance_futures_exchange"
+
+
+def _setting_lines(caplog: pytest.LogCaptureFixture) -> list[logging.LogRecord]:
+    return [r for r in caplog.records if r.name == BINANCE_LOGGER and r.levelno == logging.INFO]
+
+
+async def test_a_setting_written_and_read_back_is_logged_once_with_what_changed(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Who changed my pair? The answer is one line: the pair, what it was, what
+    it is now, and the order it was changed for."""
+    client = FakeTradeClient(leverage=Decimal("20"), margin_type="CROSSED")
+
+    with caplog.at_level(logging.INFO, logger=BINANCE_LOGGER):
+        await _adapter(client).build_open_order(_open(leverage=5))
+
+    lines = _setting_lines(caplog)
+    assert len(lines) == 1
+    message = lines[0].getMessage()
+    for fragment in (SYMBOL, "CROSSED at 20x", "ISOLATED at 5x", CLIENT_ORDER_ID):
+        assert fragment in message
+
+
+async def test_a_pair_already_set_logs_no_setting_line(caplog: pytest.LogCaptureFixture) -> None:
+    client = FakeTradeClient(leverage=Decimal("2"), margin_type="ISOLATED")
+
+    with caplog.at_level(logging.INFO, logger=BINANCE_LOGGER):
+        await _adapter(client).build_open_order(_open(leverage=2))
+
+    assert _setting_lines(caplog) == []

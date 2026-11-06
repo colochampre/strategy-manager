@@ -47,6 +47,7 @@ alongside 800 perpetuals under one ``linear`` category, and a dated contract
 traded as a perpetual settles underneath the position.
 """
 
+import logging
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
@@ -89,6 +90,8 @@ _EPOCH = datetime.fromtimestamp(0, UTC)
 # HTTP statuses that mean the venue answered, but not with a decision about
 # this order. 408 is a timeout it reported itself; 429 is throttling; 5xx is
 # its own failure.
+logger = logging.getLogger(__name__)
+
 AMBIGUOUS_STATUSES = frozenset({408, 429})
 
 # The only account margin mode an opening runs under (decision 38).
@@ -163,7 +166,9 @@ class BybitFuturesExchangeAdapter:
             ) from exc
 
         # Only now, with an order known to be placeable, is anything written.
-        await self._apply_settings(symbol, position, spec.leverage.value)
+        await self._apply_settings(
+            symbol, position, spec.leverage.value, spec.client_order_id
+        )
 
         return FuturesMarketOrder(
             client_order_id=spec.client_order_id,
@@ -175,7 +180,7 @@ class BybitFuturesExchangeAdapter:
         )
 
     async def _apply_settings(
-        self, symbol: str, position: Position, chosen: int
+        self, symbol: str, position: Position, chosen: int, order_id: str
     ) -> None:
         """Requires an isolated account and sets the chosen leverage, then
         reads it back (decision 38).
@@ -220,6 +225,15 @@ class BybitFuturesExchangeAdapter:
                 f"{symbol} read back at {applied.leverage}x after being set "
                 f"to {chosen}x"
             )
+        # A change on the user's account, confirmed by the venue: who changed
+        # the pair, and why, must be answerable from the log (verifier A3).
+        logger.info(
+            "Bybit %s leverage set from %sx to %sx before order %s",
+            symbol,
+            position.leverage,
+            applied.leverage,
+            order_id,
+        )
 
     async def build_close_order(self, spec: CloseOrderSpec) -> PlaceableOrder:
         """Builds the reduce-only order that flattens what the ledger holds.
