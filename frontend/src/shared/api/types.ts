@@ -254,6 +254,37 @@ export interface PairStat {
   return: string | null;
 }
 
+/** One row of a public record's `by_pair`: a pair's trades and compounded return, with no money (I.12a). */
+export interface RecordPairStat {
+  pair: string;
+  trades: number;
+  wins: number;
+  win_rate: string;
+  return: string;
+}
+
+/** One entry of a public record's `ranges`: the return and the trades of a range, with no money. */
+export interface RecordRange {
+  range: string;
+  return: string;
+  trade_count: number;
+}
+
+/**
+ * `GET /api/public/strategies/{id}/record` (`PublicRecordBody`): the author's real fills, drawn by anyone.
+ * The curve and months have the private report's shape; no pnl, currency or pool exists in it.
+ */
+export interface PublicRecord {
+  day_boundary: string;
+  origin: string | null;
+  closed_trade_count: number;
+  max_drawdown: string;
+  ranges: RecordRange[];
+  curve: CurvePoint[];
+  monthly: MonthReturn[];
+  by_pair: RecordPairStat[];
+}
+
 /** `balance` of `GET /api/strategies/{id}/share-preview` (`SharePreviewBalanceBody`). */
 export interface SharePreviewBalance {
   total: string;

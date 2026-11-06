@@ -244,19 +244,28 @@ function SeatPanel({ strategy, seat }: { strategy: PublicStrategy; seat: HeldSub
 }
 
 /**
+ * The reader's own seat on a strategy that is not theirs, or undefined: no seat, the author's own, or either read
+ * not in yet. The one rule for "this reader holds a seat", shared by the Subscribe section and the report views.
+ */
+export function useOwnSeat(strategy: PublicStrategy): HeldSubscription | undefined {
+  const me = useMe();
+  const held = useHeldSubscriptions();
+  const mine = held.data?.find((subscription) => subscription.strategy_id === strategy.id);
+  if (mine !== undefined && mine.authored !== true && me.data !== undefined && me.data.displayName !== strategy.author_name) {
+    return mine;
+  }
+  return undefined;
+}
+
+/**
  * Where the signed-in user stands on a public strategy: its author, already holding it, missing a key on its
  * market, or free to subscribe. The figures above it never depend on any of this.
  */
 export function SubscribePanel({ strategy }: { strategy: PublicStrategy }) {
   const { t } = useTranslation();
   const titleId = useId();
-  const me = useMe();
-  const held = useHeldSubscriptions();
-  // Known only once both reads are in; until then the section reads "Subscribe" and offers nothing.
-  const mine = held.data?.find((subscription) => subscription.strategy_id === strategy.id);
-  if (mine !== undefined && mine.authored !== true && me.data !== undefined && me.data.displayName !== strategy.author_name) {
-    return <SeatPanel strategy={strategy} seat={mine} />;
-  }
+  const seat = useOwnSeat(strategy);
+  if (seat !== undefined) return <SeatPanel strategy={strategy} seat={seat} />;
   return (
     <section aria-labelledby={titleId} className="flex flex-col gap-3 rounded-md border border-rule bg-panel px-4 py-3">
       <h2 id={titleId} className="font-display text-base font-semibold text-ink">

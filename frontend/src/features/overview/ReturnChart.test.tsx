@@ -666,3 +666,52 @@ describe("the measured width", () => {
     expect(observer.disconnect).toHaveBeenCalled();
   });
 });
+
+describe("ReturnChart marker", () => {
+  const CURVE_JULY = [point("2026-07-01", 1, 0), point("2026-07-02", 1.1, 0), point("2026-07-04", 1.2, 0)];
+  const MARK = { date: "2026-07-02", label: "You joined on Jul 2" };
+
+  function renderMarked(marker: { date: string; label: string } | null | undefined, range: RangeName = "All") {
+    return render(<ReturnChart curve={CURVE_JULY} range={range} asOf={AS_OF} {...(marker === undefined ? {} : { marker })} />);
+  }
+
+  it("draws a labelled vertical line on the marked day, inside the plot", () => {
+    renderMarked(MARK);
+
+    const line = screen.getByTestId("seat-marker");
+    const x = Number(line.getAttribute("x1"));
+    expect(x).toBeGreaterThan(LEFT);
+    expect(x).toBeLessThan(RIGHT);
+    expect(line.getAttribute("x2")).toBe(line.getAttribute("x1"));
+    expect(screen.getByText(MARK.label)).toBeInTheDocument();
+  });
+
+  it("puts the line where that day sits on the axis", () => {
+    renderMarked(MARK);
+    // All runs 07-01 to 09-30 (91 days): the 2nd is one day in.
+    expect(Number(attr("seat-marker", "x1"))).toBeCloseTo(LEFT + (RIGHT - LEFT) / 91, 1);
+  });
+
+  it("draws nothing for a day before the window or after today", () => {
+    const { unmount } = renderMarked({ date: "2026-06-30", label: "early" });
+    expect(screen.queryByTestId("seat-marker")).not.toBeInTheDocument();
+    unmount();
+    renderMarked({ date: "2026-10-01", label: "late" });
+    expect(screen.queryByTestId("seat-marker")).not.toBeInTheDocument();
+  });
+
+  it("draws nothing for a day outside a bounded window", () => {
+    // 7D ends 09-30: a seat that began in July is not in it.
+    renderMarked(MARK, "7D");
+    expect(screen.queryByTestId("seat-marker")).not.toBeInTheDocument();
+  });
+
+  it("draws no marker without one, and the curve is the same", () => {
+    const { unmount } = renderMarked(undefined);
+    expect(screen.queryByTestId("seat-marker")).not.toBeInTheDocument();
+    const without = attr("return-curve", "d");
+    unmount();
+    renderMarked(MARK);
+    expect(attr("return-curve", "d")).toBe(without);
+  });
+});

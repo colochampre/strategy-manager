@@ -2,6 +2,7 @@ import { useTranslation } from "react-i18next";
 import { Link, useParams } from "react-router";
 
 import { PublicFigures, PublicOrigin } from "@/features/strategies/PublicFigures";
+import { StrategyReportViews } from "@/features/strategies/StrategyReportViews";
 import { SubscribePanel } from "@/features/strategies/SubscribePanel";
 import { ApiError } from "@/shared/api/client";
 import { usePublicStrategy } from "@/shared/api/public-strategies";
@@ -52,6 +53,7 @@ function PublicRecord({ strategy }: { strategy: PublicStrategy }) {
           <p className="text-xs text-ink-3">{t("strategies.public.capitalHint")}</p>
         </InfoText>
       </section>
+      <StrategyReportViews strategy={strategy} />
       <SubscribePanel strategy={strategy} />
     </div>
   );

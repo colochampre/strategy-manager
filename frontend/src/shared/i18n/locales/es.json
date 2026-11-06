@@ -274,6 +274,20 @@
       "capitalInfo": "Qué es este capital",
       "capitalHint": "El capital que asignan todos los que la operan en vivo, incluido su autor: la cuota de cada uno sobre el último saldo de su pool. Es capital asignado, no capital en uso, y el mismo dinero puede respaldar varias estrategias."
     },
+    "report": {
+      "title": "Rendimiento",
+      "views": "Vista del informe",
+      "record": "Historial de la estrategia",
+      "mine": "Mis resultados",
+      "recordChartTitle": "Historial de la estrategia",
+      "recordReturn": "rendimiento {{range}}",
+      "joined": "Usted se suscribió el {{date}}",
+      "recordLoading": "Cargando el historial de la estrategia…",
+      "recordError": "No se pudo cargar el historial de la estrategia.",
+      "recordGone": "El historial de esta estrategia no está disponible.",
+      "recordEmpty": "Su autor aún no tiene ninguna operación real cerrada, así que no hay historial que dibujar.",
+      "mineEmpty": "Usted aún no tiene ninguna operación cerrada en esta estrategia."
+    },
     "subscribe": {
       "title": "Suscribirse",
       "reading": "Leyendo su lugar en esta estrategia…",

@@ -274,6 +274,20 @@
       "capitalInfo": "What this capital is",
       "capitalHint": "The capital assigned by everyone trading it live, its author included: each one's share of the latest balance of their pool. It is capital assigned, not capital in use, and the same money can stand behind several strategies."
     },
+    "report": {
+      "title": "Performance",
+      "views": "Report view",
+      "record": "Strategy record",
+      "mine": "My results",
+      "recordChartTitle": "Strategy record",
+      "recordReturn": "return {{range}}",
+      "joined": "You joined on {{date}}",
+      "recordLoading": "Loading the strategy's record…",
+      "recordError": "The strategy's record could not be loaded.",
+      "recordGone": "This strategy's record is not available.",
+      "recordEmpty": "Its author has no closed real trade yet, so there is no record to draw.",
+      "mineEmpty": "You have no closed trade in this strategy yet."
+    },
     "subscribe": {
       "title": "Subscribe",
       "reading": "Reading your place in this strategy…",

@@ -5,9 +5,11 @@ import { AppRoutes } from "@/app/router";
 import i18n from "@/shared/i18n";
 import { DANGER_CONTROL } from "@/shared/ui/danger-control";
 import {
+  emptyPerformance,
   heldSubscription,
   jsonResponse,
   pool,
+  publicRecord,
   publicStrategy,
   renderAt,
   resetExchangeScope,
@@ -34,6 +36,12 @@ function serve({ strategy, held, pools, me, subscribe, leave, preview }: Serve =
   return stubApi({ kind: "ok", body: {} }, [], pools ?? { kind: "ok", body: [pool("bybit")] }, {}, (url, init) => {
     if (url.endsWith(`/api/public/strategies/${ID}`)) {
       return strategy?.() ?? Promise.resolve(jsonResponse(publicStrategy({ id: ID })));
+    }
+    if (url.endsWith(`/api/public/strategies/${ID}/record`)) {
+      return Promise.resolve(jsonResponse(publicRecord()));
+    }
+    if (url.includes(`/api/performance/strategies/${ID}`)) {
+      return Promise.resolve(jsonResponse({ ...emptyPerformance("bybit", "usdt-m", "USDT"), strategy_id: ID, by_pair: [] }));
     }
     if (url.endsWith("/api/subscriptions/held")) return held?.() ?? Promise.resolve(jsonResponse([]));
     if (url.endsWith("/leave") && init?.method === "POST") return leave?.() ?? Promise.resolve(jsonResponse({}));
@@ -101,6 +109,25 @@ describe("the public page", () => {
       "href",
       "/strategies/explore",
     );
+  });
+
+  it("draws the strategy's record below the figures for a reader with no seat, with no selector", async () => {
+    serve();
+    open();
+
+    expect(await screen.findByRole("heading", { name: "Performance" })).toBeInTheDocument();
+    expect(await screen.findByRole("row", { name: /^SOLUSDT\b/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "My results" })).toBeNull();
+    // The Subscribe section is where it was.
+    expect(await subscribeButton()).toBeInTheDocument();
+  });
+
+  it("opens a subscriber's page on My results and keeps their seat settings", async () => {
+    serve({ held: () => Promise.resolve(jsonResponse([heldSubscription({ strategy_id: ID })])) });
+    open();
+
+    expect(await screen.findByRole("button", { name: "My results" })).toHaveAttribute("aria-pressed", "true");
+    expect(await screen.findByRole("heading", { name: "Your subscription" })).toBeInTheDocument();
   });
 
   it("shows the author's description above the figures, line breaks kept, under its own heading", async () => {

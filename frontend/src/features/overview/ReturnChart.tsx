@@ -35,7 +35,21 @@ interface ReturnChartProps {
    * `null` or absent draws the curve from its first close.
    */
   origin?: string | null;
+  /**
+   * A day to mark with a vertical line and its label (already translated): the day a reader's seat began.
+   * It is drawn only when the day falls inside the drawn window, from its start to today.
+   */
+  marker?: ChartMarker | null;
 }
+
+export interface ChartMarker {
+  /** A UTC `YYYY-MM-DD` day. */
+  date: string;
+  label: string;
+}
+
+/** The marker's label is about this wide; past it the label is written to the line's left. */
+const MARKER_LABEL_WIDTH = 120;
 
 /**
  * The drawing is laid out in real pixels: the `viewBox` is the measured width of
@@ -124,6 +138,7 @@ export function ReturnChart({
   headerAction = null,
   title,
   origin = null,
+  marker = null,
 }: ReturnChartProps) {
   const { t, i18n } = useTranslation();
   const [measure, measuredWidth] = useElementWidth<HTMLDivElement>(DEFAULT_WIDTH);
@@ -229,6 +244,9 @@ export function ReturnChart({
       : t("overview.returnChart.emptyRange");
 
   const first = curvePoints[0];
+  // ISO dates compare as text. Outside [start, today] there is nothing on the axis to mark.
+  const markerShown = marker !== null && start !== null && marker.date >= start && marker.date <= today;
+  const markerX = markerShown ? x(marker.date) : 0;
 
   return (
     <figure className="flex flex-col gap-2">
@@ -303,6 +321,28 @@ export function ReturnChart({
                 <circle data-testid="return-dot" cx={first.x} cy={first.y} r={3} className="fill-gain" />
               )}
             </>
+          )}
+          {markerShown && (
+            <g>
+              <line
+                data-testid="seat-marker"
+                x1={markerX}
+                x2={markerX}
+                y1={TOP}
+                y2={TOP + PLOT_HEIGHT}
+                strokeWidth={1.5}
+                strokeDasharray="4 3"
+                className="stroke-ink-2"
+              />
+              <text
+                x={markerX > right - MARKER_LABEL_WIDTH ? markerX - 4 : markerX + 4}
+                y={TOP + 10}
+                textAnchor={markerX > right - MARKER_LABEL_WIDTH ? "end" : "start"}
+                className="fill-ink-2 font-mono text-[10px]"
+              >
+                {marker.label}
+              </text>
+            </g>
           )}
           <g className="fill-ink-3 font-mono text-[10px]">
             {labels.map(({ date, x: tickX, kind }) => (
