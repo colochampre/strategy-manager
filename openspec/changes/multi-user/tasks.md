@@ -1433,6 +1433,10 @@ Asked by the owner on 2026-11-02, after PR F's deploy, not built. None blocks PR
 - "Actualmente veo como pestañas Binance, Bybit y Pionex a pesar de solo tener la key configurada de Binance. Quisiera que solo se muestren las pestañas de exchanges configurados." Settled as decision 37: a tab shows with a key, an open position, or an active strategy or subscription on that exchange. The panel cannot tell that from what it reads today, so the server has to say it.
 
 - Asked on 2026-11-06, to build together with decision 36 (the curve starts at 0): "En las curvas de overview y de las estrategias, cuando se elige la visibilidad All no aparece la fecha de comienzo ni la actual, ni fechas intermedias para tener de referencia. Es un detalle a agregar junto con los ajustes del gráfico partiendo de 0."
+- Asked on 2026-11-06, after reviewing PR H's panel locally:
+  - "Compactar el dialogo de strategy settings tanto en la vista de las estrategias como en la creación de nueva estrategia: input y botón de guardar en la misma fila. Resumir los botones Save, por ejemplo de 'Save share' a 'Save' (mantener el icono). Resumir 'Ask for about x USDT...' e indicar cuánto margen pide, y si hay apalancamiento, el nocional. Al mover el botón junto al input, puede ocupar el ancho disponible."
+  - "En la descripción de estrategias dar formato a los links para que sean cliqueables. Por ejemplo mi estrategia se explica en detalle en un artefacto de Claude, por lo que adjunto ese link ahí." Constraint carried from H.8: the description stays plain text, never HTML or Markdown. Only `http`/`https` URLs become links, opened with `rel="noopener noreferrer"`.
+  - "En /strategies cambiar el botón Authored por My strategies y agregarle iconos a cada botón de ese nav."
 
 ## Possible improvements
 
