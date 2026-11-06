@@ -8,9 +8,8 @@ import { ArchiveControl } from "@/features/strategies/ArchiveControl";
 import { DeleteStrategyControl } from "@/features/strategies/DeleteStrategyControl";
 import { EnablementHistory } from "@/features/strategies/EnablementHistory";
 import { EnableToggle } from "@/features/strategies/EnableToggle";
-import { PoolShareEditor } from "@/features/strategies/PoolShareEditor";
+import { SeatSettings } from "@/features/strategies/SeatSettings";
 import { StrategyDescriptionEditor } from "@/features/strategies/StrategyDescriptionEditor";
-import { SubscriptionLeverageEditor } from "@/features/strategies/SubscriptionLeverageEditor";
 import { BackToStrategies, StrategyHeader } from "@/features/strategies/StrategyHeader";
 import { StrategyPerformance } from "@/features/strategies/StrategyPerformance";
 import { TradesTable } from "@/features/strategies/TradesTable";
@@ -85,8 +84,7 @@ export function StrategyDetailPage() {
           </div>
           {/* One key for the three: each starts over for another strategy, and sibling keys stay unique. */}
           <Fragment key={subject.id}>
-            <PoolShareEditor strategy={subject} />
-            <SubscriptionLeverageEditor strategy={subject} />
+            <SeatSettings strategy={subject} />
             <StrategyDescriptionEditor strategy={subject} />
           </Fragment>
           <AllowedPairsEditor strategy={subject} />

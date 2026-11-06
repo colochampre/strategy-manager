@@ -125,7 +125,7 @@ describe("My subscriptions", () => {
     );
   });
 
-  it("draws Leave in red with an icon, and leaves Change share neutral", async () => {
+  it("draws Leave in red with an icon", async () => {
     serve({ held: () => Promise.resolve(jsonResponse([heldSubscription()])) });
     open();
 
@@ -133,10 +133,6 @@ describe("My subscriptions", () => {
     expect(leave).toHaveClass("border-loss", "text-loss");
     expect(leave.className).toBe(DANGER_CONTROL);
     expect(leave.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
-    const change = screen.getByRole("button", { name: i18n.t("strategies.subscriptions.changeShare") });
-    expect(change).not.toHaveClass("text-loss");
-    expect(change).not.toHaveClass("border-loss");
-    expect(change.querySelector("svg")).toBeNull();
   });
 
   it("writes the share in plain form, however the server wrote it", async () => {
@@ -211,67 +207,37 @@ describe("My subscriptions", () => {
   });
 });
 
-describe("changing a share", () => {
-  it("opens the editor on the row and saves on that subscription", async () => {
-    const row = heldSubscription();
-    const fetchMock = serve({
-      held: () => Promise.resolve(jsonResponse([row])),
-      patch: () => Promise.resolve(jsonResponse({ ...row, allocation_percent: "45" })),
-    });
+describe("a seat in the list is a summary", () => {
+  it("shows its share and leverage as text, links to the strategy and holds no editor and no Save", async () => {
+    const fetchMock = serve({ held: () => Promise.resolve(jsonResponse([heldSubscription({ leverage: 4 })])) });
     open();
 
-    expect(await screen.findByTestId("subscription-row")).toBeInTheDocument();
-    expect(screen.queryByRole("textbox", { name: i18n.t("strategies.detail.share.label") })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: i18n.t("strategies.subscriptions.changeShare") }));
-    const field = await screen.findByRole("textbox", { name: i18n.t("strategies.detail.share.label") });
-    expect(fetchMock.mock.calls.some(([url]) => String(url).includes(`/strategies/${STRATEGY_ID}/share-preview`))).toBe(true);
-    fireEvent.change(field, { target: { value: "45" } });
-    // Every editor's Save says "Save": the share's is the one in the region the share's label names.
-    fireEvent.click(
-      within(screen.getByRole("region", { name: i18n.t("strategies.detail.share.label") })).getByRole("button", {
-        name: i18n.t("strategies.detail.share.save"),
-      }),
+    const row = await screen.findByTestId("subscription-row");
+    expect(within(row).getByTestId("subscription-share")).toHaveTextContent(
+      i18n.t("strategies.subscriptions.share", { share: "30" }),
     );
-
-    await waitFor(() => expect(requestsTo(fetchMock, `/api/subscriptions/${row.id}`)).toHaveLength(1));
-    const [, init] = requestsTo(fetchMock, `/api/subscriptions/${row.id}`)[0] as [string, RequestInit];
-    expect(init.body).toBe('{"allocation_percent":"45"}');
+    expect(within(row).getByTestId("subscription-leverage")).toHaveTextContent(
+      i18n.t("strategies.subscriptions.leverage", { leverage: 4 }),
+    );
+    expect(within(row).getByRole("link", { name: "Alpha" })).toHaveAttribute("href", `/strategies/explore/${STRATEGY_ID}`);
+    expect(within(row).queryByRole("textbox")).not.toBeInTheDocument();
+    expect(within(row).queryByRole("slider")).not.toBeInTheDocument();
+    expect(within(row).getAllByRole("button").map((button) => button.textContent)).toEqual([
+      i18n.t("strategies.subscriptions.leave"),
+    ]);
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes("/share-preview"))).toBe(false);
   });
 
-  it("opens the leverage control beside the share and saves only the leverage on that subscription", async () => {
-    const row = heldSubscription({ leverage: 2 });
-    const fetchMock = serve({
-      held: () => Promise.resolve(jsonResponse([row])),
-      patch: () => Promise.resolve(jsonResponse({ ...row, leverage: 9 })),
-    });
+  it("links an authored seat to the author's own page", async () => {
+    serve({ held: () => Promise.resolve(jsonResponse([heldSubscription({ authored: true, leverage: 2 })])) });
     open();
 
-    expect(await screen.findByTestId("subscription-row")).toBeInTheDocument();
-    expect(screen.queryByRole("textbox", { name: i18n.t("strategies.leverage.label") })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: i18n.t("strategies.subscriptions.changeShare") }));
-    const field = await screen.findByRole("textbox", { name: i18n.t("strategies.leverage.label") });
-    expect(field).toHaveValue("2");
-    fireEvent.change(field, { target: { value: "9" } });
-    fireEvent.click(
-      within(screen.getByRole("region", { name: i18n.t("strategies.leverage.label") })).getByRole("button", {
-        name: i18n.t("strategies.leverage.save"),
-      }),
+    const row = await screen.findByTestId("subscription-row");
+    expect(within(row).getByRole("link", { name: "Alpha" })).toHaveAttribute("href", `/strategies/${STRATEGY_ID}`);
+    expect(within(row).getByTestId("subscription-leverage")).toHaveTextContent(
+      i18n.t("strategies.subscriptions.leverage", { leverage: 2 }),
     );
-
-    await waitFor(() => expect(requestsTo(fetchMock, `/api/subscriptions/${row.id}`)).toHaveLength(1));
-    const [, init] = requestsTo(fetchMock, `/api/subscriptions/${row.id}`)[0] as [string, RequestInit];
-    expect(init.method).toBe("PATCH");
-    expect(init.body).toBe('{"leverage":9}');
-  });
-
-  it("closes the editor again from the same button", async () => {
-    serve({ held: () => Promise.resolve(jsonResponse([heldSubscription()])) });
-    open();
-
-    fireEvent.click(await screen.findByRole("button", { name: i18n.t("strategies.subscriptions.changeShare") }));
-    fireEvent.click(screen.getByRole("button", { name: i18n.t("strategies.subscriptions.closeShare") }));
-
-    expect(screen.queryByRole("textbox", { name: i18n.t("strategies.detail.share.label") })).not.toBeInTheDocument();
   });
 });
 

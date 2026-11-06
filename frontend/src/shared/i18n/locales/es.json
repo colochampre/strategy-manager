@@ -232,8 +232,7 @@
       "noAuthorName": "autor todavía sin nombre",
       "share": "{{share}} % de su pool por operación",
       "leaving": "Saliendo: ya no abre nada más y termina cuando se cierre su posición abierta.",
-      "changeShare": "Cambiar la cuota y el apalancamiento",
-      "closeShare": "Cerrar",
+      "leverage": "Apalancamiento x{{leverage}}",
       "leave": "Salir"
     },
     "leave": {
@@ -281,8 +280,7 @@
       "readFailed": "No se pudieron leer sus pools y suscripciones, así que por ahora no puede suscribirse a esta estrategia.",
       "yours": "Usted es el autor de esta estrategia.",
       "openYours": "Abrir su estrategia",
-      "held": "Está suscrito con el {{share}} % de su pool por operación.",
-      "manage": "Administrarla en Mis suscripciones",
+      "seatTitle": "Su suscripción",
       "needsKey": "Para suscribirse necesita una clave en {{exchange}}. Puede ver esta estrategia sin ella.",
       "addKey": "Agregar una clave en Ajustes",
       "publicSum": "Mientras opere esta estrategia en vivo, el capital que asigne se suma a la cifra pública que se muestra en esta página, junto a la cantidad de personas que la operan.",

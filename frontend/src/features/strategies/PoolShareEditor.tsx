@@ -16,6 +16,8 @@ import type { Strategy } from "@/shared/api/types";
 interface PoolShareEditorProps {
   /** Only what it reads, so a subscriber's row, which holds no whole strategy, can use it. */
   strategy: Pick<Strategy, "id" | "subscription" | "archived_at">;
+  /** The leverage being chosen beside this control, when one is: the amount line is read at it. Default: the saved one. */
+  leverage?: number | undefined;
 }
 
 /** The text of a refused or failed save: the status (and the not-active code) decides, never the server's wording. */
@@ -34,7 +36,7 @@ function saveRefusal(error: unknown): string {
  * is one decimal string: the field keeps the text as typed, the handle follows it, and nothing is sent until
  * Save. Moving the handle or activating a stop is the one moment a decimal is rounded, to a whole number.
  */
-export function PoolShareEditor({ strategy }: PoolShareEditorProps) {
+export function PoolShareEditor({ strategy, leverage }: PoolShareEditorProps) {
   const { t } = useTranslation();
   const ids = { field: useId(), label: useId(), problem: useId() };
   const [saved, setSaved] = useState(false);
@@ -43,12 +45,12 @@ export function PoolShareEditor({ strategy }: PoolShareEditorProps) {
 
   const stored = held === null ? null : readStored(held.allocation_percent);
   // Any movement of this control ends "Saved": a handle moved, a stop activated, a key typed. No timer.
-  // The leverage the seat opens with, as saved: the margin asked is shown with its notional above 1x.
+  // The leverage the amount is read at: the one being chosen beside this control, else the seat's saved one.
   const { text, reading, handle, amount, readAt, changeText, changeStep } = useShareDraft(
     strategy.id,
     stored,
     () => setSaved(false),
-    held?.leverage ?? 1,
+    leverage ?? held?.leverage ?? 1,
   );
   // Each explanation owns its state: closed on every visit, kept through a save and a change of language.
   const shareInfo = useInfoDisclosure();

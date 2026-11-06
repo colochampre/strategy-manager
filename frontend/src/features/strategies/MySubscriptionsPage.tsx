@@ -4,22 +4,17 @@ import { useTranslation } from "react-i18next";
 import { Link } from "react-router";
 
 import { LeaveDialog } from "@/features/strategies/LeaveDialog";
-import { PoolShareEditor } from "@/features/strategies/PoolShareEditor";
-import { SubscriptionLeverageEditor } from "@/features/strategies/SubscriptionLeverageEditor";
 import { readStored } from "@/features/strategies/share-value";
 import { useHeldSubscriptions, useLeaveSubscription } from "@/shared/api/subscriptions";
 import type { HeldSubscription } from "@/shared/api/types";
 import { DANGER_CONTROL } from "@/shared/ui/danger-control";
 
-const CONTROL = "min-h-11 rounded-md border border-rule px-3 text-sm text-ink-2 hover:bg-panel-2";
-
 function SubscriptionRow({ held }: { held: HeldSubscription }) {
   const { t } = useTranslation();
-  const [editing, setEditing] = useState(false);
   const [asking, setAsking] = useState(false);
   const leave = useLeaveSubscription(held.strategy_id, held.id);
   const active = held.status === "ACTIVE";
-  // A strategy turned private has no public page, so this row is the one place to manage its subscription.
+  // The row is a summary: the share and leverage are edited on the strategy's own page, which the name links to.
   const managed = active && !held.authored;
   const author = held.authored
     ? t("strategies.subscriptions.yours")
@@ -48,27 +43,18 @@ function SubscriptionRow({ held }: { held: HeldSubscription }) {
           <p data-testid="subscription-share" className="text-xs text-ink-2">
             {t("strategies.subscriptions.share", { share: readStored(held.allocation_percent) ?? held.allocation_percent })}
           </p>
+          <p data-testid="subscription-leverage" className="text-xs text-ink-2">
+            {t("strategies.subscriptions.leverage", { leverage: held.leverage })}
+          </p>
         </div>
         {managed && (
-          <div className="flex flex-wrap items-center gap-2">
-            <button type="button" aria-expanded={editing} onClick={() => setEditing(!editing)} className={CONTROL}>
-              {t(editing ? "strategies.subscriptions.closeShare" : "strategies.subscriptions.changeShare")}
-            </button>
-            <button type="button" onClick={openDialog} className={DANGER_CONTROL}>
-              <LogOut aria-hidden="true" className="size-4 shrink-0" />
-              {t("strategies.subscriptions.leave")}
-            </button>
-          </div>
+          <button type="button" onClick={openDialog} className={DANGER_CONTROL}>
+            <LogOut aria-hidden="true" className="size-4 shrink-0" />
+            {t("strategies.subscriptions.leave")}
+          </button>
         )}
       </div>
-      {!active && <p className="text-sm text-ink-2">{t("strategies.subscriptions.leaving")}</p>}
-      {managed && editing && (
-        <>
-          <PoolShareEditor strategy={{ id: held.strategy_id, subscription: held, archived_at: null }} />
-          <SubscriptionLeverageEditor strategy={{ id: held.strategy_id, subscription: held, archived_at: null }} />
-        </>
-      )}
-      {asking && (
+      {!active && <p className="text-sm text-ink-2">{t("strategies.subscriptions.leaving")}</p>}      {asking && (
         <LeaveDialog
           name={held.strategy_name}
           pending={leave.isPending}

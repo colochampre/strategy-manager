@@ -232,8 +232,7 @@
       "noAuthorName": "author with no name yet",
       "share": "{{share}} % of your pool per trade",
       "leaving": "Leaving: it opens nothing more, and it ends when its open position closes.",
-      "changeShare": "Change share and leverage",
-      "closeShare": "Close",
+      "leverage": "Leverage x{{leverage}}",
       "leave": "Leave"
     },
     "leave": {
@@ -281,8 +280,7 @@
       "readFailed": "Your pools and subscriptions could not be read, so this strategy cannot be subscribed to right now.",
       "yours": "You are the author of this strategy.",
       "openYours": "Open your strategy",
-      "held": "You are subscribed with {{share}} % of your pool per trade.",
-      "manage": "Manage it in My subscriptions",
+      "seatTitle": "Your subscription",
       "needsKey": "To subscribe you need a key on {{exchange}}. You can browse this strategy without one.",
       "addKey": "Add a key in Settings",
       "publicSum": "While you trade this strategy live, the capital you assign joins the public sum shown on this page, beside the number of people trading it.",
