@@ -295,6 +295,7 @@ export function subscriptionOf(strategyId: string, share = "100", overrides: Par
     strategy_id: strategyId,
     pool_id: 1,
     allocation_percent: share,
+    leverage: 1,
     status: "ACTIVE",
     created_at: "2026-10-27T10:00:00Z",
     left_at: null,

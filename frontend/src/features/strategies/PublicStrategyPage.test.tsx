@@ -250,7 +250,7 @@ describe("subscribing", () => {
 
     await waitFor(() => expect(posts(fetchMock)).toHaveLength(1));
     const [, init] = posts(fetchMock)[0] as [string, RequestInit];
-    expect(init.body).toBe(`{"strategy_id":"${ID}","allocation_percent":"100"}`);
+    expect(init.body).toBe(`{"strategy_id":"${ID}","allocation_percent":"100","leverage":1}`);
   });
 
   it("sends the share the user typed, in plain form", async () => {
@@ -262,7 +262,39 @@ describe("subscribing", () => {
 
     await waitFor(() => expect(posts(fetchMock)).toHaveLength(1));
     const [, init] = posts(fetchMock)[0] as [string, RequestInit];
-    expect(init.body).toBe(`{"strategy_id":"${ID}","allocation_percent":"12.5"}`);
+    expect(init.body).toBe(`{"strategy_id":"${ID}","allocation_percent":"12.5","leverage":1}`);
+  });
+
+  it("offers a leverage that starts at x1 and sends the one the user chose, as a number, with the share", async () => {
+    const fetchMock = serve();
+    open();
+
+    const leverage = await screen.findByRole("textbox", { name: i18n.t("strategies.leverage.label") });
+    expect(leverage).toHaveValue("1");
+    expect(screen.getByRole("slider", { name: i18n.t("strategies.leverage.label") })).toHaveValue("1");
+    fireEvent.click(screen.getByRole("button", { name: i18n.t("strategies.leverage.stop", { value: 10 }) }));
+    expect(leverage).toHaveValue("10");
+    fireEvent.change(leverage, { target: { value: "6" } });
+    fireEvent.click(await subscribeButton());
+
+    await waitFor(() => expect(posts(fetchMock)).toHaveLength(1));
+    const [, init] = posts(fetchMock)[0] as [string, RequestInit];
+    expect(init.body).toBe(`{"strategy_id":"${ID}","allocation_percent":"100","leverage":6}`);
+  });
+
+  it.each(["0", "21", "2.5", ""])("refuses a leverage of %j in words and sends nothing", async (text) => {
+    const fetchMock = serve();
+    open();
+
+    const leverage = await screen.findByRole("textbox", { name: i18n.t("strategies.leverage.label") });
+    fireEvent.change(leverage, { target: { value: text } });
+
+    expect(await subscribeButton()).toBeDisabled();
+    expect(leverage).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByText(i18n.t("strategies.leverage.invalid"))).toBeInTheDocument();
+    fireEvent.submit(leverage.closest("form") as HTMLFormElement);
+    await whatWasPressedHasRun();
+    expect(posts(fetchMock)).toHaveLength(0);
   });
 
   it("asks for the amount on this strategy, not on any other", async () => {

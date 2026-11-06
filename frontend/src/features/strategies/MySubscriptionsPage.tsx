@@ -4,6 +4,7 @@ import { Link } from "react-router";
 
 import { LeaveDialog } from "@/features/strategies/LeaveDialog";
 import { PoolShareEditor } from "@/features/strategies/PoolShareEditor";
+import { SubscriptionLeverageEditor } from "@/features/strategies/SubscriptionLeverageEditor";
 import { readStored } from "@/features/strategies/share-value";
 import { useHeldSubscriptions, useLeaveSubscription } from "@/shared/api/subscriptions";
 import type { HeldSubscription } from "@/shared/api/types";
@@ -59,7 +60,10 @@ function SubscriptionRow({ held }: { held: HeldSubscription }) {
       </div>
       {!active && <p className="text-sm text-ink-2">{t("strategies.subscriptions.leaving")}</p>}
       {managed && editing && (
-        <PoolShareEditor strategy={{ id: held.strategy_id, subscription: held, archived_at: null }} />
+        <>
+          <PoolShareEditor strategy={{ id: held.strategy_id, subscription: held, archived_at: null }} />
+          <SubscriptionLeverageEditor strategy={{ id: held.strategy_id, subscription: held, archived_at: null }} />
+        </>
       )}
       {asking && (
         <LeaveDialog

@@ -5,7 +5,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ApiError } from "@/shared/api/client";
 import { API_BASE_URL } from "@/shared/api/config";
-import { isSubscription, setSubscriptionShare, useSetSubscriptionShare } from "@/shared/api/subscriptions";
+import {
+  isSubscription,
+  setSubscriptionLeverage,
+  setSubscriptionShare,
+  useSetSubscriptionLeverage,
+  useSetSubscriptionShare,
+} from "@/shared/api/subscriptions";
 import { jsonResponse } from "@/test/harness";
 
 const ID = "11111111-1111-4111-8111-111111111111";
@@ -18,6 +24,7 @@ function subscription(overrides: Record<string, unknown> = {}) {
     strategy_id: ID,
     pool_id: 7,
     allocation_percent: "33.5",
+    leverage: 1,
     status: "ACTIVE",
     created_at: "2026-10-27T10:00:00Z",
     left_at: null,
@@ -75,6 +82,9 @@ describe("isSubscription", () => {
     ["a pool id that is a string", { pool_id: "7" }],
     ["no id", { id: undefined }],
     ["a left_at that is not a string", { left_at: 1 }],
+    ["no leverage", { leverage: undefined }],
+    ["a leverage that is a string", { leverage: "5" }],
+    ["a leverage that is not whole", { leverage: 2.5 }],
   ])("refuses %s", (_case, overrides) => {
     expect(isSubscription(subscription(overrides))).toBe(false);
   });
@@ -210,5 +220,79 @@ describe("useSetSubscriptionShare", () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
     expect(invalidate.mock.calls.map((call) => call[0]?.queryKey)).not.toContainEqual(["positions", "open"]);
+  });
+});
+
+describe("setSubscriptionLeverage", () => {
+  it('sends PATCH /api/subscriptions/{id} with exactly {"leverage":5}, a JSON number', async () => {
+    const fetchMock = stubFetch(jsonResponse(subscription({ leverage: 5 })));
+
+    await setSubscriptionLeverage(SUBSCRIPTION_ID, 5);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const call = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(call[0]).toBe(`${API_BASE_URL}/api/subscriptions/${SUBSCRIPTION_ID}`);
+    expect(call[1].method).toBe("PATCH");
+    expect(new Headers(call[1].headers).get("Content-Type")).toBe("application/json");
+    expect(call[1].body).toBe('{"leverage":5}');
+  });
+
+  it("resolves the subscription the server answered", async () => {
+    stubFetch(jsonResponse(subscription({ leverage: 8 })));
+
+    await expect(setSubscriptionLeverage(SUBSCRIPTION_ID, 8)).resolves.toEqual(subscription({ leverage: 8 }));
+  });
+
+  it("refuses an answer that is not a subscription", async () => {
+    stubFetch(jsonResponse({ id: SUBSCRIPTION_ID, leverage: 8 }));
+
+    await expect(setSubscriptionLeverage(SUBSCRIPTION_ID, 8)).rejects.toBeInstanceOf(ApiError);
+  });
+
+  it.each([422, 409, 404, 500])("a refusal (%i) throws an ApiError with its status", async (status) => {
+    stubFetch(jsonResponse({ detail: "no" }, status));
+
+    const failure = await setSubscriptionLeverage(SUBSCRIPTION_ID, 8).then(
+      () => null,
+      (error: unknown) => error,
+    );
+
+    expect(failure).toBeInstanceOf(ApiError);
+    expect((failure as ApiError).status).toBe(status);
+  });
+});
+
+describe("useSetSubscriptionLeverage", () => {
+  it("on success writes the answer into the strategy's subscription under ['strategy', id], and only there", async () => {
+    stubFetch(jsonResponse(subscription({ leverage: 7 })));
+    const { client, wrapper } = clientWrapper();
+    client.setQueryData(["strategy", ID], strategy());
+    client.setQueryData(["strategy", OTHER_ID], strategy({ id: OTHER_ID }));
+    const { result } = renderHook(() => useSetSubscriptionLeverage(ID, SUBSCRIPTION_ID), { wrapper });
+
+    result.current.mutate(7);
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(client.getQueryData(["strategy", ID])).toEqual(strategy({ subscription: subscription({ leverage: 7 }) }));
+    expect(client.getQueryData(["strategy", OTHER_ID])).toEqual(strategy({ id: OTHER_ID }));
+  });
+
+  it("writes nothing when the save is refused, and still invalidates the same reads a share change does", async () => {
+    stubFetch(jsonResponse({ detail: "no" }, 422));
+    const { client, wrapper } = clientWrapper();
+    client.setQueryData(["strategy", ID], strategy());
+    const invalidate = vi.spyOn(client, "invalidateQueries");
+    const { result } = renderHook(() => useSetSubscriptionLeverage(ID, SUBSCRIPTION_ID), { wrapper });
+
+    result.current.mutate(7);
+    await waitFor(() => expect(result.current.isError).toBe(true));
+
+    expect(client.getQueryData(["strategy", ID])).toEqual(strategy());
+    expect(invalidate.mock.calls.map((call) => call[0]?.queryKey)).toEqual([
+      ["strategies"],
+      ["strategy", ID],
+      ["subscriptions", "held"],
+      ["public-strategies"],
+    ]);
   });
 });

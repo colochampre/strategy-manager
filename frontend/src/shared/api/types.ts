@@ -150,6 +150,8 @@ export interface Subscription {
   strategy_id: string;
   pool_id: number;
   allocation_percent: string;
+  /** The leverage the system sets on the exchange before this subscription's next opening: a whole number from 1 to 20. */
+  leverage: number;
   status: SubscriptionStatus;
   created_at: string | null;
   left_at: string | null;
@@ -213,6 +215,8 @@ export interface RegisterStrategyBody {
   settlement_currency: string;
   fill_mode: FillMode;
   allocation_percent: string;
+  /** The leverage of the author's own subscription, a whole number from 1 to 20. */
+  leverage: number;
   visibility: Visibility;
   allowed_pairs: string[];
 }

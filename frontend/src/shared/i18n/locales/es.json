@@ -232,7 +232,7 @@
       "noAuthorName": "autor todavía sin nombre",
       "share": "{{share}} % de su pool por operación",
       "leaving": "Saliendo: ya no abre nada más y termina cuando se cierre su posición abierta.",
-      "changeShare": "Cambiar la cuota",
+      "changeShare": "Cambiar la cuota y el apalancamiento",
       "closeShare": "Cerrar",
       "leave": "Salir"
     },
@@ -322,6 +322,20 @@
       "hint": "Otros usuarios no pueden suscribirse a una estrategia privada. Los suscriptores que ya tiene la conservan.",
       "saveFailed": "La visibilidad no se guardó. Inténtelo de nuevo.",
       "needsName": "Primero elija su nombre en Configuración: una estrategia pública muestra a su autor."
+    },
+    "leverage": {
+      "label": "Apalancamiento",
+      "info": "Acerca del apalancamiento",
+      "hint": "El sistema fija este apalancamiento en el exchange antes de cada apertura, así que se aplica desde la próxima apertura. Una posición que ya está abierta conserva el apalancamiento con el que se abrió. Cuanto mayor es, más mueve el mismo margen, tanto en ganancias como en pérdidas.",
+      "valueText": "x{{value}}",
+      "stop": "Fijar el apalancamiento en x{{value}}",
+      "invalid": "Ingrese un número entero del 1 al 20.",
+      "save": "Guardar apalancamiento",
+      "saving": "Guardando…",
+      "saveFailed": "No se guardó el apalancamiento. Inténtelo de nuevo.",
+      "outOfRange": "El apalancamiento debe ser un número entero del 1 al 20.",
+      "notActive": "Su suscripción a esta estrategia ya no está activa, así que su apalancamiento ya no se puede cambiar.",
+      "gone": "Esta estrategia ya no existe."
     },
     "new": {
       "open": "Nueva estrategia",

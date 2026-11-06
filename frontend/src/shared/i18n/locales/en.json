@@ -232,7 +232,7 @@
       "noAuthorName": "author with no name yet",
       "share": "{{share}} % of your pool per trade",
       "leaving": "Leaving: it opens nothing more, and it ends when its open position closes.",
-      "changeShare": "Change share",
+      "changeShare": "Change share and leverage",
       "closeShare": "Close",
       "leave": "Leave"
     },
@@ -322,6 +322,20 @@
       "hint": "Other users cannot subscribe to a private strategy. Subscribers it already has keep it.",
       "saveFailed": "The visibility was not saved. Try again.",
       "needsName": "Choose your name in Settings first: a public strategy shows its author."
+    },
+    "leverage": {
+      "label": "Leverage",
+      "info": "About the leverage",
+      "hint": "The system sets this leverage on the exchange before each opening, so it applies from the next opening. A position that is already open keeps the leverage it was opened with. The higher it is, the more the same margin moves, in gains and in losses.",
+      "valueText": "x{{value}}",
+      "stop": "Set the leverage to x{{value}}",
+      "invalid": "Enter a whole number from 1 to 20.",
+      "save": "Save leverage",
+      "saving": "Saving…",
+      "saveFailed": "The leverage was not saved. Try again.",
+      "outOfRange": "The leverage must be a whole number from 1 to 20.",
+      "notActive": "Your subscription to this strategy is no longer active, so its leverage can no longer be changed.",
+      "gone": "This strategy no longer exists."
     },
     "new": {
       "open": "New strategy",

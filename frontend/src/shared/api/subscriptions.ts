@@ -22,6 +22,8 @@ export function isSubscription(value: unknown): value is Subscription {
     typeof value.strategy_id === "string" &&
     typeof value.pool_id === "number" &&
     typeof value.allocation_percent === "string" &&
+    typeof value.leverage === "number" &&
+    Number.isInteger(value.leverage) &&
     STATUSES.includes(value.status as SubscriptionStatus) &&
     isInstant(value.created_at) &&
     isInstant(value.left_at) &&
@@ -29,15 +31,12 @@ export function isSubscription(value: unknown): value is Subscription {
   );
 }
 
-/**
- * `PATCH /api/subscriptions/{id}` with only `allocation_percent`, sent as the string it is. The answer is
- * checked, as for a read, so the page never caches a body it cannot describe.
- */
-export async function setSubscriptionShare(subscriptionId: string, value: string): Promise<Subscription> {
+/** `PATCH /api/subscriptions/{id}` with the given fields. The answer is checked, as for a read, so the page never caches a body it cannot describe. */
+async function patchSubscription(subscriptionId: string, fields: Record<string, string | number>): Promise<Subscription> {
   const body = await apiFetch<unknown>(`/subscriptions/${encodeURIComponent(subscriptionId)}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ allocation_percent: value }),
+    body: JSON.stringify(fields),
   });
   if (!isSubscription(body)) {
     throw new ApiError(200, {
@@ -47,18 +46,27 @@ export async function setSubscriptionShare(subscriptionId: string, value: string
   return body;
 }
 
+/** `PATCH /api/subscriptions/{id}` with only `allocation_percent`, sent as the string it is. */
+export async function setSubscriptionShare(subscriptionId: string, value: string): Promise<Subscription> {
+  return patchSubscription(subscriptionId, { allocation_percent: value });
+}
+
+/** `PATCH /api/subscriptions/{id}` with only `leverage`, sent as the JSON integer it is. */
+export async function setSubscriptionLeverage(subscriptionId: string, leverage: number): Promise<Subscription> {
+  return patchSubscription(subscriptionId, { leverage });
+}
+
 /**
- * Saves the signed-in user's share of a strategy. On success the checked answer is written into that
+ * What a saved subscription field does to the cache. On success the checked answer is written into that
  * strategy's `subscription` under `['strategy', id]`, so the stored value the page shows is the confirmed
  * one even if the refetch that follows fails. Settled, not only success: a refusal says the stored state is
  * not what the page showed, so the list and the page (and the preview under its key) read it again. The
  * invalidation's promise is returned, so the mutation stays pending until the page holds the new state.
  */
-export function useSetSubscriptionShare(strategyId: string, subscriptionId: string) {
+function useSubscriptionSavedEffects(strategyId: string) {
   const queryClient = useQueryClient();
-  return useMutation<Subscription, Error, string>({
-    mutationFn: (value) => setSubscriptionShare(subscriptionId, value),
-    onSuccess: (saved) => {
+  return {
+    onSuccess: (saved: Subscription) => {
       queryClient.setQueryData<Strategy>(["strategy", strategyId], (held) =>
         held === undefined ? held : { ...held, subscription: saved },
       );
@@ -69,6 +77,24 @@ export function useSetSubscriptionShare(strategyId: string, subscriptionId: stri
       await queryClient.invalidateQueries({ queryKey: HELD_KEY });
       await queryClient.invalidateQueries({ queryKey: ["public-strategies"] });
     },
+  };
+}
+
+/** Saves the signed-in user's share of a strategy (see `useSubscriptionSavedEffects` for what it does to the cache). */
+export function useSetSubscriptionShare(strategyId: string, subscriptionId: string) {
+  const effects = useSubscriptionSavedEffects(strategyId);
+  return useMutation<Subscription, Error, string>({
+    mutationFn: (value) => setSubscriptionShare(subscriptionId, value),
+    ...effects,
+  });
+}
+
+/** Saves the signed-in user's leverage on a strategy's subscription, with the same effects on the cache as the share. */
+export function useSetSubscriptionLeverage(strategyId: string, subscriptionId: string) {
+  const effects = useSubscriptionSavedEffects(strategyId);
+  return useMutation<Subscription, Error, number>({
+    mutationFn: (leverage) => setSubscriptionLeverage(subscriptionId, leverage),
+    ...effects,
   });
 }
 
@@ -101,11 +127,11 @@ export function useHeldSubscriptions() {
 }
 
 /** `POST /api/subscriptions`: the signed-in user takes a place in the strategy, through their own pool on its market. */
-export async function subscribe(strategyId: string, share: string): Promise<Subscription> {
+export async function subscribe(strategyId: string, share: string, leverage: number): Promise<Subscription> {
   const body = await apiFetch<unknown>("/subscriptions", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ strategy_id: strategyId, allocation_percent: share }),
+    body: JSON.stringify({ strategy_id: strategyId, allocation_percent: share, leverage }),
   });
   if (!isSubscription(body)) {
     throw new ApiError(200, { detail: "Unexpected response shape from POST /subscriptions: expected a subscription" });
@@ -140,8 +166,8 @@ function useReadsOfWhoHolds(strategyId: string) {
 
 export function useSubscribe(strategyId: string) {
   const reread = useReadsOfWhoHolds(strategyId);
-  return useMutation<Subscription, Error, string>({
-    mutationFn: (share) => subscribe(strategyId, share),
+  return useMutation<Subscription, Error, { share: string; leverage: number }>({
+    mutationFn: ({ share, leverage }) => subscribe(strategyId, share, leverage),
     onSettled: reread,
   });
 }

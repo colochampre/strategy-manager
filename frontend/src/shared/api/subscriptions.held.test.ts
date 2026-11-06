@@ -81,35 +81,35 @@ describe("fetchHeldSubscriptions", () => {
 });
 
 describe("subscribe", () => {
-  it("posts the strategy and the share as the string it is", async () => {
+  it("posts the strategy, the share as the string it is and the leverage as a number", async () => {
     const fetchMock = stubFetch(jsonResponse(subscriptionOf(STRATEGY_ID, "25.5"), 201));
 
-    await subscribe(STRATEGY_ID, "25.5");
+    await subscribe(STRATEGY_ID, "25.5", 5);
 
     const call = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(call[0]).toBe(`${API_BASE_URL}/api/subscriptions`);
     expect(call[1].method).toBe("POST");
     expect(new Headers(call[1].headers).get("Content-Type")).toBe("application/json");
-    expect(call[1].body).toBe(`{"strategy_id":"${STRATEGY_ID}","allocation_percent":"25.5"}`);
+    expect(call[1].body).toBe(`{"strategy_id":"${STRATEGY_ID}","allocation_percent":"25.5","leverage":5}`);
   });
 
   it("resolves the subscription the server answered", async () => {
     const answer = subscriptionOf(STRATEGY_ID, "25.5");
     stubFetch(jsonResponse(answer, 201));
 
-    await expect(subscribe(STRATEGY_ID, "25.5")).resolves.toEqual(answer);
+    await expect(subscribe(STRATEGY_ID, "25.5", 5)).resolves.toEqual(answer);
   });
 
   it("refuses an answer that is not a subscription", async () => {
     stubFetch(jsonResponse({ id: SUBSCRIPTION_ID }, 201));
 
-    await expect(subscribe(STRATEGY_ID, "25.5")).rejects.toBeInstanceOf(ApiError);
+    await expect(subscribe(STRATEGY_ID, "25.5", 5)).rejects.toBeInstanceOf(ApiError);
   });
 
   it("carries the refusal's code", async () => {
     stubFetch(jsonResponse({ detail: { error: "NO_POOL_FOR_MARKET", message: "no pool" } }, 409));
 
-    await expect(subscribe(STRATEGY_ID, "25.5")).rejects.toMatchObject({ status: 409, code: "NO_POOL_FOR_MARKET" });
+    await expect(subscribe(STRATEGY_ID, "25.5", 5)).rejects.toMatchObject({ status: 409, code: "NO_POOL_FOR_MARKET" });
   });
 });
 
@@ -140,7 +140,7 @@ describe("what a change makes stale", () => {
     const { result } = renderHook(() => useSubscribe(STRATEGY_ID), { wrapper });
 
     await act(async () => {
-      await result.current.mutateAsync("25");
+      await result.current.mutateAsync({ share: "25", leverage: 5 });
     });
 
     await waitFor(() => expect(stale(client, keys)).toBe(keys.length));
@@ -153,7 +153,7 @@ describe("what a change makes stale", () => {
     const { result } = renderHook(() => useSubscribe(STRATEGY_ID), { wrapper });
 
     await act(async () => {
-      await result.current.mutateAsync("25").catch(() => undefined);
+      await result.current.mutateAsync({ share: "25", leverage: 5 }).catch(() => undefined);
     });
 
     await waitFor(() => expect(stale(client, keys)).toBe(keys.length));

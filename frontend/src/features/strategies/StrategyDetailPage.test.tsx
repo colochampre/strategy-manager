@@ -453,7 +453,7 @@ describe("StrategyDetailPage", () => {
     const [header, first] = Array.from(settings.children) as [HTMLElement, HTMLElement];
     expect(header).toContainElement(within(settings).getByRole("heading", { level: 2, name: en.strategies.detail.settings }));
     expect(first).toContainElement(slider);
-    expect(within(settings).getByRole("textbox")).toHaveValue("37.5");
+    expect(within(settings).getByRole("textbox", { name: en.strategies.detail.share.label })).toHaveValue("37.5");
     const pairs = within(settings).getByRole("list", { name: en.strategies.pairs.selected });
     expect(first).not.toContainElement(pairs);
     expect(first.compareDocumentPosition(pairs) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -494,6 +494,27 @@ describe("StrategyDetailPage", () => {
     expect(header.textContent).not.toContain(en.strategies.detail.share.label);
   });
 
+  it("test_the_leverage_control_follows_the_share_control_in_the_settings_column", async () => {
+    renderPage(strategy({ subscription: subscriptionOf(ID, "37.5", { leverage: 4 }) }));
+    await heading("ETH Breakout");
+
+    const settings = screen.getByRole("complementary", { name: en.strategies.detail.settings });
+    const share = within(settings).getByRole("slider", { name: en.strategies.detail.share.label });
+    const leverage = within(settings).getByRole("slider", { name: en.strategies.leverage.label });
+    expect(within(settings).getByRole("textbox", { name: en.strategies.leverage.label })).toHaveValue("4");
+    expect(leverage).toHaveValue("4");
+    expect(share.compareDocumentPosition(leverage) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const pairs = within(settings).getByRole("list", { name: en.strategies.pairs.selected });
+    expect(leverage.compareDocumentPosition(pairs) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(settings).getByRole("button", { name: en.strategies.leverage.save })).toBeDisabled();
+  });
+
+  it("test_an_archived_strategy_shows_the_leverage_control_read_only", async () => {
+    renderPage(strategy({ archived_at: "2026-09-01T00:00:00+00:00" }));
+    await heading("ETH Breakout");
+    expect(screen.getByRole("slider", { name: en.strategies.leverage.label })).toBeDisabled();
+  });
+
   it("test_an_archived_strategy_shows_the_control_read_only", async () => {
     renderPage(strategy({ subscription: subscriptionOf(ID, "37.5"), archived_at: "2026-09-01T00:00:00+00:00" }));
     await heading("ETH Breakout");
@@ -502,8 +523,8 @@ describe("StrategyDetailPage", () => {
     const slider = within(settings).queryByRole("slider", { name: en.strategies.detail.share.label });
     expect(slider).toBeInTheDocument();
     expect(slider).toBeDisabled();
-    expect(within(settings).getByRole("textbox")).toBeDisabled();
-    expect(within(settings).getByRole("textbox")).toHaveValue("37.5");
+    expect(within(settings).getByRole("textbox", { name: en.strategies.detail.share.label })).toBeDisabled();
+    expect(within(settings).getByRole("textbox", { name: en.strategies.detail.share.label })).toHaveValue("37.5");
     expect(within(settings).getByRole("button", { name: en.strategies.detail.share.save })).toBeDisabled();
     expect(within(settings).getByRole("button", { name: i18n.t("strategies.detail.share.stop", { value: 25 }) })).toBeDisabled();
   });
@@ -530,15 +551,15 @@ describe("StrategyDetailPage", () => {
     await heading("ETH Breakout");
 
     // Both strategies store 100. A value typed on the first, and an explanation opened on it, are its own.
-    fireEvent.change(screen.getByRole("textbox"), { target: { value: "40" } });
+    fireEvent.change(screen.getByRole("textbox", { name: en.strategies.detail.share.label }), { target: { value: "40" } });
     fireEvent.click(screen.getByRole("button", { name: en.strategies.detail.share.info }));
-    expect(screen.getByRole("textbox")).toHaveValue("40");
+    expect(screen.getByRole("textbox", { name: en.strategies.detail.share.label })).toHaveValue("40");
     expect(screen.getByText(en.strategies.detail.share.hint)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("link", { name: "next strategy" }));
     await heading("SOL Trend");
 
-    expect(screen.getByRole("textbox")).toHaveValue("100");
+    expect(screen.getByRole("textbox", { name: en.strategies.detail.share.label })).toHaveValue("100");
     expect(screen.queryByText(en.strategies.detail.share.hint)).toBeNull();
   });
 
