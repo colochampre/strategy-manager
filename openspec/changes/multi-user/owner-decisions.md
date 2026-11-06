@@ -234,13 +234,15 @@ These come from the owner's own words above. They are not asked again.
     - The origin is the UTC day of the earliest `opened_at` among the trades the curve counts, because that is when capital went at risk. Not the strategy's activation: Overview mixes strategies with different dates, and a strategy enabled for a month with no signal would draw a flat line that reads as a record. Not the day before the first close: it would show a four-day trade as one day.
     - A window with earlier history starts at 0 on its left edge, which is the rebase's own base. Its first point inside was born above or below 0 in the same way.
     - A trade that opens and closes on one UTC day puts the origin the day before the close, so the two points do not fall on one x and draw a vertical line.
-    - Not built. It goes with the panel requests in `tasks.md`, in its own delivery: sign-up does not depend on it.
+    - Built in PR I (I.1, I.2).
 
 37. **An exchange tab shows only where its user has something running (2026-11-02; proposed and confirmed with "Si, me parece bien").** The request: "Actualmente veo como pestañas Binance, Bybit y Pionex a pesar de solo tener la key configurada de Binance. Quisiera que solo se muestren las pestañas de exchanges configurados." The tabs came from the user's pools, not from their keys.
     - A tab shows when the user has a key on that exchange, a position open there, or an active strategy or subscription there. Closed history alone does not hold a tab: the data stays, and the tab returns with a key.
     - Not a key alone: a simulated opening needs no key, so a new user simulating with no key would have no tab and could not see their own positions.
     - Decision 80 settled the same thing for Settings' cards, which keep their own rule: an enabled pool with no key stays as an amber card.
-    - Not built. It goes with the panel requests in `tasks.md`, in its own delivery.
+    - Built in PR I (I.7).
+    - **Amended 2026-11-06 (PR I, I.7).** Asked whether a user with pools but nothing running should still see their pools' tabs, the owner answered: "Para mi solo deben ser visibles las pestañas de los exchange que el usuario tenga configurados. De hecho, como Pionex no tiene soporte actualmente para el trading mediante API, lo sacaría por ahora como candidato a aparecer hasta confirmar que realmente sirve." So nothing running shows no tab at all, and Pionex never gets a tab until its API trading is confirmed.
+    - Next exchanges, not planned yet (owner, same day): "Proximos exchanges a agregar serían BingX, OKX, KuCoin, Hyperliquid. Cuando corresponda".
 
 38. **Each user chooses the leverage of each subscription, and the system sets it, with isolated margin, on the venue before every opening (after the PNUT incident, 2026-11-05).**
     - **The incident.** Binance applies a user's default leverage to a pair only once its trading page has been visited, so a first opening went out at the 20x system default. The owner: "Estaba configurado el default y no se respetó. Nunca tuve conocimiento de que si no se había operado el par, salía por defecto con x20 y eso le puede pasar a cualquiera."

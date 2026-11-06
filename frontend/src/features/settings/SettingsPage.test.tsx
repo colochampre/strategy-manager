@@ -367,8 +367,9 @@ describe("the card and the tab agree", () => {
   });
 
   it("says the same word for an exchange on its tab and on its card", async () => {
-    const pools = [pool("bybit"), pool("binance"), pool("pionex", "spot"), disabled("kraken")];
-    const credentials = ok(storedKey("bybit"), storedKey("binance", { trade_capable: false }), emptyKey("pionex"));
+    // Pionex never gets a tab (decision 37, amended), so an exchange it does not know stands in for it.
+    const pools = [pool("bybit"), pool("binance"), pool("okx", "spot"), disabled("kraken")];
+    const credentials = ok(storedKey("bybit"), storedKey("binance", { trade_capable: false }), emptyKey("okx"));
     stubApi(HEALTH, [], { kind: "ok", body: pools }, {}, undefined, {}, credentials);
 
     const wordsOnTabs = new Map<string, string>();
@@ -384,7 +385,7 @@ describe("the card and the tab agree", () => {
 
     renderAt(<AppRoutes />, "/settings");
     await cardsDrawn();
-    await waitFor(() => expect(screen.queryByRole("article", { name: "Pionex" })?.textContent).toContain("no key"));
+    await waitFor(() => expect(screen.queryByRole("article", { name: "Okx" })?.textContent).toContain("no key"));
     for (const [exchange, word] of wordsOnTabs) {
       const card = screen.queryByRole("article", { name: exchange });
       // Kraken has no key and its pool is off: its tab says so, and it has no card (decision 80).
@@ -402,7 +403,7 @@ describe("the card and the tab agree", () => {
     expect([...wordsOnTabs]).toEqual([
       ["Bybit", ""],
       ["Binance", "read-only"],
-      ["Pionex", "no key"],
+      ["Okx", "no key"],
       ["Kraken", "no key"],
     ]);
   });

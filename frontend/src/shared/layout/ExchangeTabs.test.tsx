@@ -440,15 +440,15 @@ describe("the key mark of a tab (design § E), in both surfaces", () => {
 });
 
 describe("the structure that keeps a tab's name at the same place (jsdom has no layout)", () => {
-  const MIXED = [pool("bybit"), pool("binance"), pool("pionex"), disabled("kraken")];
+  const MIXED = [pool("bybit"), pool("binance"), pool("okx"), disabled("kraken")];
   const CREDENTIALS = credentialsOk(
     storedKey("bybit"),
     storedKey("binance", { trade_capable: false }),
-    emptyKey("pionex"),
+    emptyKey("okx"),
   );
   const MARKED = new Map([
     ["Binance", "read-only"],
-    ["Pionex", "no key"],
+    ["Okx", "no key"],
     ["Kraken", "no key"],
   ]);
 
@@ -583,11 +583,12 @@ describe("the tabs read the credentials", () => {
 });
 
 describe("the exchange's logotype on its tab (owner decision 77)", () => {
-  const FOUR = [pool("bybit"), pool("binance"), pool("pionex"), pool("kraken")];
-  const ALL_KEYED = credentialsOk(storedKey("bybit"), storedKey("binance"), storedKey("pionex"), storedKey("kraken"));
+  // Pionex never gets a tab (decision 37, amended), so its logotype is not drawn here.
+  const THREE = [pool("bybit"), pool("binance"), pool("kraken")];
+  const ALL_KEYED = credentialsOk(storedKey("bybit"), storedKey("binance"), storedKey("kraken"));
 
   it("draws each known exchange's logotype, named by its display name, and a capitalised name where there is none", async () => {
-    renderTabs(FOUR, ALL_KEYED);
+    renderTabs(THREE, ALL_KEYED);
 
     for (const bar of await bothBars()) {
       await tabNamed(bar, "Kraken");
@@ -595,14 +596,13 @@ describe("the exchange's logotype on its tab (owner decision 77)", () => {
       expect(tabs.map((tab) => within(tab).queryByRole("img")?.getAttribute("aria-label") ?? tab.textContent)).toEqual([
         "Bybit",
         "Binance",
-        "Pionex",
         "Kraken",
       ]);
     }
   });
 
   it("dims the logotype of every tab but the selected one", async () => {
-    renderTabs(FOUR, ALL_KEYED);
+    renderTabs(THREE, ALL_KEYED);
 
     for (const bar of await bothBars()) {
       await tabNamed(bar, "Kraken");
@@ -612,7 +612,6 @@ describe("the exchange's logotype on its tab (owner decision 77)", () => {
       expect(dimmed).toEqual([
         ["Bybit", false],
         ["Binance", true],
-        ["Pionex", true],
       ]);
     }
   });

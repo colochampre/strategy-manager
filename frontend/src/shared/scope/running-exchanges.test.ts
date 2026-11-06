@@ -58,9 +58,9 @@ describe("what makes a tab", () => {
   });
 
   it("shows an exchange with an open position, without any key", () => {
-    const position = openPosition({ pool: { exchange: "pionex", venue: "usdt-m", settlement_currency: "USDT" } });
+    const position = openPosition({ pool: { exchange: "binance", venue: "usdt-m", settlement_currency: "USDT" } });
 
-    expect(runningExchanges(sources({ positions: openState([position]) }))).toEqual(["pionex"]);
+    expect(runningExchanges(sources({ positions: openState([position]) }))).toEqual(["binance"]);
   });
 
   it("shows an exchange with an enabled strategy that is not archived", () => {
@@ -68,7 +68,21 @@ describe("what makes a tab", () => {
   });
 
   it("shows an exchange with an ACTIVE subscription", () => {
-    expect(runningExchanges(sources({ subscriptions: [held("pionex", "ACTIVE")] }))).toEqual(["pionex"]);
+    expect(runningExchanges(sources({ subscriptions: [held("binance", "ACTIVE")] }))).toEqual(["binance"]);
+  });
+
+  it("never shows Pionex, whatever runs there, until its API trading is confirmed (decision 37, amended)", () => {
+    const position = openPosition({ pool: { exchange: "pionex", venue: "usdt-m", settlement_currency: "USDT" } });
+    const result = runningExchanges(
+      sources({
+        credentials: keys(storedKey("pionex"), storedKey("binance")),
+        positions: openState([position]),
+        strategies: [strategy("pionex")],
+        subscriptions: [held("pionex", "ACTIVE")],
+      }),
+    );
+
+    expect(result).toEqual(["binance"]);
   });
 
   it("shows no tab for an exchange that only has pools", () => {
@@ -96,13 +110,12 @@ describe("what makes a tab", () => {
   it("keeps the order the pools list them in, whatever order the sources name them", () => {
     const result = runningExchanges(
       sources({
-        credentials: keys(storedKey("pionex")),
         strategies: [strategy("binance")],
         subscriptions: [held("bybit", "ACTIVE")],
       }),
     );
 
-    expect(result).toEqual(["bybit", "binance", "pionex"]);
+    expect(result).toEqual(["bybit", "binance"]);
   });
 
   it("lists an exchange once however many things run on it", () => {
@@ -127,14 +140,14 @@ describe("when the rule cannot answer", () => {
     ["positions", { positions: undefined }],
     ["strategies", { strategies: undefined }],
     ["subscriptions", { subscriptions: undefined }],
-  ])("keeps every pool exchange while %s has not answered", (_name, unanswered) => {
+  ])("keeps every pool exchange but Pionex while %s has not answered", (_name, unanswered) => {
     const result = runningExchanges(sources({ ...RUNNING, ...unanswered }));
 
-    expect(result).toEqual(["bybit", "binance", "pionex"]);
+    expect(result).toEqual(["bybit", "binance"]);
   });
 
-  it("falls back to the pool exchanges when every source answered and nothing runs", () => {
-    expect(runningExchanges(sources())).toEqual(["bybit", "binance", "pionex"]);
+  it("shows no tab at all when every source answered and nothing runs (decision 37, amended)", () => {
+    expect(runningExchanges(sources())).toEqual([]);
   });
 
   it("has no exchange when there are no pools", () => {
