@@ -406,6 +406,9 @@ class SharePreviewExactBody(BaseModel):
 
     share: str
     amount: Money
+    #: ``amount`` times the leverage the caller asked about, null when none was
+    #: asked: the panel shows it and never multiplies money itself (PR I, I.3).
+    notional: Money | None
     below_pool_minimum: bool
 
 
@@ -431,7 +434,9 @@ class SharePreviewBody(BaseModel):
     steps: list[SharePreviewStepBody]
 
     @classmethod
-    def of(cls, strategy_id: UUID, preview: SharePreview) -> "SharePreviewBody":
+    def of(
+        cls, strategy_id: UUID, preview: SharePreview, leverage: Leverage | None = None
+    ) -> "SharePreviewBody":
         balance = preview.balance
         exact = preview.exact
         return cls(
@@ -456,6 +461,7 @@ class SharePreviewBody(BaseModel):
                 else SharePreviewExactBody(
                     share=_canonical_share(exact.share),
                     amount=exact.amount,
+                    notional=None if leverage is None else leverage.notional(exact.amount),
                     below_pool_minimum=exact.below_pool_minimum,
                 )
             ),
@@ -793,6 +799,7 @@ async def preview_share(
     user: CurrentUserDep,
     use_case: Annotated[PreviewShare, Depends(get_preview_share)],
     share: Annotated[Share | None, Query()] = None,
+    leverage: Annotated[int | None, Query(ge=1, le=MAX_LEVERAGE)] = None,
 ) -> SharePreviewBody:
     """What a share of this strategy's pool would ask for (design addendum "unit
     12f", sections C2 and H). READ-ONLY: it reads the strategy and then the pool's
@@ -800,8 +807,10 @@ async def preview_share(
     API process decrypts nothing and this route needs no key.
 
     The pool and the default share come from the strategy row the PATH names, never
-    from the request: the only input is the optional ``share``, bounded to
-    ``0 < share <= 100`` and refused with the application's 422 that echoes no input.
+    from the request: the inputs are the optional ``share``, bounded to
+    ``0 < share <= 100``, and the optional ``leverage``, 1 to ``MAX_LEVERAGE``, which
+    only adds the notional to ``exact``. Either out of range is refused with the
+    application's 422 that echoes no input.
 
     A pool with no row is a fault in stored data (a strategy cannot be registered on
     one): one ERROR naming the strategy and the pool, and a fixed 500. A pool with
@@ -834,7 +843,9 @@ async def preview_share(
             raise HTTPException(status_code=404, detail="no such pool") from exc
         logger.error("share preview refused for strategy %s: %s", strategy_id, exc)
         raise HTTPException(status_code=500, detail=SHARE_PREVIEW_FAULT_DETAIL) from exc
-    return SharePreviewBody.of(strategy.id, preview)
+    return SharePreviewBody.of(
+        strategy.id, preview, None if leverage is None else Leverage(leverage)
+    )
 
 
 @router.put("/{strategy_id}/allowed-pairs", response_model=StrategyView)

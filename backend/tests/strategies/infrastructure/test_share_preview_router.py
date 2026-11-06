@@ -230,6 +230,7 @@ async def test_the_stored_share_is_previewed_against_the_pools_balance(
     assert body["exact"] == {
         "share": "33.5",
         "amount": "335.000000000000000000",
+        "notional": None,
         "below_pool_minimum": False,
     }
     assert len(body["steps"]) == 100
@@ -340,6 +341,7 @@ async def test_without_a_share_the_preview_defaults_to_the_signed_in_users_subsc
     assert _exact(response) == {
         "share": "12.5",
         "amount": "125.000000000000000000",
+        "notional": None,
         "below_pool_minimum": False,
     }
 
@@ -432,10 +434,53 @@ async def test_a_share_asked_for_is_served_as_exact(
     assert body["exact"] == {
         "share": "12.34",
         "amount": "123.400000000000000000",
+        "notional": None,
         "below_pool_minimum": False,
     }
     assert len(body["steps"]) == 100
     assert body["steps"][0]["amount"] == "10.000000000000000000"
+
+
+async def test_a_leverage_asked_for_serves_the_notional_of_the_exact_amount(
+    client: AsyncClient,
+    pg_session_factory: Factory,  # noqa: F811
+) -> None:
+    """The amount is the margin an opening asks for; at 3x it moves three times
+    that (PR I, I.3). The server multiplies, so the panel never does."""
+    strategy_id = await _strategy(pg_session_factory)
+    await _synced(pg_session_factory)
+
+    response = await client.get(
+        f"/api/strategies/{strategy_id}/share-preview",
+        params={"share": "12.34", "leverage": "3"},
+        headers=ADMIN_HEADERS,
+    )
+
+    assert response.status_code == 200, response.text
+    exact = _exact(response)
+    assert exact["amount"] == "123.400000000000000000"
+    assert exact["notional"] == "370.200000000000000000"
+
+
+@pytest.mark.parametrize("asked", ["0", "21", "1.5", "two"])
+async def test_a_leverage_outside_one_to_twenty_is_422_and_no_body_repeats_it(
+    client: AsyncClient,
+    pg_session_factory: Factory,  # noqa: F811
+    asked: str,
+) -> None:
+    strategy_id = await _strategy(pg_session_factory)
+    await _synced(pg_session_factory)
+
+    response = await client.get(
+        f"/api/strategies/{strategy_id}/share-preview",
+        params={"share": "10", "leverage": asked},
+        headers=ADMIN_HEADERS,
+    )
+
+    assert response.status_code == 422
+    assert "input" not in response.text
+    if asked not in {"0", "1.5"}:
+        assert asked not in response.text, "the rejected value was echoed"
 
 
 @pytest.mark.parametrize(
