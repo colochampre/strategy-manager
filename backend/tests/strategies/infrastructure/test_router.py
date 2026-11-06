@@ -1212,6 +1212,56 @@ async def test_delete_archived_with_no_history_204(deleting: AsyncClient) -> Non
 # --------------------------------------------------------------------------
 
 
+async def _stored_seat_leverage(
+    pg_session_factory: async_sessionmaker[AsyncSession], strategy_id: UUID
+) -> int:
+    async with pg_session_factory() as session:
+        value = await session.scalar(
+            text("SELECT leverage FROM subscriptions WHERE strategy_id = :id"),
+            {"id": strategy_id},
+        )
+    assert isinstance(value, int)
+    return value
+
+
+async def test_the_authors_seat_is_registered_at_the_leverage_sent(
+    client: AsyncClient, pg_session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """Decision 38: the author chooses their seat's leverage at registration."""
+    strategy_id = await _register(client, leverage=7)
+
+    assert await _stored_seat_leverage(pg_session_factory, strategy_id) == 7
+
+
+async def test_a_registration_with_no_leverage_seats_the_author_at_1x(
+    client: AsyncClient, pg_session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    strategy_id = await _register(client)
+
+    assert await _stored_seat_leverage(pg_session_factory, strategy_id) == 1
+
+
+@pytest.mark.parametrize("leverage", [0, 21, "5", 2.5, True])
+async def test_a_registration_with_a_leverage_out_of_range_is_refused(
+    client: AsyncClient, leverage: Any
+) -> None:
+    body = {
+        "id": str(uuid4()),
+        "name": "refused",
+        "exchange": "pionex",
+        "venue": "spot",
+        "settlement_currency": "USDT",
+        "fill_mode": "PARTIAL",
+        "allowed_pairs": ["ETHUSDT"],
+        "leverage": leverage,
+    }
+
+    response = await client.post("/strategies", json=body, headers=ADMIN_HEADERS)
+
+    assert response.status_code == 422
+    assert [error["loc"] for error in response.json()["detail"]] == [["body", "leverage"]]
+
+
 async def _stored_share(
     pg_session_factory: async_sessionmaker[AsyncSession], strategy_id: UUID
 ) -> Decimal:

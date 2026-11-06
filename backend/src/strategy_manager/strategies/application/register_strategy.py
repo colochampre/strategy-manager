@@ -32,6 +32,7 @@ from uuid import UUID
 from strategy_manager.execution.domain.market_symbol import market_key
 from strategy_manager.shared.application.ports import ClockPort
 from strategy_manager.shared.domain.errors import DomainError, InvariantViolation
+from strategy_manager.shared.domain.leverage import NEW_SEAT_LEVERAGE, Leverage
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 from strategy_manager.strategies.application.ports import (
     AuthorHasNoDisplayName,
@@ -106,6 +107,8 @@ class RegisterCommand:
     visibility: Visibility = Visibility.PRIVATE
     # In its stored shape (``description_of``), or None (decision 38).
     description: str | None = None
+    # The author's seat's leverage, as the share is the seat's (decision 38).
+    leverage: Leverage = NEW_SEAT_LEVERAGE
 
 
 @dataclass(frozen=True, slots=True)
@@ -211,7 +214,7 @@ class RegisterStrategy:
         # A subscription is the only way to trade a strategy, its author included
         # (C.4b). Written before the one commit, so a pool that vanished since
         # the check above leaves neither row.
-        await self._author_subscriptions.subscribe_author(strategy, share)
+        await self._author_subscriptions.subscribe_author(strategy, share, command.leverage)
 
         if strategy.enabled:  # pragma: no cover -- dead today; see class docstring
             await self._enablement_log.append(

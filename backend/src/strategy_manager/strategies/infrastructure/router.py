@@ -62,6 +62,7 @@ from strategy_manager.reconciliation.infrastructure.booking_proposal_repository 
 from strategy_manager.shared.config import get_settings
 from strategy_manager.shared.db import get_session
 from strategy_manager.shared.domain.errors import InvariantViolation
+from strategy_manager.shared.domain.leverage import MAX_LEVERAGE, NEW_SEAT_LEVERAGE, Leverage
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 from strategy_manager.shared.infrastructure.clock import SystemClock
 from strategy_manager.shared.infrastructure.wire import Instant, Money
@@ -330,6 +331,10 @@ def _stored_description(value: str | None) -> str | None:
 #: blank one made null) or refused with a 422.
 Description = Annotated[str | None, AfterValidator(_stored_description)]
 
+#: The author's seat's leverage as the API takes it: a JSON integer from 1 to the
+#: cap, strict, as ``POST /api/subscriptions`` takes a subscriber's (decision 38).
+LeverageInput = Annotated[int, Field(strict=True, ge=1, le=MAX_LEVERAGE)]
+
 
 class RegisterRequest(BaseModel):
     """``id`` is the alert's ``signalType``. It is required, and there is no
@@ -346,6 +351,8 @@ class RegisterRequest(BaseModel):
     # Nothing turns public without the author's choice (decision 21).
     visibility: Visibility = Visibility.PRIVATE
     description: Description = None
+    # The author's seat's, like the share above; it starts at 1x unless chosen.
+    leverage: LeverageInput = NEW_SEAT_LEVERAGE.value
 
 
 class UpdateRequest(BaseModel):
@@ -644,6 +651,7 @@ async def register_strategy(
                 author_id=user.id,
                 visibility=body.visibility,
                 description=body.description,
+                leverage=Leverage(body.leverage),
             )
         )
     except StrategyAlreadyRegistered as exc:

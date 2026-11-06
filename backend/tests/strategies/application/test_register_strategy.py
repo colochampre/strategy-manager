@@ -10,6 +10,7 @@ from uuid import UUID, uuid4
 import pytest
 
 from strategy_manager.shared.domain.errors import DomainError
+from strategy_manager.shared.domain.leverage import NEW_SEAT_LEVERAGE, Leverage
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 from strategy_manager.strategies.application.ports import AuthorHasNoDisplayName, PoolKey
 from strategy_manager.strategies.application.register_strategy import (
@@ -124,10 +125,14 @@ class SpyAuthorSubscriptions:
         self._failure = failure
         self.calls: list[tuple[Strategy, int]] = []
         self.shares: list[AllocationPercent] = []
+        self.leverages: list[Leverage] = []
 
-    async def subscribe_author(self, strategy: Strategy, share: AllocationPercent) -> None:
+    async def subscribe_author(
+        self, strategy: Strategy, share: AllocationPercent, leverage: Leverage
+    ) -> None:
         self.calls.append((strategy, self._commit.commits))
         self.shares.append(share)
+        self.leverages.append(leverage)
         if self._failure is not None:
             raise self._failure
 
@@ -388,6 +393,28 @@ async def test_the_share_reaches_the_author_subscription_not_the_strategy() -> N
     [spy] = spies
     assert spy.shares == [AllocationPercent(Decimal("25"))]
     assert not hasattr(repository.inserted[0].policy, "allocation_percent")
+
+
+async def test_the_leverage_registered_reaches_the_authors_seat() -> None:
+    """Decision 38: the author's seat takes its leverage at registration, as
+    its share."""
+    spies: list[SpyAuthorSubscriptions] = []
+    use_case, _, _, _, _ = _build(subscriptions=spies)
+
+    await use_case.register(_command(leverage=Leverage(5)))
+
+    [spy] = spies
+    assert spy.leverages == [Leverage(5)]
+
+
+async def test_a_registration_that_names_no_leverage_seats_the_author_at_1x() -> None:
+    spies: list[SpyAuthorSubscriptions] = []
+    use_case, _, _, _, _ = _build(subscriptions=spies)
+
+    await use_case.register(_command())
+
+    [spy] = spies
+    assert spy.leverages == [NEW_SEAT_LEVERAGE]
 
 
 async def _registered() -> Strategy:
