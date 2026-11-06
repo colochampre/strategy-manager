@@ -25,6 +25,7 @@ function strategy(overrides: Record<string, unknown> = {}): Strategy {
     uptime: { seconds: 0, first_enabled_at: null, baseline: false },
     visibility: "PRIVATE",
     secret_last4: "x4F2",
+    description: null,
     subscribers: 1,
     live_subscribers: 0,
     capital: null,

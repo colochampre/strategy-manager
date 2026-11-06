@@ -318,6 +318,7 @@ export function publicStrategy(overrides: Record<string, unknown> = {}) {
     unleveraged_return_before_fees: "0.125",
     live_subscribers: 2,
     capital: "1500",
+    description: null,
     ...overrides,
   };
 }
@@ -383,6 +384,7 @@ export function strategyRoute(id: string, name: string, overrides: Record<string
     uptime: { seconds: 0, first_enabled_at: null, baseline: false },
     visibility: "PRIVATE",
     secret_last4: "x4F2",
+    description: null,
     subscribers: 1,
     live_subscribers: 0,
     capital: null,

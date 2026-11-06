@@ -41,6 +41,7 @@ function strategy(overrides: Partial<Strategy> = {}): Strategy {
     uptime: { seconds: 0, first_enabled_at: null, baseline: false },
     visibility: "PRIVATE",
     secret_last4: "x4F2",
+    description: null,
     subscribers: 1,
     live_subscribers: 0,
     capital: null,
@@ -507,6 +508,37 @@ describe("StrategyDetailPage", () => {
     const pairs = within(settings).getByRole("list", { name: en.strategies.pairs.selected });
     expect(leverage.compareDocumentPosition(pairs) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(within(settings).getByRole("button", { name: en.strategies.leverage.save })).toBeDisabled();
+  });
+
+  it("puts the description editor in the settings column after the leverage, and saves only the description", async () => {
+    const patched: unknown[] = [];
+    renderPage(strategy({ description: "Runs at 3x" }), {
+      patch: (body) => {
+        patched.push(body);
+        return jsonResponse(strategy({ description: "Runs at 5x" }));
+      },
+    });
+    await heading("ETH Breakout");
+
+    const settings = screen.getByRole("complementary", { name: en.strategies.detail.settings });
+    const description = within(settings).getByRole("textbox", { name: en.strategies.description.label });
+    expect(description).toHaveValue("Runs at 3x");
+    const leverage = within(settings).getByRole("slider", { name: en.strategies.leverage.label });
+    expect(leverage.compareDocumentPosition(description) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    fireEvent.change(description, { target: { value: "Runs at 5x" } });
+    fireEvent.click(within(settings).getByRole("button", { name: en.strategies.description.save }));
+
+    await waitFor(() => expect(patched).toEqual([{ description: "Runs at 5x" }]));
+  });
+
+  it("shows the description editor read-only on an archived strategy", async () => {
+    renderPage(strategy({ archived_at: "2026-09-01T00:00:00+00:00", description: "Runs at 3x" }));
+    await heading("ETH Breakout");
+
+    const description = screen.getByRole("textbox", { name: en.strategies.description.label });
+    expect(description).toBeDisabled();
+    expect(description).toHaveValue("Runs at 3x");
   });
 
   it("test_an_archived_strategy_shows_the_leverage_control_read_only", async () => {

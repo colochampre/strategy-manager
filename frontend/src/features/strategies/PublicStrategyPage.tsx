@@ -29,6 +29,13 @@ function PublicRecord({ strategy }: { strategy: PublicStrategy }) {
         <h1 className="font-display text-2xl font-bold text-ink">{strategy.name}</h1>
         <PublicOrigin strategy={strategy} />
       </header>
+      {strategy.description !== null && (
+        <section data-testid="public-description" className="flex flex-col gap-1.5">
+          <h2 className="text-xs font-semibold text-ink-2">{t("strategies.description.publicHeading")}</h2>
+          {/* Plain text only: React escapes it, and it is never parsed as HTML, Markdown or links. */}
+          <p className="whitespace-pre-line break-words text-sm text-ink">{strategy.description}</p>
+        </section>
+      )}
       <section className="flex flex-col gap-3 rounded-md border border-rule bg-panel px-4 py-3">
         <PublicFigures
           strategy={strategy}

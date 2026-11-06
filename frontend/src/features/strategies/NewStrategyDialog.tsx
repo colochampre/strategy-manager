@@ -2,6 +2,8 @@ import { useId, useState } from "react";
 import type { FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 
+import { DescriptionField } from "@/features/strategies/DescriptionField";
+import { readDescription } from "@/features/strategies/description-value";
 import { IssuedWebhookUrl } from "@/features/strategies/IssuedWebhookUrl";
 import { LeverageSlider } from "@/features/strategies/LeverageSlider";
 import { PairSelector } from "@/features/strategies/PairSelector";
@@ -97,6 +99,10 @@ export function NewStrategyDialog({ exchange, pools, onClose }: NewStrategyDialo
   // Private until the author chooses otherwise (decision 21): nothing turns public by default.
   const [visibility, setVisibility] = useState<Visibility>("PRIVATE");
   const [validation, setValidation] = useState<string | null>(null);
+  // Optional text, kept as typed: the server trims it, and a blank one is left out of the request.
+  const [description, setDescription] = useState("");
+  const descriptionReading = readDescription(description);
+  const descriptionTooLong = !descriptionReading.blank && descriptionReading.tooLong;
   const leverage = useLeverageDraft(STARTING_LEVERAGE);
   const leverageInfo = useInfoDisclosure();
   const register = useRegisterStrategy();
@@ -118,7 +124,7 @@ export function NewStrategyDialog({ exchange, pools, onClose }: NewStrategyDialo
   const handleSubmit = (event: FormEvent) => {
     event.preventDefault();
     // The field says why it is refused and the submit is off meanwhile; a form submitted by Enter sends nothing.
-    if (!leverage.reading.valid) return;
+    if (!leverage.reading.valid || descriptionTooLong) return;
     if (name.trim() === "" || pool === undefined || !FILL_MODES.includes(fillMode as FillMode)) {
       setValidation("strategies.new.incomplete");
       return;
@@ -140,6 +146,7 @@ export function NewStrategyDialog({ exchange, pools, onClose }: NewStrategyDialo
       leverage: leverage.reading.value,
       visibility,
       allowed_pairs: pairs,
+      ...(descriptionReading.blank ? {} : { description }),
     });
   };
 
@@ -299,6 +306,8 @@ export function NewStrategyDialog({ exchange, pools, onClose }: NewStrategyDialo
           )}
         </div>
 
+        <DescriptionField value={description} onChange={setDescription} disabled={register.isPending} />
+
         <VisibilityField value={visibility} onChange={setVisibility} selectClass={inputClass} />
 
         {/* Keyed by the pool so the search text of one pool's list does not carry over to the next. */}
@@ -330,7 +339,7 @@ export function NewStrategyDialog({ exchange, pools, onClose }: NewStrategyDialo
           </button>
           <button
             type="submit"
-            disabled={register.isPending || pools.length === 0 || pairsStatus !== "ready" || !leverage.reading.valid}
+            disabled={register.isPending || pools.length === 0 || pairsStatus !== "ready" || !leverage.reading.valid || descriptionTooLong}
             className="rounded-md bg-gain px-3 py-1.5 text-sm font-medium text-ground hover:opacity-90 disabled:opacity-50"
           >
             {register.isPending ? t("strategies.new.submitting") : t("strategies.new.submit")}

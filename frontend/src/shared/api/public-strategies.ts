@@ -28,6 +28,7 @@ function isPublicStrategy(value: unknown): value is PublicStrategy {
     isCount(value.closed_trade_count) &&
     typeof value.unleveraged_return_before_fees === "string" &&
     isCount(value.live_subscribers) &&
+    (value.description === null || typeof value.description === "string") &&
     (value.capital === null || typeof value.capital === "string")
   );
 }

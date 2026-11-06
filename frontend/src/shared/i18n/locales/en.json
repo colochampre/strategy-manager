@@ -337,6 +337,20 @@
       "notActive": "Your subscription to this strategy is no longer active, so its leverage can no longer be changed.",
       "gone": "This strategy no longer exists."
     },
+    "description": {
+      "label": "Description",
+      "info": "About the description",
+      "hint": "Optional. Anyone who opens this strategy sees it on its public page and before subscribing, as plain text. A good place to say which leverage you recommend. Up to 2,000 characters.",
+      "counter": "{{length}} / {{max}}",
+      "tooLong": "The description can have at most 2,000 characters.",
+      "save": "Save description",
+      "saving": "Saving…",
+      "saveFailed": "The description was not saved. Try again.",
+      "invalid": "The description is too long or holds a character that cannot be kept.",
+      "archived": "This strategy is archived, so its description can no longer be changed.",
+      "gone": "This strategy no longer exists.",
+      "publicHeading": "About this strategy"
+    },
     "new": {
       "open": "New strategy",
       "title": "New strategy",

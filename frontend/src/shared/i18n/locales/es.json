@@ -337,6 +337,20 @@
       "notActive": "Su suscripción a esta estrategia ya no está activa, así que su apalancamiento ya no se puede cambiar.",
       "gone": "Esta estrategia ya no existe."
     },
+    "description": {
+      "label": "Descripción",
+      "info": "Acerca de la descripción",
+      "hint": "Opcional. Quien abra esta estrategia la verá en su página pública y antes de suscribirse, como texto sin formato. Es un buen lugar para indicar qué apalancamiento recomienda. Hasta 2.000 caracteres.",
+      "counter": "{{length}} / {{max}}",
+      "tooLong": "La descripción puede tener como máximo 2.000 caracteres.",
+      "save": "Guardar descripción",
+      "saving": "Guardando…",
+      "saveFailed": "No se guardó la descripción. Inténtelo de nuevo.",
+      "invalid": "La descripción es demasiado larga o contiene un carácter que no se puede conservar.",
+      "archived": "Esta estrategia está archivada, así que su descripción ya no se puede cambiar.",
+      "gone": "Esta estrategia ya no existe.",
+      "publicHeading": "Acerca de esta estrategia"
+    },
     "new": {
       "open": "Nueva estrategia",
       "title": "Nueva estrategia",

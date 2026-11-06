@@ -9,6 +9,7 @@ import { DeleteStrategyControl } from "@/features/strategies/DeleteStrategyContr
 import { EnablementHistory } from "@/features/strategies/EnablementHistory";
 import { EnableToggle } from "@/features/strategies/EnableToggle";
 import { PoolShareEditor } from "@/features/strategies/PoolShareEditor";
+import { StrategyDescriptionEditor } from "@/features/strategies/StrategyDescriptionEditor";
 import { SubscriptionLeverageEditor } from "@/features/strategies/SubscriptionLeverageEditor";
 import { BackToStrategies, StrategyHeader } from "@/features/strategies/StrategyHeader";
 import { StrategyPerformance } from "@/features/strategies/StrategyPerformance";
@@ -84,6 +85,7 @@ export function StrategyDetailPage() {
           </div>
           <PoolShareEditor key={subject.id} strategy={subject} />
           <SubscriptionLeverageEditor key={subject.id} strategy={subject} />
+          <StrategyDescriptionEditor key={subject.id} strategy={subject} />
           <AllowedPairsEditor strategy={subject} />
           <div className="flex flex-col gap-2 border-t border-rule pt-4">
             <EnableToggle strategy={subject} />

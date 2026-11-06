@@ -52,6 +52,8 @@ export interface PublicStrategy {
   unleveraged_return_before_fees: string;
   live_subscribers: number;
   capital: string | null;
+  /** The author's plain text about the strategy, shown as text and never as markup; null when there is none. */
+  description: string | null;
 }
 
 /** The three values that name one capital pool (`PoolRef` on the server). */
@@ -181,6 +183,8 @@ export interface Strategy {
   uptime: StrategyUptime;
   visibility: Visibility;
   secret_last4: string;
+  /** The author's plain text about the strategy, up to 2,000 characters; null when there is none. */
+  description: string | null;
   subscribers: number;
   live_subscribers: number;
   capital: string | null;
@@ -219,6 +223,13 @@ export interface RegisterStrategyBody {
   leverage: number;
   visibility: Visibility;
   allowed_pairs: string[];
+  /** Left out when the author wrote none; the server trims it and turns a blank one into null. */
+  description?: string | null;
+}
+
+/** The body of `PATCH /api/strategies/{id}` for the description alone: null clears it. */
+export interface UpdateStrategyDescriptionBody {
+  description: string | null;
 }
 
 /**

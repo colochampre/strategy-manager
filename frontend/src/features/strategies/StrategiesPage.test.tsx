@@ -40,6 +40,7 @@ function strategy(overrides: Record<string, unknown> = {}) {
     uptime: { seconds: 12 * DAY_S + 3600, first_enabled_at: "2026-09-18T10:00:00Z", baseline: false },
     visibility: "PRIVATE",
     secret_last4: "x4F2",
+    description: null,
     subscribers: 1,
     live_subscribers: 0,
     capital: null,

@@ -93,6 +93,55 @@ describe("the public page", () => {
     );
   });
 
+  it("shows the author's description above the figures, line breaks kept, under its own heading", async () => {
+    const text = "Trend follower.\nRecommended leverage: x3.";
+    serve({ strategy: () => Promise.resolve(jsonResponse(publicStrategy({ id: ID, description: text }))) });
+    open();
+    await screen.findByRole("heading", { level: 1, name: "Alpha" });
+
+    const section = screen.getByTestId("public-description");
+    expect(section).toHaveTextContent(/Trend follower\.\s*Recommended leverage: x3\./);
+    expect(within(section).getByRole("heading", { level: 2, name: "About this strategy" })).toBeInTheDocument();
+    const body = within(section).getByText(/Trend follower/);
+    expect(body.textContent).toBe(text);
+    expect(body).toHaveClass("whitespace-pre-line", "break-words");
+    expect(section.compareDocumentPosition(screen.getByTestId("public-return")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 1, name: "Alpha" }).compareDocumentPosition(section)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+  });
+
+  it("names the description's heading in Spanish", async () => {
+    await act(() => i18n.changeLanguage("es"));
+    serve({ strategy: () => Promise.resolve(jsonResponse(publicStrategy({ id: ID, description: "Seguidor de tendencia." }))) });
+    open();
+    await screen.findByRole("heading", { level: 1, name: "Alpha" });
+
+    expect(within(screen.getByTestId("public-description")).getByRole("heading", { name: "Acerca de esta estrategia" })).toBeInTheDocument();
+    await act(() => i18n.changeLanguage("en"));
+  });
+
+  it("draws nothing for a strategy with no description", async () => {
+    serve();
+    open();
+    await screen.findByRole("heading", { level: 1, name: "Alpha" });
+
+    expect(screen.queryByTestId("public-description")).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "About this strategy" })).not.toBeInTheDocument();
+  });
+
+  it("shows markup and Markdown literally: no element is created from the text", async () => {
+    const text = "<b>x</b> <img src=x onerror=alert(1)> <script>alert(1)</script>\n[link](https://example.com) **bold** https://example.org";
+    serve({ strategy: () => Promise.resolve(jsonResponse(publicStrategy({ id: ID, description: text }))) });
+    open();
+    await screen.findByRole("heading", { level: 1, name: "Alpha" });
+
+    const section = screen.getByTestId("public-description");
+    expect(within(section).getByText(/<b>x<\/b>/).textContent).toBe(text);
+    expect(section.querySelector("b, img, script, strong, a")).toBeNull();
+    expect(within(section).queryByRole("link")).not.toBeInTheDocument();
+  });
+
   it("explains the return and the capital on request, closed by default", async () => {
     serve();
     open();
