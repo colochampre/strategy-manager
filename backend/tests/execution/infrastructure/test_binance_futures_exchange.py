@@ -799,13 +799,39 @@ async def test_a_margin_type_the_venue_refuses_ends_the_opening_definitively(cod
         BinanceApiError("gateway", http_status=502),
         BinanceApiError("throttled", http_status=429),
         BinanceApiError("no answer"),
+        # What Binance actually sends: a rate limit and an overload carry a
+        # business code in the body, which the transport copies onto the error.
+        BinanceApiError("Too many requests", code="-1003", http_status=429),
+        BinanceApiError("Server is currently overloaded", code="-1008", http_status=503),
     ],
-    ids=["unknown-status", "5xx", "429", "transport"],
+    ids=["unknown-status", "5xx", "429", "transport", "429-with-code", "503-with-code"],
 )
 async def test_a_write_whose_outcome_is_unknown_is_retried_not_refused(
     failure: BinanceApiError,
 ) -> None:
     client = FakeTradeClient(leverage=Decimal("20"), leverage_write_raises=failure)
+
+    with pytest.raises(BinanceApiError) as caught:
+        await _adapter(client).build_open_order(_open(leverage=2))
+
+    assert not isinstance(caught.value, ExchangeError)
+    assert caught.value is failure
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        BinanceApiError("Too many requests", code="-1003", http_status=429),
+        BinanceApiError("Server is currently overloaded", code="-1008", http_status=503),
+    ],
+    ids=["429-with-code", "503-with-code"],
+)
+async def test_a_margin_write_rate_limited_or_overloaded_is_retried_not_refused(
+    failure: BinanceApiError,
+) -> None:
+    """Decision 38: an ambiguous setting write (5xx, 408 or 429) retries. A
+    rate-limited fan-out must not lose an opening for good."""
+    client = FakeTradeClient(margin_type="CROSSED", margin_write_raises=failure)
 
     with pytest.raises(BinanceApiError) as caught:
         await _adapter(client).build_open_order(_open(leverage=2))

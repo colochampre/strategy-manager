@@ -1729,5 +1729,14 @@ The follow-up of the PNUT incident above, and decision 38. Branch `feat/subscrip
 
 **Delivery.**
 - [ ] H.D.1 Gate (backend and frontend), and an independent verifier over the whole PR. It names items 1 (`0037`), 3 (the subscribe and strategy contracts) and the venue writes of a live opening.
+  - *2026-11-06.* Gate before the verifier: backend ruff 0, mypy 0, pytest 0 with nothing failing; frontend lint 0, vitest 124 files and 3,328 tests.
+  - Opus verifier over `b5129b0..56adf0d`: migration 0037, Bybit writes (H.6), order flow and sizing (H.4), API contracts and panel pass; probes write nothing in preview. One blocker:
+  - **B1, fixed.** Binance answers a rate limit as HTTP 429 with `code=-1003`, and an overload as 503 with `-1008`; the transport copies the code onto the error and `_is_definitive_rejection` reads the code first, so a throttled setting write ended the opening as LEVERAGE_NOT_APPLIED or MARGIN_NOT_ISOLATED instead of retrying, against decision 38. The tests had built the 429 with no code. Now `_is_definitive_setting_refusal` reads 408, 429 and any 5xx as unknown whatever the code, and both setting writes use it. The order path (`place`) keeps its classifier, as at baseline. 5 of 5 mutations killed (`mutate_hd1.ps1`).
+  - Advisories:
+    - A1: `StrategyDetailPage.tsx:86-88` gives three sibling editors the same `key={subject.id}`; React warns of duplicate keys, and a change of `:strategyId` while the page stays mounted with the next strategy cached can leave the previous strategy's share and leverage editors on screen. No detail-to-detail link exists today.
+    - A2: the deployed panel's `isSharePreview` refuses `exact: null`, so between the API deploy and the panel move a user with no seat sees "The amount could not be loaded" on the subscribe form. Subscribing still works.
+    - A3: a successful margin or leverage write on a user's account logs nothing; only refusals log.
+    - A4: the read-back right after a successful write has not been seen live; a lagging read would refuse that one opening definitively.
+    - A5: a Bybit 403 "access too frequent" (no retCode) on set-leverage is definitive; a retry inside the ban would fail too.
 - [ ] H.D.2 Push and PR (owner's word), merge (owner), with a merge commit.
 - [ ] H.D.3 Rehearse `0037` on a fresh backup, deploy, then pps.6 after the API.

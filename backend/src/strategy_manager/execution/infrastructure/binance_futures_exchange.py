@@ -213,7 +213,7 @@ class BinanceFuturesExchangeAdapter:
             try:
                 await self._client.set_margin_type_isolated(symbol)
             except BinanceApiError as exc:
-                if _is_definitive_rejection(exc):
+                if _is_definitive_setting_refusal(exc):
                     raise MarginNotIsolated(
                         f"Binance refused ISOLATED margin on {symbol} "
                         f"(code={exc.code}): {exc}"
@@ -223,7 +223,7 @@ class BinanceFuturesExchangeAdapter:
             try:
                 await self._client.set_leverage(symbol, chosen)
             except BinanceApiError as exc:
-                if _is_definitive_rejection(exc):
+                if _is_definitive_setting_refusal(exc):
                     raise LeverageNotApplied(
                         f"Binance refused {chosen}x on {symbol} "
                         f"(code={exc.code}): {exc}"
@@ -395,6 +395,22 @@ def _is_definitive_rejection(error: BinanceApiError) -> bool:
     if status is None:
         return False
     return 400 <= status < 500 and status not in AMBIGUOUS_STATUSES
+
+
+def _is_definitive_setting_refusal(error: BinanceApiError) -> bool:
+    """Did Binance refuse a margin or leverage write, or is its fate unknown?
+
+    Stricter than ``_is_definitive_rejection``: a 408, a 429 or any 5xx is
+    unknown whatever code its body carries. Binance answers a rate limit as
+    HTTP 429 with ``-1003`` and an overload as 503 with ``-1008``, and the
+    transport copies that code onto the error, so reading the code first would
+    turn a throttled fan-out into openings lost for good. Decision 38: an
+    ambiguous setting write retries, and the next attempt reads the pair again.
+    """
+    status = error.http_status
+    if status is not None and (status in AMBIGUOUS_STATUSES or status >= 500):
+        return False
+    return _is_definitive_rejection(error)
 
 
 def _to_domain_fill(execution: BinanceExecution) -> Fill:
