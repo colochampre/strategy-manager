@@ -1766,3 +1766,11 @@ The follow-up of the PNUT incident above, and decision 38. Branch `feat/subscrip
   - API: a fresh backup `pre-0037-deploy-20261106T151320Z.dump`, then production upgraded from `0036` to `0037` with the same counts. Both services restarted and read `active`, and no ERROR or Traceback line followed.
   - Then pps.6: the assistant built the bundle from a detached worktree of `origin/main` at `3d09d1f726e2`, 22 entries, SHA-256 `c453fc67269fda74db9647475aaa14debb2c3e1e5a51756864c0cceb12d9c2cc`. The owner's block printed `OK`, `readable`, and `bundle` and `checkout` both at `3d09d1f726e2`.
   - Not yet seen in production: a live opening that sets a pair's leverage (verifier A4), and its INFO line.
+
+## Decision 40: same-day trades that follow each other compound (PR #96)
+
+- [x] D40.1 `combine_by_day` in `performance/domain/curve.py` (overlapping trades summed, later ones compounded, each group's factor floored at 0, one group keeps its plain sum), for the panel and the public record; RED on assertions for six rules, 9 of 9 mutations killed, gates green. Commit `c07fe41`.
+- [x] D40.2 Pushed and opened as #96 on the owner's "Si, por favor", 5 commits over `3d09d1f` (PR H's delivery record, the owner's panel requests, the measuring script and its result, decision 40). Merged by the owner on 2026-11-06 as `f8c73e8`.
+- [x] D40.3 Deployed by the owner on 2026-11-06 with two scripts piped over ssh (session scratchpad: `deploy_pr96_1_api.sh`, `deploy_pr96_2_panel.sh`). No migration.
+  - API: pulled as `strategy` to `f8c73e8000ed`; database and code head both `0037`; both services restarted and read `active`, and no ERROR or Traceback line followed.
+  - Then pps.6: the assistant built the bundle from a detached worktree of `origin/main` at `f8c73e8000ed`, SHA-256 `b2f4dc79d32f7aa89c1fb95be160ab7b824dacc36a08e50eff030c1a02c1cd32`. The owner's block printed `OK`, `readable`, and `bundle` and `checkout` both at `f8c73e8000ed`.
