@@ -1432,6 +1432,8 @@ Asked by the owner on 2026-11-02, after PR F's deploy, not built. None blocks PR
 - "La curva se empezó a dibujar directamente a partir de aproximadamente 3% de PnL y cayendo a 0% nuevamente. Idealmente, la curva debería empezar desde 0%, y subir al 3% en el primer tramo." Settled as decision 36: the 0 goes on the day the first trade opened, and needs one origin date in the curve's response.
 - "Actualmente veo como pestañas Binance, Bybit y Pionex a pesar de solo tener la key configurada de Binance. Quisiera que solo se muestren las pestañas de exchanges configurados." Settled as decision 37: a tab shows with a key, an open position, or an active strategy or subscription on that exchange. The panel cannot tell that from what it reads today, so the server has to say it.
 
+- Asked on 2026-11-06, to build together with decision 36 (the curve starts at 0): "En las curvas de overview y de las estrategias, cuando se elige la visibilidad All no aparece la fecha de comienzo ni la actual, ni fechas intermedias para tener de referencia. Es un detalle a agregar junto con los ajustes del gráfico partiendo de 0."
+
 ## Possible improvements
 
 Noted on the owner's word, not built, not scheduled.
