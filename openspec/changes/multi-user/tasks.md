@@ -1751,5 +1751,11 @@ The follow-up of the PNUT incident above, and decision 38. Branch `feat/subscrip
     - A3, fixed on the owner's word: a successful margin or leverage write on a user's account logged nothing; only refusals logged. Each adapter now logs one INFO line once the venue's read-back confirms the write, naming the pair, the state before and after, and the order's client id ("Binance AAVEUSDT set to ISOLATED at 5x, was CROSSED at 20x, before order …"; "Bybit BTCUSDT leverage set from 20x to 3x before order …"). Nothing is logged when nothing was written or the read-back refuses. 6 of 6 mutations killed (`mutate_a3.ps1`).
     - A4: the read-back right after a successful write has not been seen live; a lagging read would refuse that one opening definitively.
     - A5: a Bybit 403 "access too frequent" (no retCode) on set-leverage is definitive; a retry inside the ban would fail too.
-- [ ] H.D.2 Push and PR (owner's word), merge (owner), with a merge commit.
-- [ ] H.D.3 Rehearse `0037` on a fresh backup, deploy, then pps.6 after the API.
+- [x] H.D.2 Push and PR (owner's word), merge (owner), with a merge commit.
+  - Pushed and opened as #95 on the owner's "Si, push y PR", 22 commits over `b5129b0`. Merged by the owner on 2026-11-06 as `3d09d1f`.
+- [x] H.D.3 Rehearse `0037` on a fresh backup, deploy, then pps.6 after the API.
+  - Deployed by the owner on 2026-11-06 in three scripts piped over ssh (session scratchpad: `deploy_pr95_1_rehearse.sh`, `deploy_pr95_2_api.sh`, `deploy_pr95_3_panel.sh`).
+  - Rehearsal: pulled as `strategy` to `3d09d1f726e2`, then backed up and restored into `sm_rehearsal_0037`. On that copy, `0036 -> 0037` turned all 7 subscriptions (4 ACTIVE, 3 ENDED) to leverage 2, left all 7 strategies without a description, created both CHECKs and kept a column default of 1. The downgrade dropped the column and the re-upgrade restored it. The copy was dropped.
+  - API: a fresh backup `pre-0037-deploy-20261106T151320Z.dump`, then production upgraded from `0036` to `0037` with the same counts. Both services restarted and read `active`, and no ERROR or Traceback line followed.
+  - Then pps.6: the assistant built the bundle from a detached worktree of `origin/main` at `3d09d1f726e2`, 22 entries, SHA-256 `c453fc67269fda74db9647475aaa14debb2c3e1e5a51756864c0cceb12d9c2cc`. The owner's block printed `OK`, `readable`, and `bundle` and `checkout` both at `3d09d1f726e2`.
+  - Not yet seen in production: a live opening that sets a pair's leverage (verifier A4), and its INFO line.
