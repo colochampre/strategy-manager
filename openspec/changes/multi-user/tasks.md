@@ -1720,6 +1720,9 @@ The follow-up of the PNUT incident above, and decision 38. Branch `feat/subscrip
   - Mutations: backend 4 of 4 killed (`mutate_h10be.ps1`), panel 13 of 13 (`mutate_h10fe.ps1`).
   - Gate: backend ruff 0, mypy 0, pytest 0 with nothing failing; frontend lint 0, vitest 124 files and 3,328 tests passed.
 - [ ] H.9 Owner-run, before the deploy: a probe that reads `symbolConfig` for one isolated pair (the spelling of `marginType`). It also asks for a leverage above one pair's maximum while flat on it, so the venue refuses with the code H.5 classifies.
+  - *Probe written 2026-11-06:* `backend/scripts/check_binance_leverage.py --user-email <e-mail> --symbol <PAIR> [--confirm]`. The preview reads `symbolConfig`, `leverageBracket` and the position, and sends nothing. `--confirm` sends one `POST /fapi/v1/leverage` at the pair's maximum plus one, only on a flat pair, prints the code and what `_is_definitive_rejection` makes of it, and reads the settings back. If Binance ever accepted it, the original leverage is written back and the run fails.
+  - `bracket_max` and `spelling_verdict` are tested in `tests/scripts/test_check_binance_leverage.py`; 6 of 6 mutations killed (`mutate_h9.ps1`).
+  - Still owed: the owner's run and its two answers, recorded here.
 
 **Delivery.**
 - [ ] H.D.1 Gate (backend and frontend), and an independent verifier over the whole PR. It names items 1 (`0037`), 3 (the subscribe and strategy contracts) and the venue writes of a live opening.
