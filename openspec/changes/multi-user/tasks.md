@@ -1774,3 +1774,21 @@ The follow-up of the PNUT incident above, and decision 38. Branch `feat/subscrip
 - [x] D40.3 Deployed by the owner on 2026-11-06 with two scripts piped over ssh (session scratchpad: `deploy_pr96_1_api.sh`, `deploy_pr96_2_panel.sh`). No migration.
   - API: pulled as `strategy` to `f8c73e8000ed`; database and code head both `0037`; both services restarted and read `active`, and no ERROR or Traceback line followed.
   - Then pps.6: the assistant built the bundle from a detached worktree of `origin/main` at `f8c73e8000ed`, SHA-256 `b2f4dc79d32f7aa89c1fb95be160ab7b824dacc36a08e50eff030c1a02c1cd32`. The owner's block printed `OK`, `readable`, and `bundle` and `checkout` both at `f8c73e8000ed`.
+
+## PR I: the panel requests after PR H
+
+The owner's requests under "Panel requests pending", built together on the owner's "Dale, vamos con panel" (2026-11-06). Decisions 36 and 37 and the four asks of 2026-11-06, plus the icons and the red Leave of 2026-11-02. No migration. Owner's word per unit; the owner reads the running panel before the PR.
+
+### PR I's plan (2026-11-06)
+
+- [ ] I.1 Backend, decision 36: the pool and strategy performance responses carry `origin`, the UTC date the first trade with a return opened (null with no such trade). `curve.py` reads it from the same trades the curve uses; the router serves it beside `curve`. Rule 7 unchanged: one pool, one origin.
+- [ ] I.2 Panel, decision 36 and the All dates: `ReturnChart` draws a 0 point on `origin` before the first close, for All and for any window that reaches back to it (a window starting later rebases as today). The All range labels its start date and today, and between them month, week or day steps chosen from the span, under the same minimum label gap. When the first trade opened and closed on one day, the line starts at 0 on that day.
+- [ ] I.3 Backend: the share preview takes an optional `leverage` (1-20, the `Leverage` value object) and serves the notional beside the amount (`amount * leverage`, in `Decimal`), so the panel never multiplies money. Without it, the response is unchanged.
+- [ ] I.4 Panel, compact settings (strategy page, My subscriptions, subscribe form, new-strategy dialog): the input and its Save on one row, Save as wide as its own text needs and the input taking the width left (owner, 2026-11-06: "Prefiero que el boton de Save ocupe el espacio necesario para mostrarse bien, y el resto el input"); every Save says only "Save" (icon kept; the busy and done states shortened the same way); the amount line summarized to the margin asked and, when leverage is above 1, the notional.
+- [ ] I.5 Panel: http and https URLs in a strategy's description become links (`target="_blank"`, `rel="noopener noreferrer"`), everywhere the description is shown as text. The description stays plain text: no HTML, no Markdown, no other scheme. One pure helper in `shared/lib` with its tests (a URL at the end of a sentence keeps its period outside the link).
+- [ ] I.6 Panel: /strategies nav says "My strategies" instead of "Authored", and each of its three buttons gets an icon; Leave in My subscriptions is red like Delete key, through one shared danger style both use.
+- [ ] I.7 Panel, decision 37: an exchange tab shows only where its user has a key, an open position, or an active strategy or subscription. Pools alone no longer make a tab. `ExchangeTabs` and `useExchangeScope` read one shared rule; while a source is still loading, no tab is dropped.
+- [ ] I.8 Panel: one `Tooltip` in `shared/ui` (shown on hover and on keyboard focus, the icon keeping its accessible name), and icons in place of the labels the owner named: on Explore items the age, the closed trades and the return; on the owner's strategy rows the days active, closed trades and subscribers. Money, the mode and anything easy to misread stay as text.
+- [ ] I.D Gate, owner reads the running panel (fixture config), push and PR on the owner's word, deploy (API restart, then pps.6).
+
+Units are about 100-250 lines each and depend on nothing but I.1 before I.2 and I.3 before I.4.
