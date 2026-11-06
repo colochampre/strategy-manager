@@ -47,6 +47,7 @@ function ReportView({ report, asOf }: ReportViewProps) {
         <ReportSection>
           <ReturnChart
             curve={report.curve}
+            origin={report.origin ?? null}
             range={range}
             asOf={asOf}
             title={t("strategies.performance.chartTitle")}

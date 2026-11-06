@@ -7,12 +7,77 @@ import {
   linePath,
   monthTicks,
   sliceAndRebase,
+  spanTicks,
   tickValues,
   timeScale,
   waterlineScale,
   windowStartDate,
+  withOrigin,
 } from "./scale";
-import type { IndexDay } from "./scale";
+import type { IndexDay, ReturnDay } from "./scale";
+
+describe("withOrigin (decision 36: the curve starts at 0 on the day its first trade opened)", () => {
+  const closes: ReturnDay[] = [
+    { date: "2026-09-05", cumulative: 0.03, drawdown: 0 },
+    { date: "2026-09-08", cumulative: 0.01, drawdown: -0.02 },
+  ];
+  const zero = { date: "2026-09-03", cumulative: 0, drawdown: 0 };
+
+  it("puts a 0 on the origin before the first close of the whole curve", () => {
+    expect(withOrigin(closes, "2026-09-03", null)).toEqual([zero, ...closes]);
+  });
+
+  it("puts it in a window that reaches back to the origin, the first day included", () => {
+    expect(withOrigin(closes, "2026-09-03", "2026-09-01")).toEqual([zero, ...closes]);
+    expect(withOrigin(closes, "2026-09-03", "2026-09-03")).toEqual([zero, ...closes]);
+  });
+
+  it("leaves a window that starts after the origin as it is", () => {
+    expect(withOrigin(closes.slice(1), "2026-09-03", "2026-09-06")).toEqual(closes.slice(1));
+  });
+
+  it("starts at 0 on the close's own day when the first trade opened and closed that day", () => {
+    expect(withOrigin(closes, "2026-09-05", null)).toEqual([{ ...zero, date: "2026-09-05" }, ...closes]);
+  });
+
+  it("ignores an origin after the first close, which no consistent report holds", () => {
+    expect(withOrigin(closes, "2026-09-06", null)).toEqual(closes);
+  });
+
+  it("adds nothing without an origin or without a close to lead to", () => {
+    expect(withOrigin(closes, null, null)).toEqual(closes);
+    expect(withOrigin([], "2026-09-03", null)).toEqual([]);
+  });
+});
+
+describe("spanTicks (the dates between the two ends of the All range)", () => {
+  it("names every day of a span of two weeks or less, the ends left out", () => {
+    expect(spanTicks("2026-09-01", "2026-09-05")).toEqual({
+      kind: "day",
+      dates: ["2026-09-02", "2026-09-03", "2026-09-04"],
+    });
+    expect(spanTicks("2026-09-01", "2026-09-15").kind).toBe("day");
+  });
+
+  it("names every seventh day from the start of a span up to three months", () => {
+    expect(spanTicks("2026-09-01", "2026-09-16")).toEqual({
+      kind: "week",
+      dates: ["2026-09-08", "2026-09-15"],
+    });
+    expect(spanTicks("2026-06-01", "2026-08-30").kind).toBe("week");
+  });
+
+  it("names the month starts of a longer span", () => {
+    expect(spanTicks("2026-06-10", "2026-09-30")).toEqual({
+      kind: "month",
+      dates: ["2026-07-01", "2026-08-01", "2026-09-01"],
+    });
+  });
+
+  it("names nothing between the ends of a single day", () => {
+    expect(spanTicks("2026-09-01", "2026-09-01")).toEqual({ kind: "day", dates: [] });
+  });
+});
 
 const HEIGHT = 280;
 const WATER = 0.62;

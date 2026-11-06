@@ -391,6 +391,11 @@ export interface PoolPerformance {
   pool: { exchange: string; venue: string; settlement_currency: string };
   currency: string;
   day_boundary: string;
+  /**
+   * The UTC day the first trade with a return opened, where the curve starts at 0
+   * (decision 36); `null` with no such trade. Absent only from an API older than it.
+   */
+  origin?: string | null;
   trade_count: number;
   total_pnl: string;
   max_drawdown: string;

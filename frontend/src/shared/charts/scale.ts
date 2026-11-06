@@ -213,6 +213,49 @@ export function sliceAndRebase(days: readonly IndexDay[], from: string | null): 
   });
 }
 
+/**
+ * Decision 36: the curve starts at 0 on `origin`, the UTC day its first trade
+ * opened, before the first close. Only where the drawn days reach back to it:
+ * the whole curve, or a window starting on or before it (that window has no day
+ * before it, so its base is the server's E_0 = 1 and 0 is exact). A window that
+ * starts later, and a curve with no close, are left as they are.
+ */
+export function withOrigin(
+  days: readonly ReturnDay[],
+  origin: string | null,
+  from: string | null,
+): ReturnDay[] {
+  const first = days[0];
+  if (origin === null || first === undefined) return [...days];
+  if (from !== null && utcDay(origin) < utcDay(from)) return [...days];
+  if (utcDay(origin) > utcDay(first.date)) return [...days];
+  return [{ date: origin, cumulative: 0, drawdown: 0 }, ...days];
+}
+
+export interface SpanTicks {
+  /** How the dates are stepped, which decides how they are written. */
+  kind: "day" | "week" | "month";
+  /** The dates strictly between the two ends, oldest first. */
+  dates: string[];
+}
+
+/** Spans up to this many days are labelled every day, up to `WEEK_SPAN_DAYS` every week. */
+const DAY_SPAN_DAYS = 14;
+const WEEK_SPAN_DAYS = 90;
+
+/**
+ * The labels between the two ends of the All range, which carry labels of their
+ * own: every day of a span of two weeks or less, every seventh day from the
+ * start up to three months, and month starts beyond.
+ */
+export function spanTicks(start: string, end: string): SpanTicks {
+  const spanDays = (utcDay(end) - utcDay(start)) / DAY_MS;
+  const inside = (dates: string[]) => dates.filter((date) => date !== start && date !== end);
+  if (spanDays <= DAY_SPAN_DAYS) return { kind: "day", dates: inside(dayTicks(start, end, 1)) };
+  if (spanDays <= WEEK_SPAN_DAYS) return { kind: "week", dates: inside(dayTicks(start, end, 7)) };
+  return { kind: "month", dates: inside(monthTicks([start, end]).map((tick) => tick.date)) };
+}
+
 /** Every `step`-th UTC day from `start` while it does not pass `end`. */
 export function dayTicks(start: string, end: string, step: number): string[] {
   const last = utcDay(end);
