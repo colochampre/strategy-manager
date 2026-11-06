@@ -29,12 +29,22 @@ days are compounded (decision 40).
 from collections import defaultdict
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from uuid import UUID
 
 from strategy_manager.performance.domain.closed_trade import ClosedTrade, Direction, FillGroup
-from strategy_manager.performance.domain.curve import combine_by_day, compound
+from strategy_manager.performance.domain.curve import (
+    CurvePoint,
+    IndexPoint,
+    MonthReturn,
+    RangeName,
+    combine_by_day,
+    compound,
+    drawdowns,
+    monthly_grid,
+    range_window,
+)
 from strategy_manager.performance.domain.derive_trade import (
     BUY,
     SELL,
@@ -53,6 +63,41 @@ class RecordTrade:
     opened_at: datetime
     closed_at: datetime
     value: Decimal
+    pair: str
+
+
+@dataclass(frozen=True, slots=True)
+class RecordRange:
+    """The record over one window ending now: no money, only the return."""
+
+    range: RangeName
+    value: Decimal
+    trade_count: int
+
+
+@dataclass(frozen=True, slots=True)
+class RecordPair:
+    """One market's share of the record. A win is a trade whose return is above zero."""
+
+    pair: str
+    trade_count: int
+    win_count: int
+    win_rate: Decimal
+    value: Decimal
+
+
+@dataclass(frozen=True, slots=True)
+class RecordReport:
+    """Everything the public page draws of a record, with no amount in it."""
+
+    origin: date | None
+    curve: tuple[CurvePoint, ...]
+    monthly: tuple[MonthReturn, ...]
+    ranges: tuple[RecordRange, ...]
+    by_pair: tuple[RecordPair, ...]
+    closed_trade_count: int
+    max_drawdown: Decimal
+    unresolved_allocation_ids: tuple[UUID, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,7 +126,10 @@ def _derived(groups: Iterable[FillGroup]) -> tuple[tuple[RecordTrade, ...], Deri
     derived = derive_trades(real)
     trades = [
         RecordTrade(
-            trade.opened_at, trade.closed_at, _return(trade, by_allocation[trade.allocation_id])
+            trade.opened_at,
+            trade.closed_at,
+            _return(trade, by_allocation[trade.allocation_id]),
+            trade.pair,
         )
         for trade in derived.closed
     ]
@@ -93,6 +141,76 @@ def closed_trades(groups: Iterable[FillGroup]) -> tuple[RecordTrade, ...]:
     close first."""
     trades, _ = _derived(groups)
     return trades
+
+
+def _utc_day(moment: datetime) -> date:
+    return moment.astimezone(UTC).date()
+
+
+def _compounded(trades: Sequence[RecordTrade]) -> tuple[IndexPoint, ...]:
+    return compound(
+        combine_by_day((trade.opened_at, trade.closed_at, trade.value) for trade in trades)
+    )
+
+
+def _return_of(trades: Sequence[RecordTrade]) -> Decimal:
+    points = _compounded(trades)
+    return points[-1].index - _ONE if points else _ZERO
+
+
+def _ranges(trades: Sequence[RecordTrade], now: datetime) -> tuple[RecordRange, ...]:
+    ranges: list[RecordRange] = []
+    for name in RangeName:
+        bounds = range_window(name, now)
+        if bounds is None:
+            window = list(trades)
+        else:
+            start, end = bounds
+            window = [t for t in trades if start <= t.closed_at.astimezone(UTC) <= end]
+        ranges.append(RecordRange(name, _return_of(window), len(window)))
+    return tuple(ranges)
+
+
+def _pairs(trades: Sequence[RecordTrade]) -> tuple[RecordPair, ...]:
+    grouped: dict[str, list[RecordTrade]] = defaultdict(list)
+    for trade in trades:
+        grouped[trade.pair].append(trade)
+    pairs: list[RecordPair] = []
+    for pair in sorted(grouped):
+        members = grouped[pair]
+        wins = sum(1 for trade in members if trade.value > _ZERO)
+        pairs.append(
+            RecordPair(
+                pair=pair,
+                trade_count=len(members),
+                win_count=wins,
+                win_rate=Decimal(wins) / Decimal(len(members)),
+                value=_return_of(members),
+            )
+        )
+    return tuple(pairs)
+
+
+def build_record_report(groups: Iterable[FillGroup], now: datetime) -> RecordReport:
+    """What the public page draws of a record, from the same trades and the same
+    return as ``build_public_record``, laid out as the private report lays out a
+    pool's: curve, months, ranges ending ``now``, pairs. No amount enters it."""
+    trades, derived = _derived(groups)
+    points = _compounded(trades)
+    dds = drawdowns(points)
+    return RecordReport(
+        origin=min((_utc_day(trade.opened_at) for trade in trades), default=None),
+        curve=tuple(
+            CurvePoint(p.day, p.daily_return, p.index, dd)
+            for p, dd in zip(points, dds, strict=True)
+        ),
+        monthly=monthly_grid(points),
+        ranges=_ranges(trades, now),
+        by_pair=_pairs(trades),
+        closed_trade_count=len(trades),
+        max_drawdown=min(dds, default=_ZERO),
+        unresolved_allocation_ids=derived.unresolved_allocation_ids,
+    )
 
 
 def build_public_record(groups: Iterable[FillGroup]) -> PublicRecord:

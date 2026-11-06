@@ -24,25 +24,38 @@ zero: whether that reads as "0 %" or "no record yet" is the panel's.
 **The capital** is in ``settlement_currency``, and null under the ``DRY_RUN`` brake,
 when nobody trades live. ``created_at`` is the strategy's age.
 
-Both routes read in one read-only ``REPEATABLE READ`` snapshot.
+``GET /public/strategies/{id}/record`` (tasks.md I.12a) draws that same record: origin,
+curve, months, ranges and pairs, from the author's real fills, with no amount in it.
+It answers the same 404 as the page, including when a figure does not fit the wire.
+
+All three routes read in one read-only ``REPEATABLE READ`` snapshot.
 """
 
 import logging
+from datetime import date as calendar_date
 from decimal import InvalidOperation
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+from pydantic_core import PydanticSerializationError
 
 from strategy_manager.identity.infrastructure.dependencies import current_user
 from strategy_manager.performance.application.ports import PublicStrategiesSourcePort
+from strategy_manager.performance.application.read_public_record import ReadPublicRecord
 from strategy_manager.performance.application.read_public_strategies import (
     PublicStrategy,
     ReadPublicStrategies,
 )
+from strategy_manager.performance.domain.public_record import RecordReport
 from strategy_manager.performance.infrastructure.open_positions_router import (
     SnapshotSessionDep,
+)
+from strategy_manager.performance.infrastructure.performance_router import (
+    ClockDep,
+    CurvePointBody,
+    MonthBody,
 )
 from strategy_manager.performance.infrastructure.public_strategies_source import (
     SqlAlchemyPublicStrategiesSource,
@@ -119,6 +132,82 @@ def _writable(strategy: PublicStrategy) -> bool:
 @router.get("", response_model=list[PublicStrategyBody])
 async def list_public_strategies(source: SourceDep) -> list[PublicStrategyBody]:
     return [_body(strategy) for strategy in await _reader(source).read_all() if _writable(strategy)]
+
+
+class RecordRangeBody(BaseModel):
+    range: str
+    value: Ratio = Field(serialization_alias="return")
+    trade_count: int
+
+
+class RecordPairBody(BaseModel):
+    pair: str
+    trades: int
+    wins: int
+    win_rate: Ratio
+    value: Ratio = Field(serialization_alias="return")
+
+
+class PublicRecordBody(BaseModel):
+    """The shared parts keep the names of the private report (``PerformanceBody``), so
+    the panel draws both with the same components. Every amount is left out."""
+
+    day_boundary: Literal["UTC"] = "UTC"
+    origin: calendar_date | None
+    closed_trade_count: int
+    max_drawdown: Ratio
+    ranges: list[RecordRangeBody]
+    curve: list[CurvePointBody]
+    monthly: list[MonthBody]
+    by_pair: list[RecordPairBody]
+
+    @classmethod
+    def of(cls, report: RecordReport) -> "PublicRecordBody":
+        return cls(
+            origin=report.origin,
+            closed_trade_count=report.closed_trade_count,
+            max_drawdown=report.max_drawdown,
+            ranges=[
+                RecordRangeBody(range=r.range.value, value=r.value, trade_count=r.trade_count)
+                for r in report.ranges
+            ],
+            curve=[
+                CurvePointBody(
+                    date=p.day, daily_return=p.daily_return, index=p.index, drawdown=p.drawdown
+                )
+                for p in report.curve
+            ],
+            monthly=[MonthBody(year=m.year, month=m.month, value=m.value) for m in report.monthly],
+            by_pair=[
+                RecordPairBody(
+                    pair=p.pair,
+                    trades=p.trade_count,
+                    wins=p.win_count,
+                    win_rate=p.win_rate,
+                    value=p.value,
+                )
+                for p in report.by_pair
+            ],
+        )
+
+
+@router.get("/{strategy_id}/record", response_model=PublicRecordBody, response_model_by_alias=True)
+async def read_public_record(
+    strategy_id: UUID, source: SourceDep, clock: ClockDep
+) -> PublicRecordBody:
+    report = await ReadPublicRecord(source, clock).read(strategy_id)
+    if report is None:
+        raise HTTPException(status_code=404, detail="no such strategy")
+    body = PublicRecordBody.of(report)
+    try:
+        body.model_dump(mode="json", by_alias=True)
+    except (InvalidOperation, PydanticSerializationError):
+        logger.warning(
+            "public strategy %s has no record page: a figure of it does not fit the wire",
+            strategy_id,
+        )
+        raise HTTPException(status_code=404, detail="no such strategy") from None
+    return body
 
 
 @router.get("/{strategy_id}", response_model=PublicStrategyBody)
