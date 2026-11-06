@@ -37,6 +37,7 @@ import asyncio
 import sys
 from decimal import Decimal
 
+from held_leverage import held_leverage
 from probe_credentials import add_user_email_argument, announce, vault_credentials
 
 from strategy_manager.execution.application.ports import (
@@ -103,6 +104,17 @@ async def main() -> int:
             # notional below is rendered at that same price.
             price = await reader.mark_price(venue_symbol)
             print(f"mark price {price}")
+            # The adapter SETS the spec's leverage (decision 38). Asking for the
+            # one the symbol already holds keeps this probe from changing it.
+            venue_leverage = await reader.leverage_for(venue_symbol)
+            leverage = held_leverage(venue_leverage)
+            if leverage is None:
+                print(
+                    f"REFUSING: {venue_symbol} is at {venue_leverage}x, which "
+                    "this system cannot ask for (a whole number from 1 to 20).",
+                    file=sys.stderr,
+                )
+                return 1
 
         async with trade_client(settings, credentials) as client:
             adapter = BybitFuturesExchangeAdapter(client)
@@ -118,6 +130,7 @@ async def main() -> int:
                             side=side,
                             granted=args.granted,
                             price=price,
+                            leverage=leverage,
                         )
                     )
                 except (ExchangeError, BybitApiError) as exc:

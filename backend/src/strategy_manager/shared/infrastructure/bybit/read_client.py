@@ -476,6 +476,30 @@ class BybitReadOnlyClient:
         """
         return await self._read(API_KEY_INFO_PATH)
 
+    async def position_for(self, symbol: str) -> Position:
+        """The position record of one symbol, flat or not: its leverage and
+        its size in one read (decision 38).
+
+        Bybit answers a record for a flat symbol too, so a missing one is a
+        failure, not an empty position. Matched by symbol, as ``leverage_for``.
+        """
+        data = await self._read(
+            POSITIONS_PATH, {"category": LINEAR, "symbol": symbol}
+        )
+        for entry in _list_of(data, "list"):
+            fields = _object(entry, "position")
+            if _text(fields, "symbol").upper() == symbol.upper():
+                return _parse_position(fields)
+        raise BybitApiError(f"Bybit reports no position record for {symbol!r}")
+
+    async def margin_mode(self) -> str:
+        """The account's margin mode, verbatim: ``ISOLATED_MARGIN``,
+        ``REGULAR_MARGIN`` (cross) or ``PORTFOLIO_MARGIN``.
+
+        On a Unified Trading Account it is account-wide, not per symbol.
+        """
+        return _text(await self.account_info(), "marginMode")
+
     async def account_info(self) -> Mapping[str, Any]:
         """Margin mode and account type, verbatim. Unparsed on purpose: this
         is the read whose shape is least certain, and a probe should show what

@@ -18,9 +18,11 @@ from strategy_manager.execution.domain.order import OrderSide
 from strategy_manager.execution.infrastructure.bybit_futures_exchange import (
     BybitFuturesExchangeAdapter,
 )
+from strategy_manager.shared.domain.leverage import Leverage
 from strategy_manager.shared.infrastructure.bybit.catalogue_pages import MAX_PAGES
 from strategy_manager.shared.infrastructure.bybit.errors import BybitApiError
 from strategy_manager.shared.infrastructure.bybit.read_client import (
+    ACCOUNT_INFO_PATH,
     INSTRUMENTS_PATH,
     POSITIONS_PATH,
     TICKERS_PATH,
@@ -31,12 +33,20 @@ from strategy_manager.shared.infrastructure.bybit.signer import (
     BybitSigner,
 )
 from strategy_manager.shared.infrastructure.bybit.trade_client import BybitTradeClient
-from tests.shared.infrastructure.bybit.test_read_client import BTC_PERP
+from tests.shared.infrastructure.bybit.test_read_client import BTC_PERP, POSITION
 
 # The venue's bare spelling (``STXUSDT``); TradingView sends ``STXUSDT.P``.
 STX_PERP: dict[str, Any] = {**BTC_PERP, "symbol": "STXUSDT", "baseCoin": "STX"}
 ETH_PERP: dict[str, Any] = {**BTC_PERP, "symbol": "ETHUSDT", "baseCoin": "ETH"}
 CLIENT_ORDER_ID = "3f2504e0-4f89-41d3-9a0c-0305e82c3301"
+# A flat STX position record at 3x, as Bybit answers for a symbol nobody holds.
+STX_FLAT: dict[str, Any] = {
+    **POSITION,
+    "symbol": "STXUSDT",
+    "side": "",
+    "size": "0",
+    "leverage": "3",
+}
 
 
 def _page(entries: list[Any], cursor: str = "") -> httpx.Response:
@@ -70,9 +80,14 @@ def _client(
                     "retCode": 0,
                     "retMsg": "OK",
                     "result": {
-                        "list": [{"symbol": "STXUSDT", "leverage": "3"}],
+                        "list": [STX_FLAT],
                     },
                 },
+            )
+        if request.url.path == ACCOUNT_INFO_PATH:
+            return httpx.Response(
+                200,
+                json={"retCode": 0, "retMsg": "OK", "result": {"marginMode": "ISOLATED_MARGIN"}},
             )
         if request.url.path == TICKERS_PATH:
             # An opening is sized at the venue's price (decision 35).
@@ -139,6 +154,8 @@ async def test_the_adapter_sizes_an_order_for_a_symbol_listed_only_on_page_two(
             side=OrderSide.BUY,
             granted=Decimal("100"),
             price=Decimal("2"),
+            # The symbol already holds it, so the opening writes no setting.
+            leverage=Leverage(3),
         )
     )
 

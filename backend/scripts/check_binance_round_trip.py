@@ -65,6 +65,7 @@ from decimal import ROUND_CEILING, ROUND_UP, Decimal
 from typing import Any
 from uuid import uuid4
 
+from held_leverage import held_leverage
 from probe_credentials import add_user_email_argument, announce, vault_credentials
 
 from strategy_manager.accounts.application.ports import PoolKey
@@ -86,6 +87,7 @@ from strategy_manager.execution.infrastructure.binance_futures_exchange import (
     BinanceFuturesExchangeAdapter,
 )
 from strategy_manager.shared.config import Settings, get_settings
+from strategy_manager.shared.domain.leverage import Leverage
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 from strategy_manager.shared.infrastructure.binance import EXCHANGE
 from strategy_manager.shared.infrastructure.binance.errors import BinanceApiError
@@ -549,10 +551,26 @@ async def main() -> int:
             print(f"  last price {price}")
 
             try:
-                leverage = await client.leverage_for(symbol)
+                config = await client.symbol_config(symbol)
                 rules = await client.perp_rules(symbol)
             except BinanceApiError as exc:
                 print(f"\nREFUSING: {exc}", file=sys.stderr)
+                return 1
+            leverage = config.leverage
+
+            # The adapter SETS isolated margin and the spec's leverage before
+            # an opening (decision 38). The preview must change nothing, so it
+            # asks for what the pair already holds and refuses anything the
+            # adapter would have to switch.
+            asked = held_leverage(leverage)
+            if config.margin_type.upper() != "ISOLATED" or asked is None:
+                print(
+                    f"\nREFUSING: {symbol} is on {config.margin_type} margin at "
+                    f"{leverage}x. This probe only opens a pair already ISOLATED "
+                    "at a whole leverage from 1 to 20, so that its preview "
+                    "changes nothing. Set it in Binance first.",
+                    file=sys.stderr,
+                )
                 return 1
 
             minimum = _minimum_granted(rules, leverage, price)
@@ -608,7 +626,7 @@ async def main() -> int:
                 return 1
 
             try:
-                order = await adapter_order(client, symbol, side, granted, price)
+                order = await adapter_order(client, symbol, side, granted, price, asked)
             except (ExchangeError, BinanceApiError) as exc:
                 print(f"\nBUILD REFUSED -- {exc}", file=sys.stderr)
                 return 1
@@ -627,7 +645,12 @@ async def main() -> int:
 
 
 async def adapter_order(
-    client: Any, symbol: str, side: OrderSide, granted: Decimal, price: Decimal
+    client: Any,
+    symbol: str,
+    side: OrderSide,
+    granted: Decimal,
+    price: Decimal,
+    leverage: Leverage,
 ) -> FuturesMarketOrder:
     """Builds the opening order through the adapter the worker runs.
 
@@ -642,6 +665,7 @@ async def adapter_order(
             side=side,
             granted=granted,
             price=price,
+            leverage=leverage,
         )
     )
     assert isinstance(order, FuturesMarketOrder)
