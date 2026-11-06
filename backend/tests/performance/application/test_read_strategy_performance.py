@@ -82,9 +82,19 @@ def _closed(
     capital: str | None = "1000",
     pair: str = "SOLUSDT",
 ) -> list[FillGroup]:
+    """Opened an hour before it closes at ``at``: two trades closing together
+    overlapped, so their returns are summed (decision 40)."""
     a = uuid4()
     return [
-        _group(strategy_id, a, "BUY", "100", symbol=f"{pair}.P", at=at, capital=capital),
+        _group(
+            strategy_id,
+            a,
+            "BUY",
+            "100",
+            symbol=f"{pair}.P",
+            at=at - timedelta(hours=1),
+            capital=capital,
+        ),
         _group(
             strategy_id,
             a,

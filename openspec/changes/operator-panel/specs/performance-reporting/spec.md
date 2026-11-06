@@ -145,11 +145,14 @@ This MUST NEVER be blended across pools or currencies.
 ### Requirement: Compounded Return Curve Per Pool
 
 For each pool, the system MUST compute a compounded (geometric) return curve
-with the formula confirmed by the owner (decision 17):
+with the formula confirmed by the owner (decision 17, amended by multi-user
+decision 40):
 
 - each closed trade's return is `r_i = pnl_i / pool_capital_at_open_i`;
-- returns of trades that close on the same UTC day are SUMMED into that day's
-  return `R_d`;
+- returns of trades that close on the same UTC day make that day's return
+  `R_d`: trades that overlap in time are SUMMED, and a trade opened after the
+  others closed (at the very moment included) COMPOUNDS on them, each factor
+  `1 + sum` floored at 0 before the next compounds on it;
 - days are compounded: `E_d = E_(d-1) * max(1 + R_d, 0)`, starting from `E_0 = 1`,
   so a day that loses everything leaves the index at zero, where it stays
   (multi-user decision 31);
@@ -168,11 +171,18 @@ contribution to the pool.
 - WHEN the compounded curve is computed through day 2
 - THEN the curve index is `1.05 * 1.02`
 
-#### Scenario: Trades closing on the same UTC day are summed, not chained
+#### Scenario: Overlapping trades closing on the same UTC day are summed, not chained
 
 - GIVEN a 1,000 USDT pool `(bybit, usdt-m, USDT)` where trade A (capital at open 1,000, PnL +20) and trade B (capital at open 1,000, PnL +10) both close on UTC day 1
 - WHEN the curve is computed for day 1
+- AND the two trades were open at the same time
 - THEN the day's return is 0.02 + 0.01 = 0.03 and the index is 1.03, not 1.02 * 1.01
+
+#### Scenario: A trade opened after another closed that day compounds on it
+
+- GIVEN a 1,000 USDT pool where trade A (capital at open 1,000, PnL +30) closes at 02:00 UTC and trade B (capital at open 1,030, PnL +30.9) opens at 03:00 and closes at 04:00 the same day
+- WHEN the curve is computed for that day
+- THEN the day's return is 1.03 * 1.03 - 1 = 0.0609, not 0.06
 
 #### Scenario: Exclusions are reported, not hidden
 

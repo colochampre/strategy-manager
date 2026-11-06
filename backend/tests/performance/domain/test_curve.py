@@ -6,8 +6,9 @@ Pure ``Decimal`` domain, no I/O. Every expected figure is an exact ``Decimal``:
 ``Decimal("1.05") * Decimal("1.02")`` is exactly ``1.0710`` and the
 assertions below are equality, never ``approx``.
 
-Each trade's return is ``pnl / pool_total_at_open``; returns are SUMMED inside
-a UTC day and COMPOUNDED across days. Nothing here reads a time zone from a
+Each trade's return is ``pnl / pool_total_at_open``; inside a UTC day, trades
+that overlap are SUMMED and trades that follow each other COMPOUND (decision
+40); days are COMPOUNDED. Nothing here reads a time zone from a
 database session: the day of a trade is ``closed_at.astimezone(UTC).date()``.
 """
 
@@ -20,6 +21,7 @@ import pytest
 from strategy_manager.allocation.domain.pool_key import PoolKey
 from strategy_manager.performance.domain.closed_trade import ClosedTrade, Direction
 from strategy_manager.performance.domain.curve import (
+    DailyReturn,
     RangeName,
     build_pool_performance,
     compound,
@@ -46,6 +48,7 @@ def _trade(
     exchange: str = "bybit",
     venue: str = "usdt-m",
     settlement_currency: str = "USDT",
+    opened_at: datetime | None = None,
 ) -> ClosedTrade:
     return ClosedTrade(
         allocation_id=uuid4(),
@@ -55,7 +58,7 @@ def _trade(
         settlement_currency=settlement_currency,
         pair="SOLUSDT",
         direction=Direction.LONG,
-        opened_at=closed_at - timedelta(hours=1),
+        opened_at=closed_at - timedelta(hours=1) if opened_at is None else opened_at,
         closed_at=closed_at,
         pnl=Decimal(pnl),
         fees_complete=fees_complete,
@@ -109,6 +112,63 @@ def test_same_day_returns_are_measured_against_each_trades_own_capital() -> None
 
     assert points[0].daily_return == Decimal("0.025")
     assert points[0].index == Decimal("1.025")
+
+
+def _hour(hours: float) -> datetime:
+    """``hours`` after midnight UTC on September 1, 2026 (negative: the day before)."""
+    return datetime(2026, 9, 1, tzinfo=UTC) + timedelta(hours=hours)
+
+
+def _between(pnl: str, opened: float, closed: float, capital: str = "1000") -> ClosedTrade:
+    return _trade(pnl, _hour(closed), capital=capital, opened_at=_hour(opened))
+
+
+def test_a_trade_opened_after_another_closed_that_day_compounds_on_it() -> None:
+    """Decision 40: +3 % on 1,000, then +3 % on the 1,030 it left. The pool grew
+    6.09 %, which the sum of decision 17 read as 6 %."""
+    trades = [_between("30", 1, 2), _between("30.9", 3, 4, capital="1030")]
+
+    assert daily_returns(trades) == (DailyReturn(date(2026, 9, 1), Decimal("0.0609")),)
+
+
+def test_a_trade_opened_the_moment_another_closed_compounds_on_it() -> None:
+    trades = [_between("30", 1, 2), _between("30.9", 2, 3, capital="1030")]
+
+    assert daily_returns(trades) == (DailyReturn(date(2026, 9, 1), Decimal("0.0609")),)
+
+
+def test_trades_that_overlap_are_one_group_that_a_later_trade_compounds_on() -> None:
+    """A and B overlap (+2 % and +1 %); C opens after both closed (+10 / 1,030),
+    whatever order the trades arrive in."""
+    trades = [_between("10", 4, 5, capital="1030"), _between("20", 1, 3), _between("10", 2, 3.5)]
+
+    assert daily_returns(trades) == (
+        DailyReturn(date(2026, 9, 1), Decimal("1.03") * (1 + Decimal("10") / Decimal("1030")) - 1),
+    )
+
+
+def test_a_group_lasts_until_its_last_member_closes() -> None:
+    """A (1-3) and B (2-6) overlap; C (4-5) overlaps only B, still open, so all
+    three were sized against the same capital and are summed."""
+    trades = [_between("10", 1, 3), _between("10", 2, 6), _between("10", 4, 5)]
+
+    assert daily_returns(trades) == (DailyReturn(date(2026, 9, 1), Decimal("0.03")),)
+
+
+def test_a_trade_opened_the_day_before_groups_by_when_it_was_open() -> None:
+    """Opened at 22:00 the day before, closed at 01:00; the next opens at 02:00.
+    Both close on September 1, one after the other."""
+    trades = [_between("30", -2, 1), _between("30.9", 2, 3, capital="1030")]
+
+    assert daily_returns(trades) == (DailyReturn(date(2026, 9, 1), Decimal("0.0609")),)
+
+
+def test_two_groups_past_minus_100_percent_never_multiply_into_a_gain() -> None:
+    """Decision 31 inside a day: -150 % and then -150 % would read +125 % if the
+    groups' factors were multiplied unfloored."""
+    trades = [_between("-1500", 1, 2), _between("-1500", 3, 4)]
+
+    assert daily_returns(trades) == (DailyReturn(date(2026, 9, 1), Decimal("-1")),)
 
 
 def test_design_worked_example_second_day_loss_compounds_on_the_first() -> None:

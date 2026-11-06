@@ -64,9 +64,13 @@ def _group(
 
 
 def _closed_trade(pnl: str, *, capital: str | None = "1000", **kwargs: object) -> list[FillGroup]:
+    """Opened an hour before it closes: two trades closing together overlapped,
+    so their returns are summed (decision 40)."""
     a = uuid4()
+    closed_at = kwargs.get("at", NOW - timedelta(days=2))
+    opening = {**kwargs, "at": closed_at - timedelta(hours=1)}  # type: ignore[operator]
     return [
-        _group(a, "BUY", "100", capital=capital, **kwargs),  # type: ignore[arg-type]
+        _group(a, "BUY", "100", capital=capital, **opening),  # type: ignore[arg-type]
         _group(
             a,
             "SELL",

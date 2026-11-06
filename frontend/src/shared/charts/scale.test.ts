@@ -336,7 +336,8 @@ describe("dayTicks", () => {
 });
 
 /**
- * The server, ported: each trade returns r_i, same-day returns are SUMMED,
+ * The server, ported: each trade returns r_i, same-day returns are SUMMED (the
+ * server sums only trades that overlap; these all do, decision 40),
  * days are COMPOUNDED from E_0 = 1 (performance/domain/curve.py). A range is
  * built from the trades inside [now - N days, now] and compounded on its own.
  */

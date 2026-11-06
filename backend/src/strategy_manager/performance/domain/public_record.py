@@ -21,8 +21,9 @@ A trade still open counts for nothing. An allocation whose symbol cannot be
 split against its settlement currency has no closed test, so it is returned
 among ``unresolved_allocation_ids`` rather than dropped without a word.
 
-**Adding up is the panel's** (``curve.py``): trades of one UTC day are summed
-and days are compounded.
+**Adding up is the panel's** (``curve.py``, ``combine_by_day``): within a UTC
+day, trades that overlap are summed and trades that follow each other compound;
+days are compounded (decision 40).
 """
 
 from collections import defaultdict
@@ -33,7 +34,7 @@ from decimal import Decimal
 from uuid import UUID
 
 from strategy_manager.performance.domain.closed_trade import ClosedTrade, Direction, FillGroup
-from strategy_manager.performance.domain.curve import compound, sum_by_day
+from strategy_manager.performance.domain.curve import combine_by_day, compound
 from strategy_manager.performance.domain.derive_trade import (
     BUY,
     SELL,
@@ -49,6 +50,7 @@ _ONE = Decimal(1)
 class RecordTrade:
     """A closed trade of the record. ``value`` is its return as a fraction."""
 
+    opened_at: datetime
     closed_at: datetime
     value: Decimal
 
@@ -78,7 +80,9 @@ def _derived(groups: Iterable[FillGroup]) -> tuple[tuple[RecordTrade, ...], Deri
         by_allocation[group.allocation_id].append(group)
     derived = derive_trades(real)
     trades = [
-        RecordTrade(trade.closed_at, _return(trade, by_allocation[trade.allocation_id]))
+        RecordTrade(
+            trade.opened_at, trade.closed_at, _return(trade, by_allocation[trade.allocation_id])
+        )
         for trade in derived.closed
     ]
     return tuple(sorted(trades, key=lambda trade: trade.closed_at)), derived
@@ -95,7 +99,9 @@ def build_public_record(groups: Iterable[FillGroup]) -> PublicRecord:
     """The closed trades of one strategy and their compounded return, zero when
     none has closed."""
     trades, derived = _derived(groups)
-    points = compound(sum_by_day((trade.closed_at, trade.value) for trade in trades))
+    points = compound(
+        combine_by_day((trade.opened_at, trade.closed_at, trade.value) for trade in trades)
+    )
     return PublicRecord(
         closed_trade_count=len(trades),
         total_return=points[-1].index - _ONE if points else _ZERO,

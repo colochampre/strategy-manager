@@ -400,6 +400,8 @@ Per day *d*, a **UTC** calendar day (decision 16):
 
 ```
 R_d  = Σ r_i  over trades with closed_at_i on day d        # summed, NOT chained, within a day
+                                                           # (multi-user decision 40: only trades that overlap;
+                                                           #  a trade opened after the others closed compounds)
 E_0  = 1
 E_d  = E_{d−1} × (1 + R_d)                                 # chained across days (geometric)
 DD_d = E_d / max_{s≤d} E_s − 1                             # drawdown from the previous peak, ≤ 0
