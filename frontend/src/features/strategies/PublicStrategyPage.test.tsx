@@ -134,7 +134,7 @@ describe("the public page", () => {
   });
 
   it("shows markup and Markdown literally: no element is created from the text", async () => {
-    const text = "<b>x</b> <img src=x onerror=alert(1)> <script>alert(1)</script>\n[link](https://example.com) **bold** https://example.org";
+    const text = "<b>x</b> <img src=x onerror=alert(1)> <script>alert(1)</script>\n[link](nope) **bold** javascript:alert(1) www.example.org";
     serve({ strategy: () => Promise.resolve(jsonResponse(publicStrategy({ id: ID, description: text }))) });
     open();
     await screen.findByRole("heading", { level: 1, name: "Alpha" });
@@ -143,6 +143,23 @@ describe("the public page", () => {
     expect(within(section).getByText(/<b>x<\/b>/).textContent).toBe(text);
     expect(section.querySelector("b, img, script, strong, a")).toBeNull();
     expect(within(section).queryByRole("link")).not.toBeInTheDocument();
+  });
+
+  it("turns http and https URLs in the description into links, the text around them untouched", async () => {
+    const text = "Read https://example.com/guide.\nOr (http://example.org/x), then javascript:alert(1).";
+    serve({ strategy: () => Promise.resolve(jsonResponse(publicStrategy({ id: ID, description: text }))) });
+    open();
+    await screen.findByRole("heading", { level: 1, name: "Alpha" });
+
+    const section = screen.getByTestId("public-description");
+    const first = within(section).getByRole("link", { name: "https://example.com/guide" });
+    expect(first).toHaveAttribute("href", "https://example.com/guide");
+    expect(first).toHaveAttribute("target", "_blank");
+    expect(first).toHaveAttribute("rel", "noopener noreferrer");
+    expect(within(section).getByRole("link", { name: "http://example.org/x" })).toHaveAttribute("href", "http://example.org/x");
+    expect(within(section).getAllByRole("link")).toHaveLength(2);
+    expect(section.querySelector("p")?.textContent).toBe(text);
+    expect(section.querySelector("p")).toHaveClass("whitespace-pre-line", "break-words");
   });
 
   it("explains the return and the capital on request, closed by default", async () => {

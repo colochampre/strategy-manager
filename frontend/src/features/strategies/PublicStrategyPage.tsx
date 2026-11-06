@@ -7,6 +7,7 @@ import { ApiError } from "@/shared/api/client";
 import { usePublicStrategy } from "@/shared/api/public-strategies";
 import type { PublicStrategy } from "@/shared/api/types";
 import { InfoButton, InfoText, useInfoDisclosure } from "@/shared/ui/InfoDisclosure";
+import { LinkifiedText } from "@/shared/ui/LinkifiedText";
 
 function BackToExplore() {
   const { t } = useTranslation();
@@ -32,8 +33,10 @@ function PublicRecord({ strategy }: { strategy: PublicStrategy }) {
       {strategy.description !== null && (
         <section data-testid="public-description" className="flex flex-col gap-1.5">
           <h2 className="text-xs font-semibold text-ink-2">{t("strategies.description.publicHeading")}</h2>
-          {/* Plain text only: React escapes it, and it is never parsed as HTML, Markdown or links. */}
-          <p className="whitespace-pre-line break-words text-sm text-ink">{strategy.description}</p>
+          {/* Plain text: React escapes it; only http and https URLs become links, nothing is parsed as HTML or Markdown. */}
+          <p className="whitespace-pre-line break-words text-sm text-ink">
+            <LinkifiedText text={strategy.description} />
+          </p>
         </section>
       )}
       <section className="flex flex-col gap-3 rounded-md border border-rule bg-panel px-4 py-3">
