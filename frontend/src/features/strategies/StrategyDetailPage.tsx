@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { Fragment, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { useParams } from "react-router";
 
@@ -83,9 +83,12 @@ export function StrategyDetailPage() {
             <h2 className="font-display text-base font-semibold text-ink">{t("strategies.detail.settings")}</h2>
             <VisibilityControl strategy={subject} />
           </div>
-          <PoolShareEditor key={subject.id} strategy={subject} />
-          <SubscriptionLeverageEditor key={subject.id} strategy={subject} />
-          <StrategyDescriptionEditor key={subject.id} strategy={subject} />
+          {/* One key for the three: each starts over for another strategy, and sibling keys stay unique. */}
+          <Fragment key={subject.id}>
+            <PoolShareEditor strategy={subject} />
+            <SubscriptionLeverageEditor strategy={subject} />
+            <StrategyDescriptionEditor strategy={subject} />
+          </Fragment>
           <AllowedPairsEditor strategy={subject} />
           <div className="flex flex-col gap-2 border-t border-rule pt-4">
             <EnableToggle strategy={subject} />

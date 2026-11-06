@@ -595,6 +595,40 @@ describe("StrategyDetailPage", () => {
     expect(screen.queryByText(en.strategies.detail.share.hint)).toBeNull();
   });
 
+  it("test_returning_to_a_cached_strategy_draws_one_of_each_editor", async () => {
+    // Verifier A1: three sibling editors once shared one key, so switching to a strategy whose query was
+    // already cached (no pending render in between) left the previous strategy's editors on screen.
+    const OTHER = "22222222-2222-4222-8222-222222222222";
+    const first = strategyRoute(ID, "ETH Breakout");
+    const second = strategyRoute(OTHER, "SOL Trend");
+    stubApi(HEALTH, [], undefined, {}, (url, init) => first(url, init) ?? second(url, init));
+    renderAt(
+      <Routes>
+        <Route
+          path="strategies/:strategyId"
+          element={
+            <>
+              <Link to={`/strategies/${ID}`}>first strategy</Link>
+              <Link to={`/strategies/${OTHER}`}>second strategy</Link>
+              <StrategyDetailPage />
+            </>
+          }
+        />
+      </Routes>,
+      `/strategies/${OTHER}`,
+    );
+    await heading("SOL Trend");
+    fireEvent.click(screen.getByRole("link", { name: "first strategy" }));
+    await heading("ETH Breakout");
+
+    fireEvent.click(screen.getByRole("link", { name: "second strategy" }));
+    await heading("SOL Trend");
+
+    const settings = screen.getByRole("complementary", { name: en.strategies.detail.settings });
+    expect(within(settings).getAllByRole("textbox", { name: en.strategies.detail.share.label })).toHaveLength(1);
+    expect(within(settings).getAllByRole("slider", { name: en.strategies.leverage.label })).toHaveLength(1);
+  });
+
   it("test_every_new_key_exists_in_both_languages", () => {
     const keys = (node: unknown, prefix: string): string[] =>
       typeof node === "object" && node !== null
