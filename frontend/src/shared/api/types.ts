@@ -266,6 +266,8 @@ export interface SharePreviewExact {
   share: string;
   amount: string;
   below_pool_minimum: boolean;
+  /** `amount` times the leverage asked, served only when one was asked; null or absent otherwise. */
+  notional?: string | null;
 }
 
 /** One entry of `steps`: `share` is a JSON integer, a step is a whole share. */

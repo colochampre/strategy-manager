@@ -22,10 +22,10 @@ function renderAmount(view: ShareAmountView) {
 }
 
 describe("ShareAmount", () => {
-  it("a known amount reads 'Asks for about 335.00 USDT per operation' from the served string", () => {
+  it("a known amount reads 'Margin: 335.00 USDT' from the served string", () => {
     renderAmount(KNOWN);
 
-    expect(screen.queryByText("Asks for about 335.00 USDT per operation")).toBeInTheDocument();
+    expect(screen.queryByText("Margin: 335.00 USDT")).toBeInTheDocument();
   });
 
   it.each([
@@ -37,13 +37,13 @@ describe("ShareAmount", () => {
   ])("the amount %s is cut down as text to two decimals, never rounded up: %s", (amount, written) => {
     renderAmount({ ...KNOWN, amount });
 
-    expect(screen.queryByText(`Asks for about ${written} USDT per operation`)).toBeInTheDocument();
+    expect(screen.queryByText(`Margin: ${written} USDT`)).toBeInTheDocument();
   });
 
   it("a coin-margined pool uses its own decimals", () => {
     renderAmount({ ...KNOWN, amount: "0.123456789999999999", currency: "BTC" });
 
-    expect(screen.queryByText("Asks for about 0.12345678 BTC per operation")).toBeInTheDocument();
+    expect(screen.queryByText("Margin: 0.12345678 BTC")).toBeInTheDocument();
   });
 
   it("the amount is written in Spanish when the language is", async () => {
@@ -51,16 +51,47 @@ describe("ShareAmount", () => {
     try {
       renderAmount({ ...KNOWN, amount: "1234.569999999999999999" });
 
-      expect(screen.queryByText("Pide alrededor de 1234,56 USDT por operación")).toBeInTheDocument();
+      expect(screen.queryByText("Margen: 1234,56 USDT")).toBeInTheDocument();
     } finally {
       await act(() => i18n.changeLanguage("en"));
     }
   });
 
+  it("with a notional it reads the margin and the notional, each cut down as text", () => {
+    renderAmount({ ...KNOWN, notional: "1005.999999999999999999" });
+
+    expect(screen.queryByText("Margin: 335.00 USDT · Notional: 1,005.99 USDT")).toBeInTheDocument();
+  });
+
+  it("the notional is written in Spanish when the language is", async () => {
+    await i18n.changeLanguage("es");
+    try {
+      renderAmount({ ...KNOWN, notional: "670.000000000000000000" });
+
+      expect(screen.queryByText("Margen: 335,00 USDT · Nocional: 670,00 USDT")).toBeInTheDocument();
+    } finally {
+      await act(() => i18n.changeLanguage("en"));
+    }
+  });
+
+  it("without a notional (null or absent) the line names the margin alone", () => {
+    renderAmount({ ...KNOWN, notional: null });
+
+    expect(screen.queryByText("Margin: 335.00 USDT")).toBeInTheDocument();
+    expect(screen.queryByText(/Notional/)).toBeNull();
+  });
+
+  it("a notional that is not a plain decimal is dropped and the margin stays", () => {
+    renderAmount({ ...KNOWN, notional: "abc" });
+
+    expect(screen.queryByText("Margin: 335.00 USDT")).toBeInTheDocument();
+    expect(screen.queryByText(/Notional/)).toBeNull();
+  });
+
   it("a stale balance shows the same line and the time it was read, as HH:MM UTC", () => {
     renderAmount({ ...KNOWN, staleAt: "2026-10-09T14:03:12Z" });
 
-    expect(screen.queryByText("Asks for about 335.00 USDT per operation")).toBeInTheDocument();
+    expect(screen.queryByText("Margin: 335.00 USDT")).toBeInTheDocument();
     expect(
       screen.queryByText("The pool's balance was last read at 14:03 UTC and may be out of date."),
     ).toBeInTheDocument();
@@ -78,7 +109,7 @@ describe("ShareAmount", () => {
     expect(
       screen.queryByText("The pool's balance has not been read yet, so the amount cannot be shown."),
     ).toBeInTheDocument();
-    expect(screen.queryByText(/Asks for about/)).toBeNull();
+    expect(screen.queryByText(/Margin:/)).toBeNull();
     expect(screen.queryByText(/\d/)).toBeNull();
   });
 
@@ -86,7 +117,7 @@ describe("ShareAmount", () => {
     renderAmount({ kind: "loading" });
 
     expect(screen.queryByText("Calculating the amount…")).toBeInTheDocument();
-    expect(screen.queryByText(/Asks for about/)).toBeNull();
+    expect(screen.queryByText(/Margin:/)).toBeNull();
     expect(screen.queryByText(/\d/)).toBeNull();
   });
 
@@ -94,7 +125,7 @@ describe("ShareAmount", () => {
     renderAmount({ kind: "failed" });
 
     expect(screen.queryByText("The amount could not be loaded.")).toBeInTheDocument();
-    expect(screen.queryByText(/Asks for about/)).toBeNull();
+    expect(screen.queryByText(/Margin:/)).toBeNull();
   });
 
   it.each(["abc", "1E+3", "-5", "", "12,5"])("a served amount %j that is not a plain decimal is a failed read, never NaN", (amount) => {
@@ -102,14 +133,14 @@ describe("ShareAmount", () => {
 
     expect(screen.queryByText("The amount could not be loaded.")).toBeInTheDocument();
     expect(screen.queryByText(/NaN/)).toBeNull();
-    expect(screen.queryByText(/Asks for about/)).toBeNull();
+    expect(screen.queryByText(/Margin:/)).toBeNull();
   });
 
   it("no valid value shows an em dash where the figure would be", () => {
     renderAmount({ kind: "none" });
 
     expect(screen.queryByText("—")).toBeInTheDocument();
-    expect(screen.queryByText(/Asks for about/)).toBeNull();
+    expect(screen.queryByText(/Margin:/)).toBeNull();
   });
 
   it.each<[string, ShareAmountView]>([

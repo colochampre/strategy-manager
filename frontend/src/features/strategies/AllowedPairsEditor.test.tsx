@@ -473,8 +473,8 @@ describe("AllowedPairsEditor, Save sits to the right of the note (12f.10.30c)", 
 // 12f.10.30d. jsdom has no layout, so the width rule is pinned by structure: every text the button can show
 // is in the button, in one cell, and the ones not shown are hidden from sight and from assistive technology.
 describe.each([
-  { language: "en", save: "Save pairs", saving: "Saving…", saved: "Saved" },
-  { language: "es", save: "Guardar pares", saving: "Guardando…", saved: "Guardado" },
+  { language: "en", save: "Save", saving: "Saving…", saved: "Saved" },
+  { language: "es", save: "Guardar", saving: "Guardando…", saved: "Guardado" },
 ] as const)("AllowedPairsEditor, Saved is the button's own text, in $language (12f.10.30d)", (T) => {
   beforeEach(async () => {
     await act(() => i18n.changeLanguage(T.language));

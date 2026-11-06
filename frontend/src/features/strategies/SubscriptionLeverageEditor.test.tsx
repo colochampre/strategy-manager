@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { SubscriptionLeverageEditor } from "@/features/strategies/SubscriptionLeverageEditor";
@@ -108,7 +108,7 @@ afterEach(async () => {
 
 const field = () => screen.getByRole("textbox", { name: "Leverage" }) as HTMLInputElement;
 const track = () => screen.getByRole("slider", { name: "Leverage" }) as HTMLInputElement;
-const saveButton = () => screen.getByRole("button", { name: /^Save leverage$|^Saving…$|^Saved$/ }) as HTMLButtonElement;
+const saveButton = () => screen.getByRole("button", { name: /^Save$|^Saving…$|^Saved$/ }) as HTMLButtonElement;
 const stopButton = (stop: number) => screen.getByRole("button", { name: `Set the leverage to x${stop}` });
 
 async function ready() {
@@ -124,7 +124,7 @@ describe("SubscriptionLeverageEditor", () => {
     expect(track().value).toBe("3");
     expect(track()).toHaveAttribute("aria-valuetext", "x3");
     expect(saveButton()).toBeDisabled();
-    expect(saveButton()).toHaveAccessibleName("Save leverage");
+    expect(saveButton()).toHaveAccessibleName("Save");
   });
 
   it("sends nothing while the value is edited, and Save sends exactly the leverage as a JSON number", async () => {
@@ -171,7 +171,7 @@ describe("SubscriptionLeverageEditor", () => {
 
     fireEvent.change(field(), { target: { value: "9" } });
 
-    expect(saveButton()).toHaveAccessibleName("Save leverage");
+    expect(saveButton()).toHaveAccessibleName("Save");
     expect(saveButton()).toBeEnabled();
   });
 
@@ -250,7 +250,7 @@ describe("SubscriptionLeverageEditor", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent(text);
     expect(patches()).toHaveLength(1);
-    expect(saveButton()).toHaveAccessibleName("Save leverage");
+    expect(saveButton()).toHaveAccessibleName("Save");
   });
 
   it("the explanation is closed until its button opens it, and says the system sets it on the exchange", async () => {
@@ -269,7 +269,39 @@ describe("SubscriptionLeverageEditor", () => {
     setupPage(strategy());
 
     expect(await screen.findByRole("textbox", { name: "Apalancamiento" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Guardar apalancamiento" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Guardar" })).toBeDisabled();
     expect(screen.getByRole("slider", { name: "Apalancamiento" })).toHaveAttribute("aria-valuetext", "x3");
+  });
+
+  // I.4: the field and Save on one row, Save as wide as its own text, the field taking the width left.
+  it("Save sits on the row of the field: the field block takes the width left, the Save block keeps its own", async () => {
+    setupPage(strategy());
+    await ready();
+
+    const rowOf = (a: Element, b: Element) => {
+      let node: HTMLElement | null = a.parentElement;
+      while (node !== null && !node.contains(b)) node = node.parentElement;
+      return node as HTMLElement;
+    };
+    const row = rowOf(saveButton(), field());
+    const holding = (node: Element) => Array.from(row.children).find((child) => child.contains(node)) as HTMLElement;
+    const classes = (element: Element) => element.className.split(/\s+/);
+
+    expect(classes(row)).toEqual(expect.arrayContaining(["flex", "items-start"]));
+    expect(classes(row)).not.toContain("flex-col");
+    expect(row.contains(track())).toBe(false);
+    expect(row.children).toHaveLength(2);
+    expect(classes(holding(field()))).toEqual(expect.arrayContaining(["min-w-0", "flex-1"]));
+    expect(classes(holding(saveButton()))).toEqual(expect.arrayContaining(["shrink-0"]));
+    expect(classes(holding(saveButton()))).not.toContain("flex-1");
+  });
+
+  it("the section is named by the label, so its Save is told apart from the other editors' Save", async () => {
+    setupPage(strategy());
+    await ready();
+
+    expect(within(screen.getByRole("region", { name: "Leverage" })).getByRole("button", { name: "Save" })).toBe(
+      saveButton(),
+    );
   });
 });

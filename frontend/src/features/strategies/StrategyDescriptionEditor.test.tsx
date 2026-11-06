@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { StrategyDescriptionEditor } from "@/features/strategies/StrategyDescriptionEditor";
@@ -114,7 +114,7 @@ afterEach(async () => {
 
 const field = () => screen.getByRole("textbox", { name: "Description" }) as HTMLTextAreaElement;
 const saveButton = () =>
-  screen.getByRole("button", { name: /^Save description$|^Saving…$|^Saved$/ }) as HTMLButtonElement;
+  screen.getByRole("button", { name: /^Save$|^Saving…$|^Saved$/ }) as HTMLButtonElement;
 
 async function ready() {
   await screen.findByRole("textbox", { name: "Description" });
@@ -129,7 +129,7 @@ describe("StrategyDescriptionEditor", () => {
     expect(field().value).toBe("Runs at 3x");
     expect(screen.getByText("10 / 2000")).toBeInTheDocument();
     expect(saveButton()).toBeDisabled();
-    expect(saveButton()).toHaveAccessibleName("Save description");
+    expect(saveButton()).toHaveAccessibleName("Save");
   });
 
   it("shows an empty field when there is no description", async () => {
@@ -170,7 +170,7 @@ describe("StrategyDescriptionEditor", () => {
 
     fireEvent.change(field(), { target: { value: "Runs at 6x" } });
 
-    expect(saveButton()).toHaveAccessibleName("Save description");
+    expect(saveButton()).toHaveAccessibleName("Save");
     expect(saveButton()).toBeEnabled();
   });
 
@@ -273,7 +273,7 @@ describe("StrategyDescriptionEditor", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent(text);
     expect(patches()).toHaveLength(1);
-    expect(saveButton()).toHaveAccessibleName("Save description");
+    expect(saveButton()).toHaveAccessibleName("Save");
     expect(field().value).toBe("Runs at 8x");
   });
 
@@ -292,7 +292,10 @@ describe("StrategyDescriptionEditor", () => {
     setupPage(strategy());
 
     expect(await screen.findByRole("textbox", { name: "Descripción" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Guardar descripción" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Guardar" })).toBeDisabled();
+    expect(
+      within(screen.getByRole("region", { name: "Descripción" })).getByRole("button", { name: "Guardar" }),
+    ).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "Acerca de la descripción" }));
     expect(screen.getByText(/Es un buen lugar para indicar qué apalancamiento recomienda/)).toBeVisible();
   });

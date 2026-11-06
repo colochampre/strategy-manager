@@ -41,8 +41,15 @@ function SubscribeForm({ strategyId }: { strategyId: string }) {
   const ids = { field: useId(), label: useId(), problem: useId() };
   const leverageIds = { field: useId(), label: useId(), problem: useId() };
   const subscribe = useSubscribe(strategyId);
-  const { text, reading, handle, amount, edited, changeText, changeStep } = useShareDraft(strategyId, STARTING_SHARE);
   const leverage = useLeverageDraft(STARTING_LEVERAGE);
+  // The share is read at the leverage being chosen in this same form (the one source), so the notional follows
+  // it; a leverage that is not a value yet reads as x1 and asks for none.
+  const { text, reading, handle, amount, edited, changeText, changeStep } = useShareDraft(
+    strategyId,
+    STARTING_SHARE,
+    undefined,
+    leverage.reading.valid ? leverage.reading.value : STARTING_LEVERAGE,
+  );
   const leverageInfo = useInfoDisclosure();
   const busy = subscribe.isPending;
 

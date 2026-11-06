@@ -58,7 +58,8 @@ export function SubscriptionLeverageEditor({ strategy }: SubscriptionLeverageEdi
   const savedText = t("strategies.detail.saved");
 
   return (
-    <section className="flex flex-col gap-3">
+    // Named by its label: several editors on one page each have a Save that says only "Save".
+    <section aria-labelledby={ids.label} className="flex flex-col gap-3">
       <div className="flex items-start">
         <label id={ids.label} htmlFor={ids.field} className="text-sm leading-5 text-ink-2">
           {t("strategies.leverage.label")}
@@ -80,18 +81,21 @@ export function SubscriptionLeverageEditor({ strategy }: SubscriptionLeverageEdi
         onText={changeText}
         onHandle={changeStep}
         onStop={changeStep}
+        // Save is on the field's row, as wide as its own text needs; the field takes the width that is left.
+        action={
+          <div className="flex shrink-0 items-start gap-x-3">
+            <StatusButton
+              texts={[saveText, savingText, savedText]}
+              shown={busy ? savingText : saved ? savedText : saveText}
+              message={saved ? savedText : null}
+              onClick={handleSave}
+              disabled={readOnly || busy || !changed || saved}
+              icon={Save}
+              className="min-h-11 rounded-md bg-gain px-3 text-sm font-medium text-ground hover:opacity-90 disabled:opacity-50"
+            />
+          </div>
+        }
       />
-      <div className="flex items-start">
-        <StatusButton
-          texts={[saveText, savingText, savedText]}
-          shown={busy ? savingText : saved ? savedText : saveText}
-          message={saved ? savedText : null}
-          onClick={handleSave}
-          disabled={readOnly || busy || !changed || saved}
-          icon={Save}
-          className="min-h-11 rounded-md bg-gain px-3 text-sm font-medium text-ground hover:opacity-90 disabled:opacity-50"
-        />
-      </div>
       {!reading.valid && (
         <p id={ids.problem} className="text-xs text-loss">
           {t(LEVERAGE_REFUSAL_TEXT[reading.refusal])}

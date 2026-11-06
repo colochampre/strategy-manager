@@ -226,7 +226,12 @@ describe("changing a share", () => {
     const field = await screen.findByRole("textbox", { name: i18n.t("strategies.detail.share.label") });
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes(`/strategies/${STRATEGY_ID}/share-preview`))).toBe(true);
     fireEvent.change(field, { target: { value: "45" } });
-    fireEvent.click(screen.getByRole("button", { name: i18n.t("strategies.detail.share.save") }));
+    // Every editor's Save says "Save": the share's is the one in the region the share's label names.
+    fireEvent.click(
+      within(screen.getByRole("region", { name: i18n.t("strategies.detail.share.label") })).getByRole("button", {
+        name: i18n.t("strategies.detail.share.save"),
+      }),
+    );
 
     await waitFor(() => expect(requestsTo(fetchMock, `/api/subscriptions/${row.id}`)).toHaveLength(1));
     const [, init] = requestsTo(fetchMock, `/api/subscriptions/${row.id}`)[0] as [string, RequestInit];
@@ -247,7 +252,11 @@ describe("changing a share", () => {
     const field = await screen.findByRole("textbox", { name: i18n.t("strategies.leverage.label") });
     expect(field).toHaveValue("2");
     fireEvent.change(field, { target: { value: "9" } });
-    fireEvent.click(screen.getByRole("button", { name: i18n.t("strategies.leverage.save") }));
+    fireEvent.click(
+      within(screen.getByRole("region", { name: i18n.t("strategies.leverage.label") })).getByRole("button", {
+        name: i18n.t("strategies.leverage.save"),
+      }),
+    );
 
     await waitFor(() => expect(requestsTo(fetchMock, `/api/subscriptions/${row.id}`)).toHaveLength(1));
     const [, init] = requestsTo(fetchMock, `/api/subscriptions/${row.id}`)[0] as [string, RequestInit];

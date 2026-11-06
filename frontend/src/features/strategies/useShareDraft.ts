@@ -42,6 +42,7 @@ function amountView(
   preview: UseQueryResult<SharePreview>,
   asked: UseQueryResult<SharePreview>,
   askedFor: string | null,
+  leveraged: boolean,
 ): ShareAmountView {
   if (value === null) return { kind: "none" };
   const covered = isCovered(value, stored);
@@ -55,12 +56,20 @@ function amountView(
   if (data.balance === null) return { kind: "noBalance" };
   const staleAt = data.balance.stale ? data.balance.observed_at : null;
   // The server decides whether a figure is under the pool's minimum order; the panel only carries its word.
+  // The notional is the server's, served with an exact for this very share and only above 1x. The stored
+  // share's read carries it, and so does the read asked for any other value once its pause has passed.
+  const notionalOf = (source: UseQueryResult<SharePreview>): string | null => {
+    const exact = source.data?.exact;
+    return exact !== undefined && exact !== null && readStored(exact.share) === value ? (exact.notional ?? null) : null;
+  };
+  const notional = leveraged ? (notionalOf(preview) ?? (askedFor === value ? notionalOf(asked) : null)) : null;
   const known = (amount: string, below: boolean): ShareAmountView => ({
     kind: "known",
     amount,
     currency: data.currency,
     staleAt,
     belowMinimum: below ? data.pool_minimum : null,
+    notional,
   });
 
   const step = WHOLE_STEP.test(value) ? data.steps[Number(value) - 1] : undefined;
@@ -82,23 +91,33 @@ function isCovered(value: string, stored: string): boolean {
  * A share being edited over `stored`: the text as typed, the handle that follows it, and the amount the server
  * serves for it. The value is one decimal string, and nothing is sent from here. Moving the handle or activating
  * a stop is the one moment a decimal is rounded, to a whole number. `onEdit` runs on any movement of the control.
+ * `leverage` is the one the share will open at (the seat's, or the one chosen in the same form): above 1 the
+ * reads carry it, so the server serves the notional beside the margin, and a whole step, which has no
+ * notional, is also read by itself once its pause has passed. At 1x nothing is asked beyond what always was.
  */
-export function useShareDraft(strategyId: string, stored: string | null, onEdit?: () => void) {
+export function useShareDraft(strategyId: string, stored: string | null, onEdit?: () => void, leverage = 1) {
   const [draft, setDraft] = useState<Draft | null>(null);
-  const preview = useSharePreview(strategyId);
+  const leveraged = leverage > 1;
+  const askedLeverage = leveraged ? leverage : undefined;
+  const preview = useSharePreview(strategyId, undefined, askedLeverage);
 
   const current = stored !== null && draft !== null && draft.base === stored ? draft : null;
   const text = current?.text ?? stored ?? "";
   const reading = parseDraft(text);
   // A value no served table covers: not a whole step and not the stored share. It is read once, by itself.
-  const wanted = stored !== null && reading.valid && !isCovered(reading.canonical, stored) ? reading.canonical : null;
+  // Above 1x a whole step is read too, for its notional (the table of steps has none); the stored share's own
+  // read already carries it.
+  const wanted =
+    stored !== null && reading.valid && (leveraged ? reading.canonical !== stored : !isCovered(reading.canonical, stored))
+      ? reading.canonical
+      : null;
   // Asked 300 ms after the last keystroke, so a number typed digit by digit sends one request, for the last.
   const askedFor = useDebouncedValue(wanted, ASK_PAUSE_MS);
-  const asked = useSharePreview(strategyId, askedFor ?? undefined);
+  const asked = useSharePreview(strategyId, askedFor ?? undefined, askedLeverage);
 
   const handle = current?.handle ?? (stored === null ? 1 : roundToHandle(stored));
   const amount: ShareAmountView =
-    stored === null ? { kind: "none" } : amountView(reading.valid ? reading.canonical : null, stored, preview, asked, askedFor);
+    stored === null ? { kind: "none" } : amountView(reading.valid ? reading.canonical : null, stored, preview, asked, askedFor, leveraged);
 
   const edit = (next: string, nextHandle: number) => {
     onEdit?.();

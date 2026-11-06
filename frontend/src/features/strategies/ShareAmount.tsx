@@ -13,6 +13,8 @@ export interface KnownAmount {
   staleAt: string | null;
   /** The pool's own minimum order, as served, when this figure is below it; `null` when it is not. */
   belowMinimum: string | null;
+  /** The margin times the leverage, as served; present only when a leverage above 1 was asked. */
+  notional?: string | null | undefined;
 }
 
 /** What the line under the track says: a figure, or why there is none. */
@@ -41,7 +43,17 @@ export function ShareAmount({ view, trailing, explanation }: ShareAmountProps) {
 
   let line: string;
   if (view.kind === "known") {
-    line = known === null ? t("strategies.detail.share.amountError") : t("strategies.detail.share.amount", { amount: known, currency: view.currency });
+    // The notional is the server's figure, cut as text like the margin; one that is not a plain decimal is
+    // left out and the margin stands alone.
+    const notional =
+      view.notional === null || view.notional === undefined
+        ? null
+        : cutAmountText(view.notional, view.currency, i18n.language);
+    if (known === null) line = t("strategies.detail.share.amountError");
+    else if (notional === null) line = t("strategies.detail.share.amount", { amount: known, currency: view.currency });
+    else {
+      line = t("strategies.detail.share.amountNotional", { amount: known, notional, currency: view.currency });
+    }
   } else if (view.kind === "loading") {
     line = t("strategies.detail.share.amountLoading");
   } else if (view.kind === "noBalance") {

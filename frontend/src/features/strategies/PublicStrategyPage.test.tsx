@@ -25,7 +25,7 @@ interface Serve {
   pools?: Parameters<typeof stubApi>[2];
   me?: Record<string, unknown>;
   subscribe?: () => Promise<Response>;
-  preview?: Record<string, unknown>;
+  preview?: Record<string, unknown> | ((url: string) => Record<string, unknown>);
 }
 
 function serve({ strategy, held, pools, me, subscribe, preview }: Serve = {}) {
@@ -38,7 +38,8 @@ function serve({ strategy, held, pools, me, subscribe, preview }: Serve = {}) {
       return subscribe?.() ?? Promise.resolve(jsonResponse(subscriptionOf(ID, "100"), 201));
     }
     if (url.includes(`/strategies/${ID}/share-preview`)) {
-      return Promise.resolve(jsonResponse(preview ?? unsyncedSharePreview(ID)));
+      const body = typeof preview === "function" ? preview(url) : preview;
+      return Promise.resolve(jsonResponse(body ?? unsyncedSharePreview(ID)));
     }
     if (url.endsWith("/api/me")) {
       return Promise.resolve(
@@ -377,10 +378,59 @@ describe("subscribing", () => {
     );
     await whatWasPressedHasRun();
     expect(screen.queryByText(i18n.t("strategies.detail.share.amountError"))).not.toBeInTheDocument();
-    expect(screen.queryByText(/Asks for about/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Margin:/)).not.toBeInTheDocument();
 
     fireEvent.change(field, { target: { value: "25" } });
-    expect(await screen.findByText(/Asks for about 250/)).toBeInTheDocument();
+    expect(await screen.findByText(/Margin: 250/)).toBeInTheDocument();
+  });
+
+  // I.4: the form shows the margin and, above 1x, the notional the server serves for the leverage chosen here.
+  const previewAtLeverage = (url: string): Record<string, unknown> => {
+    const params = new URL(url, "http://panel.test").searchParams;
+    const share = params.get("share") ?? "0";
+    const leverage = params.get("leverage");
+    const amount = Number(share) * 10;
+    return {
+      ...unsyncedSharePreview(ID),
+      balance: { total: "1000", observed_at: "2026-11-05T10:00:00Z", stale: false },
+      exact: {
+        share,
+        amount: amount.toFixed(18),
+        below_pool_minimum: false,
+        notional: leverage === null ? null : (amount * Number(leverage)).toFixed(18),
+      },
+      steps: Array.from({ length: 100 }, (_, index) => ({
+        share: index + 1,
+        amount: String((index + 1) * 10),
+        below_pool_minimum: false,
+      })),
+    };
+  };
+  const previewUrls = (fetchMock: ReturnType<typeof serve>) =>
+    fetchMock.mock.calls.map(([url]) => String(url)).filter((url) => url.includes(`/strategies/${ID}/share-preview`));
+
+  it("at x1 the form asks for no leverage and names the margin alone", async () => {
+    const fetchMock = serve({ preview: previewAtLeverage });
+    open();
+
+    fireEvent.change(await shareField(), { target: { value: "25" } });
+
+    expect(await screen.findByText("Margin: 250.00 USDT")).toBeInTheDocument();
+    await whatWasPressedHasRun();
+    expect(previewUrls(fetchMock).some((url) => url.includes("leverage="))).toBe(false);
+    expect(screen.queryByText(/Notional/)).not.toBeInTheDocument();
+  });
+
+  it("above x1 the share is read at the leverage chosen in the same form, and the notional shows", async () => {
+    const fetchMock = serve({ preview: previewAtLeverage });
+    open();
+
+    const leverage = await screen.findByRole("textbox", { name: i18n.t("strategies.leverage.label") });
+    fireEvent.change(leverage, { target: { value: "6" } });
+    fireEvent.change(await shareField(), { target: { value: "25" } });
+
+    expect(await screen.findByText("Margin: 250.00 USDT · Notional: 1,500.00 USDT")).toBeInTheDocument();
+    expect(previewUrls(fetchMock).some((url) => url.endsWith("?share=25&leverage=6"))).toBe(true);
   });
 
   it("sends the share the user typed, in plain form", async () => {
