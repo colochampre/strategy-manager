@@ -267,7 +267,7 @@
       "ageDays_other": "{{count}} days",
       "trades": "closed trades",
       "return": "return, unleveraged, before fees",
-      "live": "trading it live",
+      "live": "people trading it live",
       "capital": "capital",
       "returnInfo": "How this return is read",
       "noRealTrade": "no real trade yet",

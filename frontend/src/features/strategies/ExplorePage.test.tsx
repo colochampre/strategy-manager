@@ -56,20 +56,30 @@ describe("Explore", () => {
     expect(within(row).getByRole("img", { name: i18n.t("strategies.public.return") })).toBeInTheDocument();
   });
 
-  it("draws the age, the closed trades and the return as icons that keep their names, and the rest as words", async () => {
+  it("draws the age, the closed trades, the return and who trades it live as icons that keep their names, and the capital as words", async () => {
     serve(() => Promise.resolve(jsonResponse([publicStrategy()])));
     open();
 
     const row = await screen.findByTestId("public-strategy-row");
-    for (const key of ["age", "trades", "return"]) {
+    for (const key of ["age", "trades", "return", "live"]) {
       const term = within(row).getByTestId(`public-${key}`).previousElementSibling as HTMLElement;
       expect(within(term).getByRole("img", { name: i18n.t(`strategies.public.${key}`) })).toBeInTheDocument();
       expect(term).toHaveTextContent("");
     }
-    for (const key of ["live", "capital"]) {
+    for (const key of ["capital"]) {
       const term = within(row).getByTestId(`public-${key}`).previousElementSibling as HTMLElement;
       expect(term).toHaveTextContent(i18n.t(`strategies.public.${key}`));
     }
+  });
+
+  it("draws the age as a calendar and who trades it live as people (owner, 2026-11-06)", async () => {
+    serve(() => Promise.resolve(jsonResponse([publicStrategy()])));
+    open();
+
+    const row = await screen.findByTestId("public-strategy-row");
+    const term = (key: string) => within(row).getByTestId(`public-${key}`).previousElementSibling as HTMLElement;
+    expect(term("age").querySelector("svg.lucide-calendar")).not.toBeNull();
+    expect(term("live").querySelector("svg.lucide-users")).not.toBeNull();
   });
 
   it("explains an icon on hover", async () => {

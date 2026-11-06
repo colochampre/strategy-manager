@@ -1,4 +1,4 @@
-import { Clock, ListChecks, TrendingUp } from "lucide-react";
+import { Calendar, ListChecks, TrendingUp, Users } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
@@ -77,7 +77,7 @@ export function PublicFigures({ strategy, returnInfo, capitalInfo }: PublicFigur
 
   return (
     <dl className="grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-3 lg:grid-cols-5">
-      <Figure icon={Clock} label={t("strategies.public.age")} testId="public-age" value={age} />
+      <Figure icon={Calendar} label={t("strategies.public.age")} testId="public-age" value={age} />
       <Figure
         icon={ListChecks}
         label={t("strategies.public.trades")}
@@ -98,7 +98,7 @@ export function PublicFigures({ strategy, returnInfo, capitalInfo }: PublicFigur
         tone={ratio === null ? undefined : toneClass(ratio)}
         info={returnInfo}
       />
-      <Figure label={t("strategies.public.live")} testId="public-live" value={String(strategy.live_subscribers)} />
+      <Figure icon={Users} label={t("strategies.public.live")} testId="public-live" value={String(strategy.live_subscribers)} />
       <Figure
         label={t("strategies.public.capital")}
         testId="public-capital"

@@ -267,7 +267,7 @@
       "ageDays_other": "{{count}} días",
       "trades": "operaciones cerradas",
       "return": "rendimiento, sin apalancamiento y antes de comisiones",
-      "live": "operando en vivo",
+      "live": "personas operándola en vivo",
       "capital": "capital",
       "returnInfo": "Cómo se calcula este rendimiento",
       "noRealTrade": "todavía sin operaciones reales",
