@@ -299,6 +299,7 @@
     "row": {
       "subscribers_one": "{{count}} suscriptor, {{live}} en vivo",
       "subscribers_other": "{{count}} suscriptores, {{live}} en vivo",
+      "subscribersShort": "{{count}} · {{live}} en vivo",
       "capital": "Capital: {{amount}} {{currency}}",
       "archived": "Archivada",
       "enable": "Activar {{name}}",
@@ -307,6 +308,7 @@
       "active_other": "activa {{count}} días",
       "activeAtLeast_one": "activa al menos {{count}} día",
       "activeAtLeast_other": "activa al menos {{count}} días",
+      "daysAtLeast": "≥{{count}}",
       "trades": "operaciones",
       "pnl": "PnL total",
       "return": "rendimiento total",

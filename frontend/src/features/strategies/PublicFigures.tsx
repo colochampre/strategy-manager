@@ -1,9 +1,12 @@
+import { Clock, ListChecks, TrendingUp } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
 import type { PublicStrategy } from "@/shared/api/types";
 import { amountText, parseDecimal, percentText, toneClass } from "@/shared/lib/amount-text";
 import { cn } from "@/shared/lib/cn";
+import { IconTip } from "@/shared/ui/Tooltip";
 
 const DAY_MS = 86_400_000;
 /** What a figure shows when there is nothing true to say yet. */
@@ -23,14 +26,16 @@ interface FigureProps {
   value: string;
   tone?: string | undefined;
   info?: ReactNode;
+  /** Drawn in place of the label, which then names it and explains it on hover. */
+  icon?: LucideIcon;
 }
 
-function Figure({ label, testId, value, tone = "text-ink", info }: FigureProps) {
+function Figure({ label, testId, value, tone = "text-ink", info, icon }: FigureProps) {
   return (
     // The label takes the room left, so a label that wraps never lowers its figure below the others in the row.
     <div className="flex flex-col justify-between gap-0.5">
       <dt className="flex items-start text-xs text-ink-3">
-        {label}
+        {icon === undefined ? label : <IconTip icon={icon} label={label} />}
         {info}
       </dt>
       <dd data-testid={testId} className={cn("font-mono text-sm", tone)}>
@@ -72,9 +77,15 @@ export function PublicFigures({ strategy, returnInfo, capitalInfo }: PublicFigur
 
   return (
     <dl className="grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-3 lg:grid-cols-5">
-      <Figure label={t("strategies.public.age")} testId="public-age" value={age} />
-      <Figure label={t("strategies.public.trades")} testId="public-trades" value={String(strategy.closed_trade_count)} />
+      <Figure icon={Clock} label={t("strategies.public.age")} testId="public-age" value={age} />
       <Figure
+        icon={ListChecks}
+        label={t("strategies.public.trades")}
+        testId="public-trades"
+        value={String(strategy.closed_trade_count)}
+      />
+      <Figure
+        icon={TrendingUp}
         label={t("strategies.public.return")}
         testId="public-return"
         value={

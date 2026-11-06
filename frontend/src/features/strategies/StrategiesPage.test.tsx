@@ -110,15 +110,18 @@ afterEach(() => {
 
 describe("the strategies list", () => {
   it.each([
-    [3, 2, "3 subscribers, 2 live"],
-    [1, 0, "1 subscriber, 0 live"],
-  ])("tells its author who holds it: %i and %i live read as %s", async (subscribers, live, text) => {
+    [3, 2, "3 subscribers, 2 live", "3 · 2 live"],
+    [1, 0, "1 subscriber, 0 live", "1 · 0 live"],
+  ])("tells its author who holds it: %i and %i live read as %s", async (subscribers, live, text, visible) => {
     const api = strategiesApi([strategy({ subscribers, live_subscribers: live })]);
     stubApi(HEALTH, [], POOLS, {}, api.route);
     renderAt(<AppRoutes />, "/strategies/authored");
 
     const row = await screen.findByTestId("strategy-row");
-    expect(within(row).getByTestId("strategy-subscribers")).toHaveTextContent(text);
+    const held = within(row).getByTestId("strategy-subscribers");
+    expect(within(held).getByRole("img", { name: text })).toBeInTheDocument();
+    // The live count is a figure, not a label: it stays in sight beside the icon.
+    expect(held.textContent).toBe(visible);
   });
 
   it("tells its author the capital in the strategy's own currency", async () => {
@@ -193,8 +196,19 @@ describe("the strategies list", () => {
     expect(subLine).not.toHaveTextContent("bybit");
     expect(subLine.textContent).not.toMatch(/\bUSDT\b/);
     expect(within(row).getByRole("switch", { name: "Enable Alpha" })).toHaveAttribute("aria-checked", "true");
-    expect(within(row).getByTestId("strategy-uptime")).toHaveTextContent("active 12 days");
+    const uptime = within(row).getByTestId("strategy-uptime");
+    expect(within(uptime).getByRole("img", { name: "active 12 days" })).toBeInTheDocument();
+    expect(uptime.textContent).toBe("12");
     await waitFor(() => expect(within(row).getByTestId("strategy-trades")).toHaveTextContent("7"));
+    const tradesTerm = within(row).getByTestId("strategy-trades").previousElementSibling as HTMLElement;
+    expect(within(tradesTerm).getByRole("img", { name: en.strategies.row.trades })).toBeInTheDocument();
+    // Money and the return stay words.
+    expect((within(row).getByTestId("strategy-pnl").previousElementSibling as HTMLElement).textContent).toBe(
+      en.strategies.row.pnl,
+    );
+    expect((within(row).getByTestId("strategy-return").previousElementSibling as HTMLElement).textContent).toBe(
+      en.strategies.row.return,
+    );
     expect(within(row).getByTestId("strategy-pnl")).toHaveTextContent("+41.20 USDT");
     expect(within(row).getByTestId("strategy-return")).toHaveTextContent("+3.4%");
   });
@@ -239,7 +253,10 @@ describe("the strategies list", () => {
     stubApi(HEALTH, [], POOLS, {}, strategiesApi([baseline]).route);
     renderAt(<AppRoutes />, "/strategies/authored");
 
-    expect(await screen.findByTestId("strategy-uptime")).toHaveTextContent("active at least 3 days");
+    const uptime = await screen.findByTestId("strategy-uptime");
+    expect(within(uptime).getByRole("img", { name: "active at least 3 days" })).toBeInTheDocument();
+    // A lower bound must not read as an exact count.
+    expect(uptime.textContent).toBe("≥3");
   });
 
   it("lists only the selected exchange's strategies, and follows a tab switch", async () => {

@@ -1,4 +1,4 @@
-import { screen, within } from "@testing-library/react";
+import { fireEvent, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AppRoutes } from "@/app/router";
@@ -53,7 +53,32 @@ describe("Explore", () => {
     open();
 
     const row = await screen.findByTestId("public-strategy-row");
-    expect(within(row).getByText(i18n.t("strategies.public.return"))).toBeInTheDocument();
+    expect(within(row).getByRole("img", { name: i18n.t("strategies.public.return") })).toBeInTheDocument();
+  });
+
+  it("draws the age, the closed trades and the return as icons that keep their names, and the rest as words", async () => {
+    serve(() => Promise.resolve(jsonResponse([publicStrategy()])));
+    open();
+
+    const row = await screen.findByTestId("public-strategy-row");
+    for (const key of ["age", "trades", "return"]) {
+      const term = within(row).getByTestId(`public-${key}`).previousElementSibling as HTMLElement;
+      expect(within(term).getByRole("img", { name: i18n.t(`strategies.public.${key}`) })).toBeInTheDocument();
+      expect(term).toHaveTextContent("");
+    }
+    for (const key of ["live", "capital"]) {
+      const term = within(row).getByTestId(`public-${key}`).previousElementSibling as HTMLElement;
+      expect(term).toHaveTextContent(i18n.t(`strategies.public.${key}`));
+    }
+  });
+
+  it("explains an icon on hover", async () => {
+    serve(() => Promise.resolve(jsonResponse([publicStrategy()])));
+    open();
+
+    const row = await screen.findByTestId("public-strategy-row");
+    fireEvent.mouseEnter(within(row).getByRole("img", { name: i18n.t("strategies.public.trades") }).parentElement as HTMLElement);
+    expect(within(row).getByRole("tooltip")).toHaveTextContent(i18n.t("strategies.public.trades"));
   });
 
   it("colours a loss as a loss", async () => {

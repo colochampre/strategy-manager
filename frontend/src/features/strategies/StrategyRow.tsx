@@ -1,3 +1,4 @@
+import { Clock, ListChecks, Users } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router";
 
@@ -8,6 +9,7 @@ import { useStrategyPerformance } from "@/shared/api/performance";
 import { useSetStrategyEnabled } from "@/shared/api/strategies";
 import type { Strategy, StrategyPerformance } from "@/shared/api/types";
 import { cn } from "@/shared/lib/cn";
+import { IconTip } from "@/shared/ui/Tooltip";
 
 const DAY_SECONDS = 86_400;
 const DASH = "—";
@@ -68,7 +70,9 @@ function Figures({ strategy }: FiguresProps) {
   return (
     <dl className="tabular flex gap-x-5 font-mono text-xs text-ink-2 lg:col-span-3 lg:grid lg:grid-cols-subgrid lg:gap-x-6">
       <div>
-        <dt className="text-ink-3">{t("strategies.row.trades")}</dt>
+        <dt className="text-ink-3">
+          <IconTip icon={ListChecks} label={t("strategies.row.trades")} />
+        </dt>
         <dd data-testid="strategy-trades">{report === null ? empty : report.trade_count}</dd>
       </div>
       <div>
@@ -117,11 +121,24 @@ export function StrategyRow({ strategy }: StrategyRowProps) {
         <p data-testid="strategy-pool" className="font-mono text-[11px] uppercase tracking-[0.14em] text-ink-3">
           {[strategy.venue, strategy.allowed_pairs.join(", ")].filter((part) => part !== "").join(" · ")}
         </p>
-        <p data-testid="strategy-uptime" className="text-xs text-ink-2">
-          {uptimeText(strategy, t)}
+        <p data-testid="strategy-uptime" className="flex items-center gap-1.5 text-xs text-ink-2">
+          {strategy.uptime.first_enabled_at === null ? (
+            uptimeText(strategy, t)
+          ) : (
+            <>
+              <IconTip icon={Clock} label={uptimeText(strategy, t)} />
+              {strategy.uptime.baseline
+                ? t("strategies.row.daysAtLeast", { count: Math.floor(strategy.uptime.seconds / DAY_SECONDS) })
+                : Math.floor(strategy.uptime.seconds / DAY_SECONDS)}
+            </>
+          )}
         </p>
-        <p data-testid="strategy-subscribers" className="text-xs text-ink-2">
-          {t("strategies.row.subscribers", { count: strategy.subscribers, live: strategy.live_subscribers })}
+        <p data-testid="strategy-subscribers" className="flex items-center gap-1.5 text-xs text-ink-2">
+          <IconTip
+            icon={Users}
+            label={t("strategies.row.subscribers", { count: strategy.subscribers, live: strategy.live_subscribers })}
+          />
+          {t("strategies.row.subscribersShort", { count: strategy.subscribers, live: strategy.live_subscribers })}
         </p>
         <AuthorCapital strategy={strategy} className="text-xs text-ink-2" />
       </div>

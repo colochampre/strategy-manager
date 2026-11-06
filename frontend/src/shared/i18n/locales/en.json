@@ -299,6 +299,7 @@
     "row": {
       "subscribers_one": "{{count}} subscriber, {{live}} live",
       "subscribers_other": "{{count}} subscribers, {{live}} live",
+      "subscribersShort": "{{count}} · {{live}} live",
       "capital": "Capital: {{amount}} {{currency}}",
       "archived": "Archived",
       "enable": "Enable {{name}}",
@@ -307,6 +308,7 @@
       "active_other": "active {{count}} days",
       "activeAtLeast_one": "active at least {{count}} day",
       "activeAtLeast_other": "active at least {{count}} days",
+      "daysAtLeast": "≥{{count}}",
       "trades": "trades",
       "pnl": "PnL all time",
       "return": "return all time",
