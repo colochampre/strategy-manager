@@ -1,3 +1,4 @@
+import { LogOut } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router";
@@ -8,6 +9,7 @@ import { SubscriptionLeverageEditor } from "@/features/strategies/SubscriptionLe
 import { readStored } from "@/features/strategies/share-value";
 import { useHeldSubscriptions, useLeaveSubscription } from "@/shared/api/subscriptions";
 import type { HeldSubscription } from "@/shared/api/types";
+import { DANGER_CONTROL } from "@/shared/ui/danger-control";
 
 const CONTROL = "min-h-11 rounded-md border border-rule px-3 text-sm text-ink-2 hover:bg-panel-2";
 
@@ -52,7 +54,8 @@ function SubscriptionRow({ held }: { held: HeldSubscription }) {
             <button type="button" aria-expanded={editing} onClick={() => setEditing(!editing)} className={CONTROL}>
               {t(editing ? "strategies.subscriptions.closeShare" : "strategies.subscriptions.changeShare")}
             </button>
-            <button type="button" onClick={openDialog} className={CONTROL}>
+            <button type="button" onClick={openDialog} className={DANGER_CONTROL}>
+              <LogOut aria-hidden="true" className="size-4 shrink-0" />
               {t("strategies.subscriptions.leave")}
             </button>
           </div>

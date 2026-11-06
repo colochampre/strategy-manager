@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AppRoutes } from "@/app/router";
 import i18n from "@/shared/i18n";
+import { DANGER_CONTROL } from "@/shared/ui/danger-control";
 import {
   heldSubscription,
   jsonResponse,
@@ -69,6 +70,29 @@ describe("the tabs of Strategies", () => {
     expect(links[1]).not.toHaveAttribute("aria-current");
   });
 
+  it("names the third list My strategies", async () => {
+    serve({ held: () => Promise.resolve(jsonResponse([])) });
+    open();
+
+    const tabs = await screen.findByRole("navigation", { name: i18n.t("strategies.tabs.label") });
+    expect(within(tabs).getByRole("link", { name: "My strategies" })).toHaveAttribute("href", "/strategies/authored");
+  });
+
+  it("puts a decorative icon before the label of each list", async () => {
+    serve({ held: () => Promise.resolve(jsonResponse([])) });
+    open();
+
+    const tabs = await screen.findByRole("navigation", { name: i18n.t("strategies.tabs.label") });
+    const links = within(tabs).getAllByRole("link");
+    expect(links).toHaveLength(3);
+    for (const link of links) {
+      const icon = link.querySelector("svg");
+      expect(icon).not.toBeNull();
+      expect(icon).toHaveAttribute("aria-hidden", "true");
+      expect(link.firstElementChild).toBe(icon);
+    }
+  });
+
   it("keeps My subscriptions unmarked on another list", async () => {
     stubApi({ kind: "ok", body: {} }, [], { kind: "ok", body: [] }, {}, (url) =>
       url.endsWith("/api/public/strategies") ? Promise.resolve(jsonResponse([])) : undefined,
@@ -99,6 +123,20 @@ describe("My subscriptions", () => {
     expect(within(row).getByTestId("subscription-share")).toHaveTextContent(
       i18n.t("strategies.subscriptions.share", { share: "30" }),
     );
+  });
+
+  it("draws Leave in red with an icon, and leaves Change share neutral", async () => {
+    serve({ held: () => Promise.resolve(jsonResponse([heldSubscription()])) });
+    open();
+
+    const leave = await screen.findByRole("button", { name: i18n.t("strategies.subscriptions.leave") });
+    expect(leave).toHaveClass("border-loss", "text-loss");
+    expect(leave.className).toBe(DANGER_CONTROL);
+    expect(leave.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
+    const change = screen.getByRole("button", { name: i18n.t("strategies.subscriptions.changeShare") });
+    expect(change).not.toHaveClass("text-loss");
+    expect(change).not.toHaveClass("border-loss");
+    expect(change.querySelector("svg")).toBeNull();
   });
 
   it("writes the share in plain form, however the server wrote it", async () => {
