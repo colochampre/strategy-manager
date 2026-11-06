@@ -96,6 +96,16 @@ async def test_no_snapshot_gives_no_balance_no_exact_amount_no_steps_and_never_a
     assert preview.steps == ()
 
 
+async def test_no_share_gives_no_exact_amount_but_still_the_balance_and_the_steps() -> None:
+    """A user with no seat who asked no share has no share to size (decision 39):
+    the preview never assumes one, and the hundred steps still answer any share."""
+    preview = await PreviewShare(FakeSizing(_sizing("1000"))).preview(OWNER_ID, POOL, None)
+
+    assert preview.exact is None
+    assert preview.balance == SizingSnapshot(Decimal("1000"), OBSERVED_AT, False)
+    assert len(preview.steps) == 100
+
+
 async def test_a_pool_nothing_has_synced_still_carries_its_minimum() -> None:
     sizing = PoolSizing(min_order_size=Decimal("5"), snapshot=None)
 

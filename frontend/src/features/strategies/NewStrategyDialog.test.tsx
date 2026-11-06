@@ -70,12 +70,29 @@ function selectPool(poolValue: string, text: Locale = en) {
   fireEvent.change(screen.getByLabelText(text.strategies.new.pool), { target: { value: poolValue } });
 }
 
-/** Name, pool and fill mode; the pairs are chosen separately, from the pool's list. */
-function fill(name: string, poolValue = "usdt-m/USDT", fillMode = "SKIP", text: Locale = en) {
+/**
+ * Name, pool, fill mode and the share, which has no default and is typed by hand (decision 39); the pairs are
+ * chosen separately, from the pool's list.
+ */
+function fill(name: string, poolValue = "usdt-m/USDT", fillMode = "SKIP", text: Locale = en, share = "100") {
   fireEvent.change(screen.getByLabelText(text.strategies.new.name), { target: { value: name } });
   selectPool(poolValue, text);
   fireEvent.change(screen.getByLabelText(text.strategies.new.fillMode), { target: { value: fillMode } });
+  fireEvent.change(shareField(text), { target: { value: share } });
 }
+
+function shareField(text: Locale = en) {
+  return screen.getByRole("textbox", { name: text.strategies.new.share });
+}
+
+/** A request would leave on a later task, so "nothing was sent" is read after one has had its chance. */
+const whatWasPressedHasRun = () =>
+  act(
+    () =>
+      new Promise<void>((resolve) => {
+        setTimeout(resolve, 0);
+      }),
+  );
 
 /**
  * Chooses each symbol the way an operator does: waits for the list, types the
@@ -455,6 +472,82 @@ describe("the new-strategy dialog", () => {
     expect(api.posted).toEqual([]);
   });
 
+  it("starts the share at 0 with a hint asking for one, no refusal, and sends nothing, button or Enter", async () => {
+    const api = creationApi(created);
+    stubApi(HEALTH, [], POOLS, {}, api.route);
+    renderAt(<AppRoutes />, "/strategies/authored");
+    await screen.findByText(en.strategies.empty);
+    const dialog = openDialog();
+
+    const field = shareField();
+    expect(field).toHaveValue("0");
+    expect(field).toHaveAttribute("aria-invalid", "false");
+    expect(within(dialog).getByText(en.strategies.detail.share.startHint)).toBeInTheDocument();
+    expect(within(dialog).queryByText(en.strategies.detail.share.outOfRange)).not.toBeInTheDocument();
+    // The share is the field before the leverage field.
+    const leverageField = screen.getByRole("textbox", { name: en.strategies.leverage.label });
+    expect(field.compareDocumentPosition(leverageField) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText(en.strategies.new.name), { target: { value: "Delta" } });
+    selectPool("usdt-m/USDT");
+    fireEvent.change(screen.getByLabelText(en.strategies.new.fillMode), { target: { value: "SKIP" } });
+    await choose(["STXUSDT"]);
+    expect(submitButton()).toBeDisabled();
+    fireEvent.click(submitButton());
+    fireEvent.submit(field.closest("form") as HTMLFormElement);
+    await whatWasPressedHasRun();
+    expect(api.posted).toEqual([]);
+  });
+
+  it("posts exactly the share typed by hand", async () => {
+    const api = creationApi(created);
+    stubApi(HEALTH, [], POOLS, {}, api.route);
+    renderAt(<AppRoutes />, "/strategies/authored");
+    await screen.findByText(en.strategies.empty);
+    const dialog = openDialog();
+
+    fill("Delta", "usdt-m/USDT", "SKIP", en, "12,5");
+    await choose(["STXUSDT"]);
+    expect(within(dialog).queryByText(en.strategies.detail.share.startHint)).not.toBeInTheDocument();
+    fireEvent.click(submitButton());
+
+    await waitFor(() => expect(api.posted).toHaveLength(1));
+    expect(api.posted[0]?.body.allocation_percent).toBe("12.5");
+  });
+
+  it("refuses a share of 0 typed by hand in words, drops the hint and sends nothing", async () => {
+    const api = creationApi(created);
+    stubApi(HEALTH, [], POOLS, {}, api.route);
+    renderAt(<AppRoutes />, "/strategies/authored");
+    await screen.findByText(en.strategies.empty);
+    const dialog = openDialog();
+
+    fill("Delta");
+    await choose(["STXUSDT"]);
+    expect(submitButton()).toBeEnabled();
+    const field = shareField();
+    fireEvent.change(field, { target: { value: "0" } });
+
+    expect(field).toHaveAttribute("aria-invalid", "true");
+    expect(within(dialog).getByText(en.strategies.detail.share.outOfRange)).toBeInTheDocument();
+    expect(within(dialog).queryByText(en.strategies.detail.share.startHint)).not.toBeInTheDocument();
+    expect(submitButton()).toBeDisabled();
+    fireEvent.submit(field.closest("form") as HTMLFormElement);
+    await whatWasPressedHasRun();
+    expect(api.posted).toEqual([]);
+  });
+
+  it("asks for no amount of the share: there is no strategy to ask about yet", async () => {
+    const fetchMock = stubApi(HEALTH, [], POOLS, {}, creationApi(created).route);
+    renderAt(<AppRoutes />, "/strategies/authored");
+    await screen.findByText(en.strategies.empty);
+    openDialog();
+
+    fireEvent.change(shareField(), { target: { value: "25" } });
+    await whatWasPressedHasRun();
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes("/share-preview"))).toBe(false);
+  });
+
   it("offers the visibility, private by default, and posts the one chosen", async () => {
     const api = creationApi(created);
     stubApi(HEALTH, [], POOLS, {}, api.route);
@@ -590,8 +683,9 @@ describe("the new-strategy dialog", () => {
     // No pool: there is nothing to choose pairs from, and submit is not available.
     expect(submitButton()).toBeDisabled();
 
-    // A pool and a pair, but no name and no behaviour.
+    // A pool, a pair and a share, but no name and no behaviour.
     selectPool("usdt-m/USDT");
+    fireEvent.change(shareField(), { target: { value: "30" } });
     await choose(["STXUSDT"]);
     fireEvent.click(submitButton());
 

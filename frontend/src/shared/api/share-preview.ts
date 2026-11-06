@@ -50,7 +50,8 @@ function isStep(value: unknown, position: number): boolean {
 
 /**
  * A body the panel can draw from: every field of the right type, and `balance`, `exact` and `steps` present
- * together (a hundred steps numbered 1 to 100 in order) or absent together (null, null, empty). A body that
+ * together (a hundred steps numbered 1 to 100 in order; `exact` may still be null) or absent together
+ * (null, null, empty). A body that
  * fails is an error and never a partial table: an amount that was not served is never drawn.
  */
 function isSharePreview(value: unknown): value is SharePreview {
@@ -61,7 +62,8 @@ function isSharePreview(value: unknown): value is SharePreview {
   if (value.balance === null) return value.exact === null && value.steps.length === 0;
   return (
     isBalance(value.balance) &&
-    isExact(value.exact) &&
+    // `exact` is null too for a caller who holds no seat and asked no share (decision 39).
+    (value.exact === null || isExact(value.exact)) &&
     value.steps.length === STEP_COUNT &&
     value.steps.every((step, index) => isStep(step, index + 1))
   );

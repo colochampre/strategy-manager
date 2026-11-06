@@ -348,7 +348,8 @@ async def test_another_users_subscription_is_not_the_callers_default_share(
     client: AsyncClient,
     pg_session_factory: Factory,  # noqa: F811
 ) -> None:
-    """The caller holds none, so the preview shows a full share (N4)."""
+    """The caller holds none and asked none, so the preview sizes no share at all
+    (decision 39): never a full one, and never the other user's."""
     async with pg_session_factory() as session:
         other = await seed_other_user(session)
         await session.commit()
@@ -359,7 +360,10 @@ async def test_another_users_subscription_is_not_the_callers_default_share(
     response = await _preview(client, strategy_id)
 
     assert response.status_code == 200, response.text
-    assert _exact(response)["share"] == "100"
+    body = response.json()
+    assert body["exact"] is None
+    assert body["balance"] is not None
+    assert len(body["steps"]) == 100
 
 
 async def test_a_strategy_another_user_authors_is_not_previewed_for_the_caller(
@@ -397,7 +401,8 @@ async def test_an_ended_subscription_is_not_the_callers_default_share(
 
     response = await _preview(client, strategy_id)
 
-    assert _exact(response)["share"] == "100"
+    assert response.status_code == 200, response.text
+    assert response.json()["exact"] is None
 
 
 async def test_a_share_asked_for_beats_the_subscription_share(

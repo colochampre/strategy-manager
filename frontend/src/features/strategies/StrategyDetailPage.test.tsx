@@ -611,9 +611,9 @@ describe("StrategyDetailPage", () => {
       ].sort();
 
     expect(newKeys(es)).toEqual(newKeys(en));
-    // 26 share texts (with the subscription's not-active, leaving and none), "Saved", six webhook texts and
-    // the Win rate heading.
-    expect(newKeys(en)).toHaveLength(26 + 1 + 6 + 1);
+    // 27 share texts (with the subscription's not-active, leaving and none, and the start hint), "Saved", six
+    // webhook texts and the Win rate heading.
+    expect(newKeys(en)).toHaveLength(27 + 1 + 6 + 1);
     for (const key of newKeys(en)) {
       expect(i18n.exists(key, { lng: "en" })).toBe(true);
       // Without the fallback to English, so a Spanish key that was deleted is not found.

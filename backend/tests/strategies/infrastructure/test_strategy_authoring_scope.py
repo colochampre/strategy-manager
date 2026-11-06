@@ -154,6 +154,7 @@ async def _post_create(
         "venue": MARKET[1],
         "settlement_currency": MARKET[2],
         "fill_mode": "PARTIAL",
+        "allocation_percent": "100",
         "allowed_pairs": ["ETHUSDT"],
     }
     if visibility is not None:

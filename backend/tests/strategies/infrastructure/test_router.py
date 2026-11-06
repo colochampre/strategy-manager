@@ -159,6 +159,7 @@ async def _register(client: AsyncClient, **overrides: Any) -> UUID:
         "venue": "spot",
         "settlement_currency": "USDT",
         "fill_mode": "PARTIAL",
+        "allocation_percent": overrides.pop("allocation_percent", "100"),
         "allowed_pairs": overrides.pop("allowed_pairs", ["ETHUSDT"]),
     }
     body.update(overrides)
@@ -347,6 +348,7 @@ async def test_post_strategies_requires_min_one_pair_422(client: AsyncClient) ->
         "venue": "spot",
         "settlement_currency": "USDT",
         "fill_mode": "PARTIAL",
+        "allocation_percent": "100",
         "allowed_pairs": [],
     }
 
@@ -561,6 +563,7 @@ def _post_body(**overrides: Any) -> dict[str, Any]:
         "venue": "spot",
         "settlement_currency": "USDT",
         "fill_mode": "PARTIAL",
+        "allocation_percent": "100",
         "allowed_pairs": ["ETHUSDT"],
     }
     body.update(overrides)
@@ -625,6 +628,21 @@ async def test_put_keeping_a_delisted_stored_pair_200(api: AsyncClient, catalog:
 
     assert response.status_code == 200
     assert response.json()["allowed_pairs"] == ["ETHUSDT", "SOLUSDT"]
+
+
+async def test_post_without_a_share_422_names_the_share_and_no_row(api: AsyncClient) -> None:
+    """A new strategy's share is typed by hand (decision 39): leaving it out is
+    refused, never read as a full share."""
+    body = _post_body()
+    del body["allocation_percent"]
+
+    response = await api.post("/strategies", json=body, headers=ADMIN_HEADERS)
+
+    assert response.status_code == 422
+    assert [error["loc"] for error in response.json()["detail"]] == [
+        ["body", "allocation_percent"]
+    ]
+    assert await _row_count(api, body["id"]) == 0
 
 
 async def test_post_unreadable_catalogue_502_pair_catalogue_unavailable_and_no_row(
@@ -1252,6 +1270,7 @@ async def test_a_registration_with_a_leverage_out_of_range_is_refused(
         "venue": "spot",
         "settlement_currency": "USDT",
         "fill_mode": "PARTIAL",
+        "allocation_percent": "100",
         "allowed_pairs": ["ETHUSDT"],
         "leverage": leverage,
     }
@@ -1442,6 +1461,7 @@ async def test_a_description_given_at_registration_is_stored_trimmed_and_shown(
             "venue": "spot",
             "settlement_currency": "USDT",
             "fill_mode": "PARTIAL",
+            "allocation_percent": "100",
             "allowed_pairs": ["ETHUSDT"],
             "description": "  Trades the 4h close.\n\nRecommended: x3, isolated.\n",
         },
@@ -1485,6 +1505,7 @@ async def test_an_unacceptable_description_at_registration_is_a_422_and_writes_n
             "venue": "spot",
             "settlement_currency": "USDT",
             "fill_mode": "PARTIAL",
+            "allocation_percent": "100",
             "allowed_pairs": ["ETHUSDT"],
             "description": description,
         },

@@ -6,10 +6,13 @@ import { DescriptionField } from "@/features/strategies/DescriptionField";
 import { readDescription } from "@/features/strategies/description-value";
 import { IssuedWebhookUrl } from "@/features/strategies/IssuedWebhookUrl";
 import { LeverageSlider } from "@/features/strategies/LeverageSlider";
+import { ShareSlider } from "@/features/strategies/ShareSlider";
 import { PairSelector } from "@/features/strategies/PairSelector";
 import type { PairSelectorStatus } from "@/features/strategies/PairSelector";
 import { VisibilityField } from "@/features/strategies/VisibilityField";
 import { LEVERAGE_REFUSAL_TEXT, useLeverageDraft } from "@/features/strategies/useLeverageDraft";
+import { DRAFT_REFUSAL_TEXT } from "@/features/strategies/useShareDraft";
+import { useShareInput } from "@/features/strategies/useShareInput";
 import { ApiError } from "@/shared/api/client";
 import { useAvailablePairs } from "@/shared/api/pairs";
 import { useRegisterStrategy } from "@/shared/api/strategies";
@@ -18,8 +21,8 @@ import { InfoButton, InfoText, useInfoDisclosure } from "@/shared/ui/InfoDisclos
 
 const FILL_MODES: readonly FillMode[] = ["SKIP", "PARTIAL"];
 
-/** The server's default for a new strategy: it may use all the capital that is available. */
-const ALLOCATION_PERCENT = "100";
+/** The share the dialog starts from: none (decision 39). It is never sent; the author types how much to use. */
+const STARTING_SHARE = "0";
 /** The author's own seat starts at the API's default leverage. */
 const STARTING_LEVERAGE = 1;
 
@@ -90,6 +93,9 @@ export function NewStrategyDialog({ exchange, pools, onClose }: NewStrategyDialo
     leverage: useId(),
     leverageLabel: useId(),
     leverageProblem: useId(),
+    share: useId(),
+    shareLabel: useId(),
+    shareProblem: useId(),
   };
   const [strategyId] = useState(() => crypto.randomUUID());
   const [name, setName] = useState("");
@@ -103,6 +109,7 @@ export function NewStrategyDialog({ exchange, pools, onClose }: NewStrategyDialo
   const [description, setDescription] = useState("");
   const descriptionReading = readDescription(description);
   const descriptionTooLong = !descriptionReading.blank && descriptionReading.tooLong;
+  const share = useShareInput(STARTING_SHARE);
   const leverage = useLeverageDraft(STARTING_LEVERAGE);
   const leverageInfo = useInfoDisclosure();
   const register = useRegisterStrategy();
@@ -124,7 +131,7 @@ export function NewStrategyDialog({ exchange, pools, onClose }: NewStrategyDialo
   const handleSubmit = (event: FormEvent) => {
     event.preventDefault();
     // The field says why it is refused and the submit is off meanwhile; a form submitted by Enter sends nothing.
-    if (!leverage.reading.valid || descriptionTooLong) return;
+    if (!share.reading.valid || !leverage.reading.valid || descriptionTooLong) return;
     if (name.trim() === "" || pool === undefined || !FILL_MODES.includes(fillMode as FillMode)) {
       setValidation("strategies.new.incomplete");
       return;
@@ -142,7 +149,7 @@ export function NewStrategyDialog({ exchange, pools, onClose }: NewStrategyDialo
       venue: pool.venue,
       settlement_currency: pool.settlement_currency,
       fill_mode: fillMode as FillMode,
-      allocation_percent: ALLOCATION_PERCENT,
+      allocation_percent: share.reading.canonical,
       leverage: leverage.reading.value,
       visibility,
       allowed_pairs: pairs,
@@ -277,6 +284,35 @@ export function NewStrategyDialog({ exchange, pools, onClose }: NewStrategyDialo
         </div>
 
         <div className="flex flex-col gap-1">
+          <label id={ids.shareLabel} htmlFor={ids.share} className="text-xs font-semibold leading-5 text-ink-2">
+            {t("strategies.new.share")}
+          </label>
+          <ShareSlider
+            fieldId={ids.share}
+            labelId={ids.shareLabel}
+            text={share.text}
+            handle={share.handle}
+            value={share.reading.valid ? share.reading.canonical : null}
+            disabled={register.isPending}
+            invalid={!share.reading.valid && share.edited}
+            describedBy={share.reading.valid ? undefined : ids.shareProblem}
+            onText={share.changeText}
+            onHandle={share.changeStep}
+            onStop={share.changeStep}
+          />
+          {!share.reading.valid &&
+            (share.edited ? (
+              <p id={ids.shareProblem} className="text-xs text-loss">
+                {t(DRAFT_REFUSAL_TEXT[share.reading.refusal])}
+              </p>
+            ) : (
+              <p id={ids.shareProblem} className="text-xs text-ink-3">
+                {t("strategies.detail.share.startHint")}
+              </p>
+            ))}
+        </div>
+
+        <div className="flex flex-col gap-1">
           <div className="flex items-start">
             <label id={ids.leverageLabel} htmlFor={ids.leverage} className="text-xs font-semibold leading-5 text-ink-2">
               {t("strategies.leverage.label")}
@@ -339,7 +375,7 @@ export function NewStrategyDialog({ exchange, pools, onClose }: NewStrategyDialo
           </button>
           <button
             type="submit"
-            disabled={register.isPending || pools.length === 0 || pairsStatus !== "ready" || !leverage.reading.valid || descriptionTooLong}
+            disabled={register.isPending || pools.length === 0 || pairsStatus !== "ready" || !share.reading.valid || !leverage.reading.valid || descriptionTooLong}
             className="rounded-md bg-gain px-3 py-1.5 text-sm font-medium text-ground hover:opacity-90 disabled:opacity-50"
           >
             {register.isPending ? t("strategies.new.submitting") : t("strategies.new.submit")}

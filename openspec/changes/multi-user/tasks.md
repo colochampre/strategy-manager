@@ -1707,11 +1707,18 @@ The follow-up of the PNUT incident above, and decision 38. Branch `feat/subscrip
   - Both shape guards, the author's strategy and the public body, now require `description` (a string or null). The API restarts before the panel moves, so a deployed panel never reads a body without it. `description: null` was added to the strategy fixtures of 19 test files.
   - 15 of 15 mutations killed (`mutate_h8.ps1`).
   - Gate: frontend lint 0, vitest 124 files and 3,321 tests passed; no backend change.
-- [ ] H.10 Decision 39, the share is typed by hand.
+- [x] H.10 Decision 39, the share is typed by hand.
   - The new-strategy dialog gets a share field and the subscribe form starts at 0 %. Neither can be sent with 0.
   - `RegisterRequest` requires `allocation_percent`.
   - The preview with no seat and no share asked shows no sizing instead of 100 %.
   - EN/ES copy.
+  - *Built 2026-11-06.* Backend by the parent, panel by a Sonnet writer reviewed by the parent.
+  - Backend: `RegisterRequest.allocation_percent` has no default, so leaving it out answers 422 naming the field and writes no row. `PreviewShare.preview` takes `share: Decimal | None`; with `None` there is no `exact`, while the balance and the hundred steps are still served. The route hands `None` when the caller holds no live seat and asked no share. Every test registration body now carries a share.
+  - Panel: the subscribe form and the new-strategy dialog both start at "0". Untouched, the field shows a neutral hint (`strategies.detail.share.startHint`) and is not marked invalid; after any edit the usual refusal applies. Neither form sends while the share is invalid, by button or by Enter. The dialog's field (`useShareInput`, no preview: there is no strategy yet) sits before the leverage and sends the share as typed.
+  - Found by the writer: the panel's preview validator refused `exact: null` beside a balance, which would have read "The amount could not be loaded" at the untouched start. It now accepts it.
+  - RED on assertions: 422 (`assert 201 == 422`), the two no-seat preview tests (`exact` was the full share), the use case (after a stub, so it failed on the assertion, not a `TypeError`), and the panel's start states and POST body.
+  - Mutations: backend 4 of 4 killed (`mutate_h10be.ps1`), panel 13 of 13 (`mutate_h10fe.ps1`).
+  - Gate: backend ruff 0, mypy 0, pytest 0 with nothing failing; frontend lint 0, vitest 124 files and 3,328 tests passed.
 - [ ] H.9 Owner-run, before the deploy: a probe that reads `symbolConfig` for one isolated pair (the spelling of `marginType`). It also asks for a leverage above one pair's maximum while flat on it, so the venue refuses with the code H.5 classifies.
 
 **Delivery.**

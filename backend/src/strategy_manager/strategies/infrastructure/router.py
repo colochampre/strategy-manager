@@ -346,7 +346,8 @@ class RegisterRequest(BaseModel):
     venue: Venue
     settlement_currency: Currency
     fill_mode: FillMode
-    allocation_percent: Share = Decimal("100")
+    # Typed by hand, never assumed (decision 39).
+    allocation_percent: Share
     allowed_pairs: list[str] = Field(min_length=1)
     # Nothing turns public without the author's choice (decision 21).
     visibility: Visibility = Visibility.PRIVATE
@@ -418,7 +419,8 @@ class SharePreviewStepBody(BaseModel):
 
 class SharePreviewBody(BaseModel):
     """``balance``, ``exact`` and ``steps`` are null, null and empty together: a
-    pool nothing has synced has no amount, never a zero."""
+    pool nothing has synced has no amount, never a zero. ``exact`` is also null
+    when the caller holds no seat and asked no share (decision 39)."""
 
     strategy_id: UUID
     pool: SharePreviewPoolBody
@@ -815,15 +817,11 @@ async def preview_share(
     policy = strategy.policy
     pool = PoolKey(policy.exchange, policy.venue, policy.settlement_currency)
     # No ``share`` asked: the signed-in user's own subscription's share, since that
-    # is what sizes their next opening (tasks.md C.6). A user who holds none is
-    # shown a full share, the default a new subscription starts from (N4).
+    # is what sizes their next opening (tasks.md C.6). A user who holds none has no
+    # share to size, so none is assumed and ``exact`` is null (decision 39).
     previewed = share
-    if previewed is None:
-        previewed = (
-            subscription.allocation_percent.value
-            if subscription is not None
-            else Decimal("100")
-        )
+    if previewed is None and subscription is not None:
+        previewed = subscription.allocation_percent.value
     try:
         # The SIGNED-IN user's own pool on the strategy's market (C.4b): a share is
         # a part of the subscriber's pool, so another user previews against theirs,

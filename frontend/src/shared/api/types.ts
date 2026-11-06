@@ -278,7 +278,9 @@ export interface SharePreviewStep {
 /**
  * `GET /api/strategies/{id}/share-preview` (`SharePreviewBody`). `balance`,
  * `exact` and `steps` are null, null and empty together: a pool nothing has
- * synced has no amount, never a zero.
+ * synced has no amount, never a zero. `exact` is also null when the caller
+ * holds no seat and asked no share (decision 39): `balance` and the hundred
+ * `steps` are still served, and the panel draws no figure until a share is typed.
  */
 export interface SharePreview {
   strategy_id: string;

@@ -359,6 +359,7 @@
       "poolPlaceholder": "Choose a pool",
       "fillMode": "When capital is short",
       "fillModePlaceholder": "Choose a behaviour",
+      "share": "Share of your pool per trade",
       "fillModes": {
         "SKIP": "Skip the signal",
         "PARTIAL": "Open with what is available"
@@ -452,6 +453,7 @@
         "valueText": "{{value}}% of the pool",
         "stop": "Set the share to {{value}}%",
         "notNumber": "Enter a number, for example 25 or 33.5.",
+        "startHint": "Type how much of your pool this strategy may use. It starts at 0 so that it never trades with a share you did not choose.",
         "outOfRange": "The share must be above 0 and at most 100.",
         "tooManyDecimals": "A share has at most 18 decimal places.",
         "amount": "Asks for about {{amount}} {{currency}} per operation",

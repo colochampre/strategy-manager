@@ -18,8 +18,8 @@ import { exchangeName } from "@/shared/exchanges/exchange-name";
 import { InfoButton, InfoText, useInfoDisclosure } from "@/shared/ui/InfoDisclosure";
 import { StatusButton } from "@/shared/ui/StatusButton";
 
-/** The share the form starts from (N4). */
-const STARTING_SHARE = "100";
+/** The share the form starts from: none (decision 39). It is never sent; the user types how much to use. */
+const STARTING_SHARE = "0";
 /** The leverage the form starts from: the API's own default. */
 const STARTING_LEVERAGE = 1;
 const LINK = "text-sm text-gain hover:text-gain-bright";
@@ -41,7 +41,7 @@ function SubscribeForm({ strategyId }: { strategyId: string }) {
   const ids = { field: useId(), label: useId(), problem: useId() };
   const leverageIds = { field: useId(), label: useId(), problem: useId() };
   const subscribe = useSubscribe(strategyId);
-  const { text, reading, handle, amount, changeText, changeStep } = useShareDraft(strategyId, STARTING_SHARE);
+  const { text, reading, handle, amount, edited, changeText, changeStep } = useShareDraft(strategyId, STARTING_SHARE);
   const leverage = useLeverageDraft(STARTING_LEVERAGE);
   const leverageInfo = useInfoDisclosure();
   const busy = subscribe.isPending;
@@ -67,18 +67,23 @@ function SubscribeForm({ strategyId }: { strategyId: string }) {
         handle={handle}
         value={reading.valid ? reading.canonical : null}
         disabled={busy}
-        invalid={!reading.valid}
+        invalid={!reading.valid && edited}
         describedBy={reading.valid ? undefined : ids.problem}
         onText={changeText}
         onHandle={changeStep}
         onStop={changeStep}
       />
       <ShareAmount view={amount} />
-      {!reading.valid && (
-        <p id={ids.problem} className="text-xs text-loss">
-          {t(DRAFT_REFUSAL_TEXT[reading.refusal])}
-        </p>
-      )}
+      {!reading.valid &&
+        (edited ? (
+          <p id={ids.problem} className="text-xs text-loss">
+            {t(DRAFT_REFUSAL_TEXT[reading.refusal])}
+          </p>
+        ) : (
+          <p id={ids.problem} className="text-xs text-ink-3">
+            {t("strategies.detail.share.startHint")}
+          </p>
+        ))}
       <div className="flex items-start">
         <label id={leverageIds.label} htmlFor={leverageIds.field} className="text-sm leading-5 text-ink-2">
           {t("strategies.leverage.label")}
