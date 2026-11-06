@@ -44,7 +44,6 @@ from probe_credentials import add_user_email_argument, announce, vault_credentia
 
 from strategy_manager.execution.infrastructure.binance_futures_exchange import (
     _is_definitive_rejection,
-    _is_isolated,
 )
 from strategy_manager.shared.config import get_settings
 from strategy_manager.shared.infrastructure.binance import EXCHANGE as BINANCE_EXCHANGE
@@ -85,6 +84,12 @@ def bracket_max(payload: object, symbol: str) -> int:
             f"{LEVERAGE_BRACKET_PATH} has a bracket of {symbol} with no whole initialLeverage"
         )
     return max(x for x in leverages if isinstance(x, int))
+
+
+def _is_isolated(margin_type: str) -> bool:
+    """The adapter's own comparison, copied rather than imported: this probe
+    runs before H.5 is deployed, on a checkout that does not have it yet."""
+    return margin_type.upper() == "ISOLATED"
 
 
 def spelling_verdict(margin_type: str) -> str:
