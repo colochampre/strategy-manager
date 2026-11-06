@@ -11,7 +11,15 @@ import {
   useExchangeScope,
   useExchangeStore,
 } from "@/shared/scope/exchange-store";
-import { pool, resetExchangeScope, stubApi } from "@/test/harness";
+import {
+  type ExtraRoute,
+  heldSubscription,
+  jsonResponse,
+  pool,
+  resetExchangeScope,
+  storedKey,
+  stubApi,
+} from "@/test/harness";
 
 const HEALTH = { kind: "ok", body: { status: "ok", dry_run: true } } as const;
 
@@ -112,6 +120,77 @@ describe("options", () => {
       await waitFor(() => expect(result.current.status).toBe("error"));
       unmount();
     }
+  });
+});
+
+describe("tabs only where something runs", () => {
+  const BOTH = [pool("bybit"), pool("binance")];
+
+  function route(strategies: unknown, held: unknown): ExtraRoute {
+    return (url) => {
+      if (url.includes("/strategies")) return strategies === PENDING ? new Promise<Response>(() => undefined) : answer(strategies);
+      if (url.endsWith("/subscriptions/held")) return held === PENDING ? new Promise<Response>(() => undefined) : answer(held);
+      return undefined;
+    };
+  }
+  const PENDING = Symbol("pending");
+  function answer(body: unknown) {
+    return Promise.resolve(body === FAILS ? jsonResponse({ detail: "boom" }, 500) : jsonResponse(body));
+  }
+  const FAILS = Symbol("fails");
+
+  async function scopeWith(strategies: unknown, held: unknown, credentials: unknown[]) {
+    stubApi(HEALTH, [], { kind: "ok", body: BOTH }, {}, route(strategies, held), {}, { kind: "ok", body: credentials });
+    const hook = renderHook(() => useExchangeScope(), { wrapper: wrapper() });
+    await waitFor(() => expect(hook.result.current.status).toBe("ready"));
+    return hook;
+  }
+
+  function optionsOf(result: { current: ReturnType<typeof useExchangeScope> }) {
+    const scope = result.current;
+    if (scope.status !== "ready") throw new Error("scope not ready");
+    return scope;
+  }
+
+  it("drops the exchange that only has a pool once every source has answered", async () => {
+    const { result } = await scopeWith([], [], [storedKey("binance")]);
+
+    await waitFor(() => expect(optionsOf(result).options).toEqual(["binance"]));
+    expect(optionsOf(result).exchange).toBe("binance");
+  });
+
+  it("shows an exchange that only an active subscription runs on", async () => {
+    const { result } = await scopeWith([], [heldSubscription({ exchange: "bybit" })], []);
+
+    await waitFor(() => expect(optionsOf(result).options).toEqual(["bybit"]));
+  });
+
+  it("keeps the pool exchanges while a source is still loading", async () => {
+    const { result } = await scopeWith([], PENDING, [storedKey("binance")]);
+
+    await waitFor(() => expect(optionsOf(result).options).toEqual(["bybit", "binance"]));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    expect(optionsOf(result).options).toEqual(["bybit", "binance"]);
+  });
+
+  it("keeps the pool exchanges when a source failed", async () => {
+    const { result } = await scopeWith(FAILS, [], [storedKey("binance")]);
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    expect(optionsOf(result).options).toEqual(["bybit", "binance"]);
+  });
+
+  it("resolves a stored selection that no longer runs to the first tab left", async () => {
+    window.localStorage.setItem("sm.exchange", JSON.stringify({ state: { selected: "bybit" }, version: 0 }));
+    await useExchangeStore.persist.rehydrate();
+
+    const { result } = await scopeWith([], [], [storedKey("binance")]);
+
+    await waitFor(() => expect(optionsOf(result).exchange).toBe("binance"));
   });
 });
 

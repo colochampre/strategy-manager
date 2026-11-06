@@ -1,9 +1,15 @@
+import { useQuery } from "@tanstack/react-query";
 import { matchPath } from "react-router";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
+import { useCredentials } from "@/shared/api/credentials";
+import { fetchOpenPositions, OPEN_POSITIONS_KEY } from "@/shared/api/positions";
 import { usePools } from "@/shared/api/pools";
+import { useStrategies } from "@/shared/api/strategies";
+import { useHeldSubscriptions } from "@/shared/api/subscriptions";
 import { createSafeStorage } from "@/shared/auth/safe-storage";
+import { distinctExchanges, runningExchanges } from "@/shared/scope/running-exchanges";
 
 /**
  * The exchange the operator last picked, persisted through `safe-storage` so a
@@ -32,10 +38,7 @@ export const useExchangeStore = create<ExchangeState>()(
   ),
 );
 
-/** The distinct exchanges of a pool list, in first-seen order. */
-export function distinctExchanges(pools: readonly { exchange: string }[]): string[] {
-  return [...new Set(pools.map((pool) => pool.exchange))];
-}
+export { distinctExchanges };
 
 /**
  * The exchange to show: the stored choice while it is still an option,
@@ -71,14 +74,35 @@ export type ExchangeScope =
   | { status: "error" }
   | { status: "ready"; options: string[]; exchange: string | null; select: (exchange: string) => void };
 
+const OPEN_POSITIONS_REFRESH_MS = 60_000;
+
 export function useExchangeScope(): ExchangeScope {
   const pools = usePools();
+  const credentials = useCredentials();
+  // The same query as `useOpenPositions`, but held back until there is a pool to scope: a page with no
+  // exchange asks the server for nothing about positions.
+  const positions = useQuery({
+    queryKey: OPEN_POSITIONS_KEY,
+    queryFn: fetchOpenPositions,
+    staleTime: OPEN_POSITIONS_REFRESH_MS,
+    refetchInterval: OPEN_POSITIONS_REFRESH_MS,
+    enabled: pools.status === "success" && pools.data.length > 0,
+  });
+  const strategies = useStrategies(false);
+  const subscriptions = useHeldSubscriptions();
   const selected = useExchangeStore((state) => state.selected);
   const select = useExchangeStore((state) => state.select);
 
   if (pools.status === "pending") return { status: "loading" };
   if (pools.status === "error") return { status: "error" };
 
-  const options = distinctExchanges(pools.data);
+  // Only a source that succeeded has answered; a loading or failed one keeps every pool exchange.
+  const options = runningExchanges({
+    pools: pools.data,
+    credentials: credentials.status === "success" ? credentials.data : undefined,
+    positions: positions.status === "success" ? positions.data : undefined,
+    strategies: strategies.status === "success" ? strategies.data : undefined,
+    subscriptions: subscriptions.status === "success" ? subscriptions.data : undefined,
+  });
   return { status: "ready", options, exchange: resolveExchange(options, selected), select };
 }

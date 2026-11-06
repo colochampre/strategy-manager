@@ -32,6 +32,13 @@ const TWO_EXCHANGES = {
 } as const;
 const STRATEGY_ID = "5b0c7a52-6f43-4d6e-9c1c-0c2f3f3f2a11";
 
+/** The two lists the tabs' rule reads besides the keys and the positions: nothing enabled, nothing held. */
+const NOTHING_RUNNING: ExtraRoute = (url) => {
+  if (url.includes("/api/strategies")) return Promise.resolve(jsonResponse([]));
+  if (url.endsWith("/subscriptions/held")) return Promise.resolve(jsonResponse([]));
+  return undefined;
+};
+
 function poolCalls(fetchMock: ReturnType<typeof stubApi>) {
   return fetchMock.mock.calls.filter(([url]) => String(url).endsWith("/pools"));
 }
@@ -56,6 +63,30 @@ describe("for a signed-in user who is not the admin", () => {
 
     const bar = await screen.findByRole("navigation", { name: "Exchanges" });
     expect((await within(bar).findAllByRole("button")).map(drawnName)).toEqual(["Bybit", "Binance"]);
+  });
+});
+
+describe("tabs only where something runs (owner decision 37)", () => {
+  it("draws a tab for the exchange with a key and none for the one that only has pools", async () => {
+    stubApi(HEALTH, [], TWO_EXCHANGES, {}, NOTHING_RUNNING, {}, { kind: "ok", body: [storedKey("binance")] });
+    renderAt(<ExchangeTabs />);
+
+    const bar = await screen.findByRole("navigation", { name: "Exchanges" });
+    await waitFor(() => expect(within(bar).getAllByRole("button").map(drawnName)).toEqual(["Binance"]));
+  });
+
+  it("keeps both tabs while the held subscriptions have not answered", async () => {
+    const holding: ExtraRoute = (url) =>
+      url.endsWith("/subscriptions/held") ? new Promise<Response>(() => undefined) : NOTHING_RUNNING(url);
+    stubApi(HEALTH, [], TWO_EXCHANGES, {}, holding, {}, { kind: "ok", body: [storedKey("binance")] });
+    renderAt(<ExchangeTabs />);
+
+    const bar = await screen.findByRole("navigation", { name: "Exchanges" });
+    await waitFor(() => expect(within(bar).getAllByRole("button").map(drawnName)).toEqual(["Bybit", "Binance"]));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    expect(within(bar).getAllByRole("button").map(drawnName)).toEqual(["Bybit", "Binance"]);
   });
 });
 
@@ -141,12 +172,12 @@ describe("selection", () => {
   });
 
   it("keeps the selection when moving between scoped routes", async () => {
-    stubApi(HEALTH, [], TWO_EXCHANGES);
+    stubApi(HEALTH, [], TWO_EXCHANGES, {}, NOTHING_RUNNING);
     renderAt(<AppRoutes />, "/");
     fireEvent.click((await screen.findAllByRole("button", { name: "Binance" }))[0] as HTMLElement);
 
     fireEvent.click(screen.getAllByRole("link", { name: "Strategies" })[0] as HTMLElement);
-    fireEvent.click(await screen.findByRole("link", { name: "Authored" }));
+    fireEvent.click(await screen.findByRole("link", { name: "My strategies" }));
 
     expect(await screen.findAllByRole("button", { name: "Binance", pressed: true })).toHaveLength(2);
   });
@@ -531,7 +562,7 @@ describe("the tab and the card take the pools by one rule (task 13.5.0)", () => 
 
 describe("the tabs read the credentials", () => {
   it("test_a_shell_render_asks_for_credentials_and_is_answered", async () => {
-    const fetchMock = stubApi(HEALTH, [], TWO_EXCHANGES);
+    const fetchMock = stubApi(HEALTH, [], TWO_EXCHANGES, {}, NOTHING_RUNNING);
     renderAt(<AppRoutes />, "/");
 
     await screen.findAllByRole("button", { name: "Bybit" });
