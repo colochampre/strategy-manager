@@ -1719,10 +1719,13 @@ The follow-up of the PNUT incident above, and decision 38. Branch `feat/subscrip
   - RED on assertions: 422 (`assert 201 == 422`), the two no-seat preview tests (`exact` was the full share), the use case (after a stub, so it failed on the assertion, not a `TypeError`), and the panel's start states and POST body.
   - Mutations: backend 4 of 4 killed (`mutate_h10be.ps1`), panel 13 of 13 (`mutate_h10fe.ps1`).
   - Gate: backend ruff 0, mypy 0, pytest 0 with nothing failing; frontend lint 0, vitest 124 files and 3,328 tests passed.
-- [ ] H.9 Owner-run, before the deploy: a probe that reads `symbolConfig` for one isolated pair (the spelling of `marginType`). It also asks for a leverage above one pair's maximum while flat on it, so the venue refuses with the code H.5 classifies.
+- [x] H.9 Owner-run, before the deploy: a probe that reads `symbolConfig` for one isolated pair (the spelling of `marginType`). It also asks for a leverage above one pair's maximum while flat on it, so the venue refuses with the code H.5 classifies.
   - *Probe written 2026-11-06:* `backend/scripts/check_binance_leverage.py --user-email <e-mail> --symbol <PAIR> [--confirm]`. The preview reads `symbolConfig`, `leverageBracket` and the position, and sends nothing. `--confirm` sends one `POST /fapi/v1/leverage` at the pair's maximum plus one, only on a flat pair, prints the code and what `_is_definitive_rejection` makes of it, and reads the settings back. If Binance ever accepted it, the original leverage is written back and the run fails.
   - `bracket_max` and `spelling_verdict` are tested in `tests/scripts/test_check_binance_leverage.py`; 6 of 6 mutations killed (`mutate_h9.ps1`).
-  - Still owed: the owner's run and its two answers, recorded here.
+  - *Run by the owner on the VPS 2026-11-06*, on AAVEUSDT (isolated, 2x, flat, maximum 75x), piped over ssh onto the deployed checkout (`5a7a9a3` let it run without H.5's `_is_isolated`):
+    - `symbolConfig` answers a list and spells `"marginType": "ISOLATED"`, upper case, as `_is_isolated` expects.
+    - Asking 76x answered HTTP 400, `code=-4028`, "Leverage 76 is not valid". `_is_definitive_rejection` reads it as a refusal, so an over-maximum leverage ends the opening as LEVERAGE_NOT_APPLIED and is never retried.
+    - Read back: still ISOLATED at 2x; nothing changed.
 
 **Delivery.**
 - [ ] H.D.1 Gate (backend and frontend), and an independent verifier over the whole PR. It names items 1 (`0037`), 3 (the subscribe and strategy contracts) and the venue writes of a live opening.

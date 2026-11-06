@@ -370,8 +370,9 @@ def _venue_symbol(symbol: str) -> str:
 
 
 def _is_isolated(margin_type: str) -> bool:
-    """How ``symbolConfig`` spells an isolated pair is not documented, so the
-    comparison ignores case until a live read settles it (H.9)."""
+    """``symbolConfig`` spells an isolated pair ``ISOLATED``, upper case (read
+    live on AAVEUSDT, 2026-11-06, H.9). Ignoring case is kept as harmless
+    tolerance; it was written before that read."""
     return margin_type.upper() == "ISOLATED"
 
 
