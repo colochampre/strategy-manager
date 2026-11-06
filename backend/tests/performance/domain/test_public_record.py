@@ -80,7 +80,7 @@ class TestATradesReturn:
 
         trades = closed_trades(round_trip("BUY", "200", "220", closed_at=closed_at))
 
-        assert trades == (RecordTrade(closed_at=closed_at, value=Decimal("0.1")),)
+        assert trades == (RecordTrade(opened_at=START, closed_at=closed_at, value=Decimal("0.1")),)
 
     def test_a_short_returns_one_minus_what_it_bought_back_over_what_it_sold(self) -> None:
         trades = closed_trades(round_trip("SELL", "200", "220"))
@@ -168,6 +168,23 @@ class TestAddingUp:
         assert record.closed_trade_count == 3
         # (1 + 0.1 + 0.05) * (1 + 0.1) - 1
         assert record.total_return == Decimal("0.265")
+
+    def test_a_trade_opened_after_another_closed_that_day_compounds_on_it(self) -> None:
+        """Decision 40: the second opened an hour after the first closed."""
+        record = build_public_record(
+            [
+                *round_trip("BUY", "200", "220", closed_at=START + timedelta(hours=1)),
+                *round_trip(
+                    "BUY",
+                    "200",
+                    "210",
+                    opened_at=START + timedelta(hours=2),
+                    closed_at=START + timedelta(hours=3),
+                ),
+            ]
+        )
+
+        assert record.total_return == Decimal("1.1") * Decimal("1.05") - 1
 
     def test_trades_are_listed_oldest_close_first(self) -> None:
         late = round_trip("BUY", "200", "220", closed_at=START + timedelta(hours=5))

@@ -6,12 +6,13 @@ Everything is per ONE pool, in that pool's native settlement currency, in pure
 (CLAUDE.md rule 7): ``build_pool_performance`` refuses a trade from any other
 pool instead of blending it in.
 
-**The formula (confirmed by the owner, decision 17).** Each trade returns
-``r_i = pnl_i / pool_total_at_open_i``. Returns of trades that close on the
-same UTC day are SUMMED into that day's ``R_d``; days are COMPOUNDED,
-``E_d = E_(d-1) * (1 + R_d)``, from ``E_0 = 1``. Summing inside a day is what
-keeps two trades that were sized against the same capital from compounding on
-each other's gain (decision 12: +20 and +10 on 1,000 is 1.03, not 1.0302).
+**The formula (confirmed by the owner, decisions 17 and 40).** Each trade
+returns ``r_i = pnl_i / pool_total_at_open_i``. Returns of trades that close on
+the same UTC day make that day's ``R_d``: trades that overlap in time are
+SUMMED, because they were sized against the same capital (decision 12: +20 and
++10 on 1,000 is 1.03, not 1.0302), and a trade opened after the others closed
+COMPOUNDS on them, because its capital already held their result (decision 40).
+Days are COMPOUNDED, ``E_d = E_(d-1) * (1 + R_d)``, from ``E_0 = 1``.
 
 **Days and months are UTC** (decision 16), taken in this file with
 ``closed_at.astimezone(UTC).date()``. A database session time zone is never
@@ -43,7 +44,7 @@ _ONE = Decimal(1)
 
 @dataclass(frozen=True, slots=True)
 class DailyReturn:
-    """``R_d``: the summed return of every trade that closed on one UTC day."""
+    """``R_d``: the combined return of every trade that closed on one UTC day."""
 
     day: date
     value: Decimal
@@ -165,22 +166,58 @@ def trade_return(trade: ClosedTrade) -> Decimal | None:
     return trade.pnl / capital
 
 
-def sum_by_day(returns: Iterable[tuple[datetime, Decimal]]) -> tuple[DailyReturn, ...]:
-    """``R_d``: each ``(closed_at, return)`` summed into its UTC day, oldest
-    day first."""
-    by_day: dict[date, Decimal] = {}
-    for closed_at, value in returns:
-        day = _utc(closed_at).date()
-        by_day[day] = by_day.get(day, _ZERO) + value
-    return tuple(DailyReturn(day, value) for day, value in sorted(by_day.items()))
+def _groups(
+    returns: Sequence[tuple[datetime, datetime, Decimal]],
+) -> list[list[Decimal]]:
+    """One day's returns grouped by overlap in time, groups in time order.
+
+    Sorted by ``opened_at``, a trade joins the current group when it opened
+    before the group's last close, and starts the next group otherwise
+    (opening at the very moment of a close included)."""
+    groups: list[list[Decimal]] = []
+    group_end: datetime | None = None
+    for opened_at, closed_at, value in sorted(returns, key=lambda entry: _utc(entry[0])):
+        if group_end is not None and _utc(opened_at) < group_end:
+            groups[-1].append(value)
+            group_end = max(group_end, _utc(closed_at))
+        else:
+            groups.append([value])
+            group_end = _utc(closed_at)
+    return groups
+
+
+def _day_return(groups: Sequence[Sequence[Decimal]]) -> Decimal:
+    """A group's returns are summed; groups compound, each factor floored at 0
+    so two wipe-outs never multiply into a gain (decisions 31 and 40). A day of
+    one group keeps its plain sum, which ``compound`` floors."""
+    if len(groups) == 1:
+        return sum(groups[0], _ZERO)
+    index = _ONE
+    for group in groups:
+        index *= max(_ONE + sum(group, _ZERO), _ZERO)
+    return index - _ONE
+
+
+def combine_by_day(
+    returns: Iterable[tuple[datetime, datetime, Decimal]],
+) -> tuple[DailyReturn, ...]:
+    """``R_d``: each ``(opened_at, closed_at, return)`` combined into the UTC
+    day of its close, oldest day first. Inside a day, trades that overlap in
+    time are summed and trades that follow each other compound (decision 40)."""
+    by_day: dict[date, list[tuple[datetime, datetime, Decimal]]] = {}
+    for opened_at, closed_at, value in returns:
+        by_day.setdefault(_utc(closed_at).date(), []).append((opened_at, closed_at, value))
+    return tuple(
+        DailyReturn(day, _day_return(_groups(entries))) for day, entries in sorted(by_day.items())
+    )
 
 
 def daily_returns(trades: Sequence[ClosedTrade]) -> tuple[DailyReturn, ...]:
-    """``R_d``: trades with a return, summed per UTC day of ``closed_at``,
-    oldest day first. Trades without capital at open are skipped here (and
-    counted by ``build_pool_performance``)."""
-    return sum_by_day(
-        (trade.closed_at, value)
+    """``R_d``: trades with a return, combined per UTC day of ``closed_at``
+    by ``combine_by_day``, oldest day first. Trades without capital at open are
+    skipped here (and counted by ``build_pool_performance``)."""
+    return combine_by_day(
+        (trade.opened_at, trade.closed_at, value)
         for trade in trades
         if (value := trade_return(trade)) is not None
     )

@@ -22,8 +22,9 @@ the caller passes one strategy's trades from one pool):
 - ``trade_count`` and ``pnl`` count every closed trade of the pair, including
   those with no capital at open (their amount is real).
 - ``value`` is the pair's contribution to the pool: each trade returns
-  ``pnl / pool_total_at_open``, summed within a UTC day and compounded across
-  days, the same algorithm as the pool's curve. It is ``None`` when no trade of
+  ``pnl / pool_total_at_open``, combined within a UTC day (overlapping trades
+  summed, later ones compounded, decision 40) and compounded across days, the
+  same algorithm as the pool's curve. It is ``None`` when no trade of
   the pair has a return, never a fabricated zero.
 - ``win_count`` is the number of trades whose ``pnl`` is above zero and
   ``win_rate`` is ``win_count / trade_count`` (design.md, unit 12f addendum,
