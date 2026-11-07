@@ -57,6 +57,7 @@ afterEach(async () => {
 describe("the visibility of a strategy, on its page", () => {
   it.each([
     ["PRIVATE", "Private"],
+    ["LINK", "With link"],
     ["PUBLIC", "Public"],
   ])("shows the stored visibility %s as %s", async (stored, shown) => {
     setup({ visibility: stored });
@@ -65,17 +66,17 @@ describe("the visibility of a strategy, on its page", () => {
 
     expect(select.value).toBe(stored);
     expect(within(select).getByRole("option", { name: shown })).toHaveProperty("selected", true);
-    expect(within(select).getAllByRole("option")).toHaveLength(2);
+    expect(within(select).getAllByRole("option")).toHaveLength(3);
     expect(select).toBeEnabled();
   });
 
-  it("says what private means, in the settings of the strategy", async () => {
+  it("says what each visibility means, in the settings of the strategy", async () => {
     setup({ visibility: "PRIVATE" });
 
     const select = await field();
 
     expect(select.closest("aside")).not.toBeNull();
-    expect(screen.getByText("Other users cannot subscribe to a private strategy. Subscribers it already has keep it.")).toBeInTheDocument();
+    expect(screen.getByText("Public: listed on Explore. With link: only who has the link sees it and may subscribe. Private: only who holds an invitation code. Subscribers it already has keep it.")).toBeInTheDocument();
   });
 
   it("sends only the visibility when it is changed, and shows the one the server stored", async () => {
@@ -99,7 +100,7 @@ describe("the visibility of a strategy, on its page", () => {
     [
       "an author with no name (409)",
       jsonResponse({ detail: { error: "AUTHOR_HAS_NO_DISPLAY_NAME", message: "no name" } }, 409),
-      "Choose your name in Settings first: a public strategy shows its author.",
+      "Choose your name in Settings first: a strategy offered to others shows its author.",
     ],
     ["a strategy that is gone (404)", jsonResponse({ detail: "Not Found" }, 404), "This strategy no longer exists."],
     ["a server error", jsonResponse({ detail: "boom" }, 500), "The visibility was not saved. Try again."],
@@ -136,7 +137,7 @@ describe("the visibility of a strategy, on its page", () => {
     fireEvent.change(select, { target: { value: "PUBLIC" } });
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Primero elija su nombre en Configuración: una estrategia pública muestra a su autor.",
+      "Primero elija su nombre en Configuración: una estrategia ofrecida a otros muestra a su autor.",
     );
   });
 
@@ -149,7 +150,7 @@ describe("the visibility of a strategy, on its page", () => {
     expect(within(select).getByRole("option", { name: "Privada" })).toBeInTheDocument();
     expect(within(select).getByRole("option", { name: "Pública" })).toBeInTheDocument();
     expect(
-      screen.getByText("Otros usuarios no pueden suscribirse a una estrategia privada. Los suscriptores que ya tiene la conservan."),
+      screen.getByText("Pública: aparece en Explorar. Con enlace: solo quien tiene el enlace la ve y puede suscribirse. Privada: solo quien tiene un código de invitación. Los suscriptores que ya tiene la conservan."),
     ).toBeInTheDocument();
   });
 });

@@ -12,6 +12,7 @@ import { SeatSettings } from "@/features/strategies/SeatSettings";
 import { StrategyDescriptionEditor } from "@/features/strategies/StrategyDescriptionEditor";
 import { BackToStrategies, StrategyHeader } from "@/features/strategies/StrategyHeader";
 import { StrategyPerformance } from "@/features/strategies/StrategyPerformance";
+import { StrategySharing } from "@/features/strategies/StrategySharing";
 import { TradesTable } from "@/features/strategies/TradesTable";
 import { VisibilityControl } from "@/features/strategies/VisibilityControl";
 import { ApiError } from "@/shared/api/client";
@@ -82,9 +83,11 @@ export function StrategyDetailPage() {
             <h2 className="font-display text-base font-semibold text-ink">{t("strategies.detail.settings")}</h2>
             <VisibilityControl strategy={subject} />
           </div>
-          {/* One key for the three: each starts over for another strategy, and sibling keys stay unique. */}
+          {/* One key for these: each starts over for another strategy (a code shown once included), and sibling
+              keys stay unique. */}
           <Fragment key={subject.id}>
             <SeatSettings strategy={subject} />
+            <StrategySharing strategy={subject} />
             <StrategyDescriptionEditor strategy={subject} />
           </Fragment>
           <AllowedPairsEditor strategy={subject} />

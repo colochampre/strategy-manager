@@ -349,11 +349,39 @@
       "label": "Visibility",
       "options": {
         "PRIVATE": "Private",
+        "LINK": "With link",
         "PUBLIC": "Public"
       },
-      "hint": "Other users cannot subscribe to a private strategy. Subscribers it already has keep it.",
+      "hint": "Public: listed on Explore. With link: only who has the link sees it and may subscribe. Private: only who holds an invitation code. Subscribers it already has keep it.",
       "saveFailed": "The visibility was not saved. Try again.",
-      "needsName": "Choose your name in Settings first: a public strategy shows its author."
+      "needsName": "Choose your name in Settings first: a strategy offered to others shows its author."
+    },
+    "sharing": {
+      "linkTitle": "Link to this strategy",
+      "linkHint": "Whoever opens this link sees the strategy and may subscribe. Changing the visibility stops this link; choosing With link again makes a new one.",
+      "copyLink": "Copy link",
+      "codesTitle": "Invitation codes",
+      "codesHint": "Each code lets one person subscribe, once, within 7 days of its creation.",
+      "create": "Create code",
+      "issuedTitle": "New code",
+      "issuedWarning": "It is shown only once: copy it now and send it to the person you invite.",
+      "copyCode": "Copy code",
+      "done": "Done",
+      "expires": "Expires {{when}} UTC",
+      "listLabel": "Unused codes",
+      "none": "No unused codes.",
+      "loadFailed": "The codes could not be loaded.",
+      "revoke": "Revoke the code ending in {{hint}}",
+      "createRefused": {
+        "notPrivate": "The strategy is no longer private, so no code was created.",
+        "archived": "This strategy is archived and can no longer change.",
+        "gone": "This strategy no longer exists.",
+        "failed": "The code was not created. Try again."
+      },
+      "revokeRefused": {
+        "notLive": "That code was already used, expired or revoked.",
+        "failed": "The code was not revoked. Try again."
+      }
     },
     "leverage": {
       "label": "Leverage",

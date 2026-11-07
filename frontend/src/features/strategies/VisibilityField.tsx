@@ -1,10 +1,13 @@
-import { Globe, Lock } from "lucide-react";
+import { Globe, Link, Lock } from "lucide-react";
 import { useId } from "react";
 import { useTranslation } from "react-i18next";
 
 import type { Visibility } from "@/shared/api/types";
 
-const VISIBILITIES: readonly Visibility[] = ["PRIVATE", "PUBLIC"];
+/** From the most closed to the most open, so the default comes first. */
+const VISIBILITIES: readonly Visibility[] = ["PRIVATE", "LINK", "PUBLIC"];
+
+const ICONS = { PRIVATE: Lock, LINK: Link, PUBLIC: Globe } as const;
 
 interface VisibilityFieldProps {
   value: Visibility;
@@ -19,8 +22,8 @@ interface VisibilityFieldProps {
 }
 
 /**
- * Who may subscribe to a strategy: its select, with the current value's icon (a lock for private, a globe
- * for public) and the hint. Shared by the create dialog and the strategy page, so the two say the same thing
+ * Who may subscribe to a strategy: its select, with the current value's icon (a lock for private, a link
+ * for a strategy shared by its link, a globe for public) and the hint. Shared by the create dialog and the strategy page, so the two say the same thing
  * in the same words. Private comes first because it is the default (decision 21). A native option cannot
  * draw an icon, so the icon is the selected value's, drawn over the select's left edge.
  */
@@ -34,7 +37,7 @@ export function VisibilityField({
   const { t } = useTranslation();
   const selectId = useId();
   const hintId = useId();
-  const Icon = value === "PUBLIC" ? Globe : Lock;
+  const Icon = ICONS[value];
   const hint = t("strategies.visibility.hint");
   return (
     <div className="flex flex-col gap-1">
