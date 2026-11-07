@@ -567,3 +567,107 @@ async def test_a_link_or_code_longer_than_any_is_refused_unread(world: World, fi
     assert [read.status_code, subscribed.status_code] == [422, 422]
     assert long not in read.text and long not in subscribed.text
     assert await _failures(world, world.reader) == 0
+
+
+# --- finding a strategy by its code alone (tasks.md K.6) ----------------------------
+
+LOOKUP = "/api/public/invite-codes/lookup"
+
+
+async def _lookup(world: World, code: str) -> Response:
+    return await world.api.post(LOOKUP, json={"code": code}, headers=OTHER_HEADERS)
+
+
+@pytest.mark.parametrize("visibility", ["PRIVATE", "LINK"])
+async def test_a_live_code_alone_names_its_strategy_and_spends_nothing(
+    world: World, visibility: str
+) -> None:
+    """Explore's "I have a code" has no strategy id: the code names the strategy whose
+    page it then opens. Typed loosely, as a reader may."""
+    strategy_id = await _strategy(world, visibility, TOKEN if visibility == "LINK" else None)
+    await _strategy(world, "PRIVATE")
+    code_id = await _code(world, strategy_id)
+
+    response = await _lookup(world, TYPED)
+
+    assert (response.status_code, response.json()) == (200, {"strategy_id": str(strategy_id)})
+    assert await _code_row(world, code_id) == (None, None, None, None)
+    assert await _failures(world, world.reader) == 0
+
+
+@pytest.mark.parametrize("typed", [UNKNOWN_CODE, "not a code"])
+async def test_a_code_that_names_no_strategy_answers_404_and_counts(
+    world: World, typed: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    strategy_id = await _strategy(world, "PRIVATE")
+    await _code(world, strategy_id)
+
+    with caplog.at_level(logging.INFO, logger=LOGGER):
+        response = await _lookup(world, typed)
+
+    assert response.status_code == 404, response.text
+    assert response.json() == {"detail": "no strategy opens to that code"}
+    assert await _failures(world, world.reader) == 1
+    said = [each for each in caplog.records if each.name == LOGGER]
+    assert [each.levelno for each in said] == [logging.WARNING]
+    line = said[0].getMessage()
+    assert str(world.reader) in line
+    assert "K7QM" not in line and "B4TN" not in line and str(strategy_id) not in line
+
+
+@pytest.mark.parametrize("reason", ["EXPIRED", "REVOKED", "SPENT"])
+async def test_a_dead_code_alone_says_why_naming_nobody_and_counts(
+    world: World, reason: str
+) -> None:
+    strategy_id = await _strategy(world, "PRIVATE")
+    code_id = await _code(
+        world,
+        strategy_id,
+        age=timedelta(days=8) if reason == "EXPIRED" else timedelta(0),
+        revoked=reason == "REVOKED",
+    )
+    if reason == "SPENT":
+        await _spend_as_the_author(world, code_id, strategy_id)
+
+    response = await _lookup(world, CODE)
+
+    assert response.status_code == 410, response.text
+    detail = response.json()["detail"]
+    assert (detail["error"], detail["reason"]) == ("INVITE_CODE_NOT_LIVE", reason)
+    assert str(strategy_id) not in response.text and str(world.author) not in response.text
+    assert await _failures(world, world.reader) == 1
+
+
+async def test_a_lookup_past_the_limit_is_refused_unread(world: World) -> None:
+    strategy_id = await _strategy(world, "PRIVATE")
+    code_id = await _code(world, strategy_id)
+    await _fail_earlier(world, world.reader, MAX_FAILED_ATTEMPTS, timedelta(minutes=30))
+
+    response = await _lookup(world, CODE)
+
+    assert response.status_code == 429
+    assert response.json()["detail"]["error"] == "TOO_MANY_CODE_ATTEMPTS"
+    assert str(strategy_id) not in response.text
+    assert await _failures(world, world.reader) == MAX_FAILED_ATTEMPTS
+    assert await _code_row(world, code_id) == (None, None, None, None)
+
+
+async def test_lookup_failures_and_page_failures_share_one_limit(world: World) -> None:
+    strategy_id = await _strategy(world, "PRIVATE")
+    await _code(world, strategy_id)
+    await _fail_earlier(world, world.reader, MAX_FAILED_ATTEMPTS - 1, timedelta(minutes=30))
+
+    last = await _lookup(world, UNKNOWN_CODE)
+    page = await _read(world, PAGE, strategy_id, code=CODE)
+
+    assert [last.status_code, page.status_code] == [404, 429]
+
+
+async def test_a_lookup_code_longer_than_any_is_refused_unread(world: World) -> None:
+    long = "A" * 33
+
+    response = await _lookup(world, long)
+
+    assert response.status_code == 422
+    assert long not in response.text
+    assert await _failures(world, world.reader) == 0

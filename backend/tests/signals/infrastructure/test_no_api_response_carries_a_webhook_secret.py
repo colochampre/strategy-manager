@@ -106,6 +106,9 @@ class _SweepPairCatalog:
         return frozenset({"STXUSDT", "ETHUSDT", "SOLUSDT"})
 
 
+#: A live invitation code of the sweep's strategy, as its author was shown it.
+SWEEP_CODE = "QZRT-SWPC"
+
 _BODIES: dict[tuple[str, str], dict[str, Any]] = {
     ("PUT", "/api/strategies/{strategy_id}/allowed-pairs"): {"pairs": ["ETHUSDT", "SOLUSDT"]},
     ("PATCH", "/api/strategies/{strategy_id}"): {"name": "renamed", "enabled": False},
@@ -117,6 +120,8 @@ _BODIES: dict[tuple[str, str], dict[str, Any]] = {
     ("PATCH", "/api/subscriptions/{subscription_id}"): {"allocation_percent": "40"},
     ("POST", "/api/me/mode"): {"mode": "SIMULATION"},
     ("PUT", "/api/me/display-name"): {"display_name": "The sweep's author"},
+    # The live code the sweep seeds, so the lookup answers 200 with what it shows.
+    ("POST", "/api/public/invite-codes/lookup"): {"code": SWEEP_CODE},
 }
 
 
@@ -272,7 +277,8 @@ async def test_no_api_response_carries_a_secret_or_a_hash_except_the_two_that_is
             {
                 "id": uuid4(),
                 "strategy": strategy_id,
-                "hash": secret_hash("a code of the sweep"),
+                # The hash of the code ``SWEEP_CODE`` spells, so the lookup finds it.
+                "hash": secret_hash(SWEEP_CODE.replace("-", "")),
             },
         )
         await session.commit()

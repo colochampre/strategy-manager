@@ -54,6 +54,10 @@ class CodeAttemptsPort(Protocol):
         """The code of ``strategy_id`` with this hash, live or dead, or None."""
         ...
 
+    async def locate(self, code_hash: str) -> tuple[UUID, IssuedCode] | None:
+        """The code with this hash, of whichever strategy, and that strategy; or None."""
+        ...
+
     async def record_failure(self, user_id: UUID, at: datetime, prune_before: datetime) -> None:
         """Writes one failure of ``user_id`` and drops theirs older than ``prune_before``."""
         ...
@@ -67,6 +71,28 @@ class CheckInviteCode:
         self._clock = clock
 
     async def check(self, user_id: UUID, strategy_id: UUID, typed: str) -> InviteCode | None:
+        """The live code of ``strategy_id`` the user typed, or None."""
+        now, failures = await self._admit(user_id, strategy_id)
+        code = InviteCode.parse(typed)
+        issued = None if code is None else await self._attempts.find(strategy_id, code.hash)
+        if await self._settle(user_id, strategy_id, issued, now=now, failures=failures):
+            return code
+        return None
+
+    async def locate(self, user_id: UUID, typed: str) -> UUID | None:
+        """The strategy a live code opens, for a reader who knows only the code (tasks.md
+        K.6); None when no code has it. Counted exactly as ``check`` counts."""
+        now, failures = await self._admit(user_id, None)
+        code = InviteCode.parse(typed)
+        found = None if code is None else await self._attempts.locate(code.hash)
+        strategy_id, issued = (None, None) if found is None else found
+        if await self._settle(user_id, strategy_id, issued, now=now, failures=failures):
+            return strategy_id
+        return None
+
+    async def _admit(self, user_id: UUID, strategy_id: UUID | None) -> tuple[datetime, int]:
+        """Holds the user's lock and answers the instant and their failures in the
+        window; past the limit, refuses unread and writes nothing."""
         await self._attempts.hold_attempts_of(user_id)
         now = self._clock.now()
         failures = await self._attempts.failures_since(user_id, now - ATTEMPT_WINDOW)
@@ -82,13 +108,23 @@ class CheckInviteCode:
             raise TooManyCodeAttempts(
                 "too many invitation codes were wrong in the last hour; try again later"
             )
+        return now, failures
 
-        code = InviteCode.parse(typed)
-        issued = None if code is None else await self._attempts.find(strategy_id, code.hash)
+    async def _settle(
+        self,
+        user_id: UUID,
+        strategy_id: UUID | None,
+        issued: IssuedCode | None,
+        *,
+        now: datetime,
+        failures: int,
+    ) -> bool:
+        """True for a live code. Otherwise writes the failure, logs it, and raises
+        ``InviteCodeNotLive`` for a dead code or answers False for none."""
         reason = None if issued is None else issued.why_dead(now)
         if issued is not None and reason is None:
             await self._attempts.commit()
-            return code
+            return True
 
         await self._attempts.record_failure(user_id, now, now - ATTEMPT_WINDOW)
         await self._attempts.commit()
@@ -101,4 +137,4 @@ class CheckInviteCode:
         )
         if reason is not None:
             raise InviteCodeNotLive(reason)
-        return None
+        return False

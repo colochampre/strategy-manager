@@ -1,10 +1,13 @@
+import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { Link, useParams } from "react-router";
+import { Link, useParams, useSearchParams } from "react-router";
 
+import { entryRefusal } from "@/features/strategies/entry-refusal";
 import { PublicFigures, PublicOrigin } from "@/features/strategies/PublicFigures";
 import { StrategyReportViews } from "@/features/strategies/StrategyReportViews";
 import { SubscribePanel } from "@/features/strategies/SubscribePanel";
 import { ApiError } from "@/shared/api/client";
+import { type Entry, EntryProvider } from "@/shared/api/entry";
 import { usePublicStrategy } from "@/shared/api/public-strategies";
 import type { PublicStrategy } from "@/shared/api/types";
 import { InfoButton, InfoText, useInfoDisclosure } from "@/shared/ui/InfoDisclosure";
@@ -73,19 +76,42 @@ function PublicRecord({ strategy }: { strategy: PublicStrategy }) {
  * its old data, and drawing that data would offer a Subscribe the API refuses.
  */
 export function PublicStrategyPage() {
+  const [search] = useSearchParams();
+  const entry = useMemo(() => entryOf(search), [search]);
+  return (
+    <EntryProvider value={entry}>
+      <PublicStrategyRead entry={entry} />
+    </EntryProvider>
+  );
+}
+
+/** The link or the code the page's address carries; an empty one is none. */
+function entryOf(search: URLSearchParams): Entry {
+  const link = search.get("link") ?? "";
+  const code = search.get("code") ?? "";
+  return { ...(link === "" ? {} : { link }), ...(code === "" ? {} : { code }) };
+}
+
+/**
+ * A refusal the link or the code earned (a dead code, too many wrong codes, a link or a code that opens nothing)
+ * reads like the 404: in words, with nothing drawn from before it.
+ */
+function PublicStrategyRead({ entry }: { entry: Entry }) {
   const { t } = useTranslation();
   const { strategyId = "" } = useParams();
   const strategy = usePublicStrategy(strategyId);
 
-  const gone = strategy.error instanceof ApiError && strategy.error.status === 404;
-  if (strategy.data !== undefined && !gone) return <PublicRecord strategy={strategy.data} />;
+  const refused = entryRefusal(strategy.error, entry);
+  const gone = refused === null && strategy.error instanceof ApiError && strategy.error.status === 404;
+  if (strategy.data !== undefined && !gone && refused === null) return <PublicRecord strategy={strategy.data} />;
 
   return (
     <div className="flex flex-col items-start gap-3">
       <BackToExplore />
       {strategy.status === "pending" && <p className="text-sm text-ink-2">{t("strategies.public.loading")}</p>}
       {gone && <p className="text-sm text-ink-2">{t("strategies.public.notFound")}</p>}
-      {strategy.status === "error" && !gone && (
+      {refused !== null && <p className="text-sm text-ink-2">{t(refused)}</p>}
+      {strategy.status === "error" && !gone && refused === null && (
         <p role="alert" className="text-sm text-loss">
           {t("strategies.public.error")}
         </p>

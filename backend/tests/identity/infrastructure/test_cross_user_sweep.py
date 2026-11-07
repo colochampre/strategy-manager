@@ -96,6 +96,9 @@ OPEN_PAIR_OF_A = "STXUSDT"
 BALANCE_OF_A = "7654.32"
 #: The last four of A's invitation code, in Crockford's upper case.
 CODE_HINT_OF_A = "VRXT"
+#: A's code as its author was shown it. Whoever holds it may learn which strategy it
+#: opens (tasks.md K.6), and nothing else of A's.
+PLAIN_CODE_OF_A = "K7QM-VRXT"
 
 PRIVATE = "the private strategy of A"
 PUBLIC = "the public strategy of A, where B holds a seat"
@@ -122,7 +125,7 @@ class Probe:
     served_at: Mapping[str, str] | None = None
     #: The ids swapped for one nobody holds, for the 404 to compare with.
     unknown: tuple[str, ...] = (PRIVATE, PUBLIC, CLOSED_TRADE, SEAT_OF_A)
-    #: A trace of A's this route shows everybody, on purpose.
+    #: A trace of A's, or the name of an id of A's, this route shows on purpose.
     shows: tuple[str, ...] = ()
 
 
@@ -176,6 +179,14 @@ PROBES: tuple[Probe, ...] = (
     # Nor a record (I.12a): the author's real trades are drawn only for a public strategy.
     Probe("GET", "/api/public/strategies/{strategy_id}/record", _ON_PRIVATE, served_at=_ON_PUBLIC),
     Probe("POST", "/api/subscriptions", body={"strategy_id": PRIVATE, "allocation_percent": "30"}),
+    # Holding A's code, B learns which strategy it opens, on purpose; nothing is spent.
+    Probe(
+        "POST",
+        "/api/public/invite-codes/lookup",
+        body={"code": PLAIN_CODE_OF_A},
+        answers=200,
+        shows=(PRIVATE,),
+    ),
     # A's own figures: none on a strategy B never held, none of A's where B holds a seat.
     Probe("GET", _PERFORMANCE, _ON_PRIVATE),
     Probe("GET", _PERFORMANCE, _ON_PUBLIC, answers=200),
@@ -234,7 +245,7 @@ class World:
         repeat what B typed, and the 404's own test decides what that gives away."""
         sent = [*probe.at.values(), *(probe.body or {}).values()]
         secret = (PRIVATE, CLOSED_TRADE, SEAT_OF_A, ORDER_OF_A, CODE_OF_A)
-        ids = (self.ids[name] for name in secret if name not in sent)
+        ids = (self.ids[name] for name in secret if name not in sent and name not in probe.shows)
         traces = (
             *ids,
             KEY_HINT_OF_A,
@@ -349,7 +360,7 @@ async def _seed_the_rows_of_a(factory: Factory, a: UUID, b: UUID, b_pool: int) -
             {
                 "id": code,
                 "strategy": private,
-                "hash": hashlib.sha256(code.bytes).hexdigest(),
+                "hash": hashlib.sha256(PLAIN_CODE_OF_A.replace("-", "").encode()).hexdigest(),
                 "hint": CODE_HINT_OF_A,
                 "made": made,
                 "expires": made + timedelta(days=7),

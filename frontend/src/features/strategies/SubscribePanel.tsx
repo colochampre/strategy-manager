@@ -3,6 +3,7 @@ import { LogOut, UserPlus } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router";
 
+import { entryRefusal } from "@/features/strategies/entry-refusal";
 import { LeaveDialog } from "@/features/strategies/LeaveDialog";
 import { LeverageSlider } from "@/features/strategies/LeverageSlider";
 import { SeatSettings } from "@/features/strategies/SeatSettings";
@@ -11,6 +12,7 @@ import { ShareSlider } from "@/features/strategies/ShareSlider";
 import { LEVERAGE_REFUSAL_TEXT, useLeverageDraft } from "@/features/strategies/useLeverageDraft";
 import { DRAFT_REFUSAL_TEXT, useShareDraft } from "@/features/strategies/useShareDraft";
 import { ApiError } from "@/shared/api/client";
+import { NO_ENTRY } from "@/shared/api/entry";
 import { useMe } from "@/shared/api/me";
 import { usePools } from "@/shared/api/pools";
 import { useHeldSubscriptions, useLeaveSubscription, useSubscribe } from "@/shared/api/subscriptions";
@@ -28,8 +30,13 @@ const LINK = "text-sm text-gain hover:text-gain-bright";
 /** The frame of the page's settings column, the same as Strategy settings on an own strategy. */
 const ASIDE = "flex flex-col gap-5 self-start rounded-lg border border-rule bg-panel p-5";
 
-/** The text of a refused subscribe: the status and the code decide, never the server's wording. */
+/**
+ * The text of a refused subscribe: the status and the code decide, never the server's wording. A dead code and too
+ * many wrong codes say so; a 404 keeps its own text, whatever the reader entered with.
+ */
 function refusalText(error: unknown): string {
+  const byEntry = entryRefusal(error, NO_ENTRY);
+  if (byEntry !== null) return byEntry;
   if (error instanceof ApiError) {
     if (error.status === 422) return "strategies.detail.share.outOfRange";
     if (error.status === 404) return "strategies.subscribe.refused.gone";

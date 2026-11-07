@@ -292,6 +292,22 @@
       "capitalInfo": "Qué es este capital",
       "capitalHint": "El capital que asignan todos los que la operan en vivo, incluido su autor: la cuota de cada uno sobre el último saldo de su pool. Es capital asignado, no capital en uso, y el mismo dinero puede respaldar varias estrategias."
     },
+    "entry": {
+      "haveCode": "Tengo un código",
+      "codeLabel": "Código de invitación",
+      "open": "Abrir",
+      "codeHint": "Escriba el código que le envió el autor. Abre la página de la estrategia y solo se usa cuando usted se suscribe.",
+      "codeOpensNothing": "Ninguna estrategia se abre con ese código. Revíselo e inténtelo de nuevo.",
+      "linkOpensNothing": "Este enlace ya no abre la estrategia. Pídale a su autor el enlace actual.",
+      "dead": {
+        "EXPIRED": "Este código de invitación venció. Pídale uno nuevo al autor.",
+        "REVOKED": "Este código de invitación fue revocado. Pídale uno nuevo al autor.",
+        "SPENT": "Este código de invitación ya se usó. Pídale uno nuevo al autor.",
+        "other": "Este código de invitación ya no abre la estrategia. Pídale uno nuevo al autor."
+      },
+      "tooMany": "Demasiados códigos incorrectos en la última hora. Inténtelo más tarde.",
+      "lookupFailed": "No se pudo comprobar el código. Inténtelo de nuevo."
+    },
     "report": {
       "title": "Rendimiento",
       "views": "Vista del informe",

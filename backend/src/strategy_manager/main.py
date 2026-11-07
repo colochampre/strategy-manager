@@ -317,6 +317,9 @@ from strategy_manager.signals.infrastructure.webhook_secret_invariant import (
     assert_webhook_secret_configured,
 )
 from strategy_manager.strategies.application.policy_adapter import StrategyPolicyAdapter
+from strategy_manager.strategies.infrastructure.invite_lookup_router import (
+    router as invite_lookup_router,
+)
 from strategy_manager.strategies.infrastructure.pair_catalog import VenuePairCatalog
 from strategy_manager.strategies.infrastructure.pair_catalog_router import (
     router as pair_catalog_router,
@@ -2339,6 +2342,7 @@ def create_app() -> FastAPI:
     api_router.include_router(performance_router)
     api_router.include_router(open_positions_router)
     api_router.include_router(public_strategies_router)
+    api_router.include_router(invite_lookup_router)
     api_router.include_router(webhook_origin_router)
     api_router.include_router(credentials_router)
     api_router.include_router(me_router)

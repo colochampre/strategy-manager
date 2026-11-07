@@ -61,6 +61,24 @@ class SqlAlchemyCodeAttempts:
             expires_at=row.expires_at, revoked_at=row.revoked_at, redeemed_at=row.redeemed_at
         )
 
+    async def locate(self, code_hash: str) -> tuple[UUID, IssuedCode] | None:
+        """A hash is unique across every strategy (``ux_invite_codes_code_hash``)."""
+        row = (
+            await self._session.execute(
+                select(
+                    InviteCodeRow.strategy_id,
+                    InviteCodeRow.expires_at,
+                    InviteCodeRow.revoked_at,
+                    InviteCodeRow.redeemed_at,
+                ).where(InviteCodeRow.code_hash == code_hash)
+            )
+        ).one_or_none()
+        if row is None:
+            return None
+        return row.strategy_id, IssuedCode(
+            expires_at=row.expires_at, revoked_at=row.revoked_at, redeemed_at=row.redeemed_at
+        )
+
     async def record_failure(self, user_id: UUID, at: datetime, prune_before: datetime) -> None:
         await self._session.execute(
             delete(InviteCodeAttemptRow).where(

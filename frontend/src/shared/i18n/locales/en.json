@@ -292,6 +292,22 @@
       "capitalInfo": "What this capital is",
       "capitalHint": "The capital assigned by everyone trading it live, its author included: each one's share of the latest balance of their pool. It is capital assigned, not capital in use, and the same money can stand behind several strategies."
     },
+    "entry": {
+      "haveCode": "I have a code",
+      "codeLabel": "Invitation code",
+      "open": "Open",
+      "codeHint": "Type the code the author sent you. It opens the strategy's page, and it is used only when you subscribe.",
+      "codeOpensNothing": "No strategy opens to that code. Check it and try again.",
+      "linkOpensNothing": "This link no longer opens the strategy. Ask its author for the current one.",
+      "dead": {
+        "EXPIRED": "This invitation code has expired. Ask the author for a new one.",
+        "REVOKED": "This invitation code was revoked. Ask the author for a new one.",
+        "SPENT": "This invitation code was already used. Ask the author for a new one.",
+        "other": "This invitation code no longer opens the strategy. Ask the author for a new one."
+      },
+      "tooMany": "Too many wrong codes in the last hour. Try again later.",
+      "lookupFailed": "The code could not be checked. Try again."
+    },
     "report": {
       "title": "Performance",
       "views": "Report view",
