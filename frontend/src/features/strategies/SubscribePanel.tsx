@@ -25,6 +25,8 @@ const STARTING_SHARE = "0";
 /** The leverage the form starts from: the API's own default. */
 const STARTING_LEVERAGE = 1;
 const LINK = "text-sm text-gain hover:text-gain-bright";
+/** The frame of the page's settings column, the same as Strategy settings on an own strategy. */
+const ASIDE = "flex flex-col gap-5 self-start rounded-lg border border-rule bg-panel p-5";
 
 /** The text of a refused subscribe: the status and the code decide, never the server's wording. */
 function refusalText(error: unknown): string {
@@ -216,7 +218,7 @@ function SeatPanel({ strategy, seat }: { strategy: PublicStrategy; seat: HeldSub
     setAsking(true);
   };
   return (
-    <section aria-labelledby={titleId} className="flex flex-col gap-3 rounded-md border border-rule bg-panel px-4 py-3">
+    <aside aria-labelledby={titleId} className={ASIDE}>
       <h2 id={titleId} className="font-display text-base font-semibold text-ink">
         {t("strategies.subscribe.seatTitle")}
       </h2>
@@ -239,7 +241,7 @@ function SeatPanel({ strategy, seat }: { strategy: PublicStrategy; seat: HeldSub
           onCancel={() => setAsking(false)}
         />
       )}
-    </section>
+    </aside>
   );
 }
 
@@ -259,7 +261,8 @@ export function useOwnSeat(strategy: PublicStrategy): HeldSubscription | undefin
 
 /**
  * Where the signed-in user stands on a public strategy: its author, already holding it, missing a key on its
- * market, or free to subscribe. The figures above it never depend on any of this.
+ * market, or free to subscribe. The figures beside it never depend on any of this. Either way it is the page's
+ * settings column, an aside like Strategy settings on an own strategy.
  */
 export function SubscribePanel({ strategy }: { strategy: PublicStrategy }) {
   const { t } = useTranslation();
@@ -267,11 +270,11 @@ export function SubscribePanel({ strategy }: { strategy: PublicStrategy }) {
   const seat = useOwnSeat(strategy);
   if (seat !== undefined) return <SeatPanel strategy={strategy} seat={seat} />;
   return (
-    <section aria-labelledby={titleId} className="flex flex-col gap-3 rounded-md border border-rule bg-panel px-4 py-3">
+    <aside aria-labelledby={titleId} className={ASIDE}>
       <h2 id={titleId} className="font-display text-base font-semibold text-ink">
         {t("strategies.subscribe.title")}
       </h2>
       <SubscribeBody strategy={strategy} />
-    </section>
+    </aside>
   );
 }

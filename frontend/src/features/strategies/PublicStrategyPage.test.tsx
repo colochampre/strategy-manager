@@ -122,6 +122,32 @@ describe("the public page", () => {
     expect(await subscribeButton()).toBeInTheDocument();
   });
 
+  it.each([
+    ["without a seat, Subscribe", undefined, "strategies.subscribe.title"],
+    ["with a seat, Your subscription", [{ strategy_id: ID }], "strategies.subscribe.seatTitle"],
+  ])(
+    "%s is an aside beside the record, after it in reading order, as Strategy settings on an own strategy",
+    async (_case, seats, title) => {
+      serve(
+        seats === undefined
+          ? {}
+          : { held: () => Promise.resolve(jsonResponse(seats.map((seat) => heldSubscription(seat)))) },
+      );
+      open();
+
+      const aside = await screen.findByRole("complementary", { name: i18n.t(title) });
+      const grid = aside.parentElement as HTMLElement;
+      const column = grid.firstElementChild as HTMLElement;
+      expect(grid.className).toContain("lg:grid-cols-[minmax(0,1fr)_25rem]");
+      expect(column).not.toBe(aside);
+      expect(column).toContainElement(screen.getByRole("heading", { level: 1, name: "Alpha" }));
+      expect(column).toContainElement(await screen.findByRole("heading", { name: "Performance" }));
+      expect(aside).not.toContainElement(screen.getByTestId("public-return"));
+      // Stacked on a phone, the aside comes last, as on an own strategy.
+      expect(column.compareDocumentPosition(aside) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    },
+  );
+
   it("opens a subscriber's page on My results and keeps their seat settings", async () => {
     serve({ held: () => Promise.resolve(jsonResponse([heldSubscription({ strategy_id: ID })])) });
     open();
