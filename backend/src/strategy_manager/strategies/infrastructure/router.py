@@ -112,10 +112,11 @@ from strategy_manager.strategies.domain.pair_catalog import (
     UnknownPairs,
 )
 from strategy_manager.strategies.domain.strategy import (
+    Entry,
     FillMode,
     Strategy,
     Visibility,
-    offered_to_others,
+    offered_to,
 )
 from strategy_manager.strategies.infrastructure.author_names import SqlAlchemyAuthorNames
 from strategy_manager.strategies.infrastructure.author_subscription_adapter import (
@@ -331,6 +332,17 @@ def _stored_description(value: str | None) -> str | None:
 #: blank one made null) or refused with a 422.
 Description = Annotated[str | None, AfterValidator(_stored_description)]
 
+def _writable_visibility(value: Visibility) -> Visibility:
+    if value is Visibility.LINK:
+        # A ``ValueError`` is what the 422 handler answers, with its fixed message.
+        raise ValueError("a strategy turns LINK only with a link, which is not offered yet")
+    return value
+
+
+#: A visibility the API writes today. ``LINK`` needs a token made with it, which
+#: tasks.md K.3 adds; until then it is refused as any value the API does not take.
+WritableVisibility = Annotated[Visibility, AfterValidator(_writable_visibility)]
+
 #: The author's seat's leverage as the API takes it: a JSON integer from 1 to the
 #: cap, strict, as ``POST /api/subscriptions`` takes a subscriber's (decision 38).
 LeverageInput = Annotated[int, Field(strict=True, ge=1, le=MAX_LEVERAGE)]
@@ -350,7 +362,7 @@ class RegisterRequest(BaseModel):
     allocation_percent: Share
     allowed_pairs: list[str] = Field(min_length=1)
     # Nothing turns public without the author's choice (decision 21).
-    visibility: Visibility = Visibility.PRIVATE
+    visibility: WritableVisibility = Visibility.PRIVATE
     description: Description = None
     # The author's seat's, like the share above; it starts at 1x unless chosen.
     leverage: LeverageInput = NEW_SEAT_LEVERAGE.value
@@ -366,7 +378,7 @@ class UpdateRequest(BaseModel):
     name: str | None = Field(default=None, min_length=1)
     fill_mode: FillMode | None = None
     enabled: bool | None = None
-    visibility: Visibility | None = None
+    visibility: WritableVisibility | None = None
     # Unlike the fields above, null here clears it; leaving it out keeps it.
     description: Description = None
     # The share is each subscriber's now (``PATCH /api/subscriptions/{id}``). A body
@@ -789,7 +801,7 @@ async def _reaches_preview(
     if strategy.archived_at is not None:
         return False
     author_named = await SqlAlchemyAuthorNames(session).has_display_name(strategy.author_id)
-    return offered_to_others(strategy.visibility, author_named=author_named)
+    return offered_to(strategy.visibility, author_named=author_named, entry=Entry.NONE)
 
 
 @router.get("/{strategy_id}/share-preview", response_model=SharePreviewBody)

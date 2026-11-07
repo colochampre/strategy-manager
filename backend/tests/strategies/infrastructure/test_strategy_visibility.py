@@ -147,6 +147,23 @@ async def test_an_invalid_visibility_is_a_422_on_create_and_on_patch(
     assert await _stored_visibility(world, strategy_id) == "PRIVATE"
 
 
+async def test_link_is_not_yet_a_visibility_the_api_writes(
+    world: World,  # noqa: F811
+) -> None:
+    """``LINK`` exists in the domain and the database (decision 41), but a strategy
+    turns LINK only with a token, which tasks.md K.3 makes. Until then the API
+    refuses it as it refuses any value it does not take, and writes nothing."""
+    await _name(world, world.admin_id)
+    refused_id = uuid4()
+    created = await _post_create(world, ADMIN_HEADERS, strategy_id=refused_id, visibility="LINK")
+    strategy_id = await _create(world, ADMIN_HEADERS)
+    patched = await _patch(world, strategy_id, {"visibility": "LINK"})
+
+    assert (created.status_code, patched.status_code) == (422, 422)
+    assert await _row(world, refused_id) is None
+    assert await _stored_visibility(world, strategy_id) == "PRIVATE"
+
+
 async def test_the_author_changes_the_visibility_and_every_read_shows_it(
     world: World,  # noqa: F811
 ) -> None:

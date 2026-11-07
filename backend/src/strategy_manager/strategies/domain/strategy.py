@@ -25,21 +25,43 @@ class FillMode(StrEnum):
 
 
 class Visibility(StrEnum):
-    """Mirrors the ``strategies.visibility`` CHECK constraint (decision 21).
+    """Mirrors the ``strategies.visibility`` CHECK constraint (decisions 21 and 41).
 
-    A PRIVATE strategy takes no NEW subscriber but its author; making one private
-    keeps the subscribers it has, so nothing here reaches the signal fan-out."""
+    PUBLIC is on Explore. LINK and PRIVATE are off it: LINK takes whoever holds its
+    link, PRIVATE whoever holds a live invitation code. A change of visibility keeps
+    the subscribers a strategy has, so nothing here reaches the signal fan-out."""
 
     PUBLIC = "PUBLIC"
+    LINK = "LINK"
     PRIVATE = "PRIVATE"
 
 
-def offered_to_others(visibility: Visibility, *, author_named: bool) -> bool:
-    """Whether anyone but the author may come to this strategy. What the public page
-    requires, in the terms preview and subscribe read it (tasks.md G.2); the page's
-    own read says the same in SQL, with ``archived_at``, which each of these two
-    answers in its own way."""
-    return visibility is Visibility.PUBLIC and author_named
+class Entry(StrEnum):
+    """How someone other than the author arrives at a strategy: by nothing but its
+    id, by its link, or with a live code made for it. The caller has checked the
+    link or the code against this strategy before saying so."""
+
+    NONE = "NONE"
+    LINK = "LINK"
+    CODE = "CODE"
+
+
+def offered_to(visibility: Visibility, *, author_named: bool, entry: Entry) -> bool:
+    """Whether someone other than the author may read this strategy's page and
+    subscribe to it, arriving by ``entry`` (decision 41). PUBLIC takes anyone, LINK
+    the holder of its link, PRIVATE the holder of a live code. A live code opens a
+    LINK strategy too: it was made for this strategy, and the link would let the same
+    person in. Nothing is offered while the author has no name (decision 27).
+
+    A live seat reads its page whatever the visibility; that is the public read's
+    own rule, in SQL (tasks.md J.1), as is ``archived_at``."""
+    if not author_named:
+        return False
+    if visibility is Visibility.PUBLIC:
+        return True
+    if visibility is Visibility.LINK:
+        return entry in (Entry.LINK, Entry.CODE)
+    return entry is Entry.CODE
 
 
 @dataclass(frozen=True, slots=True)

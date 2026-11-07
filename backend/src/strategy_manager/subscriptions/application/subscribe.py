@@ -4,7 +4,7 @@ from uuid import UUID, uuid4
 
 from strategy_manager.shared.application.ports import ClockPort
 from strategy_manager.shared.domain.leverage import Leverage
-from strategy_manager.strategies.domain.strategy import AllocationPercent, offered_to_others
+from strategy_manager.strategies.domain.strategy import AllocationPercent, Entry, offered_to
 from strategy_manager.subscriptions.application.errors import (
     AlreadySubscribed,
     NoPoolForMarket,
@@ -52,7 +52,9 @@ class Subscribe:
         # 21, G.2): the same error, so the answer does not tell them apart.
         if strategy is None or (
             strategy.author_id != user_id
-            and not offered_to_others(strategy.visibility, author_named=strategy.author_named)
+            and not offered_to(
+                strategy.visibility, author_named=strategy.author_named, entry=Entry.NONE
+            )
         ):
             raise StrategyNotFound(f"no strategy registered under id {strategy_id}")
         if strategy.archived:
