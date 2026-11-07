@@ -42,7 +42,10 @@ export async function fetchPublicStrategies(): Promise<PublicStrategy[]> {
   return body;
 }
 
-/** `GET /api/public/strategies/{id}`. A strategy off the list answers 404, to its own author too. */
+/**
+ * `GET /api/public/strategies/{id}`. A strategy off the list answers 404, to its own author too, except a strategy
+ * turned private to a reader who holds a live seat on it (tasks.md J.1).
+ */
 export async function fetchPublicStrategy(strategyId: string): Promise<PublicStrategy> {
   const body = await apiFetch<unknown>(`/public/strategies/${encodeURIComponent(strategyId)}`);
   if (!isPublicStrategy(body)) {

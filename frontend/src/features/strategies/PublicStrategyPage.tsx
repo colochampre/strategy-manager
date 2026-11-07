@@ -65,16 +65,21 @@ function PublicRecord({ strategy }: { strategy: PublicStrategy }) {
 
 /**
  * One public strategy, for anyone signed in. A 404 is an ordinary answer here, not a fault: a strategy turned
- * private, archived or never public reads the same, so the page says only that it is not on the list.
+ * private, archived or never public reads the same, so the page says only that it is not on the list. The one
+ * exception is the backend's: a strategy turned private still answers a reader who holds a live seat on it, since
+ * this page is where that seat is managed (tasks.md J.1).
+ *
+ * A 404 wins over what was read before it: once that seat is left, the refetch answers 404 while the query keeps
+ * its old data, and drawing that data would offer a Subscribe the API refuses.
  */
 export function PublicStrategyPage() {
   const { t } = useTranslation();
   const { strategyId = "" } = useParams();
   const strategy = usePublicStrategy(strategyId);
 
-  if (strategy.data !== undefined) return <PublicRecord strategy={strategy.data} />;
-
   const gone = strategy.error instanceof ApiError && strategy.error.status === 404;
+  if (strategy.data !== undefined && !gone) return <PublicRecord strategy={strategy.data} />;
+
   return (
     <div className="flex flex-col items-start gap-3">
       <BackToExplore />

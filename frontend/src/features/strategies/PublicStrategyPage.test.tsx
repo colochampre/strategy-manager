@@ -356,6 +356,28 @@ describe("whether this user can subscribe", () => {
     expect(fetchMock.mock.calls.filter(([url]) => String(url).endsWith("/leave"))).toHaveLength(1);
   });
 
+  it("leaving a strategy turned private says it is off the list, and offers no Subscribe it would refuse (J.1)", async () => {
+    let left = false;
+    serve({
+      strategy: () =>
+        Promise.resolve(left ? jsonResponse({ detail: "no such strategy" }, 404) : jsonResponse(publicStrategy({ id: ID }))),
+      held: () => Promise.resolve(jsonResponse(left ? [] : [heldSubscription({ strategy_id: ID })])),
+      leave: () => {
+        left = true;
+        return Promise.resolve(jsonResponse({}, 200));
+      },
+    });
+    open();
+
+    fireEvent.click(await screen.findByRole("button", { name: i18n.t("strategies.subscriptions.leave") }));
+    const dialog = await screen.findByRole("dialog", { name: i18n.t("strategies.leave.confirmTitle", { name: "Alpha" }) });
+    fireEvent.click(within(dialog).getByRole("button", { name: i18n.t("strategies.leave.confirm") }));
+
+    expect(await screen.findByText(i18n.t("strategies.public.notFound"))).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: i18n.t("strategies.subscribe.submit") })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Alpha" })).not.toBeInTheDocument();
+  });
+
   it("a seat that is leaving reads as it stands: no Leave, nothing to save, and the page says so", async () => {
     serve({ held: () => Promise.resolve(jsonResponse([heldSubscription({ strategy_id: ID, status: "LEAVING" })])) });
     open();
