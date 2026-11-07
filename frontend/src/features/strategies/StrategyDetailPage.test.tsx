@@ -206,8 +206,12 @@ describe("StrategyDetailPage", () => {
     await heading("ETH Breakout");
 
     fireEvent.click(screen.getByRole("button", { name: i18n.t("strategies.detail.disable") }));
+    // It asks first (owner, 2026-11-06): nothing is sent until the question is confirmed.
+    const dialog = await screen.findByRole("dialog", { name: "Disable ETH Breakout?" });
+    expect(bodies).toEqual([]);
+    fireEvent.click(within(dialog).getByRole("button", { name: i18n.t("strategies.enableDialog.disable") }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent(i18n.t("strategies.row.toggleError"));
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(i18n.t("strategies.row.toggleError"));
     expect(bodies).toEqual([{ enabled: false }]);
   });
 

@@ -82,6 +82,19 @@ describe("the exchange tabs in the top bar", () => {
     },
   );
 
+  it("start, from lg, where the page's content starts: past the side bar and main's padding (owner, 2026-11-06)", async () => {
+    stubApi(HEALTH);
+    renderAt(<TopBar />, "/");
+
+    const [bar] = await screen.findAllByRole("navigation", { name: "Exchanges" });
+    const brand = (bar as HTMLElement).previousElementSibling as HTMLElement;
+    // The bar's padding (px-7, 1.75rem), the brand's box (11.5rem) and the gap (gap-8, 2rem) add up to 15.25rem:
+    // the side bar's width (w-52, 13rem) plus main's padding (px-9, 2.25rem).
+    expect(brand).toHaveTextContent("Strategy Manager");
+    expect(brand).toHaveClass("lg:w-46", "lg:shrink-0");
+    expect(brand.parentElement).toHaveClass("lg:px-7", "lg:gap-8");
+  });
+
   it("do read the pools on the Overview, which proves the check above can see a read", async () => {
     const fetchMock = stubApi(HEALTH);
     renderAt(<TopBar />, "/");

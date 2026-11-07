@@ -25,7 +25,9 @@ export function TopBar() {
   return (
     <header className="shrink-0 border-b border-rule bg-panel">
       <div className="flex h-14 items-center gap-4 px-4 lg:h-16 lg:gap-8 lg:px-7">
-        <span className="font-display text-base font-semibold text-ink">{t("app.name")}</span>
+        {/* From lg the brand's box ends so that the tabs start where the page does: 1.75rem of padding, 11.5rem of
+            brand and 2rem of gap make the side bar's 13rem plus main's 2.25rem (AppShell, SideNav). */}
+        <span className="font-display text-base font-semibold text-ink lg:w-46 lg:shrink-0">{t("app.name")}</span>
         {scoped && <ExchangeTabs className="hidden lg:flex" />}
         <div className="ml-auto flex min-w-0 items-center gap-3">
           {signedInAs !== undefined && (

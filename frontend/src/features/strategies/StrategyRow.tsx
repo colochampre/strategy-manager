@@ -1,12 +1,12 @@
-import { Clock, ListChecks, Users } from "lucide-react";
+import { Clock, Coins, ListChecks, TrendingUp, Users } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router";
 
 import { OpenMarks } from "@/features/positions/OpenMarks";
 import { AuthorCapital } from "@/features/strategies/AuthorCapital";
+import { useEnableQuestion } from "@/features/strategies/EnableDialog";
 import { amountText, parseDecimal, percentText, toneClass } from "@/shared/lib/amount-text";
 import { useStrategyPerformance } from "@/shared/api/performance";
-import { useSetStrategyEnabled } from "@/shared/api/strategies";
 import type { Strategy, StrategyPerformance } from "@/shared/api/types";
 import { cn } from "@/shared/lib/cn";
 import { IconTip } from "@/shared/ui/Tooltip";
@@ -69,21 +69,25 @@ function Figures({ strategy }: FiguresProps) {
   const empty = pending ? "…" : DASH;
   return (
     <dl className="tabular flex gap-x-5 font-mono text-xs text-ink-2 lg:col-span-3 lg:grid lg:grid-cols-subgrid lg:gap-x-6">
-      {/* The icon is centred over the count it heads. */}
+      {/* Each icon is centred over the figure it heads, so the three line up at one height. */}
       <div className="flex w-fit flex-col items-center">
         <dt className="text-ink-3">
           <IconTip icon={ListChecks} label={t("strategies.row.trades")} />
         </dt>
         <dd data-testid="strategy-trades">{report === null ? empty : report.trade_count}</dd>
       </div>
-      <div>
-        <dt className="text-ink-3">{t("strategies.row.pnl")}</dt>
+      <div className="flex w-fit flex-col items-center">
+        <dt className="text-ink-3">
+          <IconTip icon={Coins} label={t("strategies.row.pnl")} />
+        </dt>
         <dd data-testid="strategy-pnl" className={cn(pnl !== null && toneClass(pnl))}>
           {pnl === null ? empty : `${amountText(pnl, strategy.settlement_currency, locale, true)} ${strategy.settlement_currency}`}
         </dd>
       </div>
-      <div>
-        <dt className="text-ink-3">{t("strategies.row.return")}</dt>
+      <div className="flex w-fit flex-col items-center">
+        <dt className="text-ink-3">
+          <IconTip icon={TrendingUp} label={t("strategies.row.return")} />
+        </dt>
         <dd data-testid="strategy-return" className={cn(ret !== null && toneClass(ret))}>
           {ret === null ? empty : percentText(ret, locale)}
         </dd>
@@ -94,12 +98,13 @@ function Figures({ strategy }: FiguresProps) {
 
 /**
  * One strategy: its name (a link to its detail), its pool, the enable switch,
- * its uptime and its figures. The switch is the only control, and a refused or
- * failed change says so in the row instead of silently snapping back.
+ * its uptime and its figures. The switch is the only control: it asks before it
+ * changes anything, and a refused or failed change says so in that question
+ * instead of silently snapping back.
  */
 export function StrategyRow({ strategy }: StrategyRowProps) {
   const { t } = useTranslation();
-  const toggle = useSetStrategyEnabled(strategy.id);
+  const question = useEnableQuestion(strategy);
   const archived = strategy.archived_at !== null;
 
   return (
@@ -150,8 +155,8 @@ export function StrategyRow({ strategy }: StrategyRowProps) {
           role="switch"
           aria-checked={strategy.enabled}
           aria-label={t("strategies.row.enable", { name: strategy.name })}
-          disabled={archived || toggle.isPending}
-          onClick={() => toggle.mutate(!strategy.enabled)}
+          disabled={archived || question.busy}
+          onClick={question.ask}
           className={cn(
             "relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border border-rule transition-colors disabled:opacity-50",
             strategy.enabled ? "bg-gain" : "bg-panel-2",
@@ -165,11 +170,7 @@ export function StrategyRow({ strategy }: StrategyRowProps) {
             )}
           />
         </button>
-        {toggle.status === "error" && (
-          <p role="alert" className="text-xs text-loss">
-            {t("strategies.row.toggleError")}
-          </p>
-        )}
+        {question.dialog}
       </div>
       <OpenMarks strategy={strategy} />
     </li>

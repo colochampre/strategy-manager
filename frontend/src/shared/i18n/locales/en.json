@@ -43,6 +43,7 @@
   "mode": {
     "forcedHint": "The brake is on: everyone is in simulation until it is released.",
     "change": "Mode: {{mode}}. Change it",
+    "menu": "Modes",
     "toLive": {
       "title": "Go live?",
       "body": "Real orders will be placed on your exchanges with your capital, from the next opening signal on.",
@@ -243,6 +244,16 @@
       "years": "{{count}}y",
       "months": "{{count}}mo",
       "days": "{{count}}d"
+    },
+    "enableDialog": {
+      "enableTitle": "Enable {{name}}?",
+      "enableBody": "{{name}} opens positions again on its next signals, for you and for everyone trading it.",
+      "disableTitle": "Disable {{name}}?",
+      "disableBody": "{{name}} opens nothing more, for you or for anyone trading it. A position already open still closes with the strategy's next close.",
+      "cancel": "Cancel",
+      "enable": "Enable",
+      "disable": "Disable",
+      "pending": "Saving…"
     },
     "leave": {
       "confirmTitle": "Leave {{name}}?",

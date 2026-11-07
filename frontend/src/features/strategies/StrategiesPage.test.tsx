@@ -202,15 +202,18 @@ describe("the strategies list", () => {
     await waitFor(() => expect(within(row).getByTestId("strategy-trades")).toHaveTextContent("7"));
     const tradesTerm = within(row).getByTestId("strategy-trades").previousElementSibling as HTMLElement;
     expect(within(tradesTerm).getByRole("img", { name: en.strategies.row.trades })).toBeInTheDocument();
-    // The icon is centred over the count it heads.
-    expect(tradesTerm.parentElement).toHaveClass("flex", "w-fit", "flex-col", "items-center");
-    // Money and the return stay words.
-    expect((within(row).getByTestId("strategy-pnl").previousElementSibling as HTMLElement).textContent).toBe(
-      en.strategies.row.pnl,
-    );
-    expect((within(row).getByTestId("strategy-return").previousElementSibling as HTMLElement).textContent).toBe(
-      en.strategies.row.return,
-    );
+    // Each icon is centred over the figure it heads; the PnL and the return are icons too (owner, 2026-11-06),
+    // so the three figures share one height and line up.
+    for (const [testId, name] of [
+      ["strategy-trades", en.strategies.row.trades],
+      ["strategy-pnl", en.strategies.row.pnl],
+      ["strategy-return", en.strategies.row.return],
+    ] as const) {
+      const term = within(row).getByTestId(testId).previousElementSibling as HTMLElement;
+      expect(within(term).getByRole("img", { name })).toBeInTheDocument();
+      expect(term.textContent).toBe("");
+      expect(term.parentElement).toHaveClass("flex", "w-fit", "flex-col", "items-center");
+    }
     expect(within(row).getByTestId("strategy-pnl")).toHaveTextContent("+41.20 USDT");
     expect(within(row).getByTestId("strategy-return")).toHaveTextContent("+3.4%");
   });
@@ -338,8 +341,10 @@ describe("the strategies list", () => {
   });
 });
 
-describe("the enable switch", () => {
-  it("sends the opposite value and shows the answer", async () => {
+describe("the enable switch asks first (owner, 2026-11-06)", () => {
+  const patches = (api: ReturnType<typeof strategiesApi>) => api.calls.filter((call) => call.method === "PATCH");
+
+  it("pressed on an enabled strategy, asks to disable it, says what that does, and sends nothing yet", async () => {
     const api = strategiesApi([strategy()]);
     stubApi(HEALTH, [], POOLS, {}, api.route);
     renderAt(<AppRoutes />, "/strategies/authored");
@@ -347,13 +352,62 @@ describe("the enable switch", () => {
 
     fireEvent.click(within(row).getByRole("switch"));
 
-    await waitFor(() =>
-      expect(api.calls.find((call) => call.method === "PATCH")).toMatchObject({ body: { enabled: false } }),
-    );
-    expect(api.calls.find((call) => call.method === "PATCH")?.url).toMatch(/\/strategies\/11111111-/);
+    const dialog = await screen.findByRole("dialog", { name: "Disable Alpha?" });
+    expect(dialog).toHaveTextContent(en.strategies.enableDialog.disableBody.replace("{{name}}", "Alpha"));
+    expect(within(row).getByRole("switch")).toHaveAttribute("aria-checked", "true");
+    expect(patches(api)).toHaveLength(0);
   });
 
-  it("shows a refused change instead of swallowing it", async () => {
+  it("pressed on a disabled strategy, asks to enable it", async () => {
+    const api = strategiesApi([strategy({ enabled: false })]);
+    stubApi(HEALTH, [], POOLS, {}, api.route);
+    renderAt(<AppRoutes />, "/strategies/authored");
+    const row = await screen.findByTestId("strategy-row");
+
+    fireEvent.click(within(row).getByRole("switch"));
+
+    const dialog = await screen.findByRole("dialog", { name: "Enable Alpha?" });
+    expect(dialog).toHaveTextContent(en.strategies.enableDialog.enableBody.replace("{{name}}", "Alpha"));
+    expect(patches(api)).toHaveLength(0);
+  });
+
+  it.each([
+    ["Cancel", () => fireEvent.click(screen.getByRole("button", { name: en.strategies.enableDialog.cancel }))],
+    ["Escape", () => fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" })],
+    ["the browser's cancel", () => fireEvent(screen.getByRole("dialog"), new Event("cancel", { cancelable: true }))],
+  ])("%s closes the question and leaves the strategy as it was", async (_name, dismiss) => {
+    const api = strategiesApi([strategy()]);
+    stubApi(HEALTH, [], POOLS, {}, api.route);
+    renderAt(<AppRoutes />, "/strategies/authored");
+    const row = await screen.findByTestId("strategy-row");
+
+    fireEvent.click(within(row).getByRole("switch"));
+    await screen.findByRole("dialog");
+    dismiss();
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(within(row).getByRole("switch")).toHaveAttribute("aria-checked", "true");
+    expect(patches(api)).toHaveLength(0);
+  });
+
+  it("confirmed, sends the opposite value for that strategy and closes the question", async () => {
+    const api = strategiesApi([strategy()]);
+    stubApi(HEALTH, [], POOLS, {}, api.route);
+    renderAt(<AppRoutes />, "/strategies/authored");
+    const row = await screen.findByTestId("strategy-row");
+
+    fireEvent.click(within(row).getByRole("switch"));
+    fireEvent.click(
+      within(await screen.findByRole("dialog")).getByRole("button", { name: en.strategies.enableDialog.disable }),
+    );
+
+    await waitFor(() => expect(patches(api)).toHaveLength(1));
+    expect(patches(api)[0]).toMatchObject({ body: { enabled: false } });
+    expect(patches(api)[0]?.url).toMatch(/\/strategies\/11111111-/);
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+
+  it("shows a refused change inside the question instead of swallowing it", async () => {
     const api = strategiesApi([strategy()]);
     stubApi(HEALTH, [], POOLS, {}, (url, init) =>
       init?.method === "PATCH" ? Promise.resolve(jsonResponse({ detail: "no" }, 409)) : api.route(url, init),
@@ -362,8 +416,10 @@ describe("the enable switch", () => {
     const row = await screen.findByTestId("strategy-row");
 
     fireEvent.click(within(row).getByRole("switch"));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: en.strategies.enableDialog.disable }));
 
-    expect(await within(row).findByRole("alert")).toHaveTextContent(en.strategies.row.toggleError);
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(en.strategies.row.toggleError);
   });
 });
 

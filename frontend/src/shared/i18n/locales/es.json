@@ -43,6 +43,7 @@
   "mode": {
     "forcedHint": "El freno está activo: todos operan en simulación hasta que se libere.",
     "change": "Modo: {{mode}}. Cambiarlo",
+    "menu": "Modos",
     "toLive": {
       "title": "¿Operar en vivo?",
       "body": "Se colocarán órdenes reales en sus exchanges con su capital, a partir de la próxima señal de apertura.",
@@ -243,6 +244,16 @@
       "years": "{{count}}a",
       "months": "{{count}}m",
       "days": "{{count}}d"
+    },
+    "enableDialog": {
+      "enableTitle": "¿Activar {{name}}?",
+      "enableBody": "{{name}} vuelve a abrir posiciones con sus próximas señales, para usted y para todos los que la operan.",
+      "disableTitle": "¿Desactivar {{name}}?",
+      "disableBody": "{{name}} no abre nada más, ni para usted ni para nadie que la opere. Una posición ya abierta se cierra igual con el próximo cierre de la estrategia.",
+      "cancel": "Cancelar",
+      "enable": "Activar",
+      "disable": "Desactivar",
+      "pending": "Guardando…"
     },
     "leave": {
       "confirmTitle": "¿Salir de {{name}}?",
