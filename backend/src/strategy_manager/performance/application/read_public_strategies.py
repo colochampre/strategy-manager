@@ -48,8 +48,8 @@ class ReadPublicStrategies:
     async def read_all(self) -> tuple[PublicStrategy, ...]:
         return await self._decorated(await self._source.listings())
 
-    async def read_one(self, strategy_id: UUID) -> PublicStrategy | None:
-        listing = await self._source.listing(strategy_id)
+    async def read_one(self, strategy_id: UUID, reader_id: UUID) -> PublicStrategy | None:
+        listing = await self._source.listing(strategy_id, reader_id)
         if listing is None:
             return None
         [strategy] = await self._decorated((listing,))

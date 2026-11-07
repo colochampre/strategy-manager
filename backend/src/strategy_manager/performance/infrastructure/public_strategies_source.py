@@ -1,16 +1,20 @@
 """``SqlAlchemyPublicStrategiesSource``: the read that crosses users on purpose
 (tasks.md F.4 and G.8, decisions 27, 30 and 34).
 
-**No method takes a user.** That is the difference from every other read of this
-module, and the reason each method names its columns: what is selected here is
-all that can leave. ``raw_payload``, the secret's columns and the e-mail are not
-in a statement at all.
+**No method selects by a user.** That is the difference from every other read of
+this module, and the reason each method names its columns: what is selected here
+is all that can leave. ``raw_payload``, the secret's columns and the e-mail are not
+in a statement at all. ``listing`` takes the reader only to test one thing, whether
+they hold a live seat (below); nothing of theirs is selected.
 
 **The list has one definition.** ``LISTED`` is what makes a strategy public:
-``PUBLIC``, not archived, and an author with a name. ``listings`` and ``listing``
-both read through it, so a strategy off the list is not reachable by its id. The
-open-positions read links to the public page through it too, so a link cannot lead
-to a page that answers 404.
+``PUBLIC``, plus ``READABLE`` (not archived, and an author with a name).
+``listings`` reads through it. ``listing`` reads through ``READABLE`` and asks for
+``PUBLIC`` or the reader's own live seat, not as its author (tasks.md J.1): a
+strategy turned private keeps its subscribers (decision 21), and the page is where
+their seat is managed. Any other strategy off the list is not reachable by its id.
+The open-positions read links to the public page through ``LISTED``, so a link
+cannot lead to a page that answers 404.
 
 **One statement each**, ``ANY`` over the ids, whatever their number. Nothing here
 locks or writes.
@@ -35,7 +39,7 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import Row, Select, func, select
+from sqlalchemy import Row, Select, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from strategy_manager.accounts.infrastructure.models import PoolBalanceSnapshotRow
@@ -54,14 +58,37 @@ from strategy_manager.strategies.infrastructure.models import StrategyRow
 from strategy_manager.subscriptions.domain.subscription import SubscriptionStatus
 from strategy_manager.subscriptions.infrastructure.models import SubscriptionRow
 
-LISTED = (
-    StrategyRow.visibility == Visibility.PUBLIC.value,
+#: Not archived, and an author with a name: what every page needs, whoever reads it.
+READABLE = (
     StrategyRow.archived_at.is_(None),
     UserRow.display_name.is_not(None),
 )
+LISTED = (StrategyRow.visibility == Visibility.PUBLIC.value, *READABLE)
+
+
+def _held_by(reader_id: UUID) -> Any:
+    """Whether ``reader_id`` holds a live seat (``ACTIVE`` or ``LEAVING``) on the
+    strategy of the row, and is not its author (tasks.md J.1). The author has their
+    own page, and a seat that has ended keeps nothing open."""
+    return (
+        select(SubscriptionRow.id)
+        .where(
+            SubscriptionRow.strategy_id == StrategyRow.id,
+            SubscriptionRow.user_id == reader_id,
+            SubscriptionRow.user_id != StrategyRow.author_id,
+            SubscriptionRow.status.in_(
+                (SubscriptionStatus.ACTIVE.value, SubscriptionStatus.LEAVING.value)
+            ),
+        )
+        .exists()
+    )
 
 
 def _listings_query() -> Select[Any]:
+    return _columns().where(*LISTED)
+
+
+def _columns() -> Select[Any]:
     return (
         select(
             StrategyRow.id,
@@ -74,7 +101,6 @@ def _listings_query() -> Select[Any]:
             StrategyRow.description,
         )
         .join(UserRow, UserRow.id == StrategyRow.author_id)
-        .where(*LISTED)
     )
 
 
@@ -103,9 +129,17 @@ class SqlAlchemyPublicStrategiesSource:
         )
         return [_listing(row) for row in rows]
 
-    async def listing(self, strategy_id: UUID) -> PublicListing | None:
+    async def listing(self, strategy_id: UUID, reader_id: UUID) -> PublicListing | None:
+        """A strategy on the list, or one turned private under the reader's own live
+        seat (tasks.md J.1). It never puts a private strategy on the list."""
         row = (
-            await self._session.execute(_listings_query().where(StrategyRow.id == strategy_id))
+            await self._session.execute(
+                _columns().where(
+                    StrategyRow.id == strategy_id,
+                    *READABLE,
+                    or_(StrategyRow.visibility == Visibility.PUBLIC.value, _held_by(reader_id)),
+                )
+            )
         ).one_or_none()
         return None if row is None else _listing(row)
 

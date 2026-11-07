@@ -9,7 +9,10 @@ hint or subscriber row can reach it, and
 
 **One 404.** A strategy that is private, archived, or of an unnamed author answers
 what an unknown id answers, to everyone and to its own author, who has their own
-page. Nobody can tell one of those from a strategy that does not exist.
+page. Nobody can tell one of those from a strategy that does not exist. The one
+exception is a strategy turned private, to a reader who holds a live seat on it: its
+page and record still answer them, since the page is where that seat is managed
+(tasks.md J.1, decision 21). It stays off the list.
 
 **A return the wire cannot write** answers that same 404, and leaves the list, with
 a log line. An alert's price is whatever its sender writes, so one strategy can
@@ -41,6 +44,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from pydantic_core import PydanticSerializationError
 
+from strategy_manager.identity.domain.user import User
 from strategy_manager.identity.infrastructure.dependencies import current_user
 from strategy_manager.performance.application.ports import PublicStrategiesSourcePort
 from strategy_manager.performance.application.read_public_record import ReadPublicRecord
@@ -77,6 +81,10 @@ def get_public_source(session: SnapshotSessionDep) -> PublicStrategiesSourcePort
 
 
 SourceDep = Annotated[PublicStrategiesSourcePort, Depends(get_public_source)]
+#: The signed-in reader: the page and the record of a strategy turned private still answer
+#: to a reader with a live seat on it (tasks.md J.1). The router's own dependency is the
+#: same call, which FastAPI resolves once per request.
+ReaderDep = Annotated[User, Depends(current_user)]
 
 
 class PublicStrategyBody(BaseModel):
@@ -193,9 +201,9 @@ class PublicRecordBody(BaseModel):
 
 @router.get("/{strategy_id}/record", response_model=PublicRecordBody, response_model_by_alias=True)
 async def read_public_record(
-    strategy_id: UUID, source: SourceDep, clock: ClockDep
+    strategy_id: UUID, source: SourceDep, clock: ClockDep, reader: ReaderDep
 ) -> PublicRecordBody:
-    report = await ReadPublicRecord(source, clock).read(strategy_id)
+    report = await ReadPublicRecord(source, clock).read(strategy_id, reader.id)
     if report is None:
         raise HTTPException(status_code=404, detail="no such strategy")
     body = PublicRecordBody.of(report)
@@ -211,8 +219,10 @@ async def read_public_record(
 
 
 @router.get("/{strategy_id}", response_model=PublicStrategyBody)
-async def read_public_strategy(strategy_id: UUID, source: SourceDep) -> PublicStrategyBody:
-    strategy = await _reader(source).read_one(strategy_id)
+async def read_public_strategy(
+    strategy_id: UUID, source: SourceDep, reader: ReaderDep
+) -> PublicStrategyBody:
+    strategy = await _reader(source).read_one(strategy_id, reader.id)
     if strategy is None or not _writable(strategy):
         raise HTTPException(status_code=404, detail="no such strategy")
     return _body(strategy)

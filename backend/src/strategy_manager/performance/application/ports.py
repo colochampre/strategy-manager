@@ -174,10 +174,15 @@ class PublicListing:
 
 
 class PublicStrategiesSourcePort(Protocol):
-    """The one read that crosses users on purpose (tasks.md F.4). It takes no
-    user, and it answers only strategies on the public list: ``PUBLIC``, not
-    archived, with a named author. A strategy that is not on it is absent, from
-    ``listing`` as well, so a caller cannot reach one by its id.
+    """The one read that crosses users on purpose (tasks.md F.4). ``listings``
+    answers only strategies on the public list: ``PUBLIC``, not archived, with a
+    named author.
+
+    ``listing`` is the one method that takes a user, the reader, and only to open
+    one more page: a strategy turned private still answers to a reader who holds a
+    live seat on it and is not its author (tasks.md J.1, decision 21), so the seat
+    keeps the page where its share, leverage and Leave are. Any other strategy off
+    the list is absent from it, so a caller cannot reach one by its id.
 
     Each method is ONE statement however many strategies it is asked about. A
     strategy with no real fill of its author or no seat is absent from those two
@@ -186,7 +191,7 @@ class PublicStrategiesSourcePort(Protocol):
 
     async def listings(self) -> Sequence[PublicListing]: ...
 
-    async def listing(self, strategy_id: UUID) -> PublicListing | None: ...
+    async def listing(self, strategy_id: UUID, reader_id: UUID) -> PublicListing | None: ...
 
     async def author_fills(
         self, strategy_ids: Sequence[UUID]
