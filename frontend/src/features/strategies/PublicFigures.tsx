@@ -1,4 +1,4 @@
-import { Calendar, ListChecks, TrendingUp, Users } from "lucide-react";
+import { Calendar, ListChecks, TrendingUp, Users, Wallet } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
@@ -106,6 +106,7 @@ export function StrategyFigures({ strategy, returnInfo, capitalInfo }: PublicFig
       />
       <Figure icon={Users} label={t("strategies.public.live")} testId="public-live" value={String(strategy.live_subscribers)} />
       <Figure
+        icon={Wallet}
         label={t("strategies.public.capital")}
         testId="public-capital"
         value={

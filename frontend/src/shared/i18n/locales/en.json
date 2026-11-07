@@ -274,7 +274,7 @@
       "trades": "closed trades",
       "return": "return, unleveraged, before fees",
       "live": "people trading it live",
-      "capital": "capital",
+      "capital": "capital the strategy trades with",
       "returnInfo": "How this return is read",
       "noRealTrade": "not yet",
       "returnHint": "Read from the fills of the trades its author made with real money and closed; simulated trades and subscribers' trades do not count. Trades open at the same time are added together and every other trade compounds on the ones before it, each taken as if the whole capital were on it. No leverage and no fees are counted, so nobody's real result matches it exactly.",

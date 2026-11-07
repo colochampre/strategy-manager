@@ -274,7 +274,7 @@
       "trades": "operaciones cerradas",
       "return": "rendimiento, sin apalancamiento y antes de comisiones",
       "live": "personas operándola en vivo",
-      "capital": "capital",
+      "capital": "capital con el que opera la estrategia",
       "returnInfo": "Cómo se calcula este rendimiento",
       "noRealTrade": "aún no",
       "returnHint": "Se calcula con las ejecuciones de las operaciones que su autor hizo con dinero real y cerró; no cuentan las operaciones simuladas ni las de los suscriptores. Las operaciones abiertas al mismo tiempo se suman y cada una de las demás se compone sobre las anteriores, y cada operación se toma como si todo el capital estuviera en ella. No cuenta apalancamiento ni comisiones, así que el resultado real de nadie coincide exactamente.",

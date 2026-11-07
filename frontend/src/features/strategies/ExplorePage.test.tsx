@@ -56,19 +56,15 @@ describe("Explore", () => {
     expect(within(row).getByRole("img", { name: i18n.t("strategies.public.return") })).toBeInTheDocument();
   });
 
-  it("draws the age, the closed trades, the return and who trades it live as icons that keep their names, and the capital as words", async () => {
+  it("draws every figure, the capital included (owner, 2026-11-06), as an icon that keeps its name", async () => {
     serve(() => Promise.resolve(jsonResponse([publicStrategy()])));
     open();
 
     const row = await screen.findByTestId("public-strategy-row");
-    for (const key of ["age", "trades", "return", "live"]) {
+    for (const key of ["age", "trades", "return", "live", "capital"]) {
       const term = within(row).getByTestId(`public-${key}`).previousElementSibling as HTMLElement;
       expect(within(term).getByRole("img", { name: i18n.t(`strategies.public.${key}`) })).toBeInTheDocument();
       expect(term).toHaveTextContent("");
-    }
-    for (const key of ["capital"]) {
-      const term = within(row).getByTestId(`public-${key}`).previousElementSibling as HTMLElement;
-      expect(term).toHaveTextContent(i18n.t(`strategies.public.${key}`));
     }
   });
 
@@ -115,6 +111,18 @@ describe("Explore", () => {
       expect(within(figure).getByRole("img")).toBeInTheDocument();
       expect(figure).toHaveClass("w-fit", "items-center");
     }
+  });
+
+  it("heads the capital with an icon like the other figures, explained as the capital the strategy trades with", async () => {
+    serve(() => Promise.resolve(jsonResponse([publicStrategy()])));
+    open();
+
+    const figure = (await screen.findByTestId("public-capital")).parentElement as HTMLElement;
+    const term = figure.querySelector("dt") as HTMLElement;
+    expect(within(term).getByRole("img", { name: "capital the strategy trades with" })).toBeInTheDocument();
+    expect(term.textContent).toBe("");
+    fireEvent.mouseEnter(within(term).getByRole("img").parentElement as HTMLElement);
+    expect(screen.getByRole("tooltip")).toHaveTextContent("capital the strategy trades with");
   });
 
   it("writes a long age in its two largest units", async () => {
