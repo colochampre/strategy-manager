@@ -23,10 +23,11 @@ The admin-only routes are out: each answers 403 to B, proven request by request 
 """
 
 import base64
+import hashlib
 import os
 from collections.abc import AsyncIterator, Mapping
 from dataclasses import dataclass, field, replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Annotated, Any
 from uuid import UUID, uuid4
@@ -93,12 +94,15 @@ KEY_HINT_OF_A = "QZXW"
 CLOSED_PAIR_OF_A = "SOLUSDT"
 OPEN_PAIR_OF_A = "STXUSDT"
 BALANCE_OF_A = "7654.32"
+#: The last four of A's invitation code, in Crockford's upper case.
+CODE_HINT_OF_A = "VRXT"
 
 PRIVATE = "the private strategy of A"
 PUBLIC = "the public strategy of A, where B holds a seat"
 CLOSED_TRADE = "a closed trade of A, on the public strategy"
 SEAT_OF_A = "the seat of A on the public strategy"
 ORDER_OF_A = "an order of A still in flight"
+CODE_OF_A = "a live invitation code of A, on the private strategy"
 
 
 class _Catalog:
@@ -155,6 +159,15 @@ PROBES: tuple[Probe, ...] = (
     Probe("POST", f"{_STRATEGY}/archive", _ON_PUBLIC),
     Probe("POST", f"{_STRATEGY}/webhook-secret", _ON_PUBLIC),
     Probe("PUT", f"{_STRATEGY}/allowed-pairs", _ON_PUBLIC, {"pairs": ["ETHUSDT"]}),
+    # A's invitation codes (decision 41): none made, listed or revoked by B.
+    Probe("POST", f"{_STRATEGY}/invite-codes", _ON_PRIVATE),
+    Probe("GET", f"{_STRATEGY}/invite-codes", _ON_PRIVATE),
+    Probe(
+        "DELETE",
+        f"{_STRATEGY}/invite-codes/{{code_id}}",
+        {"strategy_id": PRIVATE, "code_id": CODE_OF_A},
+        unknown=(PRIVATE, CODE_OF_A),
+    ),
     # What a stranger may see of a public strategy, asked of a private one.
     Probe("GET", f"{_STRATEGY}/share-preview", _ON_PRIVATE),
     # A private strategy has no public page for its own author either, nor for B, who
@@ -220,9 +233,17 @@ class World:
         page is for everybody. Nor is an id the probe itself sent: an answer may
         repeat what B typed, and the 404's own test decides what that gives away."""
         sent = [*probe.at.values(), *(probe.body or {}).values()]
-        secret = (PRIVATE, CLOSED_TRADE, SEAT_OF_A, ORDER_OF_A)
+        secret = (PRIVATE, CLOSED_TRADE, SEAT_OF_A, ORDER_OF_A, CODE_OF_A)
         ids = (self.ids[name] for name in secret if name not in sent)
-        traces = (*ids, KEY_HINT_OF_A, CLOSED_PAIR_OF_A, OPEN_PAIR_OF_A, BALANCE_OF_A, ADMIN_EMAIL)
+        traces = (
+            *ids,
+            KEY_HINT_OF_A,
+            CODE_HINT_OF_A,
+            CLOSED_PAIR_OF_A,
+            OPEN_PAIR_OF_A,
+            BALANCE_OF_A,
+            ADMIN_EMAIL,
+        )
         return tuple(trace for trace in traces if trace not in probe.shows)
 
 
@@ -318,8 +339,25 @@ async def _seed_the_rows_of_a(factory: Factory, a: UUID, b: UUID, b_pool: int) -
             text("UPDATE execution_attempts SET exchange_order_id = :order WHERE id = :id"),
             {"order": "1234567890123", "id": attempt},
         )
+        code = uuid4()
+        made = datetime.now(UTC)
+        await session.execute(
+            text(
+                "INSERT INTO invite_codes (id, strategy_id, code_hash, hint, created_at, "
+                "expires_at) VALUES (:id, :strategy, :hash, :hint, :made, :expires)"
+            ),
+            {
+                "id": code,
+                "strategy": private,
+                "hash": hashlib.sha256(code.bytes).hexdigest(),
+                "hint": CODE_HINT_OF_A,
+                "made": made,
+                "expires": made + timedelta(days=7),
+            },
+        )
         await session.commit()
     return {
+        CODE_OF_A: str(code),
         PRIVATE: str(private),
         PUBLIC: str(public),
         CLOSED_TRADE: str(closed),

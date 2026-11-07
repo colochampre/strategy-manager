@@ -64,6 +64,9 @@ SCOPED_TO_THE_SIGNED_IN_USER = {
     ("PUT", "/api/strategies/{strategy_id}/allowed-pairs"),
     ("POST", "/api/strategies/{strategy_id}/archive"),
     ("POST", "/api/strategies/{strategy_id}/webhook-secret"),
+    ("POST", "/api/strategies/{strategy_id}/invite-codes"),
+    ("GET", "/api/strategies/{strategy_id}/invite-codes"),
+    ("DELETE", "/api/strategies/{strategy_id}/invite-codes/{code_id}"),
     ("GET", "/api/pools/{exchange}/{venue}/{settlement_currency}/available-pairs"),
     # The one read that crosses users on purpose (tasks.md F.4). They answer no
     # user's rows: only what a public strategy shows to everyone signed in.

@@ -133,15 +133,54 @@ class PoolCatalogPort(Protocol):
 
 
 class AuthorHasNoDisplayName(DomainError):
-    """A strategy cannot turn public until its author has chosen a name: the public
-    list names its author, and never by e-mail (decision 27)."""
+    """A strategy cannot be offered to anyone until its author has chosen a name: its
+    page names its author, and never by e-mail (decisions 27 and 41). So it turns
+    PUBLIC or LINK, and takes an invitation code, only then."""
 
     def __init__(self) -> None:
-        super().__init__("a strategy turns public once its author has chosen a display name")
+        super().__init__(
+            "a strategy is offered to others once its author has chosen a display name"
+        )
 
 
 class AuthorNamesPort(Protocol):
     async def has_display_name(self, user_id: UUID) -> bool: ...
+
+
+@dataclass(frozen=True, slots=True)
+class ListedCode:
+    """A live invitation code as its author's list shows it: never the code, only
+    its id, the last four characters and when it expires (decision 41)."""
+
+    id: UUID
+    hint: str
+    expires_at: datetime
+
+
+class InviteCodesPort(Protocol):
+    """A strategy's invitation codes (decision 41). Writes flush and never commit.
+
+    A code is live while it is neither revoked nor redeemed and ``now`` is before its
+    expiry; ``now`` is always the caller's, so the adapter reads no clock."""
+
+    async def add(
+        self,
+        code_id: UUID,
+        strategy_id: UUID,
+        code_hash: str,
+        hint: str,
+        created_at: datetime,
+        expires_at: datetime,
+    ) -> None: ...
+
+    async def live(self, strategy_id: UUID, now: datetime) -> list[ListedCode]:
+        """The live codes of ``strategy_id``, oldest first."""
+        ...
+
+    async def revoke_live(self, strategy_id: UUID, code_id: UUID, now: datetime) -> str | None:
+        """Revokes ``code_id`` if it is a live code of ``strategy_id``, in one
+        statement, and answers its hint; otherwise changes nothing and answers None."""
+        ...
 
 
 class AuthorSubscriptionPort(Protocol):

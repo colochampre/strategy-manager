@@ -51,7 +51,9 @@ from strategy_manager.strategies.domain.pair_catalog import (
     UnknownPairs,
     unknown_pairs,
 )
+from strategy_manager.strategies.domain.share_token import new_share_token
 from strategy_manager.strategies.domain.strategy import (
+    NEEDS_A_NAMED_AUTHOR,
     AllocationPercent,
     AllocationPolicy,
     FillMode,
@@ -163,7 +165,7 @@ class RegisterStrategy:
                 "so two strategies sharing one means an alert is misconfigured."
             )
 
-        if command.visibility is Visibility.PUBLIC and not (
+        if command.visibility in NEEDS_A_NAMED_AUTHOR and not (
             await self._author_names.has_display_name(command.author_id)
         ):
             raise AuthorHasNoDisplayName
@@ -198,12 +200,11 @@ class RegisterStrategy:
                 fill_mode=command.fill_mode,
             ),
             author_id=command.author_id,
-            visibility=command.visibility,
             allowed_pairs=allowed_pairs,
             description=command.description,
             # Registered, not armed. Enabling is a separate, deliberate call.
             enabled=False,
-        )
+        ).with_visibility(command.visibility, new_share_token)
 
         # Only the hash and the last four are stored; the plain secret leaves in the
         # return value, once, and is never logged (tasks.md D.3, H.1).

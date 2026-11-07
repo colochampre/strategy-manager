@@ -128,6 +128,8 @@ _NO_BODY = {
     ("POST", "/api/strategies/{strategy_id}/archive"),
     REGENERATE,
     ("POST", "/api/subscriptions/{subscription_id}/leave"),
+    ("POST", "/api/strategies/{strategy_id}/invite-codes"),
+    ("DELETE", "/api/strategies/{strategy_id}/invite-codes/{code_id}"),
 }
 
 
@@ -259,6 +261,19 @@ async def test_no_api_response_carries_a_secret_or_a_hash_except_the_two_that_is
                 "AND settlement_currency = 'USDT'"
             ),
             {"id": subscription_id, "user": admin, "strategy": strategy_id},
+        )
+        # A live invitation code, so the author's list of codes is not empty.
+        await session.execute(
+            text(
+                "INSERT INTO invite_codes (id, strategy_id, code_hash, hint, created_at, "
+                "expires_at) VALUES (:id, :strategy, :hash, 'SWPC', now(), "
+                "now() + interval '7 days')"
+            ),
+            {
+                "id": uuid4(),
+                "strategy": strategy_id,
+                "hash": secret_hash("a code of the sweep"),
+            },
         )
         await session.commit()
     await _snapshot(factory, "bybit", "usdt-m", "USDT", total="1000", available="800")

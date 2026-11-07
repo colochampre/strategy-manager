@@ -76,8 +76,16 @@ from strategy_manager.strategies.application.delete_strategy import (
     DeleteStrategy,
     StrategyHasHistory,
 )
+from strategy_manager.strategies.application.invite_codes import (
+    IssueInviteCode,
+    ListInviteCodes,
+    RevokeInviteCode,
+    StrategyNotPrivate,
+    UnknownInviteCode,
+)
 from strategy_manager.strategies.application.ports import (
     AuthorHasNoDisplayName,
+    ListedCode,
     PairCatalogPort,
     SubscriberCounts,
 )
@@ -129,6 +137,7 @@ from strategy_manager.strategies.infrastructure.exposure_adapter import (
     StrategyExposureAdapter,
 )
 from strategy_manager.strategies.infrastructure.history_adapter import StrategyHistoryAdapter
+from strategy_manager.strategies.infrastructure.invite_codes_adapter import SqlAlchemyInviteCodes
 from strategy_manager.strategies.infrastructure.pair_catalog_router import get_pair_catalog
 from strategy_manager.strategies.infrastructure.pool_catalog import (
     SqlAlchemyPoolCatalog,
@@ -213,6 +222,9 @@ class StrategyView(BaseModel):
     fill_mode: FillMode
     enabled: bool
     visibility: Visibility
+    # The link's token while LINK, else null (decision 41). Only the author reads
+    # this view, and the link is theirs to pass on.
+    share_token: str | None
     archived_at: datetime | None
     allowed_pairs: list[str]
     uptime: UptimeView
@@ -252,6 +264,7 @@ class StrategyView(BaseModel):
             fill_mode=strategy.policy.fill_mode,
             enabled=strategy.enabled,
             visibility=strategy.visibility,
+            share_token=strategy.share_token,
             archived_at=strategy.archived_at,
             allowed_pairs=strategy.allowed_pairs.sorted(),
             uptime=UptimeView.of(uptime_value),
@@ -276,7 +289,25 @@ class WebhookSecretView(BaseModel):
     webhook_secret: str
 
 
-# Neither answer may be kept by the browser or an intermediary: each carries a secret.
+class InviteCodeView(BaseModel):
+    """A live invitation code in its author's list: no code, only its last four."""
+
+    id: UUID
+    hint: str
+    expires_at: datetime
+
+    @classmethod
+    def of(cls, listed: ListedCode) -> "InviteCodeView":
+        return cls(id=listed.id, hint=listed.hint, expires_at=listed.expires_at)
+
+
+class IssuedInviteCodeView(InviteCodeView):
+    """A code just made, shown once as ``XXXX-XXXX``: only its hash is stored."""
+
+    code: str
+
+
+# No answer carrying a secret or a code may be kept by the browser or an intermediary.
 _NO_STORE = {"Cache-Control": "no-store"}
 
 
@@ -332,17 +363,6 @@ def _stored_description(value: str | None) -> str | None:
 #: blank one made null) or refused with a 422.
 Description = Annotated[str | None, AfterValidator(_stored_description)]
 
-def _writable_visibility(value: Visibility) -> Visibility:
-    if value is Visibility.LINK:
-        # A ``ValueError`` is what the 422 handler answers, with its fixed message.
-        raise ValueError("a strategy turns LINK only with a link, which is not offered yet")
-    return value
-
-
-#: A visibility the API writes today. ``LINK`` needs a token made with it, which
-#: tasks.md K.3 adds; until then it is refused as any value the API does not take.
-WritableVisibility = Annotated[Visibility, AfterValidator(_writable_visibility)]
-
 #: The author's seat's leverage as the API takes it: a JSON integer from 1 to the
 #: cap, strict, as ``POST /api/subscriptions`` takes a subscriber's (decision 38).
 LeverageInput = Annotated[int, Field(strict=True, ge=1, le=MAX_LEVERAGE)]
@@ -362,7 +382,7 @@ class RegisterRequest(BaseModel):
     allocation_percent: Share
     allowed_pairs: list[str] = Field(min_length=1)
     # Nothing turns public without the author's choice (decision 21).
-    visibility: WritableVisibility = Visibility.PRIVATE
+    visibility: Visibility = Visibility.PRIVATE
     description: Description = None
     # The author's seat's, like the share above; it starts at 1x unless chosen.
     leverage: LeverageInput = NEW_SEAT_LEVERAGE.value
@@ -378,7 +398,7 @@ class UpdateRequest(BaseModel):
     name: str | None = Field(default=None, min_length=1)
     fill_mode: FillMode | None = None
     enabled: bool | None = None
-    visibility: WritableVisibility | None = None
+    visibility: Visibility | None = None
     # Unlike the fields above, null here clears it; leaving it out keeps it.
     description: Description = None
     # The share is each subscriber's now (``PATCH /api/subscriptions/{id}``). A body
@@ -730,6 +750,83 @@ async def regenerate_webhook_secret(
         ) from exc
     response.headers.update(_NO_STORE)
     return WebhookSecretView(webhook_secret=secret)
+
+
+@router.post(
+    "/{strategy_id}/invite-codes", response_model=IssuedInviteCodeView, status_code=201
+)
+async def issue_invite_code(
+    strategy_id: UUID,
+    session: SessionDep,
+    user: CurrentUserDep,
+    response: Response,
+) -> IssuedInviteCodeView:
+    """Makes a single-use code for one of the author's PRIVATE strategies (decision
+    41), valid 7 days, and shows it this once. Another user's strategy is a 404."""
+    use_case = IssueInviteCode(
+        repository=_own(session, user),
+        codes=SqlAlchemyInviteCodes(session),
+        author_names=SqlAlchemyAuthorNames(session),
+        commit=session,
+        clock=SystemClock(),
+    )
+    try:
+        issued = await use_case.issue(strategy_id)
+    except UnknownStrategy as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except StrategyArchived as exc:
+        raise HTTPException(
+            status_code=409, detail={"error": "STRATEGY_ARCHIVED", "message": str(exc)}
+        ) from exc
+    except StrategyNotPrivate as exc:
+        raise HTTPException(
+            status_code=409, detail={"error": "STRATEGY_NOT_PRIVATE", "message": str(exc)}
+        ) from exc
+    except AuthorHasNoDisplayName as exc:
+        raise _no_display_name(exc) from exc
+    response.headers.update(_NO_STORE)
+    return IssuedInviteCodeView(
+        id=issued.id,
+        code=issued.code.display,
+        hint=issued.code.hint,
+        expires_at=issued.expires_at,
+    )
+
+
+@router.get("/{strategy_id}/invite-codes", response_model=list[InviteCodeView])
+async def list_invite_codes(
+    strategy_id: UUID, session: SessionDep, user: CurrentUserDep
+) -> list[InviteCodeView]:
+    """The author's live codes for this strategy, oldest first, with no code in them."""
+    use_case = ListInviteCodes(
+        repository=_own(session, user), codes=SqlAlchemyInviteCodes(session), clock=SystemClock()
+    )
+    try:
+        listed = await use_case.list(strategy_id)
+    except UnknownStrategy as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return [InviteCodeView.of(each) for each in listed]
+
+
+@router.delete("/{strategy_id}/invite-codes/{code_id}", status_code=204)
+async def revoke_invite_code(
+    strategy_id: UUID, code_id: UUID, session: SessionDep, user: CurrentUserDep
+) -> Response:
+    """Revokes a live code of the author's strategy; its row is kept. A code that is
+    not live, or not this strategy's, is a 404: there is nothing to revoke."""
+    use_case = RevokeInviteCode(
+        repository=_own(session, user),
+        codes=SqlAlchemyInviteCodes(session),
+        commit=session,
+        clock=SystemClock(),
+    )
+    try:
+        await use_case.revoke(strategy_id, code_id)
+    except UnknownStrategy as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except UnknownInviteCode as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return Response(status_code=204)
 
 
 @router.get("", response_model=list[StrategyView])

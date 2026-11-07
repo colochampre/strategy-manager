@@ -14,6 +14,7 @@ from strategy_manager.strategies.domain.strategy import (
     AllocationPolicy,
     FillMode,
     Strategy,
+    Visibility,
 )
 from tests.owner import OWNER_ID
 
@@ -99,3 +100,84 @@ def test_allocation_percent_requires_a_decimal() -> None:
 def test_the_share_is_not_part_of_the_allocation_policy() -> None:
     """The share belongs to a subscription (migration 0033, tasks.md D.1)."""
     assert "allocation_percent" not in AllocationPolicy.__dataclass_fields__
+
+
+# --- the link's token (decision 41; tasks.md K.3) ----------------------------------
+
+_TOKEN = "t" * 43
+_OTHER_TOKEN = "u" * 43
+
+
+def _shared(visibility: Visibility, token: str | None = None) -> Strategy:
+    policy = AllocationPolicy(
+        exchange=Exchange.BYBIT,
+        venue=Venue.USDT_M,
+        settlement_currency=Currency.USDT,
+        fill_mode=FillMode.PARTIAL,
+    )
+    return Strategy(
+        id=uuid4(),
+        name="shared",
+        policy=policy,
+        author_id=OWNER_ID,
+        visibility=visibility,
+        share_token=token,
+    )
+
+
+def test_a_link_strategy_holds_its_token() -> None:
+    assert _shared(Visibility.LINK, _TOKEN).share_token == _TOKEN
+
+
+def test_a_link_strategy_without_a_token_is_refused() -> None:
+    with pytest.raises(InvariantViolation):
+        _shared(Visibility.LINK)
+
+
+@pytest.mark.parametrize("visibility", [Visibility.PUBLIC, Visibility.PRIVATE])
+def test_only_a_link_strategy_holds_a_token(visibility: Visibility) -> None:
+    with pytest.raises(InvariantViolation):
+        _shared(visibility, _TOKEN)
+
+
+def test_a_token_of_the_wrong_shape_is_refused() -> None:
+    with pytest.raises(InvariantViolation):
+        _shared(Visibility.LINK, "short")
+
+
+def test_the_token_never_shows_in_the_repr() -> None:
+    assert _TOKEN not in repr(_shared(Visibility.LINK, _TOKEN))
+
+
+@pytest.mark.parametrize("before", [Visibility.PUBLIC, Visibility.PRIVATE])
+def test_turning_link_makes_a_new_token(before: Visibility) -> None:
+    turned = _shared(before).with_visibility(Visibility.LINK, lambda: _TOKEN)
+
+    assert (turned.visibility, turned.share_token) == (Visibility.LINK, _TOKEN)
+
+
+def test_staying_link_keeps_the_token_and_makes_none() -> None:
+    def never() -> str:
+        raise AssertionError("no new token while the strategy stays LINK")
+
+    kept = _shared(Visibility.LINK, _TOKEN).with_visibility(Visibility.LINK, never)
+
+    assert kept.share_token == _TOKEN
+
+
+@pytest.mark.parametrize("after", [Visibility.PUBLIC, Visibility.PRIVATE])
+def test_leaving_link_drops_the_token(after: Visibility) -> None:
+    left = _shared(Visibility.LINK, _TOKEN).with_visibility(after, lambda: _OTHER_TOKEN)
+
+    assert (left.visibility, left.share_token) == (after, None)
+
+
+def test_coming_back_to_link_makes_another_token() -> None:
+    tokens = iter([_OTHER_TOKEN])
+    back = (
+        _shared(Visibility.LINK, _TOKEN)
+        .with_visibility(Visibility.PRIVATE, lambda: next(tokens))
+        .with_visibility(Visibility.LINK, lambda: next(tokens))
+    )
+
+    assert back.share_token == _OTHER_TOKEN

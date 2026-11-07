@@ -7,6 +7,7 @@ included. Same bare app, real ``current_user`` and real PostgreSQL as
 ``test_strategy_authoring_scope.py``, whose world it reuses.
 """
 
+import re
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -136,6 +137,24 @@ async def test_a_public_strategy_of_an_unnamed_author_stays_editable(
     assert response.json()["name"] == "renamed"
 
 
+async def test_a_patch_resending_the_visibility_a_strategy_holds_asks_no_name(
+    world: World,  # noqa: F811
+) -> None:
+    """The name is asked on turning PUBLIC or LINK, not on staying so: a form that
+    sends back the visibility it read still saves for an unnamed author."""
+    strategy_id = await _create(world, ADMIN_HEADERS)
+    async with world.factory() as session:
+        await session.execute(
+            text("UPDATE strategies SET visibility = 'PUBLIC' WHERE id = :id"), {"id": strategy_id}
+        )
+        await session.commit()
+
+    response = await _patch(world, strategy_id, {"visibility": "PUBLIC", "name": "renamed"})
+
+    assert response.status_code == 200, response.text
+    assert (response.json()["visibility"], response.json()["name"]) == ("PUBLIC", "renamed")
+
+
 async def test_an_invalid_visibility_is_a_422_on_create_and_on_patch(
     world: World,  # noqa: F811
 ) -> None:
@@ -147,21 +166,100 @@ async def test_an_invalid_visibility_is_a_422_on_create_and_on_patch(
     assert await _stored_visibility(world, strategy_id) == "PRIVATE"
 
 
-async def test_link_is_not_yet_a_visibility_the_api_writes(
+# --- shared by a link (decision 41; tasks.md K.3) ------------------------------------
+
+TOKEN_SHAPE = re.compile(r"[A-Za-z0-9_-]{43}")
+
+
+async def _stored_token(world: World, strategy_id: UUID) -> str | None:  # noqa: F811
+    async with world.factory() as session:
+        found = (
+            await session.execute(
+                text("SELECT share_token FROM strategies WHERE id = :id"), {"id": strategy_id}
+            )
+        ).scalar_one()
+    return None if found is None else str(found)
+
+
+async def test_a_strategy_created_with_a_link_carries_its_token_to_its_author(
     world: World,  # noqa: F811
 ) -> None:
-    """``LINK`` exists in the domain and the database (decision 41), but a strategy
-    turns LINK only with a token, which tasks.md K.3 makes. Until then the API
-    refuses it as it refuses any value it does not take, and writes nothing."""
     await _name(world, world.admin_id)
+
+    response = await _post_create(world, ADMIN_HEADERS, visibility="LINK")
+
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert body["visibility"] == "LINK"
+    assert TOKEN_SHAPE.fullmatch(body["share_token"])
+    assert await _stored_token(world, UUID(body["id"])) == body["share_token"]
+
+
+async def test_turning_link_makes_a_token_every_read_shows_and_staying_link_keeps_it(
+    world: World,  # noqa: F811
+) -> None:
+    await _name(world, world.admin_id)
+    strategy_id = await _create(world, ADMIN_HEADERS)
+
+    turned = await _patch(world, strategy_id, {"visibility": "LINK"})
+    renamed = await _patch(world, strategy_id, {"name": "renamed while shared"})
+    detail = await world.client.get(f"/strategies/{strategy_id}", headers=ADMIN_HEADERS)
+    listed = await world.client.get("/strategies", headers=ADMIN_HEADERS)
+
+    token = turned.json()["share_token"]
+    assert turned.status_code == 200, turned.text
+    assert TOKEN_SHAPE.fullmatch(token)
+    assert renamed.json()["share_token"] == token
+    assert detail.json()["share_token"] == token
+    assert [each["share_token"] for each in listed.json() if each["id"] == str(strategy_id)] == [
+        token
+    ]
+    assert await _stored_token(world, strategy_id) == token
+
+
+@pytest.mark.parametrize("after", ["PUBLIC", "PRIVATE"])
+async def test_leaving_link_kills_the_token_and_coming_back_makes_another(
+    world: World,  # noqa: F811
+    after: str,
+) -> None:
+    await _name(world, world.admin_id)
+    strategy_id = await _create(world, ADMIN_HEADERS)
+    first = (await _patch(world, strategy_id, {"visibility": "LINK"})).json()["share_token"]
+
+    left = await _patch(world, strategy_id, {"visibility": after})
+    back = await _patch(world, strategy_id, {"visibility": "LINK"})
+
+    assert left.json()["share_token"] is None
+    second = back.json()["share_token"]
+    assert TOKEN_SHAPE.fullmatch(second)
+    assert second != first
+    assert await _stored_token(world, strategy_id) == second
+
+
+async def test_a_strategy_that_is_not_link_shows_no_token(
+    world: World,  # noqa: F811
+) -> None:
+    strategy_id = await _create(world, ADMIN_HEADERS)
+
+    detail = await world.client.get(f"/strategies/{strategy_id}", headers=ADMIN_HEADERS)
+
+    assert detail.json()["share_token"] is None
+
+
+async def test_turning_link_with_no_name_is_a_409_and_changes_nothing(
+    world: World,  # noqa: F811
+) -> None:
+    """A link opens a page that names its author, as the public list does (decision 27)."""
     refused_id = uuid4()
     created = await _post_create(world, ADMIN_HEADERS, strategy_id=refused_id, visibility="LINK")
     strategy_id = await _create(world, ADMIN_HEADERS)
+    before = await _row(world, strategy_id)
     patched = await _patch(world, strategy_id, {"visibility": "LINK"})
 
-    assert (created.status_code, patched.status_code) == (422, 422)
+    assert (created.status_code, patched.status_code) == (409, 409)
+    assert patched.json()["detail"]["error"] == "AUTHOR_HAS_NO_DISPLAY_NAME"
     assert await _row(world, refused_id) is None
-    assert await _stored_visibility(world, strategy_id) == "PRIVATE"
+    assert await _row(world, strategy_id) == before
 
 
 async def test_the_author_changes_the_visibility_and_every_read_shows_it(
