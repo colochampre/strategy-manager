@@ -72,6 +72,7 @@ function ReportTop({ pool, report, range, asOf, onRangeChange }: ReportTopProps)
       <ReportSection>
         <ReturnChart
           curve={report.curve}
+          origin={report.origin ?? null}
           range={range}
           asOf={asOf}
           headerAction={<RangeSelector value={range} onChange={onRangeChange} />}

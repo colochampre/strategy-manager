@@ -25,7 +25,10 @@ export function TopBar() {
   return (
     <header className="shrink-0 border-b border-rule bg-panel">
       <div className="flex h-14 items-center gap-4 px-4 lg:h-16 lg:gap-8 lg:px-7">
-        <span className="font-display text-base font-semibold text-ink">{t("app.name")}</span>
+        {/* From lg the brand's box is fixed, so the tabs start just past the side bar whatever the font draws:
+            1.75rem of padding, 9.5rem of brand and 2rem of gap make 13.25rem, the side bar's 13rem (SideNav) plus
+            4px. A fixed box, not a wider gap: a gap adds to the text's own width, which the font decides. */}
+        <span className="font-display text-base font-semibold text-ink lg:w-38 lg:shrink-0">{t("app.name")}</span>
         {scoped && <ExchangeTabs className="hidden lg:flex" />}
         <div className="ml-auto flex min-w-0 items-center gap-3">
           {signedInAs !== undefined && (

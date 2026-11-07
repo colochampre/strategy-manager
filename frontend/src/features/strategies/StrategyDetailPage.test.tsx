@@ -206,8 +206,12 @@ describe("StrategyDetailPage", () => {
     await heading("ETH Breakout");
 
     fireEvent.click(screen.getByRole("button", { name: i18n.t("strategies.detail.disable") }));
+    // It asks first (owner, 2026-11-06): nothing is sent until the question is confirmed.
+    const dialog = await screen.findByRole("dialog", { name: "Disable ETH Breakout?" });
+    expect(bodies).toEqual([]);
+    fireEvent.click(within(dialog).getByRole("button", { name: i18n.t("strategies.enableDialog.disable") }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent(i18n.t("strategies.row.toggleError"));
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(i18n.t("strategies.row.toggleError"));
     expect(bodies).toEqual([{ enabled: false }]);
   });
 
@@ -507,7 +511,8 @@ describe("StrategyDetailPage", () => {
     expect(share.compareDocumentPosition(leverage) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     const pairs = within(settings).getByRole("list", { name: en.strategies.pairs.selected });
     expect(leverage.compareDocumentPosition(pairs) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(within(settings).getByRole("button", { name: en.strategies.leverage.save })).toBeDisabled();
+    const leverageRegion = within(settings).getByRole("region", { name: en.strategies.leverage.label });
+    expect(within(leverageRegion).getByRole("button", { name: en.strategies.leverage.save })).toBeDisabled();
   });
 
   it("puts the description editor in the settings column after the leverage, and saves only the description", async () => {
@@ -527,7 +532,8 @@ describe("StrategyDetailPage", () => {
     expect(leverage.compareDocumentPosition(description) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
     fireEvent.change(description, { target: { value: "Runs at 5x" } });
-    fireEvent.click(within(settings).getByRole("button", { name: en.strategies.description.save }));
+    const descriptionRegion = within(settings).getByRole("region", { name: en.strategies.description.label });
+    fireEvent.click(within(descriptionRegion).getByRole("button", { name: en.strategies.description.save }));
 
     await waitFor(() => expect(patched).toEqual([{ description: "Runs at 5x" }]));
   });
@@ -557,7 +563,8 @@ describe("StrategyDetailPage", () => {
     expect(slider).toBeDisabled();
     expect(within(settings).getByRole("textbox", { name: en.strategies.detail.share.label })).toBeDisabled();
     expect(within(settings).getByRole("textbox", { name: en.strategies.detail.share.label })).toHaveValue("37.5");
-    expect(within(settings).getByRole("button", { name: en.strategies.detail.share.save })).toBeDisabled();
+    const shareRegion = within(settings).getByRole("region", { name: en.strategies.detail.share.label });
+    expect(within(shareRegion).getByRole("button", { name: en.strategies.detail.share.save })).toBeDisabled();
     expect(within(settings).getByRole("button", { name: i18n.t("strategies.detail.share.stop", { value: 25 }) })).toBeDisabled();
   });
 
@@ -645,9 +652,9 @@ describe("StrategyDetailPage", () => {
       ].sort();
 
     expect(newKeys(es)).toEqual(newKeys(en));
-    // 27 share texts (with the subscription's not-active, leaving and none, and the start hint), "Saved", six
-    // webhook texts and the Win rate heading.
-    expect(newKeys(en)).toHaveLength(27 + 1 + 6 + 1);
+    // 28 share texts (with the subscription's not-active, leaving and none, the start hint and the notional
+    // line), "Saved", six webhook texts and the Win rate heading.
+    expect(newKeys(en)).toHaveLength(28 + 1 + 6 + 1);
     for (const key of newKeys(en)) {
       expect(i18n.exists(key, { lng: "en" })).toBe(true);
       // Without the fallback to English, so a Spanish key that was deleted is not found.

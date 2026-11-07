@@ -28,6 +28,20 @@ describe("fetchPoolPerformance", () => {
     expect(String(fetchMock.mock.calls[0]?.[0])).toMatch(/\/performance\/pools\/bybit\/linear\/USDT$/);
   });
 
+  it("reads the origin, and a report from an API that does not serve it yet as one without", async () => {
+    respond(200, { ...emptyPerformance("bybit", "linear", "USDT"), origin: "2026-09-03" });
+    expect((await fetchPoolPerformance("bybit", "linear", "USDT"))?.origin).toBe("2026-09-03");
+
+    const { origin: _origin, ...older } = { ...emptyPerformance("bybit", "linear", "USDT"), origin: null };
+    respond(200, older);
+    expect((await fetchPoolPerformance("bybit", "linear", "USDT"))?.currency).toBe("USDT");
+  });
+
+  it("refuses a report whose origin is not a date string or null", async () => {
+    respond(200, { ...emptyPerformance("bybit", "linear", "USDT"), origin: 20260903 });
+    await expect(fetchPoolPerformance("bybit", "linear", "USDT")).rejects.toThrow();
+  });
+
   it("escapes the path segments", async () => {
     const fetchMock = respond(200, emptyPerformance("a b", "c/d", "USDT"));
 

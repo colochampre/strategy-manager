@@ -9,11 +9,13 @@ import {
   linePath,
   monthTicks,
   sliceAndRebase,
+  spanTicks,
   tickValues,
   timeScale,
   utcDate,
   waterlineScale,
   windowStartDate,
+  withOrigin,
 } from "@/shared/charts/scale";
 import type { IndexDay } from "@/shared/charts/scale";
 import { useElementWidth } from "@/shared/charts/useElementWidth";
@@ -28,7 +30,26 @@ interface ReturnChartProps {
   headerAction?: ReactNode;
   /** Replaces the Overview's title (already translated), for a chart of one strategy. */
   title?: string;
+  /**
+   * The UTC day the first trade opened, where the curve starts at 0 (decision 36);
+   * `null` or absent draws the curve from its first close.
+   */
+  origin?: string | null;
+  /**
+   * A day to mark with a vertical line and its label (already translated): the day a reader's seat began.
+   * It is drawn only when the day falls inside the drawn window, from its start to today.
+   */
+  marker?: ChartMarker | null;
 }
+
+export interface ChartMarker {
+  /** A UTC `YYYY-MM-DD` day. */
+  date: string;
+  label: string;
+}
+
+/** The marker's label is about this wide; past it the label is written to the line's left. */
+const MARKER_LABEL_WIDTH = 120;
 
 /**
  * The drawing is laid out in real pixels: the `viewBox` is the measured width of
@@ -51,8 +72,17 @@ const WATER_RATIO = 0.62;
 const MONTH_LABEL_Y = 274;
 /** Month labels closer than this many units to the previous one are dropped. */
 const MIN_LABEL_GAP = 28;
+/** The All range's two end labels are written as days, wider than a month: a date between keeps this far from them. */
+const END_LABEL_GAP = 40;
 
 type TickKind = "day" | "week" | "month";
+
+interface AxisLabel {
+  date: string;
+  x: number;
+  /** A month start is written as its month; every other date as its day. */
+  kind: "day" | "month";
+}
 
 interface RangeWindow {
   /** The window length in days, as the server counts it; `null` is the whole curve. */
@@ -101,7 +131,15 @@ function percentLabel(ratio: number): string {
   return "0%";
 }
 
-export function ReturnChart({ curve, range, asOf, headerAction = null, title }: ReturnChartProps) {
+export function ReturnChart({
+  curve,
+  range,
+  asOf,
+  headerAction = null,
+  title,
+  origin = null,
+  marker = null,
+}: ReturnChartProps) {
   const { t, i18n } = useTranslation();
   const [measure, measuredWidth] = useElementWidth<HTMLDivElement>(DEFAULT_WIDTH);
   const viewWidth = Math.max(MIN_WIDTH, measuredWidth);
@@ -109,7 +147,7 @@ export function ReturnChart({ curve, range, asOf, headerAction = null, title }: 
   const series = readCurve(curve);
   const rangeWindow = RANGE_WINDOWS[range];
   const from = rangeWindow.days === null ? null : windowStartDate(asOf, rangeWindow.days);
-  const days = series === null ? null : sliceAndRebase(series, from);
+  const days = series === null ? null : withOrigin(sliceAndRebase(series, from), origin, from);
 
   // The title with its caption beneath on the left, the action (the range selector) on the right:
   // the caption costs no row of its own because the 44 px selector is taller than the two lines.
@@ -142,8 +180,11 @@ export function ReturnChart({ curve, range, asOf, headerAction = null, title }: 
   const toY = (ratio: number) => TOP + scale.y(ratio);
   const waterY = toY(0);
 
-  // A bounded range runs on its own window, so a quiet stretch at either end shows as empty space.
-  const domain = from === null ? days.map((day) => day.date) : [from, utcDate(asOf)];
+  // Every range runs to today, so a quiet stretch since the last close shows as empty space; a
+  // bounded one also starts on its own window, the whole curve on its first day (its origin).
+  const today = utcDate(asOf);
+  const start = from ?? days[0]?.date ?? null;
+  const domain = start === null ? [] : [start, today];
   const x = timeScale(domain, LEFT, right);
   const curvePoints = days.map((day) => ({ x: x(day.date), y: toY(day.cumulative) }));
   const drawdownPoints = days.map((day) => ({ x: x(day.date), y: toY(day.drawdown) }));
@@ -158,30 +199,54 @@ export function ReturnChart({ curve, range, asOf, headerAction = null, title }: 
   ];
 
   const locale = i18n.resolvedLanguage ?? "en";
-  const axisFormat = new Intl.DateTimeFormat(
-    locale,
-    rangeWindow.ticks === "month" ? MONTH_FORMAT_OPTIONS : DAY_FORMAT_OPTIONS,
-  );
-  const tickDates =
-    rangeWindow.ticks === "month"
-      ? monthTicks(domain).map((tick) => tick.date)
-      : from === null
-        ? []
-        : dayTicks(from, utcDate(asOf), rangeWindow.ticks === "day" ? 1 : 7);
-  let previousX = Number.NEGATIVE_INFINITY;
-  const labels = tickDates.flatMap((date) => {
-    const tickX = x(date);
-    if (tickX - previousX < MIN_LABEL_GAP) return [];
-    previousX = tickX;
-    return [{ date, x: tickX }];
-  });
-  const labelTestId = rangeWindow.ticks === "month" ? "month-label" : "day-label";
+  const dayFormat = new Intl.DateTimeFormat(locale, DAY_FORMAT_OPTIONS);
+  const monthFormat = new Intl.DateTimeFormat(locale, MONTH_FORMAT_OPTIONS);
+  const labels = from === null ? wholeCurveLabels(start, today) : windowLabels(from, today);
+
+  /** A bounded window: its ticks, each closer than the gap to the previous one dropped. */
+  function windowLabels(windowStart: string, end: string): AxisLabel[] {
+    const kind = rangeWindow.ticks;
+    const dates =
+      kind === "month" ? monthTicks(domain).map((tick) => tick.date) : dayTicks(windowStart, end, kind === "day" ? 1 : 7);
+    let previousX = Number.NEGATIVE_INFINITY;
+    return dates.flatMap((date) => {
+      const tickX = x(date);
+      if (tickX - previousX < MIN_LABEL_GAP) return [];
+      previousX = tickX;
+      return [{ date, x: tickX, kind: kind === "month" ? "month" : "day" }];
+    });
+  }
+
+  /** The All range: its start and today always named, the dates between kept clear of both. */
+  function wholeCurveLabels(first: string | null, end: string): AxisLabel[] {
+    if (first === null) return [];
+    const startX = x(first);
+    const endX = x(end);
+    const between = spanTicks(first, end);
+    const kind = between.kind === "month" ? "month" : "day";
+    const inside: AxisLabel[] = [];
+    let previousX = startX;
+    let gap = END_LABEL_GAP;
+    for (const date of between.dates) {
+      const tickX = x(date);
+      if (tickX - previousX < gap || endX - tickX < END_LABEL_GAP) continue;
+      inside.push({ date, x: tickX, kind });
+      previousX = tickX;
+      gap = MIN_LABEL_GAP;
+    }
+    const ends: AxisLabel[] = [{ date: first, x: startX, kind: "day" }];
+    return first === end ? ends : [...ends, ...inside, { date: end, x: endX, kind: "day" }];
+  }
+
   const emptyMessage =
     series !== null && series.length === 0
       ? t("overview.returnChart.empty")
       : t("overview.returnChart.emptyRange");
 
   const first = curvePoints[0];
+  // ISO dates compare as text. Outside [start, today] there is nothing on the axis to mark.
+  const markerShown = marker !== null && start !== null && marker.date >= start && marker.date <= today;
+  const markerX = markerShown ? x(marker.date) : 0;
 
   return (
     <figure className="flex flex-col gap-2">
@@ -257,17 +322,39 @@ export function ReturnChart({ curve, range, asOf, headerAction = null, title }: 
               )}
             </>
           )}
+          {markerShown && (
+            <g>
+              <line
+                data-testid="seat-marker"
+                x1={markerX}
+                x2={markerX}
+                y1={TOP}
+                y2={TOP + PLOT_HEIGHT}
+                strokeWidth={1.5}
+                strokeDasharray="4 3"
+                className="stroke-ink-2"
+              />
+              <text
+                x={markerX > right - MARKER_LABEL_WIDTH ? markerX - 4 : markerX + 4}
+                y={TOP + 10}
+                textAnchor={markerX > right - MARKER_LABEL_WIDTH ? "end" : "start"}
+                className="fill-ink-2 font-mono text-[10px]"
+              >
+                {marker.label}
+              </text>
+            </g>
+          )}
           <g className="fill-ink-3 font-mono text-[10px]">
-            {labels.map(({ date, x: tickX }) => (
+            {labels.map(({ date, x: tickX, kind }) => (
               <text
                 key={date}
-                data-testid={labelTestId}
+                data-testid={kind === "month" ? "month-label" : "day-label"}
                 x={tickX}
                 y={MONTH_LABEL_Y}
                 // A label on the right edge would run past the drawing and be clipped.
                 textAnchor={tickX > right - 12 ? "end" : "middle"}
               >
-                {axisFormat.format(utcInstant(date))}
+                {(kind === "month" ? monthFormat : dayFormat).format(utcInstant(date))}
               </text>
             ))}
           </g>

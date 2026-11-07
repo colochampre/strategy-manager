@@ -159,6 +159,8 @@ PROBES: tuple[Probe, ...] = (
     Probe("GET", f"{_STRATEGY}/share-preview", _ON_PRIVATE),
     # A private strategy has no public page for its own author either.
     Probe("GET", "/api/public/strategies/{strategy_id}", _ON_PRIVATE, served_at=_ON_PUBLIC),
+    # Nor a record (I.12a): the author's real trades are drawn only for a public strategy.
+    Probe("GET", "/api/public/strategies/{strategy_id}/record", _ON_PRIVATE, served_at=_ON_PUBLIC),
     Probe("POST", "/api/subscriptions", body={"strategy_id": PRIVATE, "allocation_percent": "30"}),
     # A's own figures: none on a strategy B never held, none of A's where B holds a seat.
     Probe("GET", _PERFORMANCE, _ON_PRIVATE),

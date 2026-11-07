@@ -58,7 +58,8 @@ describe("ReturnChart", () => {
       point("2026-07-03", 1.3, 0),
       point("2026-07-04", 1.2, -1 / 13),
     ];
-    renderChart(curve);
+    // Read on the day of the last close, so the axis, which runs to today, ends on it.
+    renderChart(curve, "All", Date.UTC(2026, 6, 4, 12));
 
     const line = coordinates(attr("return-curve", "d"));
     expect(line).toHaveLength(4);
@@ -140,16 +141,17 @@ describe("ReturnChart", () => {
   });
 
   function assertMonthLabels() {
+    // Over three months, so the All range names month starts between its ends.
     const curve = [
-      point("2026-07-14", 1, 0),
+      point("2026-05-14", 1, 0),
       point("2026-08-20", 1.05, 0),
       point("2026-09-10", 1.1, 0),
     ];
-    renderChart(curve);
+    renderChart(curve, "All", Date.UTC(2026, 8, 10, 12));
     const ticks = screen.getAllByTestId("month-label");
-    expect(ticks.map((node) => node.textContent)).toEqual(["Aug", "Sep"]);
-    // 2026-08-01 is 18 of 58 days into the span.
-    expect(Number(ticks[0]!.getAttribute("x"))).toBeCloseTo(LEFT + ((RIGHT - LEFT) * 18) / 58, 1);
+    expect(ticks.map((node) => node.textContent)).toEqual(["Jun", "Jul", "Aug", "Sep"]);
+    // 2026-06-01 is 18 of 119 days into the span.
+    expect(Number(ticks[0]!.getAttribute("x"))).toBeCloseTo(LEFT + ((RIGHT - LEFT) * 18) / 119, 1);
   }
 
   it("drops month labels that would overprint the previous one on a long history", () => {
@@ -188,7 +190,8 @@ describe("ReturnChart", () => {
   });
 
   it("draws a single day as a point at the centre", () => {
-    renderChart([point("2026-07-01", 1.1, 0)]);
+    // Read that same day, with no origin: one day of axis, so the point sits in its middle.
+    renderChart([point("2026-07-01", 1.1, 0)], "All", Date.UTC(2026, 6, 1, 12));
     const dot = screen.getByTestId("return-dot");
     expect(Number(dot.getAttribute("cx"))).toBeCloseTo((LEFT + RIGHT) / 2, 1);
     expect(Number(dot.getAttribute("cy"))).toBeCloseTo(WATER_Y - UPPER, 1);
@@ -218,7 +221,8 @@ describe("ReturnChart", () => {
           ? point(day(i), 1.2, -0.14)
           : point(day(i), i < 5 ? 1 + i * 0.08 : 1.2, i < 8 ? 0 : -0.1),
     );
-    renderChart(curve, "All");
+    // Read on the day of the last close (2026-09-28), so the axis ends on it.
+    renderChart(curve, "All", Date.UTC(2026, 8, 28, 12));
 
     const line = coordinates(attr("return-curve", "d"));
     // Every day is drawn, from the first to the last.
@@ -231,7 +235,8 @@ describe("ReturnChart", () => {
     // There is no range control in the chart: the panel owns the selector.
     expect(screen.queryAllByRole("button")).toHaveLength(0);
     expect(within(screen.getByRole("figure")).queryByText(/30D|7D|90D|1Y/)).toBeNull();
-    expect(screen.getAllByTestId("month-label").map((n) => n.textContent)).toEqual(["Jul", "Aug", "Sep"]);
+    const days = screen.getAllByTestId("day-label").map((n) => n.textContent);
+    expect([days[0], days.at(-1)]).toEqual(["Jul 1", "Sep 28"]);
   });
 
   it("test_role_img_aria_label_from_i18n", async () => {
@@ -451,10 +456,11 @@ describe("the time axis ticks", () => {
     expect(labels("day-label")).toEqual([]);
   });
 
-  it("keeps the month labels of the whole series for All", () => {
+  it("names the first close and today for All when the curve has no origin", () => {
     renderChart(RANGE_CURVE, "All");
-    expect(labels("month-label")).toEqual(["Aug", "Sep"]);
-    expect(labels("day-label")).toEqual([]);
+    const days = labels("day-label");
+    expect([days[0], days.at(-1)]).toEqual(["Jul 10", "Sep 30"]);
+    expect(labels("month-label")).toEqual([]);
   });
 
   it("names days in UTC whatever the viewer's time zone", () => {
@@ -483,6 +489,89 @@ describe("the time axis ticks", () => {
     await act(() => i18n.changeLanguage("es"));
     renderChart(RANGE_CURVE, "7D");
     expect(labels("day-label")[0]).toBe("23 sept");
+  });
+});
+
+describe("the origin and the All range's dates (decision 36)", () => {
+  function labels(testId: string): string[] {
+    return screen.queryAllByTestId(testId).map((node) => node.textContent ?? "");
+  }
+
+  /** The first trade opened on 2026-07-05 and closed on 07-10. */
+  function renderWithOrigin(range: RangeName, origin: string | null = "2026-07-05") {
+    return render(<ReturnChart curve={RANGE_CURVE} range={range} asOf={AS_OF} origin={origin} />);
+  }
+
+  it("starts the whole curve at 0 on the day its first trade opened, on the left edge", () => {
+    renderWithOrigin("All");
+    const line = coordinates(attr("return-curve", "d"));
+    expect(line).toHaveLength(RANGE_CURVE.length + 1);
+    expect(line[0]![0]).toBeCloseTo(LEFT, 1);
+    expect(line[0]![1]).toBeCloseTo(WATER_Y, 1);
+  });
+
+  it("runs the All axis to today, so a quiet stretch since the last close shows as space", () => {
+    renderWithOrigin("All");
+    const line = coordinates(attr("return-curve", "d"));
+    // 2026-07-05 to 2026-09-30 is 87 days; the last close, 09-28, is 85 of them in.
+    expect(line[line.length - 1]![0]).toBeCloseTo(LEFT + ((RIGHT - LEFT) * 85) / 87, 1);
+  });
+
+  it("names the start and today on the All range, at its two edges", () => {
+    renderWithOrigin("All");
+    const days = screen.getAllByTestId("day-label");
+    expect(days[0]!.textContent).toBe("Jul 5");
+    expect(Number(days[0]!.getAttribute("x"))).toBeCloseTo(LEFT, 1);
+    expect(days[days.length - 1]!.textContent).toBe("Sep 30");
+    expect(Number(days[days.length - 1]!.getAttribute("x"))).toBeCloseTo(RIGHT, 1);
+  });
+
+  it("names the weeks between the ends of an All range under three months", () => {
+    renderWithOrigin("All");
+    expect(labels("day-label")).toEqual([
+      "Jul 5",
+      "Jul 12",
+      "Jul 19",
+      "Jul 26",
+      "Aug 2",
+      "Aug 9",
+      "Aug 16",
+      "Aug 23",
+      "Aug 30",
+      "Sep 6",
+      "Sep 13",
+      "Sep 20",
+      "Sep 30",
+    ]);
+    expect(labels("month-label")).toEqual([]);
+  });
+
+  it("drops a week that would overprint today", () => {
+    // 2026-07-05 to 09-28 is 85 days: the week of 09-27 falls one day before today.
+    render(<ReturnChart curve={RANGE_CURVE} range="All" asOf={Date.UTC(2026, 8, 28, 12)} origin="2026-07-05" />);
+    expect(labels("day-label").slice(-2)).toEqual(["Sep 20", "Sep 28"]);
+  });
+
+  it("drops a month start that would overprint the start, and names months beyond three", () => {
+    // 2026-06-27 to 09-30 is 95 days: month starts. 07-01 is four days in, about 31
+    // units: clear of a month label, but not of the wider date the start is written as.
+    render(<ReturnChart curve={RANGE_CURVE} range="All" asOf={AS_OF} origin="2026-06-27" />);
+    expect(labels("day-label")).toEqual(["Jun 27", "Sep 30"]);
+    expect(labels("month-label")).toEqual(["Aug", "Sep"]);
+  });
+
+  it("starts a window that reaches back to the origin at 0 on it", () => {
+    renderWithOrigin("90D");
+    const line = coordinates(attr("return-curve", "d"));
+    expect(line).toHaveLength(RANGE_CURVE.length + 1);
+    expect(line[0]![0]).toBeCloseTo(windowX("2026-07-02", "2026-07-05"), 1);
+    expect(line[0]![1]).toBeCloseTo(WATER_Y, 1);
+  });
+
+  it("draws a single close after its origin as a line from 0, not a lone point", () => {
+    render(<ReturnChart curve={[point("2026-09-20", 1.05, 0)]} range="All" asOf={AS_OF} origin="2026-09-18" />);
+    expect(coordinates(attr("return-curve", "d"))).toHaveLength(2);
+    expect(screen.queryByTestId("return-dot")).toBeNull();
   });
 });
 
@@ -520,7 +609,8 @@ describe("the measured width", () => {
 
   it("redraws at the new width while the height stays fixed", () => {
     const observer = stubResizeObserver();
-    renderChart(CURVE);
+    // Read on the day of the last close, so the last point sits on the right edge.
+    renderChart(CURVE, "All", Date.UTC(2026, 6, 3, 12));
     const svg = screen.getByRole("img");
     expect(svg).toHaveAttribute("viewBox", "0 0 796 280");
 
@@ -574,5 +664,54 @@ describe("the measured width", () => {
     const { unmount } = renderChart(CURVE);
     unmount();
     expect(observer.disconnect).toHaveBeenCalled();
+  });
+});
+
+describe("ReturnChart marker", () => {
+  const CURVE_JULY = [point("2026-07-01", 1, 0), point("2026-07-02", 1.1, 0), point("2026-07-04", 1.2, 0)];
+  const MARK = { date: "2026-07-02", label: "You joined on Jul 2" };
+
+  function renderMarked(marker: { date: string; label: string } | null | undefined, range: RangeName = "All") {
+    return render(<ReturnChart curve={CURVE_JULY} range={range} asOf={AS_OF} {...(marker === undefined ? {} : { marker })} />);
+  }
+
+  it("draws a labelled vertical line on the marked day, inside the plot", () => {
+    renderMarked(MARK);
+
+    const line = screen.getByTestId("seat-marker");
+    const x = Number(line.getAttribute("x1"));
+    expect(x).toBeGreaterThan(LEFT);
+    expect(x).toBeLessThan(RIGHT);
+    expect(line.getAttribute("x2")).toBe(line.getAttribute("x1"));
+    expect(screen.getByText(MARK.label)).toBeInTheDocument();
+  });
+
+  it("puts the line where that day sits on the axis", () => {
+    renderMarked(MARK);
+    // All runs 07-01 to 09-30 (91 days): the 2nd is one day in.
+    expect(Number(attr("seat-marker", "x1"))).toBeCloseTo(LEFT + (RIGHT - LEFT) / 91, 1);
+  });
+
+  it("draws nothing for a day before the window or after today", () => {
+    const { unmount } = renderMarked({ date: "2026-06-30", label: "early" });
+    expect(screen.queryByTestId("seat-marker")).not.toBeInTheDocument();
+    unmount();
+    renderMarked({ date: "2026-10-01", label: "late" });
+    expect(screen.queryByTestId("seat-marker")).not.toBeInTheDocument();
+  });
+
+  it("draws nothing for a day outside a bounded window", () => {
+    // 7D ends 09-30: a seat that began in July is not in it.
+    renderMarked(MARK, "7D");
+    expect(screen.queryByTestId("seat-marker")).not.toBeInTheDocument();
+  });
+
+  it("draws no marker without one, and the curve is the same", () => {
+    const { unmount } = renderMarked(undefined);
+    expect(screen.queryByTestId("seat-marker")).not.toBeInTheDocument();
+    const without = attr("return-curve", "d");
+    unmount();
+    renderMarked(MARK);
+    expect(attr("return-curve", "d")).toBe(without);
   });
 });

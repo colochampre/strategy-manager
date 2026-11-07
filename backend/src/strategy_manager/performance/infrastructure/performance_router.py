@@ -195,6 +195,7 @@ class PerformanceBody(BaseModel):
     pool: PoolBody
     currency: str
     day_boundary: Literal["UTC"] = "UTC"
+    origin: calendar_date | None
     trade_count: int
     total_pnl: Money
     max_drawdown: Ratio
@@ -213,6 +214,7 @@ class PerformanceBody(BaseModel):
                 settlement_currency=pool.settlement_currency.value,
             ),
             currency=pool.settlement_currency.value,
+            origin=report.origin,
             trade_count=report.closed_trade_count,
             total_pnl=report.total_pnl,
             max_drawdown=report.max_drawdown,

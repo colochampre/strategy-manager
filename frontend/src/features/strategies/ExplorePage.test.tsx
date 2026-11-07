@@ -1,4 +1,4 @@
-import { screen, within } from "@testing-library/react";
+import { fireEvent, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AppRoutes } from "@/app/router";
@@ -53,7 +53,38 @@ describe("Explore", () => {
     open();
 
     const row = await screen.findByTestId("public-strategy-row");
-    expect(within(row).getByText(i18n.t("strategies.public.return"))).toBeInTheDocument();
+    expect(within(row).getByRole("img", { name: i18n.t("strategies.public.return") })).toBeInTheDocument();
+  });
+
+  it("draws every figure, the capital included (owner, 2026-11-06), as an icon that keeps its name", async () => {
+    serve(() => Promise.resolve(jsonResponse([publicStrategy()])));
+    open();
+
+    const row = await screen.findByTestId("public-strategy-row");
+    for (const key of ["age", "trades", "return", "live", "capital"]) {
+      const term = within(row).getByTestId(`public-${key}`).previousElementSibling as HTMLElement;
+      expect(within(term).getByRole("img", { name: i18n.t(`strategies.public.${key}`) })).toBeInTheDocument();
+      expect(term).toHaveTextContent("");
+    }
+  });
+
+  it("draws the age as a calendar and who trades it live as people (owner, 2026-11-06)", async () => {
+    serve(() => Promise.resolve(jsonResponse([publicStrategy()])));
+    open();
+
+    const row = await screen.findByTestId("public-strategy-row");
+    const term = (key: string) => within(row).getByTestId(`public-${key}`).previousElementSibling as HTMLElement;
+    expect(term("age").querySelector("svg.lucide-calendar")).not.toBeNull();
+    expect(term("live").querySelector("svg.lucide-users")).not.toBeNull();
+  });
+
+  it("explains an icon on hover", async () => {
+    serve(() => Promise.resolve(jsonResponse([publicStrategy()])));
+    open();
+
+    const row = await screen.findByTestId("public-strategy-row");
+    fireEvent.mouseEnter(within(row).getByRole("img", { name: i18n.t("strategies.public.trades") }).parentElement as HTMLElement);
+    expect(within(row).getByRole("tooltip")).toHaveTextContent(i18n.t("strategies.public.trades"));
   });
 
   it("colours a loss as a loss", async () => {
@@ -63,12 +94,57 @@ describe("Explore", () => {
     expect(await screen.findByTestId("public-return")).toHaveClass("text-loss");
   });
 
-  it("writes an age in days from the strategy's creation", async () => {
+  it("writes an age in days from the strategy's creation, short", async () => {
     const tenDaysAgo = new Date(Date.now() - 10 * 86_400_000 - 3_600_000).toISOString();
     serve(() => Promise.resolve(jsonResponse([publicStrategy({ created_at: tenDaysAgo })])));
     open();
 
-    expect(await screen.findByTestId("public-age")).toHaveTextContent(i18n.t("strategies.public.ageDays", { count: 10 }));
+    expect(await screen.findByTestId("public-age")).toHaveTextContent(/^10d$/);
+  });
+
+  it("centres each icon over the figure it heads", async () => {
+    serve(() => Promise.resolve(jsonResponse([publicStrategy()])));
+    open();
+
+    for (const testId of ["public-age", "public-trades", "public-return", "public-live"]) {
+      const figure = (await screen.findByTestId(testId)).parentElement as HTMLElement;
+      expect(within(figure).getByRole("img")).toBeInTheDocument();
+      expect(figure).toHaveClass("w-fit", "items-center");
+    }
+  });
+
+  it("heads the capital with an icon like the other figures, explained as the capital the strategy trades with", async () => {
+    serve(() => Promise.resolve(jsonResponse([publicStrategy()])));
+    open();
+
+    const figure = (await screen.findByTestId("public-capital")).parentElement as HTMLElement;
+    const term = figure.querySelector("dt") as HTMLElement;
+    expect(within(term).getByRole("img", { name: "capital the strategy trades with" })).toBeInTheDocument();
+    expect(term.textContent).toBe("");
+    fireEvent.mouseEnter(within(term).getByRole("img").parentElement as HTMLElement);
+    expect(screen.getByRole("tooltip")).toHaveTextContent("capital the strategy trades with");
+  });
+
+  it("writes a long age in its two largest units", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-11-06T12:00:00Z"));
+    try {
+      serve(() => Promise.resolve(jsonResponse([publicStrategy({ created_at: "2025-07-01T10:00:00Z" })])));
+      open();
+
+      expect(await screen.findByTestId("public-age")).toHaveTextContent(/^1y 4mo$/);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("says briefly that there is no return before a real trade has closed", async () => {
+    serve(() =>
+      Promise.resolve(jsonResponse([publicStrategy({ closed_trade_count: 0, unleveraged_return_before_fees: "0" })])),
+    );
+    open();
+
+    expect(await screen.findByTestId("public-return")).toHaveTextContent(/^not yet$/);
   });
 
   it("claims no return before a real trade has closed, and says so in words", async () => {

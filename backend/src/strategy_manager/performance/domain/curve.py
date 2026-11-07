@@ -132,7 +132,12 @@ class Exclusions:
 
 @dataclass(frozen=True, slots=True)
 class PoolPerformance:
+    """One pool's report. ``origin`` is the UTC day the first trade with a
+    return opened, where the curve starts at 0 (decision 36); ``None`` with no
+    such trade."""
+
     pool: PoolKey
+    origin: date | None
     curve: tuple[CurvePoint, ...]
     monthly: tuple[MonthReturn, ...]
     ranges: tuple[RangeSummary, ...]
@@ -266,6 +271,16 @@ def monthly_grid(points: Sequence[IndexPoint]) -> tuple[MonthReturn, ...]:
     return tuple(months)
 
 
+def range_window(name: RangeName, now: datetime) -> tuple[datetime, datetime] | None:
+    """The instants a range covers, both included, ending ``now`` (UTC); ``None``
+    for All, which has no start."""
+    days = _RANGE_DAYS[name]
+    if days is None:
+        return None
+    now_utc = _utc(now)
+    return now_utc - timedelta(days=days), now_utc
+
+
 def range_summary(trades: Sequence[ClosedTrade], now: datetime) -> tuple[RangeSummary, ...]:
     """PnL and compounded return over 7D / 30D / 90D / 1Y (365 days) / All,
     ending ``now``.
@@ -275,14 +290,14 @@ def range_summary(trades: Sequence[ClosedTrade], now: datetime) -> tuple[RangeSu
     days on the edge of the window contain only the trades in it. A window
     includes its start instant and ``now``.
     """
-    now_utc = _utc(now)
     summaries: list[RangeSummary] = []
-    for name, days in _RANGE_DAYS.items():
-        if days is None:
+    for name in RangeName:
+        bounds = range_window(name, now)
+        if bounds is None:
             window = list(trades)
         else:
-            start = now_utc - timedelta(days=days)
-            window = [t for t in trades if start <= _utc(t.closed_at) <= now_utc]
+            start, end = bounds
+            window = [t for t in trades if start <= _utc(t.closed_at) <= end]
         points = compound(daily_returns(window))
         summaries.append(
             RangeSummary(
@@ -329,6 +344,10 @@ def build_pool_performance(
 
     return PoolPerformance(
         pool=pool,
+        origin=min(
+            (_utc(t.opened_at).date() for t in trades if trade_return(t) is not None),
+            default=None,
+        ),
         curve=tuple(
             CurvePoint(p.day, p.daily_return, p.index, dd)
             for p, dd in zip(points, dds, strict=True)

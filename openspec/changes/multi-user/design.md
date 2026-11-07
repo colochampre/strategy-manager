@@ -291,6 +291,7 @@ The fakes stay process-lifetime, as today.
 
 **Public reads** are the one deliberate exception:
 - the strategy list and a strategy's public page (decision 9), which carry the live count and the capital sum (decision 30);
+- a public strategy's record, `GET /api/public/strategies/{id}/record` (tasks.md I.12a): `origin`, `curve`, `monthly`, `ranges` (return and trade count), `by_pair` (trades, wins, win rate, return), `closed_trade_count`, `max_drawdown`, from the author's real fills and with no amount in it. It answers the same 404 as the page;
 - the author's total of subscribers, which only the author receives (decision 10).
 
 ### AD9. The worker works per (user, exchange)

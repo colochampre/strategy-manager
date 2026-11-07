@@ -1,19 +1,21 @@
-import { type FormEvent, useId } from "react";
-import { UserPlus } from "lucide-react";
+import { type FormEvent, useId, useState } from "react";
+import { LogOut, UserPlus } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router";
 
+import { LeaveDialog } from "@/features/strategies/LeaveDialog";
 import { LeverageSlider } from "@/features/strategies/LeverageSlider";
+import { SeatSettings } from "@/features/strategies/SeatSettings";
 import { ShareAmount } from "@/features/strategies/ShareAmount";
 import { ShareSlider } from "@/features/strategies/ShareSlider";
-import { readStored } from "@/features/strategies/share-value";
 import { LEVERAGE_REFUSAL_TEXT, useLeverageDraft } from "@/features/strategies/useLeverageDraft";
 import { DRAFT_REFUSAL_TEXT, useShareDraft } from "@/features/strategies/useShareDraft";
 import { ApiError } from "@/shared/api/client";
 import { useMe } from "@/shared/api/me";
 import { usePools } from "@/shared/api/pools";
-import { useHeldSubscriptions, useSubscribe } from "@/shared/api/subscriptions";
-import type { PublicStrategy } from "@/shared/api/types";
+import { useHeldSubscriptions, useLeaveSubscription, useSubscribe } from "@/shared/api/subscriptions";
+import type { HeldSubscription, PublicStrategy } from "@/shared/api/types";
+import { DANGER_CONTROL } from "@/shared/ui/danger-control";
 import { exchangeName } from "@/shared/exchanges/exchange-name";
 import { InfoButton, InfoText, useInfoDisclosure } from "@/shared/ui/InfoDisclosure";
 import { StatusButton } from "@/shared/ui/StatusButton";
@@ -23,6 +25,8 @@ const STARTING_SHARE = "0";
 /** The leverage the form starts from: the API's own default. */
 const STARTING_LEVERAGE = 1;
 const LINK = "text-sm text-gain hover:text-gain-bright";
+/** The frame of the page's settings column, the same as Strategy settings on an own strategy. */
+const ASIDE = "flex flex-col gap-5 self-start rounded-lg border border-rule bg-panel p-5";
 
 /** The text of a refused subscribe: the status and the code decide, never the server's wording. */
 function refusalText(error: unknown): string {
@@ -41,8 +45,15 @@ function SubscribeForm({ strategyId }: { strategyId: string }) {
   const ids = { field: useId(), label: useId(), problem: useId() };
   const leverageIds = { field: useId(), label: useId(), problem: useId() };
   const subscribe = useSubscribe(strategyId);
-  const { text, reading, handle, amount, edited, changeText, changeStep } = useShareDraft(strategyId, STARTING_SHARE);
   const leverage = useLeverageDraft(STARTING_LEVERAGE);
+  // The share is read at the leverage being chosen in this same form (the one source), so the notional follows
+  // it; a leverage that is not a value yet reads as x1 and asks for none.
+  const { text, reading, handle, amount, edited, changeText, changeStep } = useShareDraft(
+    strategyId,
+    STARTING_SHARE,
+    undefined,
+    leverage.reading.valid ? leverage.reading.value : STARTING_LEVERAGE,
+  );
   const leverageInfo = useInfoDisclosure();
   const busy = subscribe.isPending;
 
@@ -164,18 +175,9 @@ function SubscribeBody({ strategy }: { strategy: PublicStrategy }) {
       </>
     );
   }
-  if (mine !== undefined) {
-    return (
-      <>
-        <p className="text-sm text-ink-2">
-          {t("strategies.subscribe.held", { share: readStored(mine.allocation_percent) ?? mine.allocation_percent })}
-        </p>
-        <Link to="/strategies" className={LINK}>
-          {t("strategies.subscribe.manage")}
-        </Link>
-      </>
-    );
-  }
+  // A seat that is not the author's is shown by `SubscribePanel` as `SeatPanel`, in place of this whole section;
+  // the form never stands beside a seat, even for the render in which the two have read different data.
+  if (mine !== undefined) return null;
 
   // A deleted key leaves its pool disabled, and a pool that is disabled cannot be subscribed through (decision 13).
   const reachable = poolList.some(
@@ -201,18 +203,78 @@ function SubscribeBody({ strategy }: { strategy: PublicStrategy }) {
 }
 
 /**
+ * The reader's own seat on a strategy that is not theirs: the share and leverage settings, each with its own
+ * Save, and Leave. This is the one place a subscriber edits a seat; My subscriptions only summarises it.
+ */
+function SeatPanel({ strategy, seat }: { strategy: PublicStrategy; seat: HeldSubscription }) {
+  const { t } = useTranslation();
+  const titleId = useId();
+  const [asking, setAsking] = useState(false);
+  const leave = useLeaveSubscription(seat.strategy_id, seat.id);
+  // A seat that is leaving takes no change and no second leave: the editors read as they stand.
+  const active = seat.status === "ACTIVE";
+  const openDialog = () => {
+    leave.reset();
+    setAsking(true);
+  };
+  return (
+    <aside aria-labelledby={titleId} className={ASIDE}>
+      <h2 id={titleId} className="font-display text-base font-semibold text-ink">
+        {t("strategies.subscribe.seatTitle")}
+      </h2>
+      <SeatSettings strategy={{ id: seat.strategy_id, subscription: seat, archived_at: null }} />
+      {!active && <p className="text-sm text-ink-2">{t("strategies.subscriptions.leaving")}</p>}
+      {active && (
+        <div>
+          <button type="button" onClick={openDialog} className={DANGER_CONTROL}>
+            <LogOut aria-hidden="true" className="size-4 shrink-0" />
+            {t("strategies.subscriptions.leave")}
+          </button>
+        </div>
+      )}
+      {asking && (
+        <LeaveDialog
+          name={strategy.name}
+          pending={leave.isPending}
+          error={leave.error}
+          onConfirm={() => leave.mutate(undefined, { onSuccess: () => setAsking(false) })}
+          onCancel={() => setAsking(false)}
+        />
+      )}
+    </aside>
+  );
+}
+
+/**
+ * The reader's own seat on a strategy that is not theirs, or undefined: no seat, the author's own, or either read
+ * not in yet. The one rule for "this reader holds a seat", shared by the Subscribe section and the report views.
+ */
+export function useOwnSeat(strategy: PublicStrategy): HeldSubscription | undefined {
+  const me = useMe();
+  const held = useHeldSubscriptions();
+  const mine = held.data?.find((subscription) => subscription.strategy_id === strategy.id);
+  if (mine !== undefined && mine.authored !== true && me.data !== undefined && me.data.displayName !== strategy.author_name) {
+    return mine;
+  }
+  return undefined;
+}
+
+/**
  * Where the signed-in user stands on a public strategy: its author, already holding it, missing a key on its
- * market, or free to subscribe. The figures above it never depend on any of this.
+ * market, or free to subscribe. The figures beside it never depend on any of this. Either way it is the page's
+ * settings column, an aside like Strategy settings on an own strategy.
  */
 export function SubscribePanel({ strategy }: { strategy: PublicStrategy }) {
   const { t } = useTranslation();
   const titleId = useId();
+  const seat = useOwnSeat(strategy);
+  if (seat !== undefined) return <SeatPanel strategy={strategy} seat={seat} />;
   return (
-    <section aria-labelledby={titleId} className="flex flex-col gap-3 rounded-md border border-rule bg-panel px-4 py-3">
+    <aside aria-labelledby={titleId} className={ASIDE}>
       <h2 id={titleId} className="font-display text-base font-semibold text-ink">
         {t("strategies.subscribe.title")}
       </h2>
       <SubscribeBody strategy={strategy} />
-    </section>
+    </aside>
   );
 }

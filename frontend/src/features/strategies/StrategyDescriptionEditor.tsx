@@ -53,7 +53,8 @@ export function StrategyDescriptionEditor({ strategy }: StrategyDescriptionEdito
   const savedText = t("strategies.detail.saved");
 
   return (
-    <section className="flex flex-col gap-3">
+    // Named, so this Save is told apart from the other editors' Save, which say the same one word.
+    <section aria-label={t("strategies.description.label")} className="flex flex-col gap-3">
       <DescriptionField
         value={text}
         onChange={(next) => {

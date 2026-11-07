@@ -16,6 +16,8 @@ import type { Strategy } from "@/shared/api/types";
 interface PoolShareEditorProps {
   /** Only what it reads, so a subscriber's row, which holds no whole strategy, can use it. */
   strategy: Pick<Strategy, "id" | "subscription" | "archived_at">;
+  /** The leverage being chosen beside this control, when one is: the amount line is read at it. Default: the saved one. */
+  leverage?: number | undefined;
 }
 
 /** The text of a refused or failed save: the status (and the not-active code) decides, never the server's wording. */
@@ -34,7 +36,7 @@ function saveRefusal(error: unknown): string {
  * is one decimal string: the field keeps the text as typed, the handle follows it, and nothing is sent until
  * Save. Moving the handle or activating a stop is the one moment a decimal is rounded, to a whole number.
  */
-export function PoolShareEditor({ strategy }: PoolShareEditorProps) {
+export function PoolShareEditor({ strategy, leverage }: PoolShareEditorProps) {
   const { t } = useTranslation();
   const ids = { field: useId(), label: useId(), problem: useId() };
   const [saved, setSaved] = useState(false);
@@ -43,8 +45,12 @@ export function PoolShareEditor({ strategy }: PoolShareEditorProps) {
 
   const stored = held === null ? null : readStored(held.allocation_percent);
   // Any movement of this control ends "Saved": a handle moved, a stop activated, a key typed. No timer.
-  const { text, reading, handle, amount, readAt, changeText, changeStep } = useShareDraft(strategy.id, stored, () =>
-    setSaved(false),
+  // The leverage the amount is read at: the one being chosen beside this control, else the seat's saved one.
+  const { text, reading, handle, amount, readAt, changeText, changeStep } = useShareDraft(
+    strategy.id,
+    stored,
+    () => setSaved(false),
+    leverage ?? held?.leverage ?? 1,
   );
   // Each explanation owns its state: closed on every visit, kept through a save and a change of language.
   const shareInfo = useInfoDisclosure();
@@ -91,7 +97,8 @@ export function PoolShareEditor({ strategy }: PoolShareEditorProps) {
   const savedText = t("strategies.detail.saved");
 
   return (
-    <section className="flex flex-col gap-3">
+    // Named by its label: several editors on one page each have a Save that says only "Save".
+    <section aria-labelledby={ids.label} className="flex flex-col gap-3">
       <div className="flex items-start">
         <label id={ids.label} htmlFor={ids.field} className="text-sm leading-5 text-ink-2">
           {t("strategies.detail.share.label")}
@@ -113,36 +120,34 @@ export function PoolShareEditor({ strategy }: PoolShareEditorProps) {
         onText={changeText}
         onHandle={changeStep}
         onStop={changeStep}
+        // Save is on the field's row, as wide as its own text needs; the field takes the width that is left.
+        // Both start at the top, so Save does not move when anything opens or appears under the row.
+        action={
+          <div className="flex shrink-0 items-start gap-x-3">
+            <StatusButton
+              texts={[saveText, savingText, savedText]}
+              shown={busy ? savingText : saved ? savedText : saveText}
+              message={saved ? savedText : null}
+              onClick={handleSave}
+              disabled={readOnly || busy || !changed || saved}
+              icon={Save}
+              className="min-h-11 rounded-md bg-gain px-3 text-sm font-medium text-ground hover:opacity-90 disabled:opacity-50"
+            />
+          </div>
+        }
       />
-      {/* One row: the amount block takes the room that is left and wraps, Save keeps its size beside it. Both
-          start at the top, so Save does not move when the explanation opens or the warning appears. */}
-      <div className="flex items-start gap-x-3">
-        <div className="min-w-0 flex-1">
-          <ShareAmount
-            view={amount}
-            trailing={<InfoButton disclosure={amountInfo} label={t("strategies.detail.share.amountInfo")} />}
-            explanation={
-              <InfoText disclosure={amountInfo}>
-                {readAt !== null && (
-                  <p className="text-xs text-ink-3">{t("strategies.detail.share.amountHint", { time: clockText(readAt) ?? readAt })}</p>
-                )}
-                <p className="text-xs text-ink-3">{t("strategies.detail.share.pairMinimumNote")}</p>
-              </InfoText>
-            }
-          />
-        </div>
-        <div className="flex shrink-0 items-start gap-x-3">
-          <StatusButton
-            texts={[saveText, savingText, savedText]}
-            shown={busy ? savingText : saved ? savedText : saveText}
-            message={saved ? savedText : null}
-            onClick={handleSave}
-            disabled={readOnly || busy || !changed || saved}
-            icon={Save}
-            className="min-h-11 rounded-md bg-gain px-3 text-sm font-medium text-ground hover:opacity-90 disabled:opacity-50"
-          />
-        </div>
-      </div>
+      <ShareAmount
+        view={amount}
+        trailing={<InfoButton disclosure={amountInfo} label={t("strategies.detail.share.amountInfo")} />}
+        explanation={
+          <InfoText disclosure={amountInfo}>
+            {readAt !== null && (
+              <p className="text-xs text-ink-3">{t("strategies.detail.share.amountHint", { time: clockText(readAt) ?? readAt })}</p>
+            )}
+            <p className="text-xs text-ink-3">{t("strategies.detail.share.pairMinimumNote")}</p>
+          </InfoText>
+        }
+      />
       {!reading.valid && (
         <p id={ids.problem} className="text-xs text-loss">
           {t(DRAFT_REFUSAL_TEXT[reading.refusal])}

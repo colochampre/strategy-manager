@@ -239,22 +239,22 @@ describe("one panel per pool of the exchange", () => {
     stubApi(HEALTH, [], {
       kind: "ok",
       body: [
-        { ...pool("pionex", "coin-m", "ETH", at("2.00000000")), enabled: false },
-        pool("pionex", "coin-m", "ETH2", at("9.00000000")),
-        pool("pionex", "coin-m", "BTC", at("0.50000000")),
-        pool("pionex", "spot", "USDT", at("100.00")),
-        pool("pionex", "usdt-m", "USDT", at("900.00")),
+        { ...pool("bybit", "coin-m", "ETH", at("2.00000000")), enabled: false },
+        pool("bybit", "coin-m", "ETH2", at("9.00000000")),
+        pool("bybit", "coin-m", "BTC", at("0.50000000")),
+        pool("bybit", "spot", "USDT", at("100.00")),
+        pool("bybit", "usdt-m", "USDT", at("900.00")),
       ],
     });
     renderAt(<AppRoutes />, "/");
 
     await waitFor(() => expect(screen.getAllByTestId("pool-panel")).toHaveLength(5));
     expect(screen.getAllByTestId("pool-eyebrow").map((node) => node.textContent)).toEqual([
-      "Pionex · usdt-m · USDT",
-      "Pionex · spot · USDT",
-      "Pionex · coin-m · BTC",
-      "Pionex · coin-m · ETH2",
-      "Pionex · coin-m · ETH",
+      "Bybit · usdt-m · USDT",
+      "Bybit · spot · USDT",
+      "Bybit · coin-m · BTC",
+      "Bybit · coin-m · ETH2",
+      "Bybit · coin-m · ETH",
     ]);
     // Ranking is not summing: no figure on the page is a total across pools.
     expect(document.body).not.toHaveTextContent("1,000.00");

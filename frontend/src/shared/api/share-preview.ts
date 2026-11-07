@@ -34,7 +34,9 @@ function isExact(value: unknown): boolean {
     isRecord(value) &&
     typeof value.share === "string" &&
     typeof value.amount === "string" &&
-    typeof value.below_pool_minimum === "boolean"
+    typeof value.below_pool_minimum === "boolean" &&
+    // The notional rides only when a leverage was asked; an older server leaves it out, and null is the same.
+    (value.notional === undefined || value.notional === null || typeof value.notional === "string")
   );
 }
 
@@ -73,8 +75,16 @@ function isSharePreview(value: unknown): value is SharePreview {
  * `GET /api/strategies/{id}/share-preview`: the amount of the stored share, or of `share` when one is
  * asked, plus the pool's hundred whole steps. READ-ONLY on the server; the panel multiplies nothing.
  */
-export async function fetchSharePreview(strategyId: string, share?: string): Promise<SharePreview> {
-  const query = share === undefined ? "" : `?share=${encodeURIComponent(share)}`;
+export async function fetchSharePreview(
+  strategyId: string,
+  share?: string,
+  leverage?: number,
+): Promise<SharePreview> {
+  const params: string[] = [];
+  if (share !== undefined) params.push(`share=${encodeURIComponent(share)}`);
+  // A whole number from 1 to 20 (the server's range); it asks for the notional beside the amount.
+  if (leverage !== undefined) params.push(`leverage=${encodeURIComponent(String(leverage))}`);
+  const query = params.length === 0 ? "" : `?${params.join("&")}`;
   const body = await apiFetch<unknown>(`/strategies/${encodeURIComponent(strategyId)}/share-preview${query}`);
   if (!isSharePreview(body)) {
     throw new ApiError(200, {
@@ -89,13 +99,18 @@ export async function fetchSharePreview(strategyId: string, share?: string): Pro
  * sits under the strategy's own key, so a save, which invalidates that key, refreshes it. Read when the
  * control mounts and again every 60 s, the cadence of the balance.
  */
-export function useSharePreview(strategyId: string, share?: string) {
+export function useSharePreview(strategyId: string, share?: string, leverage?: number) {
+  const asked = share !== undefined || leverage !== undefined;
   return useQuery({
-    queryKey:
-      share === undefined
-        ? ["strategy", strategyId, "share-preview"]
-        : ["strategy", strategyId, "share-preview", share],
-    queryFn: () => fetchSharePreview(strategyId, share),
+    // An asked leverage is its own entry: the same share at another leverage has another notional.
+    queryKey: [
+      "strategy",
+      strategyId,
+      "share-preview",
+      ...(asked ? [share ?? null] : []),
+      ...(leverage === undefined ? [] : [{ leverage }]),
+    ],
+    queryFn: () => fetchSharePreview(strategyId, share, leverage),
     refetchInterval: PREVIEW_REFRESH_MS,
   });
 }

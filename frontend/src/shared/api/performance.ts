@@ -26,6 +26,7 @@ function isPoolPerformance(value: unknown): value is PoolPerformance {
     typeof value.currency === "string" &&
     typeof value.total_pnl === "string" &&
     typeof value.max_drawdown === "string" &&
+    (value.origin === undefined || isNullableString(value.origin)) &&
     isRecord(value.excluded) &&
     Array.isArray(value.ranges) &&
     Array.isArray(value.curve) &&

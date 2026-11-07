@@ -248,6 +248,27 @@ describe("PairStatsTable win rate column", () => {
     expect(cellsOf("SOLUSDT")[2]).toHaveTextContent("0.1%");
   });
 
+  it("without a currency it is a record: no PnL column, no money, the return and the rate as ever", () => {
+    const { pnl: _pnl, ...record } = stat({ pair: "ETHUSDT", trades: 2, wins: 1, win_rate: "0.5", return: "0.04" });
+    render(<PairStatsTable pairs={[record]} />);
+
+    expect(screen.queryByRole("columnheader", { name: /PnL/ })).toBeNull();
+    expect(screen.getAllByRole("columnheader")).toHaveLength(4);
+    const cells = cellsOf("ETHUSDT");
+    expect(cells).toHaveLength(4);
+    expect(cells[1]).toHaveTextContent("2");
+    expect(cells[2]).toHaveTextContent("50.0%");
+    expect(cells[3]).toHaveTextContent("+4.0%");
+    expect(screen.queryByText(/\bUSDT\b/)).toBeNull();
+  });
+
+  it("with a currency a row that carries no PnL cannot be read", () => {
+    const { pnl: _pnl, ...record } = stat();
+    render(<PairStatsTable currency="USDT" pairs={[record]} />);
+
+    expect(screen.getByRole("alert")).toBeInTheDocument();
+  });
+
   it.each([
     ["7 of 12", 12, 7, "0.5833333333", "58.3%"],
     ["1,999 of 2,000", 2000, 1999, "0.9995000000", "99.9%"],

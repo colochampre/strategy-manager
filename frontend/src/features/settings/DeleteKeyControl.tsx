@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 
 import { DeleteKeyDialog } from "@/features/settings/DeleteKeyDialog";
 import { useDeleteCredential } from "@/shared/api/credentials";
+import { DANGER_CONTROL } from "@/shared/ui/danger-control";
 
 export interface DeleteKeyControlProps {
   exchange: string;
@@ -104,7 +105,7 @@ export function DeleteKeyControl({
           aria-label={`${t("settings.card.delete")} ${name}`}
           disabled={disabled}
           onClick={open}
-          className="inline-flex min-h-11 items-center gap-1.5 rounded-md border border-loss px-3.5 text-sm text-loss hover:bg-panel-2 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gain"
+          className={DANGER_CONTROL}
         >
           <Trash aria-hidden="true" className="size-4 shrink-0" />
           {t("settings.card.delete")}

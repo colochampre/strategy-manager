@@ -53,7 +53,7 @@ interface Options {
   /** What the subscription's PATCH answers. By default: 200, the subscription with the share it was sent. */
   patch?: (sent: string) => Promise<Response> | Response;
   /** What a GET of the share preview answers, given the `share` asked (null for the stored share). Default: a 500. */
-  preview?: (share: string | null) => Promise<Response> | Response;
+  preview?: (share: string | null, leverage: string | null) => Promise<Response> | Response;
   /** When set, `GET /api/pools` answers one pool holding this total, a balance the control must never multiply. */
   pools?: string;
 }
@@ -116,12 +116,15 @@ interface Server {
 function stub(server: Server, options: Options) {
   const requests: Request[] = [];
   const previews: Array<string | null> = [];
+  const leverages: Array<string | null> = [];
   const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
     const path = String(input);
     if (path.startsWith(`/api/strategies/${ID}/share-preview`)) {
-      const share = new URL(path, "http://panel.test").searchParams.get("share");
+      const params = new URL(path, "http://panel.test").searchParams;
+      const share = params.get("share");
       previews.push(share);
-      return Promise.resolve(options.preview?.(share) ?? jsonResponse({ detail: "no preview in this test" }, 500));
+      leverages.push(params.get("leverage"));
+      return Promise.resolve(options.preview?.(share, params.get("leverage")) ?? jsonResponse({ detail: "no preview in this test" }, 500));
     }
     if (path === "/api/pools" && options.pools !== undefined) {
       const balance = { total: options.pools, available: options.pools, observed_at: "2026-10-09T14:00:00Z", stale: false };
@@ -143,7 +146,7 @@ function stub(server: Server, options: Options) {
     return Promise.resolve(jsonResponse({ detail: "not served by this test" }, 404));
   });
   vi.stubGlobal("fetch", fetchMock);
-  return { requests, previews };
+  return { requests, previews, leverages };
 }
 
 function newClient() {
@@ -152,7 +155,7 @@ function newClient() {
 
 /** The editor over a strategy handed in as a prop, which the test moves by hand with `rerender`. */
 function setup(subject: Strategy, options: Options = {}) {
-  const { requests, previews } = stub({ strategy: subject }, options);
+  const { requests, previews, leverages } = stub({ strategy: subject }, options);
   const client = newClient();
   const ui = (current: Strategy) => (
     <QueryClientProvider client={client}>
@@ -165,6 +168,7 @@ function setup(subject: Strategy, options: Options = {}) {
     client,
     requests,
     previews,
+    leverages,
     patches,
     rerender: (current: Strategy) => view.rerender(ui(current)),
     unmount: view.unmount,
@@ -202,7 +206,7 @@ const label = () => i18n.t("strategies.detail.share.label");
 const field = () => screen.getByRole("textbox", { name: label() }) as HTMLInputElement;
 const track = () => screen.getByRole("slider", { name: label() }) as HTMLInputElement;
 const stop = (value: number) => screen.getByRole("button", { name: `Set the share to ${value}%` });
-const saveButton = () => screen.getByRole("button", { name: "Save share" });
+const saveButton = () => screen.getByRole("button", { name: "Save" });
 const type = (text: string) => fireEvent.change(field(), { target: { value: text } });
 /** Lets any request a change started reach the fetch double: a mutation calls it a tick after the event. */
 const settle = () => act(() => new Promise<void>((resolve) => setTimeout(resolve, 20)));
@@ -475,7 +479,7 @@ describe("PoolShareEditor, step 3: the value and Save", () => {
       expect(screen.getByText("Escriba un número, por ejemplo 25 o 33,5.")).toBeInTheDocument();
       type("0");
       expect(screen.getByText("El porcentaje debe ser mayor que 0 y como máximo 100.")).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "Guardar porcentaje" })).toBeDisabled();
+      expect(screen.getByRole("button", { name: "Guardar" })).toBeDisabled();
     } finally {
       await act(() => i18n.changeLanguage("en"));
     }
@@ -561,7 +565,7 @@ describe("PoolShareEditor, step 3b: the states and the refusals", () => {
     expect(screen.getByRole("alert")).toHaveTextContent(NOT_ACTIVE);
     expect(screen.queryByRole("textbox")).toBeNull();
     expect(screen.queryByRole("slider")).toBeNull();
-    expect(screen.queryByRole("button", { name: "Save share" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
   });
 
   it("with no subscription there is no track, no field and no Save, and the control says why", () => {
@@ -571,7 +575,7 @@ describe("PoolShareEditor, step 3b: the states and the refusals", () => {
     expect(screen.getByText(NONE)).toBeInTheDocument();
     expect(screen.queryByRole("textbox")).toBeNull();
     expect(screen.queryByRole("slider")).toBeNull();
-    expect(screen.queryByRole("button", { name: "Save share" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
     expect(requests.filter((request) => request.method === "PATCH")).toEqual([]);
   });
 
@@ -643,7 +647,7 @@ describe("PoolShareEditor, step 3b: the states and the refusals", () => {
     expect(screen.queryByText(UNREADABLE)).toBeInTheDocument();
     expect(screen.queryByRole("textbox")).toBeNull();
     expect(screen.queryByRole("slider")).toBeNull();
-    expect(screen.queryByRole("button", { name: "Save share" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
     expect(screen.queryByRole("button", { name: /Set the share/ })).toBeNull();
   });
 
@@ -676,7 +680,7 @@ describe("PoolShareEditor, step 3b: the states and the refusals", () => {
     try {
       setup(strategy(), { patch: refuse(500, "boom") });
       type("40");
-      fireEvent.click(screen.getByRole("button", { name: "Guardar porcentaje" }));
+      fireEvent.click(screen.getByRole("button", { name: "Guardar" }));
       expect(await alertLine()).toHaveTextContent("El porcentaje no se guardó. Inténtelo de nuevo.");
     } finally {
       await act(() => i18n.changeLanguage("en"));
@@ -688,7 +692,7 @@ describe("PoolShareEditor, step 3b: the states and the refusals", () => {
     try {
       setup(strategy(), { patch: refuse(409, { error: "SUBSCRIPTION_NOT_ACTIVE", message: "not active" }) });
       type("40");
-      fireEvent.click(screen.getByRole("button", { name: "Guardar porcentaje" }));
+      fireEvent.click(screen.getByRole("button", { name: "Guardar" }));
       expect(await alertLine()).toHaveTextContent(
         "Su suscripción a esta estrategia ya no está activa, por lo que su porcentaje ya no se puede cambiar.",
       );
@@ -720,7 +724,7 @@ describe("PoolShareEditor, step 3b: the states and the refusals", () => {
 /** The live region beside Save, which is where "Saved" is announced. */
 function savedRegion(): HTMLElement {
   // The button reads "Saving…" while a save is in flight and "Saved" after it, so it is found by any of its names.
-  const button = screen.getByRole("button", { name: /^(Save share|Saving…|Saved)$/ });
+  const button = screen.getByRole("button", { name: /^(Save|Saving…|Saved)$/ });
   const region = button.parentElement?.querySelector<HTMLElement>('[role="status"]');
   if (region === null || region === undefined) throw new Error("no live region beside Save");
   return region;
@@ -896,7 +900,7 @@ describe("PoolShareEditor, 'Saved' for the share", () => {
       setupPage(strategy());
       await screen.findByRole("textbox");
       type("40");
-      fireEvent.click(screen.getByRole("button", { name: "Guardar porcentaje" }));
+      fireEvent.click(screen.getByRole("button", { name: "Guardar" }));
       await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Guardado"));
     } finally {
       await act(() => i18n.changeLanguage("en"));
@@ -904,12 +908,12 @@ describe("PoolShareEditor, 'Saved' for the share", () => {
   });
 });
 
-const amountLine = (amount: string, currency = "USDT") => `Asks for about ${amount} ${currency} per operation`;
+const amountLine = (amount: string, currency = "USDT") => `Margin: ${amount} ${currency}`;
 /** Waits for a text to be on screen; presence is asserted so a missing text fails on its assertion. */
 const expectText = (text: string) => waitFor(() => expect(screen.queryByText(text)).toBeInTheDocument());
 
 describe("PoolShareEditor, the amount under the track", () => {
-  it("a known amount reads 'Asks for about 335.00 USDT per operation' from the served exact", async () => {
+  it("a known amount reads 'Margin: 335.00 USDT' from the served exact", async () => {
     setup(strategy({ allocation_percent: "33.5" }), {
       preview: served({ exact: { share: "33.5", amount: "335.000000000000000000" } }),
     });
@@ -996,7 +1000,7 @@ describe("PoolShareEditor, the amount under the track", () => {
     const { patches } = setup(strategy(), { preview: served({ noBalance: true }) });
 
     await expectText("The pool's balance has not been read yet, so the amount cannot be shown.");
-    expect(screen.queryByText(/Asks for about/)).toBeNull();
+    expect(screen.queryByText(/Margin:/)).toBeNull();
     expect(field()).toBeEnabled();
     fireEvent.click(stop(50));
     expect(saveButton()).toBeEnabled();
@@ -1008,7 +1012,7 @@ describe("PoolShareEditor, the amount under the track", () => {
     setup(strategy(), { preview: () => new Promise<Response>(() => undefined) });
 
     await expectText("Calculating the amount…");
-    expect(screen.queryByText(/Asks for about/)).toBeNull();
+    expect(screen.queryByText(/Margin:/)).toBeNull();
     expect(screen.queryByText("—")).toBeNull();
   });
 
@@ -1016,7 +1020,7 @@ describe("PoolShareEditor, the amount under the track", () => {
     const { patches } = setup(strategy(), { preview: () => jsonResponse({ detail: "boom" }, 500) });
 
     await expectText("The amount could not be loaded.");
-    expect(screen.queryByText(/Asks for about/)).toBeNull();
+    expect(screen.queryByText(/Margin:/)).toBeNull();
     expect(field()).toBeEnabled();
     expect(track()).toBeEnabled();
     for (const value of [25, 50, 75, 100]) expect(stop(value)).toBeEnabled();
@@ -1031,7 +1035,7 @@ describe("PoolShareEditor, the amount under the track", () => {
     setup(strategy(), { preview: served({ stepCount: 99 }) });
 
     await expectText("The amount could not be loaded.");
-    expect(screen.queryByText(/Asks for about/)).toBeNull();
+    expect(screen.queryByText(/Margin:/)).toBeNull();
   });
 
   it("no valid value shows an em dash and no request is made for it", async () => {
@@ -1041,7 +1045,7 @@ describe("PoolShareEditor, the amount under the track", () => {
     type("abc");
 
     expect(screen.queryByText("—")).toBeInTheDocument();
-    expect(screen.queryByText(/Asks for about/)).toBeNull();
+    expect(screen.queryByText(/Margin:/)).toBeNull();
     await settle();
     expect(previews).toEqual([null]);
   });
@@ -1090,7 +1094,7 @@ describe("PoolShareEditor, the amount under the track", () => {
         preview: served({ exact: { share: "33.5", amount: "1234.569999999999999999" } }),
       });
 
-      await expectText("Pide alrededor de 1234,56 USDT por operación");
+      await expectText("Margen: 1234,56 USDT");
     } finally {
       await act(() => i18n.changeLanguage("en"));
     }
@@ -1120,6 +1124,81 @@ function heldPreview(spec: PreviewSpec = {}) {
   return { preview, answer, held };
 }
 
+/**
+ * A server that answers the notional the way I.3 does: the exact of the share asked (or the stored 30) in a pool
+ * of 1000 USDT, and `notional` = amount x the leverage asked, null when none was asked.
+ */
+const servedAtLeverage = (): NonNullable<Options["preview"]> => (asked, leverage) => {
+  const share = asked ?? "30";
+  const amount = Number(share) * 10;
+  const body = previewBody();
+  return jsonResponse({
+    ...body,
+    exact: {
+      share,
+      amount: amount.toFixed(18),
+      below_pool_minimum: false,
+      notional: leverage === null ? null : (amount * Number(leverage)).toFixed(18),
+    },
+  });
+};
+
+const atLeverage = (leverage: number) => strategy({ subscription: subscription("30", { leverage }) });
+
+describe("PoolShareEditor, the notional beside the margin (I.4)", () => {
+  it("at leverage 1 no preview asks for a leverage and the line names the margin alone", async () => {
+    const { previews, leverages } = setup(atLeverage(1), { preview: servedAtLeverage() });
+    await expectText(amountLine("300.00"));
+    type("40");
+    await expectText(amountLine("400.00"));
+    await settle();
+    await new Promise((resolve) => setTimeout(resolve, 400));
+
+    expect(leverages.every((asked) => asked === null)).toBe(true);
+    expect(previews).toEqual([null]);
+    expect(screen.queryByText(/Notional/)).toBeNull();
+  });
+
+  it("above 1x the stored share is read at the seat's leverage and the line adds the notional", async () => {
+    const { leverages } = setup(atLeverage(3), { preview: servedAtLeverage() });
+
+    await expectText("Margin: 300.00 USDT · Notional: 900.00 USDT");
+    expect(leverages).toEqual(["3"]);
+  });
+
+  it("above 1x a whole value shows its margin at once and the notional once its own read is back, asked at the seat's leverage", async () => {
+    const { previews, leverages } = setup(atLeverage(3), { preview: servedAtLeverage() });
+    await expectText("Margin: 300.00 USDT · Notional: 900.00 USDT");
+
+    fireEvent.click(stop(50));
+
+    expect(screen.queryByText("Margin: 500.00 USDT")).toBeInTheDocument();
+    await expectText("Margin: 500.00 USDT · Notional: 1,500.00 USDT");
+    expect(previews.at(-1)).toBe("50");
+    expect(leverages.at(-1)).toBe("3");
+  });
+
+  it("above 1x a typed decimal gets its notional from the read asked for it", async () => {
+    setup(atLeverage(2), { preview: servedAtLeverage() });
+    await expectText("Margin: 300.00 USDT · Notional: 600.00 USDT");
+
+    type("12.5");
+
+    await expectText("Margin: 125.00 USDT · Notional: 250.00 USDT");
+  });
+
+  it("the notional is written in Spanish when the language is", async () => {
+    await act(() => i18n.changeLanguage("es"));
+    try {
+      setup(atLeverage(3), { preview: servedAtLeverage() });
+
+      await expectText("Margen: 300,00 USDT · Nocional: 900,00 USDT");
+    } finally {
+      await act(() => i18n.changeLanguage("en"));
+    }
+  });
+});
+
 describe("PoolShareEditor, the amount of a typed decimal", () => {
   afterEach(() => {
     vi.useRealTimers();
@@ -1139,15 +1218,15 @@ describe("PoolShareEditor, the amount of a typed decimal", () => {
 
     type("12.34");
     expect(screen.queryByText(LOADING)).toBeInTheDocument();
-    expect(screen.queryByText(/Asks for about/)).toBeNull();
+    expect(screen.queryByText(/Margin:/)).toBeNull();
     expect(previews).toEqual([null]);
     await tick(299);
     expect(previews).toEqual([null]);
-    expect(screen.queryByText(/Asks for about/)).toBeNull();
+    expect(screen.queryByText(/Margin:/)).toBeNull();
     await tick(1);
     expect(previews).toEqual([null, "12.34"]);
     expect(screen.queryByText(LOADING)).toBeInTheDocument();
-    expect(screen.queryByText(/Asks for about/)).toBeNull();
+    expect(screen.queryByText(/Margin:/)).toBeNull();
 
     answer("12.34", "123.400000000000000000");
     await tick(0);
@@ -1183,7 +1262,7 @@ describe("PoolShareEditor, the amount of a typed decimal", () => {
     await tick(0);
 
     expect(screen.queryByText(FAILED)).toBeInTheDocument();
-    expect(screen.queryByText(/Asks for about/)).toBeNull();
+    expect(screen.queryByText(/Margin:/)).toBeNull();
   });
 
   it("an answer is compared in plain form: 12.50 for 12.5 is the value asked", async () => {
@@ -1488,7 +1567,7 @@ describe("PoolShareEditor, the two information buttons", () => {
     await i18n.changeLanguage("es");
     try {
       setup(strategy(), { preview: served() });
-      await expectText("Pide alrededor de 300,00 USDT por operación");
+      await expectText("Margen: 300,00 USDT");
 
       expect(screen.queryByRole("button", { name: "Acerca del porcentaje del pool" })).toBeInTheDocument();
       expect(screen.queryByText(/Cada nueva operación pide/)).toBeNull();
@@ -1555,7 +1634,7 @@ describe("PoolShareEditor, the two information buttons", () => {
     await i18n.changeLanguage("es");
     try {
       setup(strategy(), { preview: served({ observedAt: "2026-10-09T14:03:12Z" }) });
-      await expectText("Pide alrededor de 300,00 USDT por operación");
+      await expectText("Margen: 300,00 USDT");
 
       fireEvent.click(screen.getByRole("button", { name: "Acerca de este importe y de lo que no se comprueba" }));
 
@@ -1723,7 +1802,7 @@ describe("PoolShareEditor, the two information buttons", () => {
     expect(amountInfo()).toBeEnabled();
   });
 
-  it("Tab goes: the label's button, the field, the track, 25, 50, 75, 100, the amount's button, Save", async () => {
+  it("Tab goes: the label's button, the field, Save, the track, 25, 50, 75, 100, the amount's button", async () => {
     setup(strategy(), { preview: served() });
     await expectText(amountLine("300.00"));
     type("40");
@@ -1740,13 +1819,13 @@ describe("PoolShareEditor, the two information buttons", () => {
     expect(visited).toEqual([
       shareInfo(),
       field(),
+      saveButton(),
       track(),
       stop(25),
       stop(50),
       stop(75),
       stop(100),
       amountInfo(),
-      saveButton(),
     ]);
   });
 
@@ -1805,7 +1884,7 @@ const SHARE_TEXTS = {
     es: "Cada nueva operación pide este porcentaje del saldo total del pool. Un cambio se aplica desde la próxima operación; una ya abierta mantiene su tamaño.",
   },
   amountInfo: { en: "About this amount and what is not checked", es: "Acerca de este importe y de lo que no se comprueba" },
-  amount: { en: "Asks for about 300.00 USDT per operation", es: "Pide alrededor de 300,00 USDT por operación" },
+  amount: { en: "Margin: 300.00 USDT", es: "Margen: 300,00 USDT" },
   amountHint: {
     en: "An estimate: this share of the pool's total balance, read at 14:03 UTC. The balance is read again when an operation opens, and the pool grants less when less is free. It is margin; the position is this amount times the account's leverage.",
     es: "Es una estimación: este porcentaje del saldo total del pool, leído a las 14:03 UTC. El saldo se vuelve a leer cuando se abre una operación, y el pool concede menos cuando hay menos disponible. Es margen; la posición es este importe por el apalancamiento de la cuenta.",
@@ -1835,7 +1914,7 @@ const SHARE_TEXTS = {
     en: "The share must be above 0 and at most 100.",
     es: "El porcentaje debe ser mayor que 0 y como máximo 100.",
   },
-  save: { en: "Save share", es: "Guardar porcentaje" },
+  save: { en: "Save", es: "Guardar" },
   saving: { en: "Saving…", es: "Guardando…" },
   saveFailed: { en: "The share was not saved. Try again.", es: "El porcentaje no se guardó. Inténtelo de nuevo." },
   notActive: {
@@ -2005,107 +2084,89 @@ function childHolding(row: HTMLElement, node: Element): HTMLElement {
   return child as HTMLElement;
 }
 
-describe("PoolShareEditor, Save sits to the right of the amount block (12f.10.30c)", () => {
-  it("Save and the amount line share one horizontal row, aligned to the top, that does not wrap", async () => {
+// I.4 (owner, 2026-11-06): "Prefiero que el boton de Save ocupe el espacio necesario para mostrarse bien, y el
+// resto el input". Save sits beside the percent field, not beside the amount line.
+describe("PoolShareEditor, Save sits on the row of the field (I.4)", () => {
+  it("Save and the field share one horizontal row, aligned to the top, that does not wrap", async () => {
     setup(strategy(), { preview: served() });
     await expectText(amountLine("300.00"));
 
-    const row = sharedRow(saveButton(), screen.getByText(amountLine("300.00")));
+    const row = sharedRow(saveButton(), field());
 
     expect(classesOf(row)).toEqual(expect.arrayContaining(["flex", "items-start"]));
     expect(classesOf(row)).not.toContain("flex-col");
     expect(classesOf(row)).not.toContain("flex-wrap");
-    // The row is the amount block and the button block, not the whole control.
-    expect(row.contains(field())).toBe(false);
+    // The row is the field and the button block, not the whole control: neither the track nor the amount.
+    expect(row.contains(track())).toBe(false);
+    expect(row.contains(screen.getByText(amountLine("300.00")))).toBe(false);
     expect(row.children).toHaveLength(2);
   });
 
-  it("the left block is the amount line with its information button, and it takes the room that is left", async () => {
+  it("the field block takes the width that is left and may shrink", async () => {
     setup(strategy(), { preview: served() });
-    await expectText(amountLine("300.00"));
-    const row = sharedRow(saveButton(), screen.getByText(amountLine("300.00")));
+    const row = sharedRow(saveButton(), field());
 
-    const text = childHolding(row, screen.getByText(amountLine("300.00")));
+    const fieldBlock = childHolding(row, field());
 
-    expect(text.contains(amountInfo())).toBe(true);
-    expect(text.contains(saveButton())).toBe(false);
-    expect(classesOf(text)).toEqual(expect.arrayContaining(["min-w-0", "flex-1"]));
+    expect(fieldBlock.contains(saveButton())).toBe(false);
+    expect(classesOf(fieldBlock)).toEqual(expect.arrayContaining(["min-w-0", "flex-1"]));
+    expect(classesOf(fieldBlock)).not.toContain("w-full");
   });
 
-  // Edited by 12f.10.30d: "Saved" is no longer a text before the button; the button holds it, and the
-  // status region that announces it follows the button.
-  it("the right block is Save and then its status, keeps its size and is aligned to the top", async () => {
+  it("the button block is Save and then its status, is as wide as its own text and starts at the top", async () => {
     setup(strategy(), { preview: served() });
-    await expectText(amountLine("300.00"));
-    const row = sharedRow(saveButton(), screen.getByText(amountLine("300.00")));
+    const row = sharedRow(saveButton(), field());
 
     const actions = childHolding(row, saveButton());
     const status = actions.querySelector<HTMLElement>('[role="status"]');
 
-    expect(actions).not.toBe(childHolding(row, screen.getByText(amountLine("300.00"))));
+    expect(actions).not.toBe(childHolding(row, field()));
     expect(classesOf(actions)).toEqual(expect.arrayContaining(["flex", "items-start", "shrink-0"]));
-    expect(classesOf(actions)).not.toContain("flex-wrap");
+    expect(classesOf(actions)).not.toContain("flex-1");
     expect(status).not.toBeNull();
     expect(precedes(saveButton(), status as HTMLElement)).toBe(true);
     expect(saveButton().className).toContain("min-h-11");
   });
 
-  it("the text block comes first in the document: the amount, then Save, then its status", async () => {
+  it("in the document: the field, then Save, then its status, then the track and the amount", async () => {
     setup(strategy(), { preview: served() });
     await expectText(amountLine("300.00"));
-    const row = sharedRow(saveButton(), screen.getByText(amountLine("300.00")));
 
-    expect(precedes(screen.getByText(amountLine("300.00")), saveButton())).toBe(true);
-    expect(precedes(amountInfo(), saveButton())).toBe(true);
+    expect(precedes(field(), saveButton())).toBe(true);
     expect(precedes(saveButton(), savedRegion())).toBe(true);
-    expect(row.firstElementChild).toBe(childHolding(row, screen.getByText(amountLine("300.00"))));
+    expect(precedes(saveButton(), track())).toBe(true);
+    expect(precedes(track(), screen.getByText(amountLine("300.00")))).toBe(true);
   });
 
-  it("the explanation that opens under the amount stays in the left block, so Save does not move", async () => {
+  it("the amount line and its explanation are under the row, so opening it does not move Save", async () => {
     setup(strategy(), { preview: served() });
     await expectText(amountLine("300.00"));
-    const row = sharedRow(saveButton(), screen.getByText(amountLine("300.00")));
+    const row = sharedRow(saveButton(), field());
     const actionsBefore = childHolding(row, saveButton());
 
     fireEvent.click(amountInfo());
 
-    const estimate = screen.getByText(ESTIMATE);
-    const text = childHolding(row, screen.getByText(amountLine("300.00")));
-    expect(text.contains(estimate)).toBe(true);
-    expect(text.contains(screen.getByText(PAIR_NOTE))).toBe(true);
+    expect(row.contains(screen.getByText(ESTIMATE))).toBe(false);
+    expect(row.contains(screen.getByText(amountLine("300.00")))).toBe(false);
     expect(childHolding(row, saveButton())).toBe(actionsBefore);
-    expect(classesOf(row)).toContain("items-start");
-  });
-
-  it("the warning on the pool's minimum stays in the left block", async () => {
-    setup(strategy({ allocation_percent: "1" }), { preview: served(SMALL_POOL) });
-    await expectText(WARNING);
-    const row = sharedRow(saveButton(), screen.getByText(WARNING));
-
-    const text = childHolding(row, screen.getByText(WARNING));
-
-    expect(text.contains(screen.getByText(amountLine("3.00")))).toBe(true);
-    expect(text.contains(saveButton())).toBe(false);
-    expect(classesOf(row)).not.toContain("flex-col");
   });
 
   it("a failed save is an alert outside the row", async () => {
     setup(strategy(), { preview: served(), patch: refuse(500, "boom") });
     await expectText(amountLine("300.00"));
-    const row = sharedRow(saveButton(), screen.getByText(amountLine("300.00")));
+    const row = sharedRow(saveButton(), field());
     type("40");
 
     fireEvent.click(saveButton());
 
     const alert = await alertLine();
     expect(row.contains(alert)).toBe(false);
-    expect(row.parentElement?.contains(alert)).toBe(true);
   });
 
   it("the refusal of a typed value is outside the row, and Saved is still inside it", async () => {
     setup(strategy(), { preview: served() });
     await expectText(amountLine("300.00"));
-    const row = sharedRow(saveButton(), screen.getByText(amountLine("300.00")));
+    const row = sharedRow(saveButton(), field());
 
     type("abc");
 
@@ -2115,11 +2176,28 @@ describe("PoolShareEditor, Save sits to the right of the amount block (12f.10.30
   });
 });
 
+describe("PoolShareEditor, every Save says only Save (I.4)", () => {
+  it("the button is named Save and not 'Save share', in English and in Spanish", async () => {
+    setup(strategy(), { preview: served() });
+    expect(saveButton()).toHaveAccessibleName("Save");
+    expect(screen.queryByRole("button", { name: "Save share" })).toBeNull();
+    cleanup();
+    await act(() => i18n.changeLanguage("es"));
+    try {
+      setup(strategy(), { preview: served() });
+      expect(screen.getByRole("button", { name: "Guardar" })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Guardar porcentaje" })).toBeNull();
+    } finally {
+      await act(() => i18n.changeLanguage("en"));
+    }
+  });
+});
+
 // 12f.10.30d. jsdom has no layout, so the width rule is pinned by structure: every text the button can show
 // is in the button, in one cell, and the ones not shown are hidden from sight and from assistive technology.
 describe.each([
-  { language: "en", save: "Save share", saving: "Saving…", saved: "Saved" },
-  { language: "es", save: "Guardar porcentaje", saving: "Guardando…", saved: "Guardado" },
+  { language: "en", save: "Save", saving: "Saving…", saved: "Saved" },
+  { language: "es", save: "Guardar", saving: "Guardando…", saved: "Guardado" },
 ] as const)("PoolShareEditor, Saved is the button's own text, in $language (12f.10.30d)", (T) => {
   beforeEach(async () => {
     await act(() => i18n.changeLanguage(T.language));

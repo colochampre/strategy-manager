@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AppRoutes } from "@/app/router";
@@ -6,6 +6,7 @@ import i18n from "@/shared/i18n";
 import {
   heldSubscription,
   jsonResponse,
+  publicStrategy,
   renderAt,
   resetExchangeScope,
   setViewport,
@@ -18,15 +19,15 @@ const STRATEGY_ID = "11111111-1111-4111-8111-111111111111";
 
 interface Serve {
   held: () => Promise<Response>;
-  leave?: () => Promise<Response>;
-  patch?: () => Promise<Response>;
+  publics?: () => Promise<Response>;
 }
 
-function serve({ held, leave, patch }: Serve) {
-  return stubApi({ kind: "ok", body: {} }, [], { kind: "ok", body: [] }, {}, (url, init) => {
+function serve({ held, publics }: Serve) {
+  return stubApi({ kind: "ok", body: {} }, [], { kind: "ok", body: [] }, {}, (url) => {
     if (url.endsWith("/api/subscriptions/held")) return held();
-    if (url.endsWith("/leave") && init?.method === "POST") return leave?.();
-    if (url.includes("/api/subscriptions/") && init?.method === "PATCH") return patch?.();
+    if (url.endsWith("/api/public/strategies")) {
+      return publics?.() ?? Promise.resolve(jsonResponse([publicStrategy({ id: STRATEGY_ID })]));
+    }
     if (url.includes(`/strategies/${STRATEGY_ID}/share-preview`)) {
       return Promise.resolve(jsonResponse(unsyncedSharePreview(STRATEGY_ID)));
     }
@@ -38,10 +39,6 @@ function open() {
   renderAt(<AppRoutes />, "/strategies");
 }
 
-function requestsTo(fetchMock: ReturnType<typeof stubApi>, ending: string) {
-  return fetchMock.mock.calls.filter(([url]) => String(url).endsWith(ending));
-}
-
 beforeEach(() => {
   unlock();
   resetExchangeScope();
@@ -49,6 +46,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
@@ -69,6 +67,29 @@ describe("the tabs of Strategies", () => {
     expect(links[1]).not.toHaveAttribute("aria-current");
   });
 
+  it("names the third list My strategies", async () => {
+    serve({ held: () => Promise.resolve(jsonResponse([])) });
+    open();
+
+    const tabs = await screen.findByRole("navigation", { name: i18n.t("strategies.tabs.label") });
+    expect(within(tabs).getByRole("link", { name: "My strategies" })).toHaveAttribute("href", "/strategies/authored");
+  });
+
+  it("puts a decorative icon before the label of each list", async () => {
+    serve({ held: () => Promise.resolve(jsonResponse([])) });
+    open();
+
+    const tabs = await screen.findByRole("navigation", { name: i18n.t("strategies.tabs.label") });
+    const links = within(tabs).getAllByRole("link");
+    expect(links).toHaveLength(3);
+    for (const link of links) {
+      const icon = link.querySelector("svg");
+      expect(icon).not.toBeNull();
+      expect(icon).toHaveAttribute("aria-hidden", "true");
+      expect(link.firstElementChild).toBe(icon);
+    }
+  });
+
   it("keeps My subscriptions unmarked on another list", async () => {
     stubApi({ kind: "ok", body: {} }, [], { kind: "ok", body: [] }, {}, (url) =>
       url.endsWith("/api/public/strategies") ? Promise.resolve(jsonResponse([])) : undefined,
@@ -86,28 +107,94 @@ describe("the tabs of Strategies", () => {
   });
 });
 
-describe("My subscriptions", () => {
-  it("shows what is held: the strategy, its author, its market and the share", async () => {
+describe("a card of My subscriptions shows what Explore shows", () => {
+  it("names the strategy, its author on one line and its market on the next", async () => {
     serve({ held: () => Promise.resolve(jsonResponse([heldSubscription()])) });
     open();
 
     const row = await screen.findByTestId("subscription-row");
     expect(within(row).getByRole("link", { name: "Alpha" })).toHaveAttribute("href", `/strategies/explore/${STRATEGY_ID}`);
     expect(within(row).getByTestId("subscription-origin")).toHaveTextContent(
-      `${i18n.t("strategies.subscriptions.by", { name: "Ana" })} · bybit · usdt-m · USDT`,
+      new RegExp(`^${i18n.t("strategies.subscriptions.by", { name: "Ana" })}$`),
     );
-    expect(within(row).getByTestId("subscription-share")).toHaveTextContent(
-      i18n.t("strategies.subscriptions.share", { share: "30" }),
-    );
+    expect(within(row).getByTestId("subscription-market")).toHaveTextContent(/^bybit · usdt-m · USDT$/);
   });
 
-  it("writes the share in plain form, however the server wrote it", async () => {
-    serve({ held: () => Promise.resolve(jsonResponse([heldSubscription({ allocation_percent: "30.000000" })])) });
+  it("draws the strategy's public figures: closed trades, return, people trading it live and capital", async () => {
+    serve({ held: () => Promise.resolve(jsonResponse([heldSubscription()])) });
     open();
 
-    expect(await screen.findByTestId("subscription-share")).toHaveTextContent(
-      i18n.t("strategies.subscriptions.share", { share: "30" }),
-    );
+    const row = await screen.findByTestId("subscription-row");
+    expect(await within(row).findByTestId("public-trades")).toHaveTextContent(/^3$/);
+    expect(within(row).getByTestId("public-return")).toHaveTextContent(/^\+12\.5\s?%$/);
+    expect(within(row).getByTestId("public-live")).toHaveTextContent(/^2$/);
+    expect(within(row).getByTestId("public-capital")).toBeInTheDocument();
+    // The strategy's own age is not drawn: the card counts the reader's time in it instead.
+    expect(within(row).queryByTestId("public-age")).not.toBeInTheDocument();
+  });
+
+  it("counts the age from the day the reader subscribed, not from the strategy's creation", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-11-06T12:00:00Z"));
+    serve({ held: () => Promise.resolve(jsonResponse([heldSubscription({ created_at: "2026-10-27T10:00:00Z" })])) });
+    open();
+
+    const age = await screen.findByTestId("subscription-age");
+    expect(age).toHaveTextContent(/^10d$/);
+    const figure = age.parentElement as HTMLElement;
+    expect(within(figure).getByRole("img", { name: i18n.t("strategies.subscriptions.age") })).toBeInTheDocument();
+  });
+
+  it("adds the share of the pool and the leverage, each under its icon, the share in plain form", async () => {
+    serve({
+      held: () => Promise.resolve(jsonResponse([heldSubscription({ allocation_percent: "30.000000", leverage: 4 })])),
+    });
+    open();
+
+    const share = await screen.findByTestId("subscription-share");
+    expect(share).toHaveTextContent(/^30%$/);
+    expect(
+      within(share.parentElement as HTMLElement).getByRole("img", { name: i18n.t("strategies.subscriptions.share") }),
+    ).toBeInTheDocument();
+    const leverage = screen.getByTestId("subscription-leverage");
+    expect(leverage).toHaveTextContent(/^x4$/);
+    expect(
+      within(leverage.parentElement as HTMLElement).getByRole("img", { name: i18n.t("strategies.subscriptions.leverage") }),
+    ).toBeInTheDocument();
+  });
+
+  it("offers no Leave, nor any other button: the seat is managed on the strategy's page", async () => {
+    const fetchMock = serve({ held: () => Promise.resolve(jsonResponse([heldSubscription()])) });
+    open();
+
+    const row = await screen.findByTestId("subscription-row");
+    await within(row).findByTestId("public-trades");
+    expect(within(row).queryByRole("button")).not.toBeInTheDocument();
+    expect(within(row).queryByRole("textbox")).not.toBeInTheDocument();
+    expect(within(row).queryByRole("slider")).not.toBeInTheDocument();
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes("/share-preview"))).toBe(false);
+  });
+
+  it("draws only the reader's own figures for a strategy that is not on the public list", async () => {
+    serve({ held: () => Promise.resolve(jsonResponse([heldSubscription()])), publics: () => Promise.resolve(jsonResponse([])) });
+    open();
+
+    expect(await screen.findByTestId("subscription-share")).toBeInTheDocument();
+    expect(screen.getByTestId("subscription-age")).toBeInTheDocument();
+    expect(screen.queryByTestId("public-trades")).not.toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("says so when the public figures cannot be read, and still shows the reader's own", async () => {
+    serve({
+      held: () => Promise.resolve(jsonResponse([heldSubscription()])),
+      publics: () => Promise.resolve(jsonResponse({ detail: "down" }, 500)),
+    });
+    open();
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(i18n.t("strategies.subscriptions.figuresError"));
+    expect(screen.getByTestId("subscription-share")).toBeInTheDocument();
+    expect(screen.queryByTestId("public-trades")).not.toBeInTheDocument();
   });
 
   it("says an author has no name yet, instead of a blank", async () => {
@@ -119,23 +206,22 @@ describe("My subscriptions", () => {
     );
   });
 
-  it("sends an author to their own page and offers no way out", async () => {
-    serve({ held: () => Promise.resolve(jsonResponse([heldSubscription({ authored: true })])) });
+  it("sends an author to their own page", async () => {
+    serve({ held: () => Promise.resolve(jsonResponse([heldSubscription({ authored: true, leverage: 2 })])) });
     open();
 
     const row = await screen.findByTestId("subscription-row");
     expect(within(row).getByRole("link", { name: "Alpha" })).toHaveAttribute("href", `/strategies/${STRATEGY_ID}`);
     expect(within(row).getByTestId("subscription-origin")).toHaveTextContent(i18n.t("strategies.subscriptions.yours"));
-    expect(within(row).queryByRole("button")).not.toBeInTheDocument();
+    expect(within(row).getByTestId("subscription-leverage")).toHaveTextContent(/^x2$/);
   });
 
-  it("tells a leaving subscription apart and offers nothing on it", async () => {
+  it("tells a leaving subscription apart", async () => {
     serve({ held: () => Promise.resolve(jsonResponse([heldSubscription({ status: "LEAVING" })])) });
     open();
 
     const row = await screen.findByTestId("subscription-row");
     expect(within(row).getByText(i18n.t("strategies.subscriptions.leaving"))).toBeInTheDocument();
-    expect(within(row).queryByRole("button")).not.toBeInTheDocument();
   });
 
   it("says nothing of leaving on a subscription that is not leaving", async () => {
@@ -145,7 +231,9 @@ describe("My subscriptions", () => {
     await screen.findByTestId("subscription-row");
     expect(screen.queryByText(i18n.t("strategies.subscriptions.leaving"))).not.toBeInTheDocument();
   });
+});
 
+describe("the list of My subscriptions", () => {
   it("points an empty list at Explore", async () => {
     serve({ held: () => Promise.resolve(jsonResponse([])) });
     open();
@@ -170,186 +258,5 @@ describe("My subscriptions", () => {
     open();
 
     expect(await screen.findByText(i18n.t("strategies.subscriptions.loading"))).toBeInTheDocument();
-  });
-});
-
-describe("changing a share", () => {
-  it("opens the editor on the row and saves on that subscription", async () => {
-    const row = heldSubscription();
-    const fetchMock = serve({
-      held: () => Promise.resolve(jsonResponse([row])),
-      patch: () => Promise.resolve(jsonResponse({ ...row, allocation_percent: "45" })),
-    });
-    open();
-
-    expect(await screen.findByTestId("subscription-row")).toBeInTheDocument();
-    expect(screen.queryByRole("textbox", { name: i18n.t("strategies.detail.share.label") })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: i18n.t("strategies.subscriptions.changeShare") }));
-    const field = await screen.findByRole("textbox", { name: i18n.t("strategies.detail.share.label") });
-    expect(fetchMock.mock.calls.some(([url]) => String(url).includes(`/strategies/${STRATEGY_ID}/share-preview`))).toBe(true);
-    fireEvent.change(field, { target: { value: "45" } });
-    fireEvent.click(screen.getByRole("button", { name: i18n.t("strategies.detail.share.save") }));
-
-    await waitFor(() => expect(requestsTo(fetchMock, `/api/subscriptions/${row.id}`)).toHaveLength(1));
-    const [, init] = requestsTo(fetchMock, `/api/subscriptions/${row.id}`)[0] as [string, RequestInit];
-    expect(init.body).toBe('{"allocation_percent":"45"}');
-  });
-
-  it("opens the leverage control beside the share and saves only the leverage on that subscription", async () => {
-    const row = heldSubscription({ leverage: 2 });
-    const fetchMock = serve({
-      held: () => Promise.resolve(jsonResponse([row])),
-      patch: () => Promise.resolve(jsonResponse({ ...row, leverage: 9 })),
-    });
-    open();
-
-    expect(await screen.findByTestId("subscription-row")).toBeInTheDocument();
-    expect(screen.queryByRole("textbox", { name: i18n.t("strategies.leverage.label") })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: i18n.t("strategies.subscriptions.changeShare") }));
-    const field = await screen.findByRole("textbox", { name: i18n.t("strategies.leverage.label") });
-    expect(field).toHaveValue("2");
-    fireEvent.change(field, { target: { value: "9" } });
-    fireEvent.click(screen.getByRole("button", { name: i18n.t("strategies.leverage.save") }));
-
-    await waitFor(() => expect(requestsTo(fetchMock, `/api/subscriptions/${row.id}`)).toHaveLength(1));
-    const [, init] = requestsTo(fetchMock, `/api/subscriptions/${row.id}`)[0] as [string, RequestInit];
-    expect(init.method).toBe("PATCH");
-    expect(init.body).toBe('{"leverage":9}');
-  });
-
-  it("closes the editor again from the same button", async () => {
-    serve({ held: () => Promise.resolve(jsonResponse([heldSubscription()])) });
-    open();
-
-    fireEvent.click(await screen.findByRole("button", { name: i18n.t("strategies.subscriptions.changeShare") }));
-    fireEvent.click(screen.getByRole("button", { name: i18n.t("strategies.subscriptions.closeShare") }));
-
-    expect(screen.queryByRole("textbox", { name: i18n.t("strategies.detail.share.label") })).not.toBeInTheDocument();
-  });
-});
-
-describe("leaving", () => {
-  const leaveName = () => i18n.t("strategies.subscriptions.leave");
-  /** Inside the dialog: the row behind it holds a button of the same name, which a real modal makes inert. */
-  const confirmButton = () =>
-    within(screen.getByRole("dialog")).getByRole("button", { name: i18n.t("strategies.leave.confirm") });
-
-  it("asks first: opening the dialog sends nothing, and says what happens to a position", async () => {
-    const fetchMock = serve({ held: () => Promise.resolve(jsonResponse([heldSubscription()])) });
-    open();
-
-    fireEvent.click(await screen.findByRole("button", { name: leaveName() }));
-
-    const dialog = await screen.findByRole("dialog", { name: i18n.t("strategies.leave.confirmTitle", { name: "Alpha" }) });
-    expect(within(dialog).getByText(i18n.t("strategies.leave.confirmBody", { name: "Alpha" }))).toBeInTheDocument();
-    expect(within(dialog).getByText(i18n.t("strategies.leave.privateNote"))).toBeInTheDocument();
-    expect(fetchMock.mock.calls.filter(([url]) => String(url).endsWith("/leave"))).toHaveLength(0);
-  });
-
-  it.each([
-    ["the cancel button", () => fireEvent.click(screen.getByRole("button", { name: i18n.t("strategies.leave.cancel") }))],
-    ["Escape", () => fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" })],
-    ["the browser's cancel", () => fireEvent(screen.getByRole("dialog"), new Event("cancel", { cancelable: true }))],
-  ])("%s sends nothing and closes", async (_name, dismiss) => {
-    const fetchMock = serve({ held: () => Promise.resolve(jsonResponse([heldSubscription()])) });
-    open();
-
-    fireEvent.click(await screen.findByRole("button", { name: leaveName() }));
-    dismiss();
-
-    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
-    expect(fetchMock.mock.calls.filter(([url]) => String(url).endsWith("/leave"))).toHaveLength(0);
-  });
-
-  it("confirming posts the leave of that subscription, closes and reads the list again", async () => {
-    const row = heldSubscription();
-    let leaveCalled = false;
-    const fetchMock = serve({
-      held: () => Promise.resolve(jsonResponse(leaveCalled ? [] : [row])),
-      leave: () => {
-        leaveCalled = true;
-        return Promise.resolve(jsonResponse({ ...row, status: "ENDED" }));
-      },
-    });
-    open();
-
-    fireEvent.click(await screen.findByRole("button", { name: leaveName() }));
-    fireEvent.click(confirmButton());
-
-    await waitFor(() => expect(requestsTo(fetchMock, `/api/subscriptions/${row.id}/leave`)).toHaveLength(1));
-    expect(await screen.findByText(i18n.t("strategies.subscriptions.empty"))).toBeInTheDocument();
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-  });
-
-  it("a position still open leaves the row in place, marked as leaving, with the dialog closed", async () => {
-    const row = heldSubscription();
-    let leaveCalled = false;
-    serve({
-      held: () => Promise.resolve(jsonResponse([leaveCalled ? { ...row, status: "LEAVING" } : row])),
-      leave: () => {
-        leaveCalled = true;
-        return Promise.resolve(jsonResponse({ ...row, status: "LEAVING" }));
-      },
-    });
-    open();
-
-    fireEvent.click(await screen.findByRole("button", { name: leaveName() }));
-    fireEvent.click(confirmButton());
-
-    expect(await screen.findByText(i18n.t("strategies.subscriptions.leaving"))).toBeInTheDocument();
-    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
-  });
-
-  it("holds while the leave is on its way: nothing presses it twice and Escape does not close it", async () => {
-    serve({
-      held: () => Promise.resolve(jsonResponse([heldSubscription()])),
-      leave: () => new Promise<Response>(() => undefined),
-    });
-    open();
-
-    fireEvent.click(await screen.findByRole("button", { name: leaveName() }));
-    fireEvent.click(confirmButton());
-
-    const dialog = screen.getByRole("dialog");
-    expect(await within(dialog).findByRole("button", { name: i18n.t("strategies.leave.pending") })).toBeDisabled();
-    expect(within(dialog).getByRole("button", { name: i18n.t("strategies.leave.cancel") })).toBeDisabled();
-    fireEvent.keyDown(dialog, { key: "Escape" });
-    expect(screen.getByRole("dialog")).toBeInTheDocument();
-  });
-
-  it("opening the dialog again forgets the last refusal", async () => {
-    serve({
-      held: () => Promise.resolve(jsonResponse([heldSubscription()])),
-      leave: () => Promise.resolve(jsonResponse({ detail: "boom" }, 500)),
-    });
-    open();
-
-    fireEvent.click(await screen.findByRole("button", { name: leaveName() }));
-    fireEvent.click(confirmButton());
-    expect(await screen.findByRole("alert")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: i18n.t("strategies.leave.cancel") }));
-    fireEvent.click(screen.getByRole("button", { name: leaveName() }));
-
-    expect(await screen.findByRole("dialog")).toBeInTheDocument();
-    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-  });
-
-  it.each([
-    [409, { error: "AUTHOR_CANNOT_LEAVE", message: "no" }, "strategies.leave.errors.author"],
-    [409, { error: "SUBSCRIPTION_NOT_ACTIVE", message: "no" }, "strategies.leave.errors.notActive"],
-    [404, "no subscription", "strategies.leave.errors.gone"],
-    [500, "boom", "strategies.leave.errors.generic"],
-  ])("a %i refusal is in words, inside the dialog", async (status, detail, key) => {
-    serve({
-      held: () => Promise.resolve(jsonResponse([heldSubscription()])),
-      leave: () => Promise.resolve(jsonResponse({ detail }, status)),
-    });
-    open();
-
-    fireEvent.click(await screen.findByRole("button", { name: leaveName() }));
-    fireEvent.click(confirmButton());
-
-    const dialog = await screen.findByRole("dialog");
-    expect(await within(dialog).findByRole("alert")).toHaveTextContent(i18n.t(key));
   });
 });

@@ -1,4 +1,4 @@
-import type { MouseEvent } from "react";
+import type { MouseEvent, ReactNode } from "react";
 import { useRef } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -24,6 +24,11 @@ export interface ShareSliderProps {
   onText: (text: string) => void;
   onHandle: (step: number) => void;
   onStop: (stop: number) => void;
+  /**
+   * What sits on the field's own row, after it (the container's Save). The field takes the width that is left
+   * and the action keeps the width of its own content.
+   */
+  action?: ReactNode;
 }
 
 /**
@@ -82,6 +87,7 @@ export function ShareSlider({
   onText,
   onHandle,
   onStop,
+  action,
 }: ShareSliderProps) {
   const { t } = useTranslation();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -98,10 +104,12 @@ export function ShareSlider({
 
   return (
     <div className="flex flex-col gap-3">
+      {/* One row: the field takes the width that is left, the action beside it keeps its own. */}
+      <div className="flex items-start gap-x-3">
       <div
         onMouseDown={focusField}
         className={cn(
-          "flex min-h-11 w-full items-center rounded-md border bg-ground px-3 font-mono text-sm text-ink",
+          "flex min-h-11 min-w-0 flex-1 items-center rounded-md border bg-ground px-3 font-mono text-sm text-ink",
           "focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-gain",
           invalid ? "border-loss" : "border-rule",
           disabled ? "cursor-not-allowed opacity-50" : "cursor-text",
@@ -125,6 +133,8 @@ export function ShareSlider({
         <span aria-hidden="true" className="text-ink">
           %
         </span>
+      </div>
+      {action}
       </div>
       <div>
         <div className="relative h-11">

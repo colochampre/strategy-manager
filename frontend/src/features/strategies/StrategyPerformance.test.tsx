@@ -119,6 +119,30 @@ describe("StrategyPerformance", () => {
     expect(screen.getByText("1 of 1 month positive · best +2.5% · worst +2.5%")).toBeInTheDocument();
   });
 
+  it("starts the strategy's curve and the pool's at 0 on the day the first trade opened (decision 36)", async () => {
+    const vertices = () => (screen.getByTestId("return-curve").getAttribute("d") ?? "").match(/[ML]/g) ?? [];
+    const opened = new Date(Date.now() - 5 * 86_400_000).toISOString().slice(0, 10);
+    const strategy = report({ origin: opened });
+    const poolRow = pool("bybit", "usdt-m", "USDT");
+    stubApi(
+      HEALTH,
+      [],
+      { kind: "ok", body: [poolRow] },
+      { "bybit/usdt-m/USDT": { kind: "ok", body: { ...emptyPerformance("bybit", "usdt-m", "USDT"), curve: strategy.curve, origin: opened } } },
+      (url) => (url.includes(`/performance/strategies/${ID}`) ? Promise.resolve(jsonResponse(strategy)) : undefined),
+    );
+
+    const panel = renderAt(<PoolPanel pool={poolRow} />);
+    await screen.findByTestId("return-curve");
+    expect(vertices()).toHaveLength(2);
+    panel.unmount();
+
+    renderAt(<StrategyPerformance strategyId={ID} />);
+    await screen.findByTestId("return-curve");
+    expect(vertices()).toHaveLength(2);
+    expect(screen.queryByTestId("return-dot")).toBeNull();
+  });
+
   it("lists the by-pair table of the same report, a pair without a return as a dash", async () => {
     const requests = serve(() => Promise.resolve(jsonResponse(report())));
     renderAt(<StrategyPerformance strategyId={ID} />);

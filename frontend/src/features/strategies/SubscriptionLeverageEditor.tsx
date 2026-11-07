@@ -3,7 +3,7 @@ import { Save } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { LeverageSlider } from "@/features/strategies/LeverageSlider";
-import { LEVERAGE_REFUSAL_TEXT, useLeverageDraft } from "@/features/strategies/useLeverageDraft";
+import { LEVERAGE_REFUSAL_TEXT, useLeverageDraft, type LeverageDraft } from "@/features/strategies/useLeverageDraft";
 import { ApiError } from "@/shared/api/client";
 import { useSetSubscriptionLeverage } from "@/shared/api/subscriptions";
 import type { Strategy } from "@/shared/api/types";
@@ -13,6 +13,8 @@ import { StatusButton } from "@/shared/ui/StatusButton";
 interface SubscriptionLeverageEditorProps {
   /** Only what it reads, so a subscriber's row, which holds no whole strategy, can use it. */
   strategy: Pick<Strategy, "id" | "subscription" | "archived_at">;
+  /** The draft, when a parent shares it with the share line; the editor keeps its own otherwise. */
+  draft?: LeverageDraft | undefined;
 }
 
 /** The text of a refused or failed save: the status (and the not-active code) decides, never the server's wording. */
@@ -31,7 +33,7 @@ function saveRefusal(error: unknown): string {
  * text as typed, the handle follows it, and nothing is sent until Save. A change applies at the next
  * opening; the system sets it on the exchange before opening.
  */
-export function SubscriptionLeverageEditor({ strategy }: SubscriptionLeverageEditorProps) {
+export function SubscriptionLeverageEditor({ strategy, draft }: SubscriptionLeverageEditorProps) {
   const { t } = useTranslation();
   const ids = { field: useId(), label: useId(), problem: useId() };
   const [saved, setSaved] = useState(false);
@@ -39,7 +41,17 @@ export function SubscriptionLeverageEditor({ strategy }: SubscriptionLeverageEdi
   const save = useSetSubscriptionLeverage(strategy.id, held?.id ?? "");
   const info = useInfoDisclosure();
   // Any movement of this control ends "Saved": a handle moved, a stop activated, a key typed. No timer.
-  const { text, reading, handle, changeText, changeStep } = useLeverageDraft(held?.leverage ?? 1, () => setSaved(false));
+  const own = useLeverageDraft(held?.leverage ?? 1);
+  const shared = draft ?? own;
+  const { text, reading, handle } = shared;
+  const changeText = (next: string) => {
+    shared.changeText(next);
+    setSaved(false);
+  };
+  const changeStep = (step: number) => {
+    shared.changeStep(step);
+    setSaved(false);
+  };
 
   if (held === null) return null;
 
@@ -58,7 +70,8 @@ export function SubscriptionLeverageEditor({ strategy }: SubscriptionLeverageEdi
   const savedText = t("strategies.detail.saved");
 
   return (
-    <section className="flex flex-col gap-3">
+    // Named by its label: several editors on one page each have a Save that says only "Save".
+    <section aria-labelledby={ids.label} className="flex flex-col gap-3">
       <div className="flex items-start">
         <label id={ids.label} htmlFor={ids.field} className="text-sm leading-5 text-ink-2">
           {t("strategies.leverage.label")}
@@ -80,18 +93,21 @@ export function SubscriptionLeverageEditor({ strategy }: SubscriptionLeverageEdi
         onText={changeText}
         onHandle={changeStep}
         onStop={changeStep}
+        // Save is on the field's row, as wide as its own text needs; the field takes the width that is left.
+        action={
+          <div className="flex shrink-0 items-start gap-x-3">
+            <StatusButton
+              texts={[saveText, savingText, savedText]}
+              shown={busy ? savingText : saved ? savedText : saveText}
+              message={saved ? savedText : null}
+              onClick={handleSave}
+              disabled={readOnly || busy || !changed || saved}
+              icon={Save}
+              className="min-h-11 rounded-md bg-gain px-3 text-sm font-medium text-ground hover:opacity-90 disabled:opacity-50"
+            />
+          </div>
+        }
       />
-      <div className="flex items-start">
-        <StatusButton
-          texts={[saveText, savingText, savedText]}
-          shown={busy ? savingText : saved ? savedText : saveText}
-          message={saved ? savedText : null}
-          onClick={handleSave}
-          disabled={readOnly || busy || !changed || saved}
-          icon={Save}
-          className="min-h-11 rounded-md bg-gain px-3 text-sm font-medium text-ground hover:opacity-90 disabled:opacity-50"
-        />
-      </div>
       {!reading.valid && (
         <p id={ids.problem} className="text-xs text-loss">
           {t(LEVERAGE_REFUSAL_TEXT[reading.refusal])}

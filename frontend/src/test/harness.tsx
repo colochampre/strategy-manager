@@ -323,6 +323,40 @@ export function publicStrategy(overrides: Record<string, unknown> = {}) {
   };
 }
 
+/**
+ * `GET /api/public/strategies/{id}/record`: two closed trades over two months on SOLUSDT and ETHUSDT, no money.
+ * The curve ends on 2026-11-05 so the 90D and All windows hold it for a clock set near then.
+ */
+export function publicRecord(overrides: Record<string, unknown> = {}) {
+  return {
+    day_boundary: "UTC",
+    origin: "2026-10-10",
+    closed_trade_count: 2,
+    max_drawdown: "-0.02",
+    ranges: [
+      { range: "7D", return: "0.01", trade_count: 1 },
+      { range: "30D", return: "0.0505", trade_count: 2 },
+      { range: "90D", return: "0.0505", trade_count: 2 },
+      { range: "1Y", return: "0.0505", trade_count: 2 },
+      { range: "All", return: "0.0505", trade_count: 2 },
+    ],
+    curve: [
+      { date: "2026-10-10", daily_return: "0", index: "0", drawdown: "0" },
+      { date: "2026-10-20", daily_return: "0.04", index: "0.04", drawdown: "0" },
+      { date: "2026-11-05", daily_return: "0.01", index: "0.0505", drawdown: "-0.02" },
+    ],
+    monthly: [
+      { year: 2026, month: 10, return: "0.04" },
+      { year: 2026, month: 11, return: "0.01" },
+    ],
+    by_pair: [
+      { pair: "SOLUSDT", trades: 1, wins: 1, win_rate: "1", return: "0.04" },
+      { pair: "ETHUSDT", trades: 1, wins: 0, win_rate: "0", return: "-0.01" },
+    ],
+    ...overrides,
+  };
+}
+
 /** One row of `GET /api/admin/users`: Ana, live, with a Bybit key, three subscriptions and two open positions. */
 export function adminUser(overrides: Record<string, unknown> = {}) {
   return {

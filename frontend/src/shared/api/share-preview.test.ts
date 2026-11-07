@@ -90,6 +90,32 @@ describe("fetchSharePreview", () => {
     );
   });
 
+  it("asks with &leverage= beside the share, and with ?leverage= alone for the stored share", async () => {
+    const fetchMock = stubFetch(preview());
+
+    await fetchSharePreview(ID, "12.25", 3);
+    await fetchSharePreview(ID, undefined, 5);
+
+    const urls = fetchMock.mock.calls.map((call) => (call as [string, RequestInit])[0]);
+    expect(urls[0]).toBe(`${API_BASE_URL}/api/strategies/${ID}/share-preview?share=12.25&leverage=3`);
+    expect(urls[1]).toBe(`${API_BASE_URL}/api/strategies/${ID}/share-preview?leverage=5`);
+  });
+
+  it("serves the notional of the exact amount: a string, or null, or absent", async () => {
+    stubFetch(preview({ exact: { share: "33.5", amount: "335", below_pool_minimum: false, notional: "1005" } }));
+    expect((await fetchSharePreview(ID, undefined, 3)).exact?.notional).toBe("1005");
+    stubFetch(preview({ exact: { share: "33.5", amount: "335", below_pool_minimum: false, notional: null } }));
+    expect((await fetchSharePreview(ID)).exact?.notional).toBeNull();
+    stubFetch(preview());
+    expect((await fetchSharePreview(ID)).exact?.notional).toBeUndefined();
+  });
+
+  it("refuses a notional that is a JSON number", async () => {
+    stubFetch(preview({ exact: { share: "33.5", amount: "335", below_pool_minimum: false, notional: 1005 } }));
+
+    await expect(fetchSharePreview(ID, undefined, 3)).rejects.toBeInstanceOf(ApiError);
+  });
+
   it("accepts the null, null and empty body of a pool nothing has synced", async () => {
     stubFetch(unsynced());
 
@@ -182,6 +208,19 @@ describe("useSharePreview", () => {
     expect(client.getQueryData(["strategy", ID, "share-preview", "12.25"])).toMatchObject({ strategy_id: ID });
     expect(client.getQueryData(["strategy", ID, "share-preview"])).toBeUndefined();
     expect((fetchMock.mock.calls[0] as [string, RequestInit])[0]).toContain("?share=12.25");
+  });
+
+  it("for an asked leverage the request carries it and the key tells it apart", async () => {
+    const fetchMock = stubFetch(preview());
+    const { client, wrapper } = clientWrapper();
+    const { result } = renderHook(() => useSharePreview(ID, "12.25", 3), { wrapper });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect((fetchMock.mock.calls[0] as [string, RequestInit])[0]).toContain("?share=12.25&leverage=3");
+    expect(client.getQueryData(["strategy", ID, "share-preview", "12.25", { leverage: 3 }])).toMatchObject({
+      strategy_id: ID,
+    });
+    expect(client.getQueryData(["strategy", ID, "share-preview", "12.25"])).toBeUndefined();
   });
 
   it("reads again every 60 seconds", async () => {

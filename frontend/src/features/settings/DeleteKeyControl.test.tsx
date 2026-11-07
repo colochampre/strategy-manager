@@ -8,6 +8,7 @@ import { SettingsPage } from "@/features/settings/SettingsPage";
 import i18n from "@/shared/i18n";
 import en from "@/shared/i18n/locales/en.json";
 import es from "@/shared/i18n/locales/es.json";
+import { DANGER_CONTROL } from "@/shared/ui/danger-control";
 import {
   type ExtraRoute,
   emptyKey,
@@ -165,6 +166,10 @@ describe("where Delete key is drawn (spec: operable by keyboard and named for as
     expect(button).toHaveAccessibleName("Delete key Bybit");
     expect(button).toHaveTextContent("Delete key");
     expect(button).toHaveClass("min-h-11", "border-loss", "text-loss");
+    expect(button.className).toBe(DANGER_CONTROL);
+    expect(DANGER_CONTROL).toBe(
+      "inline-flex min-h-11 items-center gap-1.5 rounded-md border border-loss px-3.5 text-sm text-loss hover:bg-panel-2 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gain",
+    );
     expect(button.className).not.toMatch(/\bbg-loss\b/);
     expect(button).toBeEnabled();
   });

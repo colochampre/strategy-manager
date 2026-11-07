@@ -43,8 +43,11 @@ function refusal(error: string, symbols: string[] = []) {
   return () => jsonResponse({ detail: { error, message: "server wording", symbols } }, 409);
 }
 
+/** Opens the badge's menu and picks the mode the badge does not show: the one that asks for a confirmation. */
 async function openDialog(name: RegExp) {
   fireEvent.click(await screen.findByRole("button", { name }));
+  const other = String(name).includes("Simulation") ? "Live" : "Simulation";
+  fireEvent.click(within(screen.getByRole("menu")).getByRole("menuitemradio", { name: other }));
   return screen.findByRole("dialog");
 }
 
@@ -111,6 +114,85 @@ describe("what the badge says", () => {
     expect(await screen.findByText("Mode unknown")).toHaveClass("text-ink-3");
     expect(screen.queryByText("Live")).not.toBeInTheDocument();
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
+  });
+});
+
+describe("the badge drops down the two modes (owner, 2026-11-06)", () => {
+  it.each([
+    ["SIMULATION", /Mode: Simulation/, "Simulation"],
+    ["LIVE", /Mode: Live/, "Live"],
+  ] as const)("in %s, lists Live and Simulation with the current one checked, and sends nothing", async (mode, name, current) => {
+    const fetchMock = serve({ mode, brake: false });
+    renderAt(<ModeBadge />);
+
+    const button = await screen.findByRole("button", { name });
+    expect(button).toHaveAttribute("aria-haspopup", "menu");
+    expect(button).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    fireEvent.click(button);
+
+    expect(button).toHaveAttribute("aria-expanded", "true");
+    const items = within(screen.getByRole("menu")).getAllByRole("menuitemradio");
+    expect(items.map((item) => [item.textContent, item.getAttribute("aria-checked")])).toEqual([
+      ["Live", String(current === "Live")],
+      ["Simulation", String(current === "Simulation")],
+    ]);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(posts(fetchMock)).toHaveLength(0);
+  });
+
+  it("picking the mode already in force closes the menu and asks nothing", async () => {
+    const fetchMock = serve({ mode: "SIMULATION", brake: false });
+    renderAt(<ModeBadge />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Mode: Simulation/ }));
+    fireEvent.click(screen.getByRole("menuitemradio", { name: "Simulation" }));
+
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(posts(fetchMock)).toHaveLength(0);
+  });
+
+  it("picking the other mode closes the menu and asks for the confirmation", async () => {
+    serve({ mode: "SIMULATION", brake: false });
+    renderAt(<ModeBadge />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Mode: Simulation/ }));
+    fireEvent.click(screen.getByRole("menuitemradio", { name: "Live" }));
+
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    expect(within(await screen.findByRole("dialog")).getByRole("heading", { name: "Go live?" })).toBeInTheDocument();
+  });
+
+  it("closes on Escape, giving the focus back to the badge", async () => {
+    serve({ mode: "LIVE", brake: false });
+    renderAt(<ModeBadge />);
+
+    const button = await screen.findByRole("button", { name: /Mode: Live/ });
+    fireEvent.click(button);
+    fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
+
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    expect(button).toHaveFocus();
+  });
+
+  it("closes on a click anywhere else, and a second click on the badge closes it too", async () => {
+    serve({ mode: "LIVE", brake: false });
+    renderAt(
+      <div>
+        <p>elsewhere</p>
+        <ModeBadge />
+      </div>,
+    );
+
+    const button = await screen.findByRole("button", { name: /Mode: Live/ });
+    fireEvent.click(button);
+    fireEvent.pointerDown(screen.getByText("elsewhere"));
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+
+    fireEvent.click(button);
+    fireEvent.click(button);
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
   });
 });
 

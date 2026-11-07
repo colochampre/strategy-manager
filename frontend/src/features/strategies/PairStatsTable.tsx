@@ -9,11 +9,17 @@ import { ReportSection } from "@/shared/ui/ReportSection";
 
 const DASH = "—";
 
+/** A row of a record has no `pnl`: only a report in a currency carries money. */
+type PairRow = Omit<PairStat, "pnl" | "return"> & { pnl?: string; return: string | null };
+
 interface PairStatsTableProps {
   /** The report's `by_pair`, in the order the server gave it. No allowed-pairs list reaches this table: a pair removed from it keeps its history. */
-  pairs: readonly PairStat[];
-  /** The strategy's pool currency; every PnL is in it (rule 7). */
-  currency: string;
+  pairs: readonly PairRow[];
+  /**
+   * The strategy's pool currency; every PnL is in it (rule 7). Left out, the table is a public record: it has
+   * no PnL column at all and invents no currency.
+   */
+  currency?: string;
 }
 
 interface ReadRow {
@@ -21,7 +27,8 @@ interface ReadRow {
   trades: number;
   /** The served rate, already written (cut at one decimal), never computed here. */
   winRate: string;
-  pnl: number;
+  /** Null in a record, which has no money. */
+  pnl: number | null;
   /** Null is a pair with no return (no capital at open), which is not a zero. */
   ret: number | null;
 }
@@ -48,13 +55,13 @@ function rateAgrees(wins: number, trades: number, rate: string): boolean {
 }
 
 /** Every row parsed, or `null` when any figure cannot be read: a table with one wrong figure is worse than none. */
-function readRows(pairs: readonly PairStat[], locale: string): ReadRow[] | null {
+function readRows(pairs: readonly PairRow[], locale: string, withMoney: boolean): ReadRow[] | null {
   const rows: ReadRow[] = [];
   for (const entry of pairs) {
-    const pnl = parseDecimal(entry.pnl);
+    const pnl = withMoney && entry.pnl !== undefined ? parseDecimal(entry.pnl) : null;
     const ret = entry.return === null ? null : parseDecimal(entry.return);
     const winRate = rateAgrees(entry.wins, entry.trades, entry.win_rate) ? rateText(entry.win_rate, locale) : null;
-    if (pnl === null || (entry.return !== null && ret === null) || winRate === null) return null;
+    if ((withMoney && pnl === null) || (entry.return !== null && ret === null) || winRate === null) return null;
     rows.push({ pair: entry.pair, trades: entry.trades, winRate, pnl, ret });
   }
   return rows;
@@ -69,7 +76,7 @@ export function PairStatsTable({ pairs, currency }: PairStatsTableProps) {
   const { t, i18n } = useTranslation();
   const headingId = useId();
   const locale = i18n.resolvedLanguage ?? "en";
-  const rows = readRows(pairs, locale);
+  const rows = readRows(pairs, locale, currency !== undefined);
 
   let body;
   if (rows === null) {
@@ -95,9 +102,11 @@ export function PairStatsTable({ pairs, currency }: PairStatsTableProps) {
               <th scope="col" className="border-b border-rule py-2 pr-3 font-medium">
                 {t("strategies.performance.byPair.winRate")}
               </th>
-              <th scope="col" className="border-b border-rule py-2 pr-3 font-medium">
-                {t("strategies.performance.byPair.pnl", { currency })}
-              </th>
+              {currency !== undefined && (
+                <th scope="col" className="border-b border-rule py-2 pr-3 font-medium">
+                  {t("strategies.performance.byPair.pnl", { currency })}
+                </th>
+              )}
               <th scope="col" className="border-b border-rule py-2 font-medium">
                 {t("strategies.performance.byPair.return")}
               </th>
@@ -109,9 +118,11 @@ export function PairStatsTable({ pairs, currency }: PairStatsTableProps) {
                 <td className="border-b border-rule-soft py-2.5 pr-3 text-left text-ink">{row.pair}</td>
                 <td className="border-b border-rule-soft py-2.5 pr-3">{row.trades}</td>
                 <td className="border-b border-rule-soft py-2.5 pr-3">{row.winRate}</td>
-                <td className={cn("border-b border-rule-soft py-2.5 pr-3", toneClass(row.pnl))}>
-                  {amountText(row.pnl, currency, locale, true)}
-                </td>
+                {currency !== undefined && row.pnl !== null && (
+                  <td className={cn("border-b border-rule-soft py-2.5 pr-3", toneClass(row.pnl))}>
+                    {amountText(row.pnl, currency, locale, true)}
+                  </td>
+                )}
                 <td className={cn("border-b border-rule-soft py-2.5", row.ret !== null && toneClass(row.ret))}>
                   {row.ret === null ? (
                     <>

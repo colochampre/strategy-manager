@@ -11,6 +11,7 @@ It is a whole number. A ``bool`` is refused even though Python counts it as an
 """
 
 from dataclasses import dataclass
+from decimal import Decimal
 
 from strategy_manager.shared.domain.errors import InvariantViolation
 
@@ -26,6 +27,11 @@ class Leverage:
             raise InvariantViolation("a leverage is an integer")
         if not 1 <= self.value <= MAX_LEVERAGE:
             raise InvariantViolation(f"a leverage goes from 1 to {MAX_LEVERAGE}")
+
+    def notional(self, margin: Decimal) -> Decimal:
+        """What a position opened with ``margin`` at this leverage moves: the
+        granted amount is margin (CLAUDE.md, "Futures execution")."""
+        return margin * self.value
 
 
 #: Every new seat starts here, the author's at registration included: a
