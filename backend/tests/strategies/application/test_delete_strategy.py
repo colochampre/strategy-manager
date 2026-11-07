@@ -48,10 +48,12 @@ KINDS = [
     "booking_proposals",
     "enablement_events",
     "subscriptions",
+    "invite_codes",
 ]
-# Migrations 0028 and 0031: events and subscriptions are reported in the history
-# but never block it.
-BLOCKING_KINDS = [kind for kind in KINDS if kind not in ("enablement_events", "subscriptions")]
+# Migrations 0028, 0031 and 0038: events, subscriptions and invitation codes are
+# reported in the history but never block it.
+NEVER_BLOCKING = ("enablement_events", "subscriptions", "invite_codes")
+BLOCKING_KINDS = [kind for kind in KINDS if kind not in NEVER_BLOCKING]
 FIRST_ENABLED = datetime(2026, 10, 1, 8, 0, tzinfo=UTC)
 
 
@@ -305,9 +307,14 @@ async def test_each_blocking_kind_of_history_alone_refuses_and_nothing_is_delete
     assert "delete" not in harness.events
 
 
-async def test_the_refusal_carries_all_seven_counts() -> None:
+async def test_the_refusal_carries_all_eight_counts() -> None:
     answered = _history(
-        signals=3, reservations=2, ledger_entries=1, enablement_events=4, subscriptions=5
+        signals=3,
+        reservations=2,
+        ledger_entries=1,
+        enablement_events=4,
+        subscriptions=5,
+        invite_codes=6,
     )
     harness = Harness(history=answered)
 
@@ -400,7 +407,8 @@ async def test_the_info_line_names_the_events_deleted_the_first_enable_time_and_
     """Two enabled stretches, 1 h and 0.5 h: 5400 s. The line is the only record
     of when the strategy was switched on once its events are gone."""
     harness = Harness(
-        history=_history(enablement_events=4, subscriptions=3), enablement=_toggled(0, 1, 2, 2.5)
+        history=_history(enablement_events=4, subscriptions=3, invite_codes=2),
+        enablement=_toggled(0, 1, 2, 2.5),
     )
 
     with caplog.at_level(logging.DEBUG, logger=LOGGER):
@@ -412,6 +420,7 @@ async def test_the_info_line_names_the_events_deleted_the_first_enable_time_and_
     message = records[0].getMessage()
     assert "enablement_events=4" in message
     assert "subscriptions=3" in message
+    assert "invite_codes=2" in message
     assert f"first_enabled_at={FIRST_ENABLED.isoformat()}" in message
     assert "uptime_seconds=5400" in message
 
@@ -427,6 +436,7 @@ async def test_the_info_line_of_a_never_enabled_strategy_says_so(
     message = _records(caplog)[0].getMessage()
     assert "enablement_events=0" in message
     assert "subscriptions=0" in message
+    assert "invite_codes=0" in message
     assert "first_enabled_at=never" in message
     assert "uptime_seconds=0" in message
 

@@ -4,7 +4,7 @@ composing one narrow count per provider repository, following the
 the consumer (``strategies``) declared the port, each provider module owns
 the read over its own table, and this adapter only assembles the answer.
 
-Read-only: seven ``SELECT count(...)`` statements, no lock, nothing written.
+Read-only: eight ``SELECT count(...)`` statements, no lock, nothing written.
 Locking is ``DeleteStrategy``'s job.
 
 The reservations count is every user's, by design: deleting a strategy is the
@@ -30,7 +30,7 @@ from strategy_manager.reconciliation.infrastructure.booking_proposal_repository 
 from strategy_manager.signals.infrastructure.repository import SqlAlchemySignalRepository
 from strategy_manager.strategies.application.ports import StrategyHistory
 from strategy_manager.strategies.infrastructure.enablement_log import SqlAlchemyEnablementLog
-from strategy_manager.subscriptions.infrastructure.models import SubscriptionRow
+from strategy_manager.subscriptions.infrastructure.models import InviteCodeRow, SubscriptionRow
 
 COUNTED_STRATEGY_REFERENCES: dict[str, tuple[str, str]] = {
     "fk_signals_strategy": ("signals", "signals"),
@@ -42,6 +42,7 @@ COUNTED_STRATEGY_REFERENCES: dict[str, tuple[str, str]] = {
         "enablement_events",
     ),
     "fk_subscriptions_strategy": ("subscriptions", "subscriptions"),
+    "fk_invite_codes_strategy": ("invite_codes", "invite_codes"),
 }
 """Every foreign key into ``strategies`` that the history check counts:
 constraint name -> ``(table, StrategyHistory field)``. Read by
@@ -84,7 +85,19 @@ class StrategyHistoryAdapter:
             booking_proposals=await self._proposals.count_for_strategy(strategy_id),
             enablement_events=await self._enablement_log.count_for(strategy_id),
             subscriptions=await self._count_subscriptions(strategy_id),
+            invite_codes=await self._count_invite_codes(strategy_id),
         )
+
+    async def _count_invite_codes(self, strategy_id: UUID) -> int:
+        """Every invitation code of the strategy, used or not (decision 41).
+        Reported, never a reason to refuse: migration 0038 deletes them with
+        their strategy."""
+        result = await self._session.execute(
+            select(func.count())
+            .select_from(InviteCodeRow)
+            .where(InviteCodeRow.strategy_id == strategy_id)
+        )
+        return result.scalar_one()
 
     async def _count_subscriptions(self, strategy_id: UUID) -> int:
         """Every subscription to the strategy, in any status and of any user.

@@ -193,13 +193,15 @@ class DeleteStrategy:
         await self._commit.commit()
         logger.info(
             "strategy deleted: id=%s name=%r pool=%s/%s/%s archived=%s "
-            "enablement_events=%d subscriptions=%d first_enabled_at=%s uptime_seconds=%d",
+            "enablement_events=%d subscriptions=%d invite_codes=%d first_enabled_at=%s "
+            "uptime_seconds=%d",
             strategy_id,
             strategy.name,
             *pool,
             strategy.archived_at is not None,
             history.enablement_events,
             history.subscriptions,
+            history.invite_codes,
             enablement.first_enabled_at.isoformat() if enablement.first_enabled_at else "never",
             round(enablement.seconds),
         )

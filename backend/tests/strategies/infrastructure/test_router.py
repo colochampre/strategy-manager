@@ -817,6 +817,7 @@ _HISTORY_KEYS = {
     "booking_proposals",
     "enablement_events",
     "subscriptions",
+    "invite_codes",
 }
 
 
@@ -837,6 +838,7 @@ class _NoHistory:
             booking_proposals=0,
             enablement_events=0,
             subscriptions=0,
+            invite_codes=0,
         )
 
 

@@ -22,9 +22,9 @@ from strategy_manager.strategies.domain.strategy import AllocationPercent, Strat
 PoolKey = tuple[str, str, str]
 
 
-# The history kinds that are reported but never refuse a delete (migrations 0028
-# and 0031).
-_NEVER_BLOCKING = frozenset({"enablement_events", "subscriptions"})
+# The history kinds that are reported but never refuse a delete (migrations 0028,
+# 0031 and 0038).
+_NEVER_BLOCKING = frozenset({"enablement_events", "subscriptions", "invite_codes"})
 
 
 class StrategyRepositoryPort(Protocol):
@@ -266,7 +266,7 @@ class StrategyHistory:
     of ``signals``, ``allocation``, ``execution``, ``ledger`` or
     ``reconciliation`` appears here, so this port stays free of those modules.
 
-    The seven kinds are the six foreign keys into ``strategies`` plus the
+    The eight kinds are the seven foreign keys into ``strategies`` plus the
     execution attempts that reach a strategy through a reservation or a
     signal. ``test_strategy_references_guard`` reads ``pg_constraint`` and
     fails when a migration adds a reference this class does not count.
@@ -279,7 +279,9 @@ class StrategyHistory:
     database says so, and ``DeleteStrategy`` answers it as ``HAS_HISTORY``.
 
     **Subscriptions are the same** (owner decision 19; migration 0031 cascades
-    ``fk_subscriptions_strategy``): every status is counted, none refuses.
+    ``fk_subscriptions_strategy``): every status is counted, none refuses. **So are
+    invitation codes** (decision 41; migration 0038 cascades
+    ``fk_invite_codes_strategy``): used, live, revoked or expired, none refuses.
     """
 
     signals: int
@@ -289,10 +291,11 @@ class StrategyHistory:
     booking_proposals: int
     enablement_events: int
     subscriptions: int
+    invite_codes: int
 
     def blocking(self) -> dict[str, int]:
         """The non-zero kinds that refuse a delete, in the fixed order of the
-        fields. Never ``enablement_events`` or ``subscriptions``."""
+        fields. Never ``enablement_events``, ``subscriptions`` or ``invite_codes``."""
         return {
             field.name: count
             for field in fields(self)
