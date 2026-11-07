@@ -80,6 +80,17 @@ describe("IconTip", () => {
     expect(container.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
   });
 
+  it("is lighter and a little larger than the info button's 16 px grey glyph, whatever text it sits in", () => {
+    const { container } = render(
+      <span className="text-ink-3">
+        <IconTip icon={Clock} label="active 12 days" />
+      </span>,
+    );
+
+    expect(screen.getByRole("img", { name: "active 12 days" })).toHaveClass("text-ink-2");
+    expect(container.querySelector("svg")).toHaveClass("size-4.5");
+  });
+
   it("explains itself with the same words on hover", () => {
     render(<IconTip icon={Clock} label="active 12 days" />);
 

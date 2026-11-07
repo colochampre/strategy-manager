@@ -667,6 +667,120 @@ describe("subscribing", () => {
   });
 });
 
+/** The seat's Leave lives on this page alone since My subscriptions became a summary (I.14). */
+describe("leaving from the seat", () => {
+  const seated = () => Promise.resolve(jsonResponse([heldSubscription({ strategy_id: ID })]));
+  const leaveName = () => i18n.t("strategies.subscriptions.leave");
+  /** Inside the dialog: the aside behind it holds a button of the same name, which a real modal makes inert. */
+  const confirmButton = () =>
+    within(screen.getByRole("dialog")).getByRole("button", { name: i18n.t("strategies.leave.confirm") });
+  const leaves = (fetchMock: ReturnType<typeof stubApi>) =>
+    fetchMock.mock.calls.filter(([url]) => String(url).endsWith("/leave"));
+
+  it("asks first: opening the dialog sends nothing, and says what happens to a position", async () => {
+    const fetchMock = serve({ held: seated });
+    open();
+
+    fireEvent.click(await screen.findByRole("button", { name: leaveName() }));
+
+    const dialog = await screen.findByRole("dialog", { name: i18n.t("strategies.leave.confirmTitle", { name: "Alpha" }) });
+    expect(within(dialog).getByText(i18n.t("strategies.leave.confirmBody", { name: "Alpha" }))).toBeInTheDocument();
+    expect(within(dialog).getByText(i18n.t("strategies.leave.privateNote"))).toBeInTheDocument();
+    expect(leaves(fetchMock)).toHaveLength(0);
+  });
+
+  it.each([
+    ["the cancel button", () => fireEvent.click(screen.getByRole("button", { name: i18n.t("strategies.leave.cancel") }))],
+    ["Escape", () => fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" })],
+    ["the browser's cancel", () => fireEvent(screen.getByRole("dialog"), new Event("cancel", { cancelable: true }))],
+  ])("%s sends nothing and closes", async (_name, dismiss) => {
+    const fetchMock = serve({ held: seated });
+    open();
+
+    fireEvent.click(await screen.findByRole("button", { name: leaveName() }));
+    dismiss();
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(leaves(fetchMock)).toHaveLength(0);
+  });
+
+  it("confirming posts the leave of that subscription", async () => {
+    const row = heldSubscription({ strategy_id: ID });
+    const fetchMock = serve({ held: () => Promise.resolve(jsonResponse([row])) });
+    open();
+
+    fireEvent.click(await screen.findByRole("button", { name: leaveName() }));
+    fireEvent.click(confirmButton());
+
+    await waitFor(() => expect(leaves(fetchMock).map(([url]) => String(url))).toEqual([
+      expect.stringContaining(`/api/subscriptions/${row.id}/leave`),
+    ]));
+  });
+
+  it("a position still open leaves the seat in place, marked as leaving, with the dialog closed", async () => {
+    const row = heldSubscription({ strategy_id: ID });
+    let left = false;
+    serve({
+      held: () => Promise.resolve(jsonResponse([left ? { ...row, status: "LEAVING" } : row])),
+      leave: () => {
+        left = true;
+        return Promise.resolve(jsonResponse({ ...row, status: "LEAVING" }));
+      },
+    });
+    open();
+
+    fireEvent.click(await screen.findByRole("button", { name: leaveName() }));
+    fireEvent.click(confirmButton());
+
+    expect(await screen.findByText(i18n.t("strategies.subscriptions.leaving"))).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+
+  it("holds while the leave is on its way: nothing presses it twice and Escape does not close it", async () => {
+    serve({ held: seated, leave: () => new Promise<Response>(() => undefined) });
+    open();
+
+    fireEvent.click(await screen.findByRole("button", { name: leaveName() }));
+    fireEvent.click(confirmButton());
+
+    const dialog = screen.getByRole("dialog");
+    expect(await within(dialog).findByRole("button", { name: i18n.t("strategies.leave.pending") })).toBeDisabled();
+    expect(within(dialog).getByRole("button", { name: i18n.t("strategies.leave.cancel") })).toBeDisabled();
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+  });
+
+  it("opening the dialog again forgets the last refusal", async () => {
+    serve({ held: seated, leave: () => Promise.resolve(jsonResponse({ detail: "boom" }, 500)) });
+    open();
+
+    fireEvent.click(await screen.findByRole("button", { name: leaveName() }));
+    fireEvent.click(confirmButton());
+    expect(await within(screen.getByRole("dialog")).findByRole("alert")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: i18n.t("strategies.leave.cancel") }));
+    fireEvent.click(screen.getByRole("button", { name: leaveName() }));
+
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it.each([
+    [409, { error: "AUTHOR_CANNOT_LEAVE", message: "no" }, "strategies.leave.errors.author"],
+    [409, { error: "SUBSCRIPTION_NOT_ACTIVE", message: "no" }, "strategies.leave.errors.notActive"],
+    [404, "no subscription", "strategies.leave.errors.gone"],
+    [500, "boom", "strategies.leave.errors.generic"],
+  ])("a %i refusal is in words, inside the dialog", async (status, detail, key) => {
+    serve({ held: seated, leave: () => Promise.resolve(jsonResponse({ detail }, status)) });
+    open();
+
+    fireEvent.click(await screen.findByRole("button", { name: leaveName() }));
+    fireEvent.click(confirmButton());
+
+    const dialog = await screen.findByRole("dialog");
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(i18n.t(key));
+  });
+});
+
 describe("the Authored list", () => {
   it("still lives under its own tab", async () => {
     stubApi({ kind: "ok", body: {} }, [], { kind: "ok", body: [pool("bybit")] }, {}, (url) =>

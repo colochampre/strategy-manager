@@ -230,10 +230,19 @@
       "yours": "Su estrategia",
       "by": "de {{name}}",
       "noAuthorName": "autor todavía sin nombre",
-      "share": "{{share}} % de su pool por operación",
+      "age": "tiempo suscrito",
+      "share": "parte de su pool por operación",
+      "shareValue": "{{share}} %",
       "leaving": "Saliendo: ya no abre nada más y termina cuando se cierre su posición abierta.",
-      "leverage": "Apalancamiento x{{leverage}}",
+      "leverage": "apalancamiento",
+      "leverageValue": "x{{leverage}}",
+      "figuresError": "No se pudieron cargar las cifras públicas, así que solo se muestran las suyas.",
       "leave": "Salir"
+    },
+    "age": {
+      "years": "{{count}}a",
+      "months": "{{count}}m",
+      "days": "{{count}}d"
     },
     "leave": {
       "confirmTitle": "¿Salir de {{name}}?",
@@ -262,14 +271,12 @@
       "error": "No se pudo cargar la estrategia.",
       "by": "de {{name}}",
       "age": "antigüedad",
-      "ageDays_one": "{{count}} día",
-      "ageDays_other": "{{count}} días",
       "trades": "operaciones cerradas",
       "return": "rendimiento, sin apalancamiento y antes de comisiones",
       "live": "personas operándola en vivo",
       "capital": "capital",
       "returnInfo": "Cómo se calcula este rendimiento",
-      "noRealTrade": "todavía sin operaciones reales",
+      "noRealTrade": "aún no",
       "returnHint": "Se calcula con las ejecuciones de las operaciones que su autor hizo con dinero real y cerró; no cuentan las operaciones simuladas ni las de los suscriptores. Las operaciones abiertas al mismo tiempo se suman y cada una de las demás se compone sobre las anteriores, y cada operación se toma como si todo el capital estuviera en ella. No cuenta apalancamiento ni comisiones, así que el resultado real de nadie coincide exactamente.",
       "capitalInfo": "Qué es este capital",
       "capitalHint": "El capital que asignan todos los que la operan en vivo, incluido su autor: la cuota de cada uno sobre el último saldo de su pool. Es capital asignado, no capital en uso, y el mismo dinero puede respaldar varias estrategias."

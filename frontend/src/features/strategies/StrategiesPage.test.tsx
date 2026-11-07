@@ -202,6 +202,8 @@ describe("the strategies list", () => {
     await waitFor(() => expect(within(row).getByTestId("strategy-trades")).toHaveTextContent("7"));
     const tradesTerm = within(row).getByTestId("strategy-trades").previousElementSibling as HTMLElement;
     expect(within(tradesTerm).getByRole("img", { name: en.strategies.row.trades })).toBeInTheDocument();
+    // The icon is centred over the count it heads.
+    expect(tradesTerm.parentElement).toHaveClass("flex", "w-fit", "flex-col", "items-center");
     // Money and the return stay words.
     expect((within(row).getByTestId("strategy-pnl").previousElementSibling as HTMLElement).textContent).toBe(
       en.strategies.row.pnl,

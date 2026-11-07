@@ -230,10 +230,19 @@
       "yours": "Your strategy",
       "by": "by {{name}}",
       "noAuthorName": "author with no name yet",
-      "share": "{{share}} % of your pool per trade",
+      "age": "time subscribed",
+      "share": "share of your pool per trade",
+      "shareValue": "{{share}}%",
       "leaving": "Leaving: it opens nothing more, and it ends when its open position closes.",
-      "leverage": "Leverage x{{leverage}}",
+      "leverage": "leverage",
+      "leverageValue": "x{{leverage}}",
+      "figuresError": "The public figures could not be loaded, so only your own are shown.",
       "leave": "Leave"
+    },
+    "age": {
+      "years": "{{count}}y",
+      "months": "{{count}}mo",
+      "days": "{{count}}d"
     },
     "leave": {
       "confirmTitle": "Leave {{name}}?",
@@ -262,14 +271,12 @@
       "error": "The strategy could not be loaded.",
       "by": "by {{name}}",
       "age": "age",
-      "ageDays_one": "{{count}} day",
-      "ageDays_other": "{{count}} days",
       "trades": "closed trades",
       "return": "return, unleveraged, before fees",
       "live": "people trading it live",
       "capital": "capital",
       "returnInfo": "How this return is read",
-      "noRealTrade": "no real trade yet",
+      "noRealTrade": "not yet",
       "returnHint": "Read from the fills of the trades its author made with real money and closed; simulated trades and subscribers' trades do not count. Trades open at the same time are added together and every other trade compounds on the ones before it, each taken as if the whole capital were on it. No leverage and no fees are counted, so nobody's real result matches it exactly.",
       "capitalInfo": "What this capital is",
       "capitalHint": "The capital assigned by everyone trading it live, its author included: each one's share of the latest balance of their pool. It is capital assigned, not capital in use, and the same money can stand behind several strategies."

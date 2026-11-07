@@ -98,12 +98,45 @@ describe("Explore", () => {
     expect(await screen.findByTestId("public-return")).toHaveClass("text-loss");
   });
 
-  it("writes an age in days from the strategy's creation", async () => {
+  it("writes an age in days from the strategy's creation, short", async () => {
     const tenDaysAgo = new Date(Date.now() - 10 * 86_400_000 - 3_600_000).toISOString();
     serve(() => Promise.resolve(jsonResponse([publicStrategy({ created_at: tenDaysAgo })])));
     open();
 
-    expect(await screen.findByTestId("public-age")).toHaveTextContent(i18n.t("strategies.public.ageDays", { count: 10 }));
+    expect(await screen.findByTestId("public-age")).toHaveTextContent(/^10d$/);
+  });
+
+  it("centres each icon over the figure it heads", async () => {
+    serve(() => Promise.resolve(jsonResponse([publicStrategy()])));
+    open();
+
+    for (const testId of ["public-age", "public-trades", "public-return", "public-live"]) {
+      const figure = (await screen.findByTestId(testId)).parentElement as HTMLElement;
+      expect(within(figure).getByRole("img")).toBeInTheDocument();
+      expect(figure).toHaveClass("w-fit", "items-center");
+    }
+  });
+
+  it("writes a long age in its two largest units", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-11-06T12:00:00Z"));
+    try {
+      serve(() => Promise.resolve(jsonResponse([publicStrategy({ created_at: "2025-07-01T10:00:00Z" })])));
+      open();
+
+      expect(await screen.findByTestId("public-age")).toHaveTextContent(/^1y 4mo$/);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("says briefly that there is no return before a real trade has closed", async () => {
+    serve(() =>
+      Promise.resolve(jsonResponse([publicStrategy({ closed_trade_count: 0, unleveraged_return_before_fees: "0" })])),
+    );
+    open();
+
+    expect(await screen.findByTestId("public-return")).toHaveTextContent(/^not yet$/);
   });
 
   it("claims no return before a real trade has closed, and says so in words", async () => {

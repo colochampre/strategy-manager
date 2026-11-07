@@ -69,7 +69,8 @@ function Figures({ strategy }: FiguresProps) {
   const empty = pending ? "…" : DASH;
   return (
     <dl className="tabular flex gap-x-5 font-mono text-xs text-ink-2 lg:col-span-3 lg:grid lg:grid-cols-subgrid lg:gap-x-6">
-      <div>
+      {/* The icon is centred over the count it heads. */}
+      <div className="flex w-fit flex-col items-center">
         <dt className="text-ink-3">
           <IconTip icon={ListChecks} label={t("strategies.row.trades")} />
         </dt>

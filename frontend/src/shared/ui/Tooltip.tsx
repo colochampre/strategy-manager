@@ -60,13 +60,16 @@ interface IconTipProps {
   label: string;
 }
 
-/** An icon in place of a label: it keeps the label as its accessible name and explains itself in a tooltip. */
+/**
+ * An icon in place of a label: it keeps the label as its accessible name and explains itself in a tooltip. It is
+ * drawn lighter and a little larger (18 px) than the info button's grey 16 px "i", so the two are never confused.
+ */
 export function IconTip({ icon: Icon, label }: IconTipProps) {
   return (
     // The tip repeats the name, so it does not also describe the trigger: a screen reader would read it twice.
     <Tooltip text={label} describes={false}>
-      <span role="img" aria-label={label} className="inline-flex">
-        <Icon aria-hidden="true" className="size-3.5" />
+      <span role="img" aria-label={label} className="inline-flex text-ink-2">
+        <Icon aria-hidden="true" className="size-4.5" />
       </span>
     </Tooltip>
   );
