@@ -9,7 +9,7 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from strategy_manager.performance.application.ports import PublicListing
+from strategy_manager.performance.application.ports import NO_ENTRY, PageEntry, PublicListing
 from strategy_manager.performance.application.read_public_strategies import ReadPublicStrategies
 from strategy_manager.performance.domain.closed_trade import FillGroup
 from strategy_manager.performance.domain.public_capital import LiveSeat
@@ -77,7 +77,9 @@ class _Source:
         self.calls.append(("listings", ()))
         return self._listings
 
-    async def listing(self, strategy_id: UUID, reader_id: UUID) -> PublicListing | None:
+    async def listing(
+        self, strategy_id: UUID, reader_id: UUID, entry: PageEntry = NO_ENTRY
+    ) -> PublicListing | None:
         self.calls.append(("listing", (strategy_id, reader_id)))
         found = [each for each in self._listings if each.strategy_id == strategy_id]
         return found[0] if found else None

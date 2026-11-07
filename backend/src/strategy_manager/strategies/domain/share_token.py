@@ -25,3 +25,11 @@ def is_share_token(text: str) -> bool:
     """Whether ``text`` could be a token at all, so a malformed one is answered
     before any lookup."""
     return _SHAPE.fullmatch(text) is not None
+
+
+def link_opens(token: str | None, link: str | None) -> bool:
+    """Whether ``link`` is the strategy's current token. A strategy that is not LINK
+    holds none, so no link opens it. Compared in constant time."""
+    if token is None or link is None:
+        return False
+    return secrets.compare_digest(token.encode(), link.encode())

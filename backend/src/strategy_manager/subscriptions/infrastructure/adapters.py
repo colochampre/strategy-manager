@@ -5,9 +5,10 @@ Each reads another module's table through its own repository or row, the way
 port, the infrastructure composes the providers.
 """
 
+from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from strategy_manager.accounts.infrastructure.models import CapitalPoolRow
@@ -18,8 +19,10 @@ from strategy_manager.execution.domain.market_symbol import market_key
 from strategy_manager.execution.infrastructure.models import ExecutionAttemptRow
 from strategy_manager.ledger.application.read_symbol_holdings import ReadSymbolHoldings
 from strategy_manager.ledger.infrastructure.repository import SqlAlchemyLedgerRepository
+from strategy_manager.strategies.domain.invite_code import DeadCode, InviteCode, IssuedCode
 from strategy_manager.strategies.domain.strategy import Visibility
 from strategy_manager.strategies.infrastructure.author_names import SqlAlchemyAuthorNames
+from strategy_manager.strategies.infrastructure.invite_codes_adapter import live_at
 from strategy_manager.strategies.infrastructure.models import StrategyRow
 from strategy_manager.subscriptions.application.ports import (
     LeavingSubscription,
@@ -27,7 +30,7 @@ from strategy_manager.subscriptions.application.ports import (
     StrategyMarket,
 )
 from strategy_manager.subscriptions.domain.subscription import SubscriptionStatus
-from strategy_manager.subscriptions.infrastructure.models import SubscriptionRow
+from strategy_manager.subscriptions.infrastructure.models import InviteCodeRow, SubscriptionRow
 
 _LIVE_RESERVATION = (ReservationStatus.PENDING.value, ReservationStatus.SUBMITTED.value)
 
@@ -51,7 +54,62 @@ class SqlAlchemyStrategyLookup:
             author_named=await SqlAlchemyAuthorNames(self._session).has_display_name(
                 row.author_id
             ),
+            share_token=row.share_token,
         )
+
+
+class SqlAlchemyInviteCodeSpend:
+    """Implements ``InviteCodeSpendPort`` in the request's own session: the seat and
+    its code commit together or not at all."""
+
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def spend(
+        self,
+        strategy_id: UUID,
+        code: InviteCode,
+        user_id: UUID,
+        subscription_id: UUID,
+        now: datetime,
+    ) -> DeadCode | None:
+        # One statement: the UPDATE waits on the row's lock and re-reads it, so a
+        # code spent or revoked by another transaction meanwhile matches nothing.
+        spent = (
+            await self._session.execute(
+                update(InviteCodeRow)
+                .where(
+                    InviteCodeRow.strategy_id == strategy_id,
+                    InviteCodeRow.code_hash == code.hash,
+                    live_at(now),
+                )
+                .values(redeemed_by=user_id, redeemed_at=now, subscription_id=subscription_id)
+                .returning(InviteCodeRow.id)
+            )
+        ).scalar_one_or_none()
+        if spent is not None:
+            return None
+        row = (
+            await self._session.execute(
+                select(
+                    InviteCodeRow.expires_at, InviteCodeRow.revoked_at, InviteCodeRow.redeemed_at
+                ).where(
+                    InviteCodeRow.strategy_id == strategy_id, InviteCodeRow.code_hash == code.hash
+                )
+            )
+        ).one_or_none()
+        if row is None:
+            # Gone with its strategy: it opens nothing, as a revoked one.
+            return DeadCode.REVOKED
+        issued = IssuedCode(
+            expires_at=row.expires_at, revoked_at=row.revoked_at, redeemed_at=row.redeemed_at
+        )
+        reason = issued.why_dead(now)
+        if reason is None:
+            # The UPDATE matched nothing at this same instant, so the row cannot read
+            # live here; if it does, the two disagree and nothing is written.
+            raise RuntimeError(f"invite code of strategy {strategy_id} read live but not spent")
+        return reason
 
 
 class SqlAlchemyUserPools:

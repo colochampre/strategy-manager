@@ -14,9 +14,13 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from strategy_manager.strategies.domain.invite_code import (
+    ATTEMPT_WINDOW,
     CODE_LIFETIME,
+    MAX_FAILED_ATTEMPTS,
+    DeadCode,
     InviteCode,
     IssuedCode,
+    may_attempt,
 )
 
 # What ``ck_invite_codes_code_hash_shape`` and ``ck_invite_codes_hint_shape`` check.
@@ -139,3 +143,35 @@ def test_a_redeemed_code_is_not_live() -> None:
     issued = IssuedCode(expires_at=T0 + CODE_LIFETIME, redeemed_at=T0)
 
     assert not issued.is_live(T0)
+
+
+# --- why a code opens nothing (tasks.md K.4) -----------------------------------
+
+
+def test_a_live_code_has_no_reason_to_be_dead() -> None:
+    issued = IssuedCode.new(T0)
+
+    assert issued.why_dead(issued.expires_at - timedelta(microseconds=1)) is None
+
+
+@pytest.mark.parametrize(
+    ("issued", "reason"),
+    [
+        (IssuedCode(expires_at=T0), DeadCode.EXPIRED),
+        (IssuedCode(expires_at=T0 + CODE_LIFETIME, revoked_at=T0), DeadCode.REVOKED),
+        (IssuedCode(expires_at=T0 + CODE_LIFETIME, redeemed_at=T0), DeadCode.SPENT),
+        # What happened to it says more than the clock: it went before it expired.
+        (IssuedCode(expires_at=T0, revoked_at=T0 - timedelta(days=1)), DeadCode.REVOKED),
+        (IssuedCode(expires_at=T0, redeemed_at=T0 - timedelta(days=1)), DeadCode.SPENT),
+    ],
+)
+def test_a_dead_code_says_why(issued: IssuedCode, reason: DeadCode) -> None:
+    assert issued.why_dead(T0) is reason
+    assert not issued.is_live(T0)
+
+
+def test_ten_failed_attempts_in_the_window_are_the_limit() -> None:
+    assert ATTEMPT_WINDOW == timedelta(hours=1)
+    assert may_attempt(failures_in_window=MAX_FAILED_ATTEMPTS - 1)
+    assert not may_attempt(failures_in_window=MAX_FAILED_ATTEMPTS)
+    assert MAX_FAILED_ATTEMPTS == 10

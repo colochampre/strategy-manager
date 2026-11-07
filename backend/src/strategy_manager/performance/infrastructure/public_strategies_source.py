@@ -12,7 +12,10 @@ they hold a live seat (below); nothing of theirs is selected.
 ``listings`` reads through it. ``listing`` reads through ``READABLE`` and asks for
 ``PUBLIC`` or the reader's own live seat, not as its author (tasks.md J.1): a
 strategy turned private keeps its subscribers (decision 21), and the page is where
-their seat is managed. Any other strategy off the list is not reachable by its id.
+their seat is managed. A strategy off the list also opens to what its reader brings
+(decision 41, tasks.md K.4): a LINK one to its current token, a LINK or PRIVATE one
+to a code the caller checked for it. Any other strategy off the list is not
+reachable by its id.
 The open-positions read links to the public page through ``LISTED``, so a link
 cannot lead to a page that answers 404.
 
@@ -39,7 +42,7 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import Row, Select, func, or_, select
+from sqlalchemy import Row, Select, and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from strategy_manager.accounts.infrastructure.models import PoolBalanceSnapshotRow
@@ -49,7 +52,7 @@ from strategy_manager.accounts.infrastructure.trade_capability_adapter import (
 from strategy_manager.execution.domain.fill import REHEARSAL_FILL_ID_PREFIX
 from strategy_manager.identity.infrastructure.models import UserRow
 from strategy_manager.ledger.infrastructure.models import LedgerEntryRow
-from strategy_manager.performance.application.ports import PublicListing
+from strategy_manager.performance.application.ports import NO_ENTRY, PageEntry, PublicListing
 from strategy_manager.performance.domain.closed_trade import FillGroup
 from strategy_manager.performance.domain.public_capital import LiveSeat
 from strategy_manager.shared.domain.mode import Mode
@@ -129,16 +132,28 @@ class SqlAlchemyPublicStrategiesSource:
         )
         return [_listing(row) for row in rows]
 
-    async def listing(self, strategy_id: UUID, reader_id: UUID) -> PublicListing | None:
-        """A strategy on the list, or one turned private under the reader's own live
-        seat (tasks.md J.1). It never puts a private strategy on the list."""
+    async def listing(
+        self, strategy_id: UUID, reader_id: UUID, entry: PageEntry = NO_ENTRY
+    ) -> PublicListing | None:
+        """A strategy on the list, one turned private under the reader's own live
+        seat (tasks.md J.1), or one off the list that ``entry`` opens (decision 41):
+        a LINK strategy whose token is the link, a LINK or PRIVATE one with a code
+        checked for it. It never puts a strategy off the list on the list."""
+        opens = [StrategyRow.visibility == Visibility.PUBLIC.value, _held_by(reader_id)]
+        if entry.link is not None:
+            opens.append(
+                and_(
+                    StrategyRow.visibility == Visibility.LINK.value,
+                    StrategyRow.share_token == entry.link,
+                )
+            )
+        if entry.code_checked:
+            opens.append(
+                StrategyRow.visibility.in_((Visibility.LINK.value, Visibility.PRIVATE.value))
+            )
         row = (
             await self._session.execute(
-                _columns().where(
-                    StrategyRow.id == strategy_id,
-                    *READABLE,
-                    or_(StrategyRow.visibility == Visibility.PUBLIC.value, _held_by(reader_id)),
-                )
+                _columns().where(StrategyRow.id == strategy_id, *READABLE, or_(*opens))
             )
         ).one_or_none()
         return None if row is None else _listing(row)

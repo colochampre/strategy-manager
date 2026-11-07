@@ -1,10 +1,12 @@
 """Ports of the subscriptions use cases. Every one is scoped to a user, so a use
 case cannot be handed another user's row by mistake (multi-user design AD8)."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Protocol
 from uuid import UUID
 
+from strategy_manager.strategies.domain.invite_code import DeadCode, InviteCode
 from strategy_manager.strategies.domain.strategy import Visibility
 from strategy_manager.subscriptions.domain.subscription import Subscription
 
@@ -25,6 +27,8 @@ class StrategyMarket:
     author_id: UUID
     visibility: Visibility
     author_named: bool
+    # The link's token while LINK (decision 41); ``repr`` never names it.
+    share_token: str | None = field(default=None, repr=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,6 +92,32 @@ class SubscriptionRepositoryPort(Protocol):
 
 class StrategyLookupPort(Protocol):
     async def find(self, strategy_id: UUID) -> StrategyMarket | None: ...
+
+
+class InviteCodeCheckPort(Protocol):
+    """``CheckInviteCode``: the code ``user_id`` typed, if it is a live code of
+    ``strategy_id``; None when it is no code of it, which is counted against them.
+    Raises ``InviteCodeNotLive`` or ``TooManyCodeAttempts``. Runs in a transaction of
+    its own, so a failure it writes outlives the request's rollback."""
+
+    async def check(self, user_id: UUID, strategy_id: UUID, typed: str) -> InviteCode | None: ...
+
+
+class InviteCodeSpendPort(Protocol):
+    """Spends a live code on the seat it made, in the seat's own transaction."""
+
+    async def spend(
+        self,
+        strategy_id: UUID,
+        code: InviteCode,
+        user_id: UUID,
+        subscription_id: UUID,
+        now: datetime,
+    ) -> DeadCode | None:
+        """Marks the code redeemed by ``user_id`` with ``subscription_id``, waiting on
+        and re-reading its row, and answers None. A code no longer live by then is
+        left as it is, and the answer says why."""
+        ...
 
 
 class UserPoolPort(Protocol):

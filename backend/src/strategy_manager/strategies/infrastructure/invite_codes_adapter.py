@@ -11,8 +11,9 @@ from strategy_manager.strategies.application.ports import ListedCode
 from strategy_manager.subscriptions.infrastructure.models import InviteCodeRow
 
 
-def _live(now: datetime) -> ColumnElement[bool]:
-    """``IssuedCode.is_live`` in SQL: neither revoked nor redeemed, and not expired."""
+def live_at(now: datetime) -> ColumnElement[bool]:
+    """``IssuedCode.is_live`` in SQL: neither revoked nor redeemed, and not expired.
+    Every statement that writes a code on condition that it is live uses this one."""
     return and_(
         InviteCodeRow.revoked_at.is_(None),
         InviteCodeRow.redeemed_at.is_(None),
@@ -48,7 +49,7 @@ class SqlAlchemyInviteCodes:
     async def live(self, strategy_id: UUID, now: datetime) -> list[ListedCode]:
         rows = await self._session.execute(
             select(InviteCodeRow.id, InviteCodeRow.hint, InviteCodeRow.expires_at)
-            .where(InviteCodeRow.strategy_id == strategy_id, _live(now))
+            .where(InviteCodeRow.strategy_id == strategy_id, live_at(now))
             .order_by(InviteCodeRow.created_at, InviteCodeRow.id)
         )
         return [ListedCode(id=row.id, hint=row.hint, expires_at=row.expires_at) for row in rows]
@@ -62,7 +63,7 @@ class SqlAlchemyInviteCodes:
                 .where(
                     InviteCodeRow.id == code_id,
                     InviteCodeRow.strategy_id == strategy_id,
-                    _live(now),
+                    live_at(now),
                 )
                 .values(revoked_at=now)
                 .returning(InviteCodeRow.hint)

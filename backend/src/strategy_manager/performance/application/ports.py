@@ -3,7 +3,7 @@ infrastructure adapter implements it (same direction as ``FillRecorderPort``).
 """
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
 from typing import Protocol
@@ -173,6 +173,20 @@ class PublicListing:
     description: str | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class PageEntry:
+    """What a reader brings to a strategy off the list, besides a seat (decision 41):
+    the link they followed, and whether a live code of THIS strategy was checked for
+    them (``CheckInviteCode``). The source opens a LINK strategy to its current token,
+    and a LINK or PRIVATE one to a checked code; neither opens anything else."""
+
+    link: str | None = field(default=None, repr=False)
+    code_checked: bool = False
+
+
+NO_ENTRY = PageEntry()
+
+
 class PublicStrategiesSourcePort(Protocol):
     """The one read that crosses users on purpose (tasks.md F.4). ``listings``
     answers only strategies on the public list: ``PUBLIC``, not archived, with a
@@ -191,7 +205,9 @@ class PublicStrategiesSourcePort(Protocol):
 
     async def listings(self) -> Sequence[PublicListing]: ...
 
-    async def listing(self, strategy_id: UUID, reader_id: UUID) -> PublicListing | None: ...
+    async def listing(
+        self, strategy_id: UUID, reader_id: UUID, entry: PageEntry = NO_ENTRY
+    ) -> PublicListing | None: ...
 
     async def author_fills(
         self, strategy_ids: Sequence[UUID]

@@ -1,5 +1,6 @@
 """ORM rows for ``subscriptions`` (migration ``0031``; multi-user design AD3) and
-``invite_codes`` (migration ``0038``; decision 41).
+``invite_codes`` (migration ``0038``; decision 41) and ``invite_code_attempts``
+(migration ``0039``; tasks.md K.4).
 
 The constraints are declared here as well as in the migration, by the same
 names, because the integration tests build their schema with ``create_all``.
@@ -19,10 +20,12 @@ from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import (
+    BigInteger,
     CheckConstraint,
     DateTime,
     ForeignKey,
     ForeignKeyConstraint,
+    Identity,
     Index,
     Integer,
     Numeric,
@@ -149,3 +152,22 @@ class InviteCodeRow(Base):
         ForeignKey("subscriptions.id", name="fk_invite_codes_subscription", ondelete="CASCADE"),
         nullable=True,
     )
+
+
+class InviteCodeAttemptRow(Base):
+    """Mirrors ``invite_code_attempts`` (migration ``0039``, tasks.md K.4): one code a
+    user got wrong. Who and when, nothing of the code; the limit counts a user's rows
+    in the last window."""
+
+    __tablename__ = "invite_code_attempts"
+    __table_args__ = (
+        Index("ix_invite_code_attempts_user_attempted_at", "user_id", "attempted_at"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    user_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("users.id", name="fk_invite_code_attempts_user", ondelete="CASCADE"),
+        nullable=False,
+    )
+    attempted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

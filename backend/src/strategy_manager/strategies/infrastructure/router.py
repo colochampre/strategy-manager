@@ -72,6 +72,7 @@ from strategy_manager.strategies.application.archive_strategy import (
     OpenPosition,
     StillEnabled,
 )
+from strategy_manager.strategies.application.code_entry import CheckInviteCode
 from strategy_manager.strategies.application.delete_strategy import (
     DeleteStrategy,
     StrategyHasHistory,
@@ -113,12 +114,17 @@ from strategy_manager.strategies.application.update_strategy import (
 from strategy_manager.strategies.domain.allowed_pairs import EmptyAllowedPairs
 from strategy_manager.strategies.domain.description import description_of
 from strategy_manager.strategies.domain.enablement import EnablementEvent, Uptime, uptime
+from strategy_manager.strategies.domain.invite_code import (
+    InviteCodeNotLive,
+    TooManyCodeAttempts,
+)
 from strategy_manager.strategies.domain.pair_catalog import (
     PairCatalogNotServed,
     PairCatalogUnavailable,
     PairsChangedConcurrently,
     UnknownPairs,
 )
+from strategy_manager.strategies.domain.share_token import link_opens
 from strategy_manager.strategies.domain.strategy import (
     Entry,
     FillMode,
@@ -129,6 +135,12 @@ from strategy_manager.strategies.domain.strategy import (
 from strategy_manager.strategies.infrastructure.author_names import SqlAlchemyAuthorNames
 from strategy_manager.strategies.infrastructure.author_subscription_adapter import (
     SqlAlchemyAuthorSubscription,
+)
+from strategy_manager.strategies.infrastructure.code_entry_http import (
+    CodeCheckDep,
+    CodeQuery,
+    LinkQuery,
+    code_refusal,
 )
 from strategy_manager.strategies.infrastructure.enablement_log import (
     SqlAlchemyEnablementLog,
@@ -888,17 +900,34 @@ async def get_strategy_events(
 
 
 async def _reaches_preview(
-    session: AsyncSession, strategy: Strategy, user: User, subscription: Subscription | None
+    session: AsyncSession,
+    strategy: Strategy,
+    user: User,
+    subscription: Subscription | None,
+    entry: tuple[str | None, str | None, CheckInviteCode],
 ) -> bool:
     """Who the preview answers: the author, whoever holds a live subscription, which
-    outlasts a turn to private (decision 21), and anyone who may subscribe. Every
-    figure in it is from the reader's own pool, and the market is on the public page."""
+    outlasts a turn to private (decision 21), and anyone who may subscribe, with the
+    link or the code they bring (decision 41). Every figure in it is from the reader's
+    own pool, and the market is on the public page. The code is read only when nothing
+    else opens the strategy; a dead one or the limit is refused."""
     if strategy.author_id == user.id or subscription is not None:
         return True
     if strategy.archived_at is not None:
         return False
     author_named = await SqlAlchemyAuthorNames(session).has_display_name(strategy.author_id)
-    return offered_to(strategy.visibility, author_named=author_named, entry=Entry.NONE)
+    link, code, codes = entry
+    by_link = Entry.LINK if link_opens(strategy.share_token, link) else Entry.NONE
+    if offered_to(strategy.visibility, author_named=author_named, entry=by_link):
+        return True
+    if code is None or not offered_to(
+        strategy.visibility, author_named=author_named, entry=Entry.CODE
+    ):
+        return False
+    try:
+        return await codes.check(user.id, strategy.id, code) is not None
+    except (TooManyCodeAttempts, InviteCodeNotLive) as exc:
+        raise code_refusal(exc) from exc
 
 
 @router.get("/{strategy_id}/share-preview", response_model=SharePreviewBody)
@@ -907,8 +936,11 @@ async def preview_share(
     session: SessionDep,
     user: CurrentUserDep,
     use_case: Annotated[PreviewShare, Depends(get_preview_share)],
+    codes: CodeCheckDep,
     share: Annotated[Share | None, Query()] = None,
     leverage: Annotated[int | None, Query(ge=1, le=MAX_LEVERAGE)] = None,
+    link: LinkQuery = None,
+    code: CodeQuery = None,
 ) -> SharePreviewBody:
     """What a share of this strategy's pool would ask for (design addendum "unit
     12f", sections C2 and H). READ-ONLY: it reads the strategy and then the pool's
@@ -930,7 +962,9 @@ async def preview_share(
         user.id, [strategy_id]
     )
     subscription = held.get(strategy_id)
-    if strategy is None or not await _reaches_preview(session, strategy, user, subscription):
+    if strategy is None or not await _reaches_preview(
+        session, strategy, user, subscription, (link, code, codes)
+    ):
         raise HTTPException(status_code=404, detail="no such strategy")
     policy = strategy.policy
     pool = PoolKey(policy.exchange, policy.venue, policy.settlement_currency)

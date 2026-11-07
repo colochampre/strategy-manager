@@ -11,7 +11,8 @@ last four for the author's list: the code itself is shown once. 40 bits hashed
 without a key could be searched offline by someone holding the database; the codes
 live 7 days, are single use, and that reader already holds far more than a seat,
 so the decision keeps the plain hash. Guessing online is the API's to stop: it
-counts failed attempts per user (tasks.md K.4).
+counts failed attempts per user (``MAX_FAILED_ATTEMPTS`` in ``ATTEMPT_WINDOW``,
+tasks.md K.4).
 
 **A code is live** from its making until it expires, is revoked or is redeemed,
 whichever comes first. Nothing here reads a clock: the caller hands ``now``.
@@ -22,6 +23,9 @@ import secrets
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+from enum import StrEnum
+
+from strategy_manager.shared.domain.errors import DomainError
 
 CODE_LIFETIME = timedelta(days=7)
 CODE_LENGTH = 8
@@ -78,4 +82,49 @@ class IssuedCode:
         return cls(expires_at=created_at + CODE_LIFETIME)
 
     def is_live(self, now: datetime) -> bool:
-        return self.revoked_at is None and self.redeemed_at is None and now < self.expires_at
+        return self.why_dead(now) is None
+
+    def why_dead(self, now: datetime) -> "DeadCode | None":
+        """Why the code opens nothing at ``now``, or None while it is live. What
+        happened to it says more than the clock: a code spent or revoked before it
+        expired is said to be spent or revoked."""
+        if self.redeemed_at is not None:
+            return DeadCode.SPENT
+        if self.revoked_at is not None:
+            return DeadCode.REVOKED
+        if now >= self.expires_at:
+            return DeadCode.EXPIRED
+        return None
+
+
+class DeadCode(StrEnum):
+    """Why a code that was made for a strategy opens nothing any more. Told only to
+    whoever holds the code; it names nobody."""
+
+    EXPIRED = "EXPIRED"
+    REVOKED = "REVOKED"
+    SPENT = "SPENT"
+
+
+#: How many codes a user may get wrong in ``ATTEMPT_WINDOW`` before every further
+#: code of theirs is refused unread (tasks.md K.4, an assumption the owner confirms).
+#: A wrong code, a malformed one and a dead one each count; a live one does not.
+MAX_FAILED_ATTEMPTS = 10
+ATTEMPT_WINDOW = timedelta(hours=1)
+
+
+def may_attempt(*, failures_in_window: int) -> bool:
+    return failures_in_window < MAX_FAILED_ATTEMPTS
+
+
+class TooManyCodeAttempts(DomainError):
+    """The user got ``MAX_FAILED_ATTEMPTS`` codes wrong in the last
+    ``ATTEMPT_WINDOW``: the code they bring now is refused without being read."""
+
+
+class InviteCodeNotLive(DomainError):
+    """The code was made for this strategy and opens nothing any more."""
+
+    def __init__(self, reason: DeadCode) -> None:
+        super().__init__(f"this invitation code is {reason.value.lower()}")
+        self.reason = reason
