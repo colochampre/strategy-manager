@@ -77,8 +77,8 @@ class _Source:
         self.calls.append(("listings", ()))
         return self._listings
 
-    async def listing(self, strategy_id: UUID) -> PublicListing | None:
-        self.calls.append(("listing", (strategy_id,)))
+    async def listing(self, strategy_id: UUID, reader_id: UUID) -> PublicListing | None:
+        self.calls.append(("listing", (strategy_id, reader_id)))
         found = [each for each in self._listings if each.strategy_id == strategy_id]
         return found[0] if found else None
 
@@ -183,7 +183,9 @@ async def test_one_strategy_reads_as_it_does_on_the_list() -> None:
         {listing.strategy_id: [LiveSeat(Decimal("25"), Decimal("400"))]},
     )
 
-    strategy = await ReadPublicStrategies(source, brake=False).read_one(listing.strategy_id)
+    reader = uuid4()
+
+    strategy = await ReadPublicStrategies(source, brake=False).read_one(listing.strategy_id, reader)
 
     assert strategy is not None
     assert strategy.listing == listing
@@ -191,7 +193,12 @@ async def test_one_strategy_reads_as_it_does_on_the_list() -> None:
     assert strategy.live_subscribers == 1
     assert strategy.capital == Decimal("100")
     ids = (listing.strategy_id,)
-    assert source.calls == [("listing", ids), ("author_fills", ids), ("live_seats", ids)]
+    # The reader goes to the source, which alone says whether their seat opens the page (J.1).
+    assert source.calls == [
+        ("listing", (listing.strategy_id, reader)),
+        ("author_fills", ids),
+        ("live_seats", ids),
+    ]
 
 
 async def test_a_trade_the_record_cannot_read_is_said_in_a_warning_naming_it(
@@ -216,7 +223,7 @@ async def test_a_trade_the_record_cannot_read_is_said_in_a_warning_naming_it(
 
 async def test_a_strategy_not_on_the_list_is_none_and_asks_for_nothing_else() -> None:
     source = _Source([_listing()])
-    missing = uuid4()
+    missing, reader = uuid4(), uuid4()
 
-    assert await ReadPublicStrategies(source, brake=False).read_one(missing) is None
-    assert source.calls == [("listing", (missing,))]
+    assert await ReadPublicStrategies(source, brake=False).read_one(missing, reader) is None
+    assert source.calls == [("listing", (missing, reader))]

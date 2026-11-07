@@ -157,7 +157,8 @@ PROBES: tuple[Probe, ...] = (
     Probe("PUT", f"{_STRATEGY}/allowed-pairs", _ON_PUBLIC, {"pairs": ["ETHUSDT"]}),
     # What a stranger may see of a public strategy, asked of a private one.
     Probe("GET", f"{_STRATEGY}/share-preview", _ON_PRIVATE),
-    # A private strategy has no public page for its own author either.
+    # A private strategy has no public page for its own author either, nor for B, who
+    # holds no seat on it (a live seat would open it: tasks.md J.1).
     Probe("GET", "/api/public/strategies/{strategy_id}", _ON_PRIVATE, served_at=_ON_PUBLIC),
     # Nor a record (I.12a): the author's real trades are drawn only for a public strategy.
     Probe("GET", "/api/public/strategies/{strategy_id}/record", _ON_PRIVATE, served_at=_ON_PUBLIC),

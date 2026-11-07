@@ -29,7 +29,13 @@ from strategy_manager.main import create_app
 from strategy_manager.shared import db as shared_db
 from strategy_manager.shared.config import get_settings
 from strategy_manager.signals.infrastructure.models import SignalRow
-from tests.identity_auth import ADMIN_HEADERS, OTHER_HEADERS, seed_admin, sign_in_as_admin
+from tests.identity_auth import (
+    ADMIN_HEADERS,
+    OTHER_EMAIL,
+    OTHER_HEADERS,
+    seed_admin,
+    sign_in_as_admin,
+)
 from tests.ledger.infrastructure.conftest import (
     seed_execution_attempt,
     seed_reservation,
@@ -798,6 +804,132 @@ async def test_another_user_reads_a_public_strategy(
 
     assert response.status_code == 200
     assert response.json()["id"] == str(public)
+
+
+# --- a seat keeps its page (tasks.md J.1) ---------------------------------------------
+#
+# A strategy turned private keeps its subscribers (decision 21), and whoever entered
+# stays (owner, 2026-11-07). The page is where a seat's share, leverage and Leave are,
+# so a live seat opens it; nothing else changes about who reads what.
+
+
+async def _reader(factory: Factory, api: _Api) -> UUID:
+    """The id of the user ``OTHER_HEADERS`` signs in as, written at their first request."""
+    await api.get(LIST, OTHER_HEADERS)
+    async with factory() as session:
+        found = await session.execute(
+            text("SELECT id FROM users WHERE email = :email"), {"email": OTHER_EMAIL}
+        )
+        reader: UUID = found.scalar_one()
+    return reader
+
+
+async def _page_and_record(api: _Api, strategy_id: UUID) -> tuple[Response, Response]:
+    return (
+        await api.get(f"{LIST}/{strategy_id}", OTHER_HEADERS),
+        await api.get(f"{LIST}/{strategy_id}/record", OTHER_HEADERS),
+    )
+
+
+@pytest.mark.parametrize("status", ["ACTIVE", "LEAVING"])
+async def test_a_live_seat_opens_the_page_and_the_record_of_a_strategy_turned_private(
+    status: str, pg_session_factory: Factory, api: _Api
+) -> None:
+    author = await _new_user(pg_session_factory)
+    private = await _strategy(pg_session_factory, author, visibility="PRIVATE")
+    await _trade(pg_session_factory, author, private)
+    reader = await _reader(pg_session_factory, api)
+    await _subscribe(pg_session_factory, reader, private, share="30", total="400", status=status)
+
+    page, record = await _page_and_record(api, private)
+
+    assert page.status_code == 200, page.text
+    assert set(page.json()) == BODY_KEYS
+    assert page.json()["id"] == str(private)
+    assert page.json()["closed_trade_count"] == 1
+    assert record.status_code == 200, record.text
+    assert record.json()["closed_trade_count"] == 1
+    # It opens the page, it does not put the strategy back on the list.
+    listed = await api.get(LIST, OTHER_HEADERS)
+    assert [each["id"] for each in listed.json()] == []
+
+
+async def test_an_ended_seat_opens_nothing(pg_session_factory: Factory, api: _Api) -> None:
+    author = await _new_user(pg_session_factory)
+    private = await _strategy(pg_session_factory, author, visibility="PRIVATE")
+    reader = await _reader(pg_session_factory, api)
+    await _subscribe(pg_session_factory, reader, private, share="30", total="400", status="ENDED")
+
+    page, record = await _page_and_record(api, private)
+    unknown, unknown_record = await _page_and_record(api, uuid4())
+
+    assert (page.status_code, page.json()) == (404, unknown.json())
+    assert (record.status_code, record.json()) == (404, unknown_record.json())
+
+
+async def test_someone_elses_live_seat_opens_nothing_for_the_reader(
+    pg_session_factory: Factory, api: _Api
+) -> None:
+    author = await _new_user(pg_session_factory)
+    private = await _strategy(pg_session_factory, author, visibility="PRIVATE")
+    third = await _new_user(pg_session_factory)
+    await _subscribe(pg_session_factory, third, private, share="30", total="400")
+    await _reader(pg_session_factory, api)
+
+    page, record = await _page_and_record(api, private)
+
+    assert page.status_code == 404
+    assert record.status_code == 404
+
+
+async def test_a_seat_on_another_strategy_opens_nothing(
+    pg_session_factory: Factory, api: _Api
+) -> None:
+    author = await _new_user(pg_session_factory)
+    private = await _strategy(pg_session_factory, author, visibility="PRIVATE")
+    other = await _strategy(pg_session_factory, author, visibility="PRIVATE")
+    reader = await _reader(pg_session_factory, api)
+    await _subscribe(pg_session_factory, reader, other, share="30", total="400")
+
+    page, record = await _page_and_record(api, private)
+
+    assert page.status_code == 404
+    assert record.status_code == 404
+
+
+@pytest.mark.parametrize("case", ["archived", "unnamed author"])
+async def test_a_live_seat_opens_no_archived_strategy_and_none_of_an_unnamed_author(
+    case: str, pg_session_factory: Factory, api: _Api
+) -> None:
+    author = await _new_user(pg_session_factory)
+    target = (await _not_listed(pg_session_factory, author))[case]
+    reader = await _reader(pg_session_factory, api)
+    await _subscribe(pg_session_factory, reader, target, share="30", total="400")
+
+    page, record = await _page_and_record(api, target)
+
+    assert page.status_code == 404
+    assert record.status_code == 404
+
+
+async def test_the_authors_own_seat_still_opens_no_public_page_of_a_private_strategy(
+    pg_session_factory: Factory, api: _Api
+) -> None:
+    """The author has their own page; the public one stays off for them (unchanged)."""
+    async with pg_session_factory() as session:
+        admin = await seed_admin(session)
+        await session.execute(
+            text("UPDATE users SET display_name = 'Admin' WHERE id = :id"), {"id": admin}
+        )
+        await session.commit()
+    private = await _strategy(pg_session_factory, admin, visibility="PRIVATE")
+    await _subscribe(pg_session_factory, admin, private, share="30", total="400")
+
+    page = await api.get(f"{LIST}/{private}", ADMIN_HEADERS)
+    record = await api.get(f"{LIST}/{private}/record", ADMIN_HEADERS)
+
+    assert page.status_code == 404
+    assert record.status_code == 404
 
 
 # --- statement counts -----------------------------------------------------------------

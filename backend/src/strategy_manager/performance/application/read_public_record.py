@@ -1,8 +1,9 @@
 """``ReadPublicRecord``: a public strategy's record laid out for the page (tasks.md
 I.12a, decisions 34 and 40).
 
-Whether the strategy is on the public list is the source's to say, as for the page
-itself: one that is not answers ``None``, whoever asks. The record is built from the
+Whether the strategy can be read is the source's to say, as for the page itself: on
+the public list, or turned private under the reader's own live seat (tasks.md J.1);
+any other answers ``None``. The record is built from the
 author's real fills only (rehearsal never counts), and a trade the record cannot read
 is said in a warning, so a record never quietly shows fewer trades than were made.
 It carries no amount: the author's money stays private.
@@ -23,8 +24,8 @@ class ReadPublicRecord:
         self._source = source
         self._clock = clock
 
-    async def read(self, strategy_id: UUID) -> RecordReport | None:
-        listing = await self._source.listing(strategy_id)
+    async def read(self, strategy_id: UUID, reader_id: UUID) -> RecordReport | None:
+        listing = await self._source.listing(strategy_id, reader_id)
         if listing is None:
             return None
         fills = await self._source.author_fills([strategy_id])
