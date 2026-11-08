@@ -375,8 +375,10 @@
     "sharing": {
       "linkTitle": "Link to this strategy",
       "linkHint": "Whoever opens this link sees the strategy and may subscribe. Changing the visibility stops this link; choosing With link again makes a new one.",
+      "linkInfo": "About the link",
       "copyLink": "Copy link",
       "codesTitle": "Invitation codes",
+      "codesInfo": "About invitation codes",
       "codesHint": "Each code lets one person subscribe, once, within 7 days of its creation.",
       "create": "Create code",
       "issuedTitle": "New code",

@@ -1,4 +1,4 @@
-import { X } from "lucide-react";
+import { Check, Copy, X } from "lucide-react";
 import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -9,6 +9,8 @@ import { useInviteCodes, useIssueInviteCode, useRevokeInviteCode } from "@/share
 import type { InviteCode, IssuedInviteCode, Strategy } from "@/shared/api/types";
 import { copyText } from "@/shared/lib/clipboard";
 import { dateTimeText } from "@/shared/lib/figure-text";
+import { InfoButton, InfoText, useInfoDisclosure } from "@/shared/ui/InfoDisclosure";
+import { Tooltip } from "@/shared/ui/Tooltip";
 
 interface StrategySharingProps {
   strategy: Strategy;
@@ -53,24 +55,60 @@ export function shareLink(origin: string, strategyId: string, token: string): st
   return `${origin}/strategies/explore/${encodeURIComponent(strategyId)}?link=${encodeURIComponent(token)}`;
 }
 
+/**
+ * The link on one read-only line that scrolls sideways, and an icon that copies it: its name and its tip say what
+ * it does, and "Copied" once it did. A copy that failed says so in words below.
+ */
 function ShareLink({ strategyId, token }: { strategyId: string; token: string }) {
   const { t } = useTranslation();
   const headingId = useId();
+  const info = useInfoDisclosure();
   const url = shareLink(window.location.origin, strategyId, token);
   const { copied, copy } = useCopy();
+  const result = copyResultOf(copied, url);
   return (
     <section aria-labelledby={headingId} className="flex flex-col gap-2">
-      <h3 id={headingId} className="text-xs font-semibold text-ink-2">
-        {t(`${KEY}.linkTitle`)}
-      </h3>
-      <div className="flex flex-wrap items-center gap-2">
-        <code className="min-w-0 grow break-all rounded-md border border-rule bg-ground px-3 py-2.5 font-mono text-xs text-ink-2">
-          {url}
-        </code>
-        <CopyAction label={t(`${KEY}.copyLink`)} result={copyResultOf(copied, url)} onCopy={() => void copy(url)} />
+      <div className="flex items-start">
+        <h3 id={headingId} className="text-xs font-semibold leading-5 text-ink-2">
+          {t(`${KEY}.linkTitle`)}
+        </h3>
+        <InfoButton disclosure={info} label={t(`${KEY}.linkInfo`)} />
       </div>
-      <p className="text-xs text-ink-3">{t(`${KEY}.linkHint`)}</p>
+      <InfoText disclosure={info}>
+        <p className="text-xs text-ink-3">{t(`${KEY}.linkHint`)}</p>
+      </InfoText>
+      <div className="flex items-center gap-2">
+        <input
+          type="text"
+          readOnly
+          value={url}
+          aria-labelledby={headingId}
+          onFocus={(event) => event.target.select()}
+          className="min-h-11 min-w-0 grow rounded-md border border-rule bg-ground px-3 font-mono text-xs text-ink-2"
+        />
+        <CopyIcon label={t(`${KEY}.copyLink`)} result={result} onCopy={() => void copy(url)} />
+      </div>
+      {result === "failed" && <p className="text-xs text-loss">{t("strategies.webhook.copyFailed")}</p>}
     </section>
+  );
+}
+
+function CopyIcon({ label, result, onCopy }: { label: string; result: CopyResult; onCopy: () => void }) {
+  const { t } = useTranslation();
+  const name = result === "copied" ? t("strategies.webhook.copied") : label;
+  const Icon = result === "copied" ? Check : Copy;
+  return (
+    // The tip repeats the button's name, so it does not also describe it.
+    <Tooltip text={name} describes={false} tabbable={false}>
+      <button
+        type="button"
+        aria-label={name}
+        onClick={onCopy}
+        className="inline-flex size-11 shrink-0 items-center justify-center rounded-md border border-rule text-ink-2 hover:bg-panel-2"
+      >
+        <Icon aria-hidden="true" className="size-4" />
+      </button>
+    </Tooltip>
   );
 }
 
@@ -101,6 +139,7 @@ const BUTTON = "inline-flex min-h-11 items-center rounded-md border border-rule 
 function InviteCodes({ strategy }: { strategy: Strategy }) {
   const { t, i18n } = useTranslation();
   const headingId = useId();
+  const info = useInfoDisclosure();
   const codes = useInviteCodes(strategy.id, true);
   const issue = useIssueInviteCode(strategy.id);
   const revoke = useRevokeInviteCode(strategy.id);
@@ -110,14 +149,19 @@ function InviteCodes({ strategy }: { strategy: Strategy }) {
   return (
     <section aria-labelledby={headingId} className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h3 id={headingId} className="text-xs font-semibold text-ink-2">
-          {t(`${KEY}.codesTitle`)}
-        </h3>
+        <div className="flex items-start">
+          <h3 id={headingId} className="text-xs font-semibold leading-5 text-ink-2">
+            {t(`${KEY}.codesTitle`)}
+          </h3>
+          <InfoButton disclosure={info} label={t(`${KEY}.codesInfo`)} />
+        </div>
         <button type="button" onClick={() => issue.mutate()} disabled={archived || issue.isPending} className={BUTTON}>
           {t(`${KEY}.create`)}
         </button>
       </div>
-      <p className="text-xs text-ink-3">{t(`${KEY}.codesHint`)}</p>
+      <InfoText disclosure={info}>
+        <p className="text-xs text-ink-3">{t(`${KEY}.codesHint`)}</p>
+      </InfoText>
       {issue.status === "success" && <IssuedCode issued={issue.data} locale={locale} onDone={() => issue.reset()} />}
       {issue.status === "error" && (
         <p role="alert" className="text-xs text-loss">

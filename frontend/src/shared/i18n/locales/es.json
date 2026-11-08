@@ -375,8 +375,10 @@
     "sharing": {
       "linkTitle": "Enlace a esta estrategia",
       "linkHint": "Quien abra este enlace ve la estrategia y puede suscribirse. Cambiar la visibilidad desactiva este enlace; volver a elegir Con enlace crea uno nuevo.",
+      "linkInfo": "Acerca del enlace",
       "copyLink": "Copiar enlace",
       "codesTitle": "Códigos de invitación",
+      "codesInfo": "Acerca de los códigos de invitación",
       "codesHint": "Cada código permite que una persona se suscriba, una sola vez, dentro de los 7 días de su creación.",
       "create": "Crear código",
       "issuedTitle": "Código nuevo",

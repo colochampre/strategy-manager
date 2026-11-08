@@ -448,8 +448,10 @@ describe("StrategyDetailPage", () => {
     expect(screen.getByRole("button", { name: en.strategies.webhook.open })).toBeEnabled();
   });
 
-  it("test_the_share_control_is_the_first_of_the_settings_column_under_its_heading_and_above_the_allowed_pairs", async () => {
-    renderPage(strategy({ subscription: subscriptionOf(ID, "37.5") }));
+  // A strategy shared by its link or its codes shows them first, right under the heading (StrategySharing.test.tsx);
+  // a public one shares nothing there, and the share control comes first.
+  it("test_the_share_control_is_the_first_of_a_public_strategys_settings_column_under_its_heading_and_above_the_allowed_pairs", async () => {
+    renderPage(strategy({ visibility: "PUBLIC", subscription: subscriptionOf(ID, "37.5") }));
     await heading("ETH Breakout");
 
     const settings = screen.getByRole("complementary", { name: en.strategies.detail.settings });

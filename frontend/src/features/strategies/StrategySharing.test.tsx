@@ -69,6 +69,12 @@ function stubClipboard() {
 const field = () => screen.findByLabelText("Visibility") as Promise<HTMLSelectElement>;
 const codeRequests = (calls: Call[], method: string) => calls.filter((call) => call.method === method && call.url.includes("invite-codes"));
 const linkOf = (token: string) => `${window.location.origin}/strategies/explore/${ID}?link=${token}`;
+const LINK_HINT =
+  "Whoever opens this link sees the strategy and may subscribe. Changing the visibility stops this link; choosing With link again makes a new one.";
+const CODES_HINT = "Each code lets one person subscribe, once, within 7 days of its creation.";
+/** Whether `before` comes before `after` in the document, which is the order on screen. */
+const precedes = (before: Element, after: Element) =>
+  (before.compareDocumentPosition(after) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
 
 beforeEach(() => {
   unlock();
@@ -96,7 +102,7 @@ describe("the visibility selector, with a link", () => {
 
     fireEvent.change(await field(), { target: { value: "LINK" } });
 
-    expect(await screen.findByText(linkOf(TOKEN))).toBeInTheDocument();
+    expect(await screen.findByDisplayValue(linkOf(TOKEN))).toBeInTheDocument();
     expect(calls.filter((call) => call.method === "PATCH").map((call) => call.body)).toEqual([{ visibility: "LINK" }]);
   });
 
@@ -114,29 +120,69 @@ describe("the visibility selector, with a link", () => {
 });
 
 describe("a strategy shared by its link", () => {
-  it("shows the link to its public page, in the strategy's settings", async () => {
+  it("shows the link to its public page on one line that scrolls, read-only, in the strategy's settings", async () => {
     setup({ visibility: "LINK", share_token: TOKEN });
 
-    const link = await screen.findByText(linkOf(TOKEN));
+    const link = await screen.findByRole("textbox", { name: "Link to this strategy" });
 
+    expect(link).toBeInstanceOf(HTMLInputElement);
+    expect(link).toHaveValue(linkOf(TOKEN));
+    expect(link).toHaveAttribute("readonly");
     expect(link.closest("aside")).not.toBeNull();
-    expect(screen.getByText("Whoever opens this link sees the strategy and may subscribe. Changing the visibility stops this link; choosing With link again makes a new one.")).toBeInTheDocument();
   });
 
-  it("copies the link, and the button says it did", async () => {
-    const writeText = stubClipboard();
+  it("explains the link behind its information button, beside the title", async () => {
+    setup({ visibility: "LINK", share_token: TOKEN });
+    const info = await screen.findByRole("button", { name: "About the link" });
+
+    expect(screen.queryByText(LINK_HINT)).toBeNull();
+    fireEvent.click(info);
+
+    expect(screen.getByText(LINK_HINT)).toBeInTheDocument();
+  });
+
+  it("sits right under the settings' title and visibility, above the share of the pool", async () => {
     setup({ visibility: "LINK", share_token: TOKEN });
 
-    fireEvent.click(await screen.findByRole("button", { name: "Copy link" }));
+    const title = await screen.findByRole("heading", { name: "Link to this strategy" });
+    const share = await screen.findByRole("textbox", { name: i18n.t("strategies.detail.share.label") });
+
+    expect(precedes(screen.getByLabelText("Visibility"), title)).toBe(true);
+    expect(precedes(title, share)).toBe(true);
+  });
+
+  it("copies the link with an icon button whose tip says Copy link, and the button says it did", async () => {
+    const writeText = stubClipboard();
+    setup({ visibility: "LINK", share_token: TOKEN });
+    const button = await screen.findByRole("button", { name: "Copy link" });
+
+    expect(button).toHaveTextContent("");
+    // One keyboard stop: the tip's wrapper does not take focus beside the button.
+    expect(button.parentElement).not.toHaveAttribute("tabindex");
+    fireEvent.mouseEnter(button.parentElement as HTMLElement);
+    expect(screen.getByRole("tooltip")).toHaveTextContent("Copy link");
+    fireEvent.click(button);
 
     await waitFor(() => expect(writeText).toHaveBeenCalledWith(linkOf(TOKEN)));
     expect(await screen.findByRole("button", { name: "Copied" })).toBeInTheDocument();
   });
 
+  it("says in words when the link could not be copied", async () => {
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText: vi.fn().mockRejectedValue(new Error("denied")) },
+      configurable: true,
+    });
+    setup({ visibility: "LINK", share_token: TOKEN });
+
+    fireEvent.click(await screen.findByRole("button", { name: "Copy link" }));
+
+    expect(await screen.findByText(i18n.t("strategies.webhook.copyFailed"))).toBeInTheDocument();
+  });
+
   it("reads no invitation codes", async () => {
     const { calls } = setup({ visibility: "LINK", share_token: TOKEN });
 
-    await screen.findByText(linkOf(TOKEN));
+    await screen.findByDisplayValue(linkOf(TOKEN));
 
     expect(screen.queryByRole("button", { name: "Create code" })).toBeNull();
     expect(codeRequests(calls, "GET")).toEqual([]);
@@ -167,7 +213,26 @@ describe("a private strategy's invitation codes", () => {
       "····-Q9WDExpires Nov 15, 2026, 08:30 UTC",
     ]);
     expect(list.closest("aside")).not.toBeNull();
-    expect(screen.getByText("Each code lets one person subscribe, once, within 7 days of its creation.")).toBeInTheDocument();
+  });
+
+  it("explains the codes behind their information button, beside the title", async () => {
+    setup({ visibility: "PRIVATE" }, { codes: [] });
+    const info = await screen.findByRole("button", { name: "About invitation codes" });
+
+    expect(screen.queryByText(CODES_HINT)).toBeNull();
+    fireEvent.click(info);
+
+    expect(screen.getByText(CODES_HINT)).toBeInTheDocument();
+  });
+
+  it("sit right under the settings' title and visibility, above the share of the pool", async () => {
+    setup({ visibility: "PRIVATE" }, { codes: [] });
+
+    const title = await screen.findByRole("heading", { name: "Invitation codes" });
+    const share = await screen.findByRole("textbox", { name: i18n.t("strategies.detail.share.label") });
+
+    expect(precedes(screen.getByLabelText("Visibility"), title)).toBe(true);
+    expect(precedes(title, share)).toBe(true);
   });
 
   it("says when there is no unused code", async () => {
@@ -276,6 +341,7 @@ describe("sharing, in Spanish", () => {
     expect(await screen.findByRole("button", { name: "Crear código" })).toBeInTheDocument();
     expect(await screen.findByRole("list", { name: "Códigos sin usar" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Revocar el código que termina en VRXT" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Acerca de los códigos de invitación" }));
     expect(screen.getByText("Cada código permite que una persona se suscriba, una sola vez, dentro de los 7 días de su creación.")).toBeInTheDocument();
     const select = screen.getByLabelText("Visibilidad") as HTMLSelectElement;
     expect(within(select).getAllByRole("option").map((option) => option.textContent)).toEqual(["Privada", "Con enlace", "Pública"]);

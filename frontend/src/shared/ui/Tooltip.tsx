@@ -8,13 +8,16 @@ interface TooltipProps {
   children: ReactNode;
   /** Whether the tip describes the trigger. Off where the tip only repeats the trigger's own name. */
   describes?: boolean;
+  /** Whether the tip's own wrapper takes keyboard focus. Off around a control that takes it itself: focus on the
+   * control still shows the tip, and the keyboard meets one stop, not two. */
+  tabbable?: boolean;
 }
 
 /**
  * A short explanation shown on hover and on keyboard focus, hidden on leave, blur and Escape. The trigger is
  * focusable itself, so a keyboard user reaches it; while the tip is shown the trigger is described by it.
  */
-export function Tooltip({ text, children, describes = true }: TooltipProps) {
+export function Tooltip({ text, children, describes = true, tabbable = true }: TooltipProps) {
   const id = useId();
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
@@ -23,7 +26,7 @@ export function Tooltip({ text, children, describes = true }: TooltipProps) {
 
   return (
     <span
-      tabIndex={0}
+      tabIndex={tabbable ? 0 : undefined}
       aria-describedby={shown && describes ? id : undefined}
       className="relative inline-flex"
       onMouseEnter={() => {

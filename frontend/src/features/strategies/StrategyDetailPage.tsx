@@ -86,8 +86,8 @@ export function StrategyDetailPage() {
           {/* One key for these: each starts over for another strategy (a code shown once included), and sibling
               keys stay unique. */}
           <Fragment key={subject.id}>
-            <SeatSettings strategy={subject} />
             <StrategySharing strategy={subject} />
+            <SeatSettings strategy={subject} />
             <StrategyDescriptionEditor strategy={subject} />
           </Fragment>
           <AllowedPairsEditor strategy={subject} />
