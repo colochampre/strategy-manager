@@ -37,6 +37,10 @@ from sqlalchemy.ext.asyncio import (
 from strategy_manager.main import create_app
 from strategy_manager.shared import db as shared_db
 from strategy_manager.strategies.domain.invite_code import MAX_FAILED_ATTEMPTS
+from strategy_manager.strategies.infrastructure.code_entry_http import (
+    CHECK_POOL_SIZE,
+    check_engine_for,
+)
 from tests.identity_auth import ADMIN_HEADERS, OTHER_HEADERS, seed_admin, sign_in_as_admin
 from tests.ledger.infrastructure.conftest import (  # noqa: F401
     pg_engine,
@@ -62,6 +66,7 @@ TYPED = " k7qm 2xra "
 UNKNOWN_CODE = "B4TN-9WZE"
 TOKEN = "t" * 43
 OTHER_TOKEN = "u" * 43
+WAIT_SECONDS = 10.0
 
 
 def _hash(code: str) -> str:
@@ -545,6 +550,65 @@ async def test_checks_beside_requests_that_hold_every_pooled_connection_still_an
 
     assert [answer.status_code for answer in answers] == [404, 404]
     assert await _failures(world, world.reader) == 2
+
+
+async def _waiting_on_an_advisory_lock(world: World) -> int:
+    rows = await _sql(
+        world,
+        "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() "
+        "AND wait_event_type = 'Lock' AND wait_event = 'advisory'",
+    )
+    return int(rows[0][0])
+
+
+async def test_concurrent_checks_never_hold_more_connections_than_their_own_pool(
+    world: World,
+) -> None:
+    """A lookup holds no connection of its request while its code is checked, so a
+    check with no pool of its own opened one connection per concurrent lookup, each held
+    while it waited on the user's lock: enough of them would use up the server's
+    connections, the worker's and the webhook's included."""
+    beyond = CHECK_POOL_SIZE + 3
+    async with world.factory() as holder:
+        await holder.execute(
+            text(
+                "SELECT pg_advisory_xact_lock(hashtext('invite-code-attempts'), "
+                "hashtext(:user))"
+            ),
+            {"user": str(world.reader)},
+        )
+        tasks = [asyncio.create_task(_lookup(world, UNKNOWN_CODE)) for _ in range(beyond)]
+        deadline = asyncio.get_running_loop().time() + WAIT_SECONDS
+        while await _waiting_on_an_advisory_lock(world) < CHECK_POOL_SIZE:
+            assert asyncio.get_running_loop().time() < deadline, "no check reached the lock"
+            await asyncio.sleep(0.05)
+        await asyncio.sleep(0.5)
+        waiting = await _waiting_on_an_advisory_lock(world)
+        await holder.commit()
+
+    answers = await asyncio.gather(*tasks)
+    assert waiting == CHECK_POOL_SIZE
+    assert [answer.status_code for answer in answers] == [404] * beyond
+    assert await _failures(world, world.reader) == beyond
+
+
+async def test_the_checks_pool_belongs_to_its_request_engine_and_closes_with_it(
+    pg_engine: AsyncEngine,  # noqa: F811
+) -> None:
+    """Built once per request engine and closed with it: a test's engine is disposed at
+    its end, and a pool outliving it would keep connections of a finished event loop."""
+    request_engine = create_async_engine(pg_engine.url)
+    async with AsyncSession(request_engine) as request_session:
+        check_engine = check_engine_for(request_session)
+        assert check_engine_for(request_session) is check_engine
+        async with AsyncSession(check_engine) as checking:
+            await checking.execute(text("SELECT 1"))
+            await checking.commit()
+        assert check_engine.sync_engine.pool.checkedin() == 1  # type: ignore[attr-defined]
+
+    await request_engine.dispose()
+
+    assert check_engine.sync_engine.pool.checkedin() == 0  # type: ignore[attr-defined]
 
 
 async def test_a_code_spent_while_a_subscription_waits_on_it_is_refused(world: World) -> None:
