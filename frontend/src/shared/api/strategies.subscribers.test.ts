@@ -18,6 +18,7 @@ function strategy(overrides: Record<string, unknown> = {}) {
     allowed_pairs: ["SOLUSDT"],
     uptime: { seconds: 60, first_enabled_at: "2026-09-18T10:00:00Z", baseline: false },
     visibility: "PRIVATE",
+    share_token: null,
     secret_last4: "x4F2",
     description: null,
     subscribers: 3,

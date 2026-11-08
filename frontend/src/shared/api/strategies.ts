@@ -1,8 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { ApiError, apiFetch } from "@/shared/api/client";
+import { ApiError, apiFetch, retryTransient } from "@/shared/api/client";
 import { isSubscription } from "@/shared/api/subscriptions";
-import type { EnablementEvent, RegisteredStrategy, RegisterStrategyBody, Strategy, Visibility } from "@/shared/api/types";
+import type {
+  EnablementEvent,
+  InviteCode,
+  IssuedInviteCode,
+  RegisteredStrategy,
+  RegisterStrategyBody,
+  Strategy,
+  Visibility,
+} from "@/shared/api/types";
 
 const SECRET_LAST4_LENGTH = 4;
 
@@ -38,7 +46,9 @@ function isStrategy(value: unknown): value is Strategy {
     (value.archived_at === null || typeof value.archived_at === "string") &&
     Array.isArray(value.allowed_pairs) &&
     isUptime(value.uptime) &&
-    (value.visibility === "PUBLIC" || value.visibility === "PRIVATE") &&
+    (value.visibility === "PUBLIC" || value.visibility === "LINK" || value.visibility === "PRIVATE") &&
+    // Sent to the author while the strategy is LINK; null otherwise. Never absent.
+    (value.share_token === null || typeof value.share_token === "string") &&
     // Exactly four characters: anything else is not the tail of a secret, and is not drawn as one.
     typeof value.secret_last4 === "string" &&
     value.secret_last4.length === SECRET_LAST4_LENGTH &&
@@ -163,6 +173,85 @@ export async function setStrategyDescription(strategyId: string, description: st
   return body;
 }
 
+/** A row of the author's list of codes: an id, the last four characters and the expiry. Never the code. */
+function isInviteCode(value: unknown): value is InviteCode {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    typeof value.hint === "string" &&
+    typeof value.expires_at === "string"
+  );
+}
+
+function invitePath(strategyId: string): string {
+  return `/strategies/${encodeURIComponent(strategyId)}/invite-codes`;
+}
+
+/** `GET /api/strategies/{id}/invite-codes`: the strategy's live codes, oldest first. Checked row by row. */
+export async function fetchInviteCodes(strategyId: string): Promise<InviteCode[]> {
+  const body = await apiFetch<unknown>(invitePath(strategyId));
+  if (!Array.isArray(body) || !body.every(isInviteCode)) {
+    throw new ApiError(200, {
+      detail: "Unexpected response shape from GET /strategies/{id}/invite-codes: expected a list of codes",
+    });
+  }
+  return body;
+}
+
+/**
+ * `POST /api/strategies/{id}/invite-codes`: a new code, answered once. A body without the code reads as an error
+ * with a fixed message, which never echoes the body.
+ */
+export async function issueInviteCode(strategyId: string): Promise<IssuedInviteCode> {
+  const body = await apiFetch<unknown>(invitePath(strategyId), { method: "POST" });
+  const code = isRecord(body) ? body.code : undefined;
+  if (!isInviteCode(body) || typeof code !== "string" || code === "") {
+    throw new ApiError(200, { detail: "Unexpected response shape from POST /strategies/{id}/invite-codes: expected a code" });
+  }
+  return { id: body.id, hint: body.hint, expires_at: body.expires_at, code };
+}
+
+/** `DELETE /api/strategies/{id}/invite-codes/{code_id}`: the code stops opening the strategy at once. */
+export async function revokeInviteCode(strategyId: string, codeId: string): Promise<void> {
+  await apiFetch<void>(`${invitePath(strategyId)}/${encodeURIComponent(codeId)}`, { method: "DELETE" });
+}
+
+const inviteCodesKey = (strategyId: string) => ["strategy", strategyId, "invite-codes"] as const;
+
+/**
+ * The live codes of a PRIVATE strategy, read only while `enabled`. Under `['strategy', id]`, so a change of
+ * visibility reads them again.
+ */
+export function useInviteCodes(strategyId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: inviteCodesKey(strategyId),
+    queryFn: () => fetchInviteCodes(strategyId),
+    enabled,
+  });
+}
+
+/**
+ * Makes a code; the code is the mutation's `data`, shown once. `gcTime: 0`, as for the webhook secret: it leaves
+ * the mutation cache as soon as nothing shows it. The list is read again whatever the outcome.
+ */
+export function useIssueInviteCode(strategyId: string) {
+  const queryClient = useQueryClient();
+  return useMutation<IssuedInviteCode, Error, void>({
+    mutationFn: () => issueInviteCode(strategyId),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: inviteCodesKey(strategyId) }),
+    gcTime: 0,
+  });
+}
+
+/** Revokes one code; the list is read again whatever the outcome, so a code already gone leaves it too. */
+export function useRevokeInviteCode(strategyId: string) {
+  const queryClient = useQueryClient();
+  return useMutation<void, Error, string>({
+    mutationFn: (codeId) => revokeInviteCode(strategyId, codeId),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: inviteCodesKey(strategyId) }),
+  });
+}
+
 /** Every strategy mutation ends here, so the list and the detail never show a stale state. */
 export function useInvalidateStrategies() {
   const queryClient = useQueryClient();
@@ -272,12 +361,6 @@ function isEnablementEvent(value: unknown): value is EnablementEvent {
     typeof value.occurred_at === "string" &&
     typeof value.origin === "string"
   );
-}
-
-/** Retried once or twice only when the failure may be transient: a refusal (4xx) or a malformed body will answer the same. */
-function retryTransient(failureCount: number, error: unknown): boolean {
-  const transient = error instanceof ApiError && (error.status === 0 || error.status >= 500);
-  return transient && failureCount < 2;
 }
 
 /**

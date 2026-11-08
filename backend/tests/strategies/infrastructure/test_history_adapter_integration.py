@@ -16,6 +16,7 @@ venue side is ``STXUSDT``, a proposal is ``STXUSDT_PERP`` and the strategy
 allows ``STXUSDT``. Counting must not care.
 """
 
+import secrets
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -48,7 +49,7 @@ from strategy_manager.strategies.infrastructure.enablement_log import (
 )
 from strategy_manager.strategies.infrastructure.history_adapter import StrategyHistoryAdapter
 from strategy_manager.strategies.infrastructure.models import StrategyRow
-from strategy_manager.subscriptions.infrastructure.models import SubscriptionRow
+from strategy_manager.subscriptions.infrastructure.models import InviteCodeRow, SubscriptionRow
 from tests.owner import OWNER_ID, ensure_delivery, ensure_pool, secret_hash
 
 pytestmark = pytest.mark.integration
@@ -68,6 +69,7 @@ def _history(**counts: int) -> StrategyHistory:
         "booking_proposals": 0,
         "enablement_events": 0,
         "subscriptions": 0,
+        "invite_codes": 0,
     }
     base.update(counts)
     return StrategyHistory(**base)
@@ -346,6 +348,21 @@ async def _seed_subscription_only(factory: Factory, strategy_id: UUID, other: UU
     await _seed(factory, _subscription(strategy_id))
 
 
+def _invite_code(strategy_id: UUID) -> InviteCodeRow:
+    """A live code (migration 0038): the history counts it whatever its state."""
+    return InviteCodeRow(
+        id=uuid4(),
+        strategy_id=strategy_id,
+        code_hash=secrets.token_hex(32),
+        hint="K7QM",
+        expires_at=datetime.now(UTC) + timedelta(days=7),
+    )
+
+
+async def _seed_invite_code_only(factory: Factory, strategy_id: UUID, other: UUID) -> None:
+    await _seed(factory, _invite_code(strategy_id))
+
+
 async def test_a_strategy_with_nothing_counts_zero_in_every_kind(
     pg_session_factory: Factory,
 ) -> None:
@@ -373,6 +390,7 @@ async def test_a_strategy_with_nothing_counts_zero_in_every_kind(
         pytest.param(_seed_proposal_only, _history(booking_proposals=1), id="booking_proposals"),
         pytest.param(_seed_event_only, _history(enablement_events=1), id="enablement_events"),
         pytest.param(_seed_subscription_only, _history(subscriptions=1), id="subscriptions"),
+        pytest.param(_seed_invite_code_only, _history(invite_codes=1), id="invite_codes"),
     ],
 )
 async def test_one_row_of_each_kind_is_counted_in_its_own_kind(
@@ -387,9 +405,11 @@ async def test_one_row_of_each_kind_is_counted_in_its_own_kind(
     history = await _history_of(pg_session_factory, strategy_id)
 
     assert history == expected
-    # Migrations 0028 and 0031: an enablement event and a subscription are
-    # counted, and are the kinds that do not make the history non-empty.
-    assert history.is_empty() is (seed in (_seed_event_only, _seed_subscription_only))
+    # Migrations 0028, 0031 and 0038: an enablement event, a subscription and an
+    # invitation code are counted, and are the kinds that do not make the history
+    # non-empty.
+    never_blocking = (_seed_event_only, _seed_subscription_only, _seed_invite_code_only)
+    assert history.is_empty() is (seed in never_blocking)
 
 
 async def test_subscriptions_are_counted_in_every_status(pg_session_factory: Factory) -> None:
@@ -497,6 +517,7 @@ async def test_another_strategys_rows_are_never_counted(pg_session_factory: Fact
         _proposal(other),
         _event(other),
         _subscription(other),
+        _invite_code(other),
     )
 
     mine = await _history_of(pg_session_factory, strategy_id)
@@ -511,6 +532,7 @@ async def test_another_strategys_rows_are_never_counted(pg_session_factory: Fact
         booking_proposals=1,
         enablement_events=1,
         subscriptions=1,
+        invite_codes=1,
     )
 
 

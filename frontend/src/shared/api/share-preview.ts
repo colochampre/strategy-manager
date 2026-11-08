@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 
 import { ApiError, apiFetch } from "@/shared/api/client";
+import { type Entry, entryKey, entryParams, entryPoll, entryReadOptions, NO_ENTRY, useEntry } from "@/shared/api/entry";
 import type { SharePreview } from "@/shared/api/types";
 
 const STEP_COUNT = 100;
@@ -79,11 +80,14 @@ export async function fetchSharePreview(
   strategyId: string,
   share?: string,
   leverage?: number,
+  entry: Entry = NO_ENTRY,
 ): Promise<SharePreview> {
   const params: string[] = [];
   if (share !== undefined) params.push(`share=${encodeURIComponent(share)}`);
   // A whole number from 1 to 20 (the server's range); it asks for the notional beside the amount.
   if (leverage !== undefined) params.push(`leverage=${encodeURIComponent(String(leverage))}`);
+  // A strategy off the list previews only for a reader who entered it by its link or a code.
+  params.push(...entryParams(entry));
   const query = params.length === 0 ? "" : `?${params.join("&")}`;
   const body = await apiFetch<unknown>(`/strategies/${encodeURIComponent(strategyId)}/share-preview${query}`);
   if (!isSharePreview(body)) {
@@ -101,6 +105,7 @@ export async function fetchSharePreview(
  */
 export function useSharePreview(strategyId: string, share?: string, leverage?: number) {
   const asked = share !== undefined || leverage !== undefined;
+  const entry = useEntry();
   return useQuery({
     // An asked leverage is its own entry: the same share at another leverage has another notional.
     queryKey: [
@@ -109,8 +114,10 @@ export function useSharePreview(strategyId: string, share?: string, leverage?: n
       "share-preview",
       ...(asked ? [share ?? null] : []),
       ...(leverage === undefined ? [] : [{ leverage }]),
+      ...entryKey(entry),
     ],
-    queryFn: () => fetchSharePreview(strategyId, share, leverage),
-    refetchInterval: PREVIEW_REFRESH_MS,
+    queryFn: () => fetchSharePreview(strategyId, share, leverage, entry),
+    ...entryReadOptions(entry),
+    refetchInterval: entryPoll(entry, PREVIEW_REFRESH_MS),
   });
 }

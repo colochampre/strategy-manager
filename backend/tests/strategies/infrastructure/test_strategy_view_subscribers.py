@@ -54,6 +54,7 @@ VIEW_KEYS = {
     "fill_mode",
     "enabled",
     "visibility",
+    "share_token",
     "archived_at",
     "allowed_pairs",
     "uptime",

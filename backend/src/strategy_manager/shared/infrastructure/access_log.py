@@ -16,8 +16,11 @@ import logging
 import re
 
 # Redacts the webhook secret and the obvious neighbours a future endpoint might
-# reach for, so this does not have to be revisited to stay correct.
-_SECRET_QUERY_PARAM = re.compile(r"(?i)([?&](?:secret|token|api[-_]?key|password)=)[^&\s]*")
+# reach for, and a strategy's link token and invitation code (decision 41), which
+# the page, its record and the share preview take in the query on every read.
+_SECRET_QUERY_PARAM = re.compile(
+    r"(?i)([?&](?:secret|token|api[-_]?key|password|link|code)=)[^&\s]*"
+)
 
 _DEFAULT_LOGGERS = ("uvicorn.access",)
 

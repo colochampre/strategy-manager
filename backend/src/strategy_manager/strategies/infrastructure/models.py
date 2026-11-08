@@ -43,12 +43,23 @@ class StrategyRow(Base):
     extended with ``author_id`` by migration ``0030`` and with the secret hash,
     the visibility and the per-author name by ``0033``, which also dropped
     ``allocation_percent``, with the secret's last four by ``0034``, and with the
-    author's description by ``0037``."""
+    author's description by ``0037``, and with the link's token by ``0038``."""
 
     __tablename__ = "strategies"
     __table_args__ = (
         CheckConstraint("venue IN ('spot', 'usdt-m', 'coin-m')", name="ck_strategies_venue"),
-        CheckConstraint("visibility IN ('PUBLIC', 'PRIVATE')", name="ck_strategies_visibility"),
+        CheckConstraint(
+            "visibility IN ('PUBLIC', 'LINK', 'PRIVATE')", name="ck_strategies_visibility"
+        ),
+        CheckConstraint(
+            "(visibility = 'LINK') = (share_token IS NOT NULL)",
+            name="ck_strategies_share_token_iff_link",
+        ),
+        CheckConstraint(
+            "share_token IS NULL OR share_token ~ '^[A-Za-z0-9_-]{43}$'",
+            name="ck_strategies_share_token_shape",
+        ),
+        Index("ux_strategies_share_token", "share_token", unique=True),
         CheckConstraint(
             "char_length(webhook_secret_last4) = 4",
             name="ck_strategies_webhook_secret_last4_length",
@@ -85,6 +96,9 @@ class StrategyRow(Base):
     visibility: Mapped[str] = mapped_column(
         Text, nullable=False, server_default=text("'PRIVATE'")
     )
+    # Migration ``0038`` (decision 41): the link's token, set exactly while the
+    # strategy is LINK. Stored readable, so the author's aside can always show it.
+    share_token: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Migration ``0037`` (decision 38): what the author writes about how the strategy
     # trades and the configuration they recommend. Optional, trimmed, 1 to 2,000 chars.
     description: Mapped[str | None] = mapped_column(Text, nullable=True)

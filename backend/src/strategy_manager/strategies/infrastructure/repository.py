@@ -46,6 +46,7 @@ class SqlAlchemyStrategyRepository:
                 author_id=strategy.author_id,
                 enabled=strategy.enabled,
                 visibility=strategy.visibility.value,
+                share_token=strategy.share_token,
                 fill_mode=strategy.policy.fill_mode.value,
                 webhook_secret_hash=webhook_secret_hash,
                 webhook_secret_last4=secret_last4,
@@ -127,6 +128,7 @@ class SqlAlchemyStrategyRepository:
         row.name = strategy.name
         row.enabled = strategy.enabled
         row.visibility = strategy.visibility.value
+        row.share_token = strategy.share_token
         row.fill_mode = strategy.policy.fill_mode.value
         row.allowed_pairs = strategy.allowed_pairs.sorted()
         row.description = strategy.description
@@ -249,6 +251,7 @@ def _to_domain(row: StrategyRow) -> Strategy:
         author_id=row.author_id,
         enabled=row.enabled,
         visibility=Visibility(row.visibility),
+        share_token=row.share_token,
         allowed_pairs=AllowedPairs(frozenset(row.allowed_pairs)),
         description=row.description,
         archived_at=row.archived_at,

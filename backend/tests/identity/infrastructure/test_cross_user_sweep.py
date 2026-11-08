@@ -23,10 +23,11 @@ The admin-only routes are out: each answers 403 to B, proven request by request 
 """
 
 import base64
+import hashlib
 import os
 from collections.abc import AsyncIterator, Mapping
 from dataclasses import dataclass, field, replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Annotated, Any
 from uuid import UUID, uuid4
@@ -93,12 +94,18 @@ KEY_HINT_OF_A = "QZXW"
 CLOSED_PAIR_OF_A = "SOLUSDT"
 OPEN_PAIR_OF_A = "STXUSDT"
 BALANCE_OF_A = "7654.32"
+#: The last four of A's invitation code, in Crockford's upper case.
+CODE_HINT_OF_A = "VRXT"
+#: A's code as its author was shown it. Whoever holds it may learn which strategy it
+#: opens (tasks.md K.6), and nothing else of A's.
+PLAIN_CODE_OF_A = "K7QM-VRXT"
 
 PRIVATE = "the private strategy of A"
 PUBLIC = "the public strategy of A, where B holds a seat"
 CLOSED_TRADE = "a closed trade of A, on the public strategy"
 SEAT_OF_A = "the seat of A on the public strategy"
 ORDER_OF_A = "an order of A still in flight"
+CODE_OF_A = "a live invitation code of A, on the private strategy"
 
 
 class _Catalog:
@@ -118,7 +125,7 @@ class Probe:
     served_at: Mapping[str, str] | None = None
     #: The ids swapped for one nobody holds, for the 404 to compare with.
     unknown: tuple[str, ...] = (PRIVATE, PUBLIC, CLOSED_TRADE, SEAT_OF_A)
-    #: A trace of A's this route shows everybody, on purpose.
+    #: A trace of A's, or the name of an id of A's, this route shows on purpose.
     shows: tuple[str, ...] = ()
 
 
@@ -155,6 +162,15 @@ PROBES: tuple[Probe, ...] = (
     Probe("POST", f"{_STRATEGY}/archive", _ON_PUBLIC),
     Probe("POST", f"{_STRATEGY}/webhook-secret", _ON_PUBLIC),
     Probe("PUT", f"{_STRATEGY}/allowed-pairs", _ON_PUBLIC, {"pairs": ["ETHUSDT"]}),
+    # A's invitation codes (decision 41): none made, listed or revoked by B.
+    Probe("POST", f"{_STRATEGY}/invite-codes", _ON_PRIVATE),
+    Probe("GET", f"{_STRATEGY}/invite-codes", _ON_PRIVATE),
+    Probe(
+        "DELETE",
+        f"{_STRATEGY}/invite-codes/{{code_id}}",
+        {"strategy_id": PRIVATE, "code_id": CODE_OF_A},
+        unknown=(PRIVATE, CODE_OF_A),
+    ),
     # What a stranger may see of a public strategy, asked of a private one.
     Probe("GET", f"{_STRATEGY}/share-preview", _ON_PRIVATE),
     # A private strategy has no public page for its own author either, nor for B, who
@@ -163,6 +179,14 @@ PROBES: tuple[Probe, ...] = (
     # Nor a record (I.12a): the author's real trades are drawn only for a public strategy.
     Probe("GET", "/api/public/strategies/{strategy_id}/record", _ON_PRIVATE, served_at=_ON_PUBLIC),
     Probe("POST", "/api/subscriptions", body={"strategy_id": PRIVATE, "allocation_percent": "30"}),
+    # Holding A's code, B learns which strategy it opens, on purpose; nothing is spent.
+    Probe(
+        "POST",
+        "/api/public/invite-codes/lookup",
+        body={"code": PLAIN_CODE_OF_A},
+        answers=200,
+        shows=(PRIVATE,),
+    ),
     # A's own figures: none on a strategy B never held, none of A's where B holds a seat.
     Probe("GET", _PERFORMANCE, _ON_PRIVATE),
     Probe("GET", _PERFORMANCE, _ON_PUBLIC, answers=200),
@@ -220,9 +244,17 @@ class World:
         page is for everybody. Nor is an id the probe itself sent: an answer may
         repeat what B typed, and the 404's own test decides what that gives away."""
         sent = [*probe.at.values(), *(probe.body or {}).values()]
-        secret = (PRIVATE, CLOSED_TRADE, SEAT_OF_A, ORDER_OF_A)
-        ids = (self.ids[name] for name in secret if name not in sent)
-        traces = (*ids, KEY_HINT_OF_A, CLOSED_PAIR_OF_A, OPEN_PAIR_OF_A, BALANCE_OF_A, ADMIN_EMAIL)
+        secret = (PRIVATE, CLOSED_TRADE, SEAT_OF_A, ORDER_OF_A, CODE_OF_A)
+        ids = (self.ids[name] for name in secret if name not in sent and name not in probe.shows)
+        traces = (
+            *ids,
+            KEY_HINT_OF_A,
+            CODE_HINT_OF_A,
+            CLOSED_PAIR_OF_A,
+            OPEN_PAIR_OF_A,
+            BALANCE_OF_A,
+            ADMIN_EMAIL,
+        )
         return tuple(trace for trace in traces if trace not in probe.shows)
 
 
@@ -318,8 +350,25 @@ async def _seed_the_rows_of_a(factory: Factory, a: UUID, b: UUID, b_pool: int) -
             text("UPDATE execution_attempts SET exchange_order_id = :order WHERE id = :id"),
             {"order": "1234567890123", "id": attempt},
         )
+        code = uuid4()
+        made = datetime.now(UTC)
+        await session.execute(
+            text(
+                "INSERT INTO invite_codes (id, strategy_id, code_hash, hint, created_at, "
+                "expires_at) VALUES (:id, :strategy, :hash, :hint, :made, :expires)"
+            ),
+            {
+                "id": code,
+                "strategy": private,
+                "hash": hashlib.sha256(PLAIN_CODE_OF_A.replace("-", "").encode()).hexdigest(),
+                "hint": CODE_HINT_OF_A,
+                "made": made,
+                "expires": made + timedelta(days=7),
+            },
+        )
         await session.commit()
     return {
+        CODE_OF_A: str(code),
         PRIVATE: str(private),
         PUBLIC: str(public),
         CLOSED_TRADE: str(closed),

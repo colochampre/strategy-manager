@@ -1,6 +1,7 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 
 import { ApiError, apiFetch } from "@/shared/api/client";
+import { type Entry, entryKey, entryParams, entryReadOptions, NO_ENTRY, useEntry } from "@/shared/api/entry";
 import type { PublicStrategy } from "@/shared/api/types";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -44,10 +45,13 @@ export async function fetchPublicStrategies(): Promise<PublicStrategy[]> {
 
 /**
  * `GET /api/public/strategies/{id}`. A strategy off the list answers 404, to its own author too, except a strategy
- * turned private to a reader who holds a live seat on it (tasks.md J.1).
+ * turned private to a reader who holds a live seat on it (tasks.md J.1), and one opened by its link or a live code
+ * (decision 41). A dead code answers 410 with why, and too many wrong codes 429.
  */
-export async function fetchPublicStrategy(strategyId: string): Promise<PublicStrategy> {
-  const body = await apiFetch<unknown>(`/public/strategies/${encodeURIComponent(strategyId)}`);
+export async function fetchPublicStrategy(strategyId: string, entry: Entry = NO_ENTRY): Promise<PublicStrategy> {
+  const params = entryParams(entry);
+  const query = params.length === 0 ? "" : `?${params.join("&")}`;
+  const body = await apiFetch<unknown>(`/public/strategies/${encodeURIComponent(strategyId)}${query}`);
   if (!isPublicStrategy(body)) {
     throw new ApiError(200, { detail: "Unexpected response shape from GET /public/strategies/{id}: expected a strategy" });
   }
@@ -59,6 +63,32 @@ export function usePublicStrategies() {
   return useQuery({ queryKey: ["public-strategies"], queryFn: fetchPublicStrategies });
 }
 
+/** Read with the entry the page provides, under a key of its own, so another code reads again. */
 export function usePublicStrategy(strategyId: string) {
-  return useQuery({ queryKey: ["public-strategies", strategyId], queryFn: () => fetchPublicStrategy(strategyId) });
+  const entry = useEntry();
+  return useQuery({
+    queryKey: ["public-strategies", strategyId, ...entryKey(entry)],
+    queryFn: () => fetchPublicStrategy(strategyId, entry),
+    ...entryReadOptions(entry),
+  });
+}
+
+/**
+ * `POST /api/public/invite-codes/lookup`: the strategy a code opens, for a reader who knows only the code. The code
+ * goes in the body. It is not spent; a wrong one is a 404, a dead one 410, too many wrong ones 429.
+ */
+export async function lookUpInviteCode(code: string): Promise<string> {
+  const body = await apiFetch<unknown>("/public/invite-codes/lookup", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ code }),
+  });
+  if (!isRecord(body) || typeof body.strategy_id !== "string" || body.strategy_id === "") {
+    throw new ApiError(200, { detail: "Unexpected response shape from POST /public/invite-codes/lookup: expected a strategy id" });
+  }
+  return body.strategy_id;
+}
+
+export function useLookUpInviteCode() {
+  return useMutation<string, Error, string>({ mutationFn: lookUpInviteCode });
 }

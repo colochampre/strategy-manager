@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { ApiError, apiFetch } from "@/shared/api/client";
+import { type Entry, entryBody, NO_ENTRY, useEntry } from "@/shared/api/entry";
 import type { HeldSubscription, Strategy, Subscription, SubscriptionStatus } from "@/shared/api/types";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -126,12 +127,20 @@ export function useHeldSubscriptions() {
   return useQuery({ queryKey: HELD_KEY, queryFn: fetchHeldSubscriptions });
 }
 
-/** `POST /api/subscriptions`: the signed-in user takes a place in the strategy, through their own pool on its market. */
-export async function subscribe(strategyId: string, share: string, leverage: number): Promise<Subscription> {
+/**
+ * `POST /api/subscriptions`: the signed-in user takes a place in the strategy, through their own pool on its market.
+ * A strategy off the list takes the link or the code the reader entered with; a code is spent with the seat.
+ */
+export async function subscribe(
+  strategyId: string,
+  share: string,
+  leverage: number,
+  entry: Entry = NO_ENTRY,
+): Promise<Subscription> {
   const body = await apiFetch<unknown>("/subscriptions", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ strategy_id: strategyId, allocation_percent: share, leverage }),
+    body: JSON.stringify({ strategy_id: strategyId, allocation_percent: share, leverage, ...entryBody(entry) }),
   });
   if (!isSubscription(body)) {
     throw new ApiError(200, { detail: "Unexpected response shape from POST /subscriptions: expected a subscription" });
@@ -166,8 +175,9 @@ function useReadsOfWhoHolds(strategyId: string) {
 
 export function useSubscribe(strategyId: string) {
   const reread = useReadsOfWhoHolds(strategyId);
+  const entry = useEntry();
   return useMutation<Subscription, Error, { share: string; leverage: number }>({
-    mutationFn: ({ share, leverage }) => subscribe(strategyId, share, leverage),
+    mutationFn: ({ share, leverage }) => subscribe(strategyId, share, leverage, entry),
     onSettled: reread,
   });
 }

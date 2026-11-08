@@ -292,6 +292,22 @@
       "capitalInfo": "What this capital is",
       "capitalHint": "The capital assigned by everyone trading it live, its author included: each one's share of the latest balance of their pool. It is capital assigned, not capital in use, and the same money can stand behind several strategies."
     },
+    "entry": {
+      "haveCode": "I have a code",
+      "codeLabel": "Invitation code",
+      "open": "Open",
+      "codeHint": "Type the code the author sent you. It opens the strategy's page, and it is used only when you subscribe.",
+      "codeOpensNothing": "No strategy opens to that code. Check it and try again.",
+      "linkOpensNothing": "This link no longer opens the strategy. Ask its author for the current one.",
+      "dead": {
+        "EXPIRED": "This invitation code has expired. Ask the author for a new one.",
+        "REVOKED": "This invitation code was revoked. Ask the author for a new one.",
+        "SPENT": "This invitation code was already used. Ask the author for a new one.",
+        "other": "This invitation code no longer opens the strategy. Ask the author for a new one."
+      },
+      "tooMany": "Too many wrong codes in the last hour. Try again later.",
+      "lookupFailed": "The code could not be checked. Try again."
+    },
     "report": {
       "title": "Performance",
       "views": "Report view",
@@ -349,11 +365,41 @@
       "label": "Visibility",
       "options": {
         "PRIVATE": "Private",
+        "LINK": "With link",
         "PUBLIC": "Public"
       },
-      "hint": "Other users cannot subscribe to a private strategy. Subscribers it already has keep it.",
+      "hint": "Public: listed on Explore. With link: only who has the link sees it and may subscribe. Private: only who holds an invitation code. Subscribers it already has keep it.",
       "saveFailed": "The visibility was not saved. Try again.",
-      "needsName": "Choose your name in Settings first: a public strategy shows its author."
+      "needsName": "Choose your name in Settings first: a strategy offered to others shows its author."
+    },
+    "sharing": {
+      "linkTitle": "Link to this strategy",
+      "linkHint": "Whoever opens this link sees the strategy and may subscribe. Changing the visibility stops this link; choosing With link again makes a new one.",
+      "linkInfo": "About the link",
+      "copyLink": "Copy link",
+      "codesTitle": "Invitation codes",
+      "codesInfo": "About invitation codes",
+      "codesHint": "Each code lets one person subscribe, once, within 7 days of its creation.",
+      "create": "Create code",
+      "issuedTitle": "New code",
+      "issuedWarning": "It is shown only once: copy it now and send it to the person you invite.",
+      "copyCode": "Copy code",
+      "done": "Done",
+      "expires": "Expires {{when}} UTC",
+      "listLabel": "Unused codes",
+      "none": "No unused codes.",
+      "loadFailed": "The codes could not be loaded.",
+      "revoke": "Revoke the code ending in {{hint}}",
+      "createRefused": {
+        "notPrivate": "The strategy is no longer private, so no code was created.",
+        "archived": "This strategy is archived and can no longer change.",
+        "gone": "This strategy no longer exists.",
+        "failed": "The code was not created. Try again."
+      },
+      "revokeRefused": {
+        "notLive": "That code was already used, expired or revoked.",
+        "failed": "The code was not revoked. Try again."
+      }
     },
     "leverage": {
       "label": "Leverage",

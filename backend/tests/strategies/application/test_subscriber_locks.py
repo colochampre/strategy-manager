@@ -113,7 +113,7 @@ class _Exposure:
 
 class _History:
     async def history(self, strategy_id: UUID) -> StrategyHistory:
-        return StrategyHistory(0, 0, 0, 0, 0, 0, 0)
+        return StrategyHistory(0, 0, 0, 0, 0, 0, 0, 0)
 
 
 class _EnablementLog:

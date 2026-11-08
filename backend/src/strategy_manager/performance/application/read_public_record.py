@@ -12,7 +12,11 @@ It carries no amount: the author's money stays private.
 import logging
 from uuid import UUID
 
-from strategy_manager.performance.application.ports import PublicStrategiesSourcePort
+from strategy_manager.performance.application.ports import (
+    NO_ENTRY,
+    PageEntry,
+    PublicStrategiesSourcePort,
+)
 from strategy_manager.performance.domain.public_record import RecordReport, build_record_report
 from strategy_manager.shared.application.ports import ClockPort
 
@@ -24,8 +28,10 @@ class ReadPublicRecord:
         self._source = source
         self._clock = clock
 
-    async def read(self, strategy_id: UUID, reader_id: UUID) -> RecordReport | None:
-        listing = await self._source.listing(strategy_id, reader_id)
+    async def read(
+        self, strategy_id: UUID, reader_id: UUID, entry: PageEntry = NO_ENTRY
+    ) -> RecordReport | None:
+        listing = await self._source.listing(strategy_id, reader_id, entry)
         if listing is None:
             return None
         fills = await self._source.author_fills([strategy_id])

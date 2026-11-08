@@ -182,6 +182,8 @@ export interface Strategy {
   allowed_pairs: string[];
   uptime: StrategyUptime;
   visibility: Visibility;
+  /** The token a LINK strategy opens to, sent to its author only; null otherwise. */
+  share_token: string | null;
   secret_last4: string;
   /** The author's plain text about the strategy, up to 2,000 characters; null when there is none. */
   description: string | null;
@@ -204,8 +206,24 @@ export interface HeldSubscription extends Subscription {
   settlement_currency: string;
 }
 
-/** Who else may subscribe to a strategy: a PRIVATE one only its author. Private is the default (decision 21). */
-export type Visibility = "PUBLIC" | "PRIVATE";
+/**
+ * Who else may subscribe to a strategy (decision 41): a PUBLIC one is listed on Explore, a LINK one opens to
+ * whoever holds its link, a PRIVATE one to whoever holds a live invitation code. Private is the default
+ * (decision 21).
+ */
+export type Visibility = "PUBLIC" | "LINK" | "PRIVATE";
+
+/** A live invitation code in its author's list: never the code, only its last four characters. */
+export interface InviteCode {
+  id: string;
+  hint: string;
+  expires_at: string;
+}
+
+/** A code just made: the only answer that ever carries it, as `XXXX-XXXX`. */
+export interface IssuedInviteCode extends InviteCode {
+  code: string;
+}
 
 /**
  * The body of `POST /api/strategies` (`RegisterRequest`); `id` is the alert's `signalType`. The share becomes

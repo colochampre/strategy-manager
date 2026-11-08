@@ -5,7 +5,8 @@ No framework imports, per the layering rule that ``domain`` never depends on
 FastAPI, SQLAlchemy or httpx.
 """
 
-from dataclasses import dataclass
+from collections.abc import Callable
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
@@ -15,6 +16,7 @@ from strategy_manager.shared.domain.errors import InvariantViolation
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 from strategy_manager.strategies.domain.allowed_pairs import AllowedPairs
 from strategy_manager.strategies.domain.description import description_of
+from strategy_manager.strategies.domain.share_token import is_share_token
 
 
 class FillMode(StrEnum):
@@ -25,21 +27,49 @@ class FillMode(StrEnum):
 
 
 class Visibility(StrEnum):
-    """Mirrors the ``strategies.visibility`` CHECK constraint (decision 21).
+    """Mirrors the ``strategies.visibility`` CHECK constraint (decisions 21 and 41).
 
-    A PRIVATE strategy takes no NEW subscriber but its author; making one private
-    keeps the subscribers it has, so nothing here reaches the signal fan-out."""
+    PUBLIC is on Explore. LINK and PRIVATE are off it: LINK takes whoever holds its
+    link, PRIVATE whoever holds a live invitation code. A change of visibility keeps
+    the subscribers a strategy has, so nothing here reaches the signal fan-out."""
 
     PUBLIC = "PUBLIC"
+    LINK = "LINK"
     PRIVATE = "PRIVATE"
 
 
-def offered_to_others(visibility: Visibility, *, author_named: bool) -> bool:
-    """Whether anyone but the author may come to this strategy. What the public page
-    requires, in the terms preview and subscribe read it (tasks.md G.2); the page's
-    own read says the same in SQL, with ``archived_at``, which each of these two
-    answers in its own way."""
-    return visibility is Visibility.PUBLIC and author_named
+#: The visibilities a strategy may turn to only while its author has a name
+#: (decisions 27 and 41): PUBLIC and LINK each open, by themselves, a page that names
+#: the author. PRIVATE opens nothing until a code is made, which asks the same.
+NEEDS_A_NAMED_AUTHOR = frozenset({Visibility.PUBLIC, Visibility.LINK})
+
+
+class Entry(StrEnum):
+    """How someone other than the author arrives at a strategy: by nothing but its
+    id, by its link, or with a live code made for it. The caller has checked the
+    link or the code against this strategy before saying so."""
+
+    NONE = "NONE"
+    LINK = "LINK"
+    CODE = "CODE"
+
+
+def offered_to(visibility: Visibility, *, author_named: bool, entry: Entry) -> bool:
+    """Whether someone other than the author may read this strategy's page and
+    subscribe to it, arriving by ``entry`` (decision 41). PUBLIC takes anyone, LINK
+    the holder of its link, PRIVATE the holder of a live code. A live code opens a
+    LINK strategy too: it was made for this strategy, and the link would let the same
+    person in. Nothing is offered while the author has no name (decision 27).
+
+    A live seat reads its page whatever the visibility; that is the public read's
+    own rule, in SQL (tasks.md J.1), as is ``archived_at``."""
+    if not author_named:
+        return False
+    if visibility is Visibility.PUBLIC:
+        return True
+    if visibility is Visibility.LINK:
+        return entry in (Entry.LINK, Entry.CODE)
+    return entry is Entry.CODE
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,10 +131,27 @@ class Strategy:
     archived_at: datetime | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
+    # The link's token (decision 41): held exactly while the strategy is LINK, as
+    # ``ck_strategies_share_token_iff_link`` holds it. ``repr`` never names it.
+    share_token: str | None = field(default=None, repr=False)
+
+    def with_visibility(self, visibility: Visibility, new_token: Callable[[], str]) -> "Strategy":
+        """This strategy at ``visibility``. Turning LINK makes a token with
+        ``new_token``; staying LINK keeps the one it has; leaving LINK drops it, so a
+        link that leaked dies with the change and coming back makes another."""
+        if visibility is not Visibility.LINK:
+            return replace(self, visibility=visibility, share_token=None)
+        if self.visibility is Visibility.LINK:
+            return self
+        return replace(self, visibility=visibility, share_token=new_token())
 
     def __post_init__(self) -> None:
         if not self.name:
             raise InvariantViolation("Strategy.name must be non-empty")
+        if (self.visibility is Visibility.LINK) != (self.share_token is not None):
+            raise InvariantViolation("Strategy.share_token is held exactly while it is LINK")
+        if self.share_token is not None and not is_share_token(self.share_token):
+            raise InvariantViolation("Strategy.share_token has the wrong shape")
         # Held only in its stored shape: what ``description_of`` makes of it is
         # itself. A blank or padded one is turned into that shape before it gets
         # here, never written as it came.

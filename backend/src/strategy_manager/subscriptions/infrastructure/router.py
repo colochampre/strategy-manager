@@ -26,7 +26,17 @@ from strategy_manager.shared.db import get_session
 from strategy_manager.shared.domain.leverage import MAX_LEVERAGE, NEW_SEAT_LEVERAGE, Leverage
 from strategy_manager.shared.infrastructure.clock import SystemClock
 from strategy_manager.shared.infrastructure.wire import Money
+from strategy_manager.strategies.domain.invite_code import (
+    InviteCodeNotLive,
+    TooManyCodeAttempts,
+)
 from strategy_manager.strategies.domain.strategy import AllocationPercent
+from strategy_manager.strategies.infrastructure.code_entry_http import (
+    CODE_MAX_LENGTH,
+    LINK_MAX_LENGTH,
+    CodeCheckDep,
+    code_refusal,
+)
 from strategy_manager.strategies.infrastructure.pool_lock_adapter import PoolLockAdapter
 from strategy_manager.strategies.infrastructure.share_input import Share
 from strategy_manager.subscriptions.application.change_share import ChangeShare
@@ -47,6 +57,7 @@ from strategy_manager.subscriptions.domain.subscription import Subscription
 from strategy_manager.subscriptions.infrastructure.adapters import (
     OpenAllocationAdapter,
     SqlAlchemyEnabledUserPools,
+    SqlAlchemyInviteCodeSpend,
     SqlAlchemyStrategyLookup,
 )
 from strategy_manager.subscriptions.infrastructure.repository import (
@@ -73,6 +84,10 @@ class SubscribeRequest(BaseModel):
     allocation_percent: Share
     # A subscriber who sends none is placed at one times (decision 38).
     leverage: LeverageInput = NEW_SEAT_LEVERAGE.value
+    # What lets a reader into a strategy off the list (decision 41): the link's token
+    # of a LINK one, or a live invitation code, spent with the seat.
+    link_token: str | None = Field(default=None, max_length=LINK_MAX_LENGTH)
+    invite_code: str | None = Field(default=None, max_length=CODE_MAX_LENGTH)
 
 
 class ChangeShareRequest(BaseModel):
@@ -147,14 +162,18 @@ def _conflict(code: str, message: str) -> HTTPException:
 
 @router.post("", response_model=SubscriptionView, status_code=201)
 async def subscribe(
-    body: SubscribeRequest, session: SessionDep, user: CurrentUserDep
+    body: SubscribeRequest, session: SessionDep, user: CurrentUserDep, codes: CodeCheckDep
 ) -> SubscriptionView:
+    """A wrong link or code is the 404 of a strategy that does not exist; a dead code
+    is a 410 with why, and the code limit a 429 (decision 41)."""
     use_case = Subscribe(
         subscriptions=SqlAlchemySubscriptionRepository(session),
         strategies=SqlAlchemyStrategyLookup(session),
         pools=SqlAlchemyEnabledUserPools(session),
         commit=session,
         clock=SystemClock(),
+        codes=codes,
+        spend=SqlAlchemyInviteCodeSpend(session),
     )
     try:
         subscription = await use_case.subscribe(
@@ -162,7 +181,13 @@ async def subscribe(
             body.strategy_id,
             AllocationPercent(body.allocation_percent),
             Leverage(body.leverage),
+            link=body.link_token,
+            code=body.invite_code,
         )
+    except (TooManyCodeAttempts, InviteCodeNotLive) as exc:
+        # The seat may be written already when the code went meanwhile.
+        await session.rollback()
+        raise code_refusal(exc) from exc
     except StrategyNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except StrategyArchived as exc:

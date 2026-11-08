@@ -1,4 +1,4 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { type DefaultOptions, QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render } from "@testing-library/react";
 import type { ReactElement } from "react";
 import { MemoryRouter } from "react-router";
@@ -417,6 +417,7 @@ export function strategyRoute(id: string, name: string, overrides: Record<string
     allowed_pairs: ["ETHUSDT"],
     uptime: { seconds: 0, first_enabled_at: null, baseline: false },
     visibility: "PRIVATE",
+    share_token: null,
     secret_last4: "x4F2",
     description: null,
     subscribers: 1,
@@ -643,8 +644,9 @@ export function resetExchangeScope(): void {
   useExchangeStore.setState({ selected: null });
 }
 
-export function renderAt(ui: ReactElement, path = "/") {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+/** `queries` replaces the client's query defaults: `{ retryDelay: 0 }` keeps the library's own retries, as in `main.tsx`. */
+export function renderAt(ui: ReactElement, path = "/", queries: NonNullable<DefaultOptions["queries"]> = { retry: false }) {
+  const queryClient = new QueryClient({ defaultOptions: { queries } });
   return render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={[path]}>{ui}</MemoryRouter>

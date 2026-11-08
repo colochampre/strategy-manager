@@ -72,12 +72,21 @@ from strategy_manager.strategies.application.archive_strategy import (
     OpenPosition,
     StillEnabled,
 )
+from strategy_manager.strategies.application.code_entry import CheckInviteCode
 from strategy_manager.strategies.application.delete_strategy import (
     DeleteStrategy,
     StrategyHasHistory,
 )
+from strategy_manager.strategies.application.invite_codes import (
+    IssueInviteCode,
+    ListInviteCodes,
+    RevokeInviteCode,
+    StrategyNotPrivate,
+    UnknownInviteCode,
+)
 from strategy_manager.strategies.application.ports import (
     AuthorHasNoDisplayName,
+    ListedCode,
     PairCatalogPort,
     SubscriberCounts,
 )
@@ -105,21 +114,33 @@ from strategy_manager.strategies.application.update_strategy import (
 from strategy_manager.strategies.domain.allowed_pairs import EmptyAllowedPairs
 from strategy_manager.strategies.domain.description import description_of
 from strategy_manager.strategies.domain.enablement import EnablementEvent, Uptime, uptime
+from strategy_manager.strategies.domain.invite_code import (
+    InviteCodeNotLive,
+    TooManyCodeAttempts,
+)
 from strategy_manager.strategies.domain.pair_catalog import (
     PairCatalogNotServed,
     PairCatalogUnavailable,
     PairsChangedConcurrently,
     UnknownPairs,
 )
+from strategy_manager.strategies.domain.share_token import link_opens
 from strategy_manager.strategies.domain.strategy import (
+    Entry,
     FillMode,
     Strategy,
     Visibility,
-    offered_to_others,
+    offered_to,
 )
 from strategy_manager.strategies.infrastructure.author_names import SqlAlchemyAuthorNames
 from strategy_manager.strategies.infrastructure.author_subscription_adapter import (
     SqlAlchemyAuthorSubscription,
+)
+from strategy_manager.strategies.infrastructure.code_entry_http import (
+    CodeCheckDep,
+    CodeQuery,
+    LinkQuery,
+    code_refusal,
 )
 from strategy_manager.strategies.infrastructure.enablement_log import (
     SqlAlchemyEnablementLog,
@@ -128,6 +149,7 @@ from strategy_manager.strategies.infrastructure.exposure_adapter import (
     StrategyExposureAdapter,
 )
 from strategy_manager.strategies.infrastructure.history_adapter import StrategyHistoryAdapter
+from strategy_manager.strategies.infrastructure.invite_codes_adapter import SqlAlchemyInviteCodes
 from strategy_manager.strategies.infrastructure.pair_catalog_router import get_pair_catalog
 from strategy_manager.strategies.infrastructure.pool_catalog import (
     SqlAlchemyPoolCatalog,
@@ -212,6 +234,9 @@ class StrategyView(BaseModel):
     fill_mode: FillMode
     enabled: bool
     visibility: Visibility
+    # The link's token while LINK, else null (decision 41). Only the author reads
+    # this view, and the link is theirs to pass on.
+    share_token: str | None
     archived_at: datetime | None
     allowed_pairs: list[str]
     uptime: UptimeView
@@ -251,6 +276,7 @@ class StrategyView(BaseModel):
             fill_mode=strategy.policy.fill_mode,
             enabled=strategy.enabled,
             visibility=strategy.visibility,
+            share_token=strategy.share_token,
             archived_at=strategy.archived_at,
             allowed_pairs=strategy.allowed_pairs.sorted(),
             uptime=UptimeView.of(uptime_value),
@@ -275,7 +301,25 @@ class WebhookSecretView(BaseModel):
     webhook_secret: str
 
 
-# Neither answer may be kept by the browser or an intermediary: each carries a secret.
+class InviteCodeView(BaseModel):
+    """A live invitation code in its author's list: no code, only its last four."""
+
+    id: UUID
+    hint: str
+    expires_at: datetime
+
+    @classmethod
+    def of(cls, listed: ListedCode) -> "InviteCodeView":
+        return cls(id=listed.id, hint=listed.hint, expires_at=listed.expires_at)
+
+
+class IssuedInviteCodeView(InviteCodeView):
+    """A code just made, shown once as ``XXXX-XXXX``: only its hash is stored."""
+
+    code: str
+
+
+# No answer carrying a secret or a code may be kept by the browser or an intermediary.
 _NO_STORE = {"Cache-Control": "no-store"}
 
 
@@ -720,6 +764,83 @@ async def regenerate_webhook_secret(
     return WebhookSecretView(webhook_secret=secret)
 
 
+@router.post(
+    "/{strategy_id}/invite-codes", response_model=IssuedInviteCodeView, status_code=201
+)
+async def issue_invite_code(
+    strategy_id: UUID,
+    session: SessionDep,
+    user: CurrentUserDep,
+    response: Response,
+) -> IssuedInviteCodeView:
+    """Makes a single-use code for one of the author's PRIVATE strategies (decision
+    41), valid 7 days, and shows it this once. Another user's strategy is a 404."""
+    use_case = IssueInviteCode(
+        repository=_own(session, user),
+        codes=SqlAlchemyInviteCodes(session),
+        author_names=SqlAlchemyAuthorNames(session),
+        commit=session,
+        clock=SystemClock(),
+    )
+    try:
+        issued = await use_case.issue(strategy_id)
+    except UnknownStrategy as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except StrategyArchived as exc:
+        raise HTTPException(
+            status_code=409, detail={"error": "STRATEGY_ARCHIVED", "message": str(exc)}
+        ) from exc
+    except StrategyNotPrivate as exc:
+        raise HTTPException(
+            status_code=409, detail={"error": "STRATEGY_NOT_PRIVATE", "message": str(exc)}
+        ) from exc
+    except AuthorHasNoDisplayName as exc:
+        raise _no_display_name(exc) from exc
+    response.headers.update(_NO_STORE)
+    return IssuedInviteCodeView(
+        id=issued.id,
+        code=issued.code.display,
+        hint=issued.code.hint,
+        expires_at=issued.expires_at,
+    )
+
+
+@router.get("/{strategy_id}/invite-codes", response_model=list[InviteCodeView])
+async def list_invite_codes(
+    strategy_id: UUID, session: SessionDep, user: CurrentUserDep
+) -> list[InviteCodeView]:
+    """The author's live codes for this strategy, oldest first, with no code in them."""
+    use_case = ListInviteCodes(
+        repository=_own(session, user), codes=SqlAlchemyInviteCodes(session), clock=SystemClock()
+    )
+    try:
+        listed = await use_case.list(strategy_id)
+    except UnknownStrategy as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return [InviteCodeView.of(each) for each in listed]
+
+
+@router.delete("/{strategy_id}/invite-codes/{code_id}", status_code=204)
+async def revoke_invite_code(
+    strategy_id: UUID, code_id: UUID, session: SessionDep, user: CurrentUserDep
+) -> Response:
+    """Revokes a live code of the author's strategy; its row is kept. A code that is
+    not live, or not this strategy's, is a 404: there is nothing to revoke."""
+    use_case = RevokeInviteCode(
+        repository=_own(session, user),
+        codes=SqlAlchemyInviteCodes(session),
+        commit=session,
+        clock=SystemClock(),
+    )
+    try:
+        await use_case.revoke(strategy_id, code_id)
+    except UnknownStrategy as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except UnknownInviteCode as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return Response(status_code=204)
+
+
 @router.get("", response_model=list[StrategyView])
 async def list_strategies(
     session: SessionDep, user: CurrentUserDep, include_archived: bool = False
@@ -779,17 +900,34 @@ async def get_strategy_events(
 
 
 async def _reaches_preview(
-    session: AsyncSession, strategy: Strategy, user: User, subscription: Subscription | None
+    session: AsyncSession,
+    strategy: Strategy,
+    user: User,
+    subscription: Subscription | None,
+    entry: tuple[str | None, str | None, CheckInviteCode],
 ) -> bool:
     """Who the preview answers: the author, whoever holds a live subscription, which
-    outlasts a turn to private (decision 21), and anyone who may subscribe. Every
-    figure in it is from the reader's own pool, and the market is on the public page."""
+    outlasts a turn to private (decision 21), and anyone who may subscribe, with the
+    link or the code they bring (decision 41). Every figure in it is from the reader's
+    own pool, and the market is on the public page. The code is read only when nothing
+    else opens the strategy; a dead one or the limit is refused."""
     if strategy.author_id == user.id or subscription is not None:
         return True
     if strategy.archived_at is not None:
         return False
     author_named = await SqlAlchemyAuthorNames(session).has_display_name(strategy.author_id)
-    return offered_to_others(strategy.visibility, author_named=author_named)
+    link, code, codes = entry
+    by_link = Entry.LINK if link_opens(strategy.share_token, link) else Entry.NONE
+    if offered_to(strategy.visibility, author_named=author_named, entry=by_link):
+        return True
+    if code is None or not offered_to(
+        strategy.visibility, author_named=author_named, entry=Entry.CODE
+    ):
+        return False
+    try:
+        return await codes.check(user.id, strategy.id, code) is not None
+    except (TooManyCodeAttempts, InviteCodeNotLive) as exc:
+        raise code_refusal(exc) from exc
 
 
 @router.get("/{strategy_id}/share-preview", response_model=SharePreviewBody)
@@ -798,13 +936,18 @@ async def preview_share(
     session: SessionDep,
     user: CurrentUserDep,
     use_case: Annotated[PreviewShare, Depends(get_preview_share)],
+    codes: CodeCheckDep,
     share: Annotated[Share | None, Query()] = None,
     leverage: Annotated[int | None, Query(ge=1, le=MAX_LEVERAGE)] = None,
+    link: LinkQuery = None,
+    code: CodeQuery = None,
 ) -> SharePreviewBody:
     """What a share of this strategy's pool would ask for (design addendum "unit
-    12f", sections C2 and H). READ-ONLY: it reads the strategy and then the pool's
-    row and snapshot, and takes no lock, writes nothing and calls no exchange. The
-    API process decrypts nothing and this route needs no key.
+    12f", sections C2 and H). It reads the strategy and then the pool's row and
+    snapshot, and calls no exchange. The API process decrypts nothing and this route
+    needs no key. It writes only when the strategy opens to the reader by nothing but
+    a code (decision 41): the code check takes the reader's attempts lock and, for a
+    wrong or dead code, commits one failed attempt, on a connection of its own.
 
     The pool and the default share come from the strategy row the PATH names, never
     from the request: the inputs are the optional ``share``, bounded to
@@ -821,7 +964,9 @@ async def preview_share(
         user.id, [strategy_id]
     )
     subscription = held.get(strategy_id)
-    if strategy is None or not await _reaches_preview(session, strategy, user, subscription):
+    if strategy is None or not await _reaches_preview(
+        session, strategy, user, subscription, (link, code, codes)
+    ):
         raise HTTPException(status_code=404, detail="no such strategy")
     policy = strategy.policy
     pool = PoolKey(policy.exchange, policy.venue, policy.settlement_currency)

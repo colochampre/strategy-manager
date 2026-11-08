@@ -24,6 +24,7 @@ function strategy(overrides: Partial<Strategy> = {}): Strategy {
     allowed_pairs: ["ETHUSDT"],
     uptime: { seconds: 0, first_enabled_at: null, baseline: false },
     visibility: "PRIVATE",
+    share_token: null,
     secret_last4: "x4F2",
     description: "Runs at 3x",
     subscribers: 1,

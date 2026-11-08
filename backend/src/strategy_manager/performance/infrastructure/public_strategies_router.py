@@ -14,6 +14,12 @@ exception is a strategy turned private, to a reader who holds a live seat on it:
 page and record still answer them, since the page is where that seat is managed
 (tasks.md J.1, decision 21). It stays off the list.
 
+**A link or a code** opens a strategy off the list too (decision 41, tasks.md K.4):
+``?link=`` its current token for a LINK strategy, ``?code=`` a live code made for a
+LINK or PRIVATE one. The code is read only when the strategy does not open without
+it. A wrong code answers the same 404; a dead one answers 410 with why, and a reader
+who got ``MAX_FAILED_ATTEMPTS`` codes wrong in the last hour gets 429.
+
 **A return the wire cannot write** answers that same 404, and leaves the list, with
 a log line. An alert's price is whatever its sender writes, so one strategy can
 compound past what ``ratio`` rounds, and it must not cost everyone the whole list
@@ -35,6 +41,7 @@ All three routes read in one read-only ``REPEATABLE READ`` snapshot.
 """
 
 import logging
+from collections.abc import Awaitable, Callable
 from datetime import date as calendar_date
 from decimal import InvalidOperation
 from typing import Annotated, Literal
@@ -46,7 +53,10 @@ from pydantic_core import PydanticSerializationError
 
 from strategy_manager.identity.domain.user import User
 from strategy_manager.identity.infrastructure.dependencies import current_user
-from strategy_manager.performance.application.ports import PublicStrategiesSourcePort
+from strategy_manager.performance.application.ports import (
+    PageEntry,
+    PublicStrategiesSourcePort,
+)
 from strategy_manager.performance.application.read_public_record import ReadPublicRecord
 from strategy_manager.performance.application.read_public_strategies import (
     PublicStrategy,
@@ -66,6 +76,17 @@ from strategy_manager.performance.infrastructure.public_strategies_source import
 )
 from strategy_manager.shared.config import get_settings
 from strategy_manager.shared.infrastructure.wire import Instant, Money, Ratio, ratio
+from strategy_manager.strategies.application.code_entry import CheckInviteCode
+from strategy_manager.strategies.domain.invite_code import (
+    InviteCodeNotLive,
+    TooManyCodeAttempts,
+)
+from strategy_manager.strategies.infrastructure.code_entry_http import (
+    CodeCheckDep,
+    CodeQuery,
+    LinkQuery,
+    code_refusal,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -199,11 +220,48 @@ class PublicRecordBody(BaseModel):
         )
 
 
+async def _entered[T](
+    strategy_id: UUID,
+    reader: User,
+    link: str | None,
+    code: str | None,
+    codes: CheckInviteCode,
+    read: Callable[[PageEntry], Awaitable[T | None]],
+) -> T | None:
+    """What ``read`` answers for the reader, with the link they brought; the code only
+    when that answers nothing, so a code is never read where it is not needed. A wrong
+    code answers None, the 404 of no strategy; a dead one or the limit is refused."""
+    found = await read(PageEntry(link=link))
+    if found is not None or code is None:
+        return found
+    try:
+        checked = await codes.check(reader.id, strategy_id, code)
+    except (TooManyCodeAttempts, InviteCodeNotLive) as exc:
+        raise code_refusal(exc) from exc
+    if checked is None:
+        return None
+    return await read(PageEntry(link=link, code_checked=True))
+
+
 @router.get("/{strategy_id}/record", response_model=PublicRecordBody, response_model_by_alias=True)
 async def read_public_record(
-    strategy_id: UUID, source: SourceDep, clock: ClockDep, reader: ReaderDep
+    strategy_id: UUID,
+    source: SourceDep,
+    clock: ClockDep,
+    reader: ReaderDep,
+    codes: CodeCheckDep,
+    link: LinkQuery = None,
+    code: CodeQuery = None,
 ) -> PublicRecordBody:
-    report = await ReadPublicRecord(source, clock).read(strategy_id, reader.id)
+    records = ReadPublicRecord(source, clock)
+    report = await _entered(
+        strategy_id,
+        reader,
+        link,
+        code,
+        codes,
+        lambda entry: records.read(strategy_id, reader.id, entry),
+    )
     if report is None:
         raise HTTPException(status_code=404, detail="no such strategy")
     body = PublicRecordBody.of(report)
@@ -220,9 +278,22 @@ async def read_public_record(
 
 @router.get("/{strategy_id}", response_model=PublicStrategyBody)
 async def read_public_strategy(
-    strategy_id: UUID, source: SourceDep, reader: ReaderDep
+    strategy_id: UUID,
+    source: SourceDep,
+    reader: ReaderDep,
+    codes: CodeCheckDep,
+    link: LinkQuery = None,
+    code: CodeQuery = None,
 ) -> PublicStrategyBody:
-    strategy = await _reader(source).read_one(strategy_id, reader.id)
+    strategies = _reader(source)
+    strategy = await _entered(
+        strategy_id,
+        reader,
+        link,
+        code,
+        codes,
+        lambda entry: strategies.read_one(strategy_id, reader.id, entry),
+    )
     if strategy is None or not _writable(strategy):
         raise HTTPException(status_code=404, detail="no such strategy")
     return _body(strategy)

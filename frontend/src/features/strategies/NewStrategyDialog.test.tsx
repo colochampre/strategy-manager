@@ -559,16 +559,17 @@ describe("the new-strategy dialog", () => {
     expect(visibility.value).toBe("PRIVATE");
     expect(Array.from(visibility.options).map((option) => [option.value, option.textContent])).toEqual([
       ["PRIVATE", "Private"],
+      ["LINK", "With link"],
       ["PUBLIC", "Public"],
     ]);
 
     fill("Delta");
     await choose(["STXUSDT"]);
-    fireEvent.change(visibility, { target: { value: "PUBLIC" } });
+    fireEvent.change(visibility, { target: { value: "LINK" } });
     fireEvent.click(submitButton());
 
     await waitFor(() => expect(api.posted).toHaveLength(1));
-    expect(api.posted[0]?.body.visibility).toBe("PUBLIC");
+    expect(api.posted[0]?.body.visibility).toBe("LINK");
   });
 
   it("shows the webhook URL with its secret once after creating, with a warning, and copies it", async () => {
@@ -737,7 +738,7 @@ describe("the new-strategy dialog", () => {
     fireEvent.click(submitButton());
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Choose your name in Settings first: a public strategy shows its author.",
+      "Choose your name in Settings first: a strategy offered to others shows its author.",
     );
     expect(screen.getByRole("dialog")).toBeInTheDocument();
   });

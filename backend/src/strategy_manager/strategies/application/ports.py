@@ -22,9 +22,9 @@ from strategy_manager.strategies.domain.strategy import AllocationPercent, Strat
 PoolKey = tuple[str, str, str]
 
 
-# The history kinds that are reported but never refuse a delete (migrations 0028
-# and 0031).
-_NEVER_BLOCKING = frozenset({"enablement_events", "subscriptions"})
+# The history kinds that are reported but never refuse a delete (migrations 0028,
+# 0031 and 0038).
+_NEVER_BLOCKING = frozenset({"enablement_events", "subscriptions", "invite_codes"})
 
 
 class StrategyRepositoryPort(Protocol):
@@ -133,15 +133,54 @@ class PoolCatalogPort(Protocol):
 
 
 class AuthorHasNoDisplayName(DomainError):
-    """A strategy cannot turn public until its author has chosen a name: the public
-    list names its author, and never by e-mail (decision 27)."""
+    """A strategy cannot be offered to anyone until its author has chosen a name: its
+    page names its author, and never by e-mail (decisions 27 and 41). So it turns
+    PUBLIC or LINK, and takes an invitation code, only then."""
 
     def __init__(self) -> None:
-        super().__init__("a strategy turns public once its author has chosen a display name")
+        super().__init__(
+            "a strategy is offered to others once its author has chosen a display name"
+        )
 
 
 class AuthorNamesPort(Protocol):
     async def has_display_name(self, user_id: UUID) -> bool: ...
+
+
+@dataclass(frozen=True, slots=True)
+class ListedCode:
+    """A live invitation code as its author's list shows it: never the code, only
+    its id, the last four characters and when it expires (decision 41)."""
+
+    id: UUID
+    hint: str
+    expires_at: datetime
+
+
+class InviteCodesPort(Protocol):
+    """A strategy's invitation codes (decision 41). Writes flush and never commit.
+
+    A code is live while it is neither revoked nor redeemed and ``now`` is before its
+    expiry; ``now`` is always the caller's, so the adapter reads no clock."""
+
+    async def add(
+        self,
+        code_id: UUID,
+        strategy_id: UUID,
+        code_hash: str,
+        hint: str,
+        created_at: datetime,
+        expires_at: datetime,
+    ) -> None: ...
+
+    async def live(self, strategy_id: UUID, now: datetime) -> list[ListedCode]:
+        """The live codes of ``strategy_id``, oldest first."""
+        ...
+
+    async def revoke_live(self, strategy_id: UUID, code_id: UUID, now: datetime) -> str | None:
+        """Revokes ``code_id`` if it is a live code of ``strategy_id``, in one
+        statement, and answers its hint; otherwise changes nothing and answers None."""
+        ...
 
 
 class AuthorSubscriptionPort(Protocol):
@@ -266,7 +305,7 @@ class StrategyHistory:
     of ``signals``, ``allocation``, ``execution``, ``ledger`` or
     ``reconciliation`` appears here, so this port stays free of those modules.
 
-    The seven kinds are the six foreign keys into ``strategies`` plus the
+    The eight kinds are the seven foreign keys into ``strategies`` plus the
     execution attempts that reach a strategy through a reservation or a
     signal. ``test_strategy_references_guard`` reads ``pg_constraint`` and
     fails when a migration adds a reference this class does not count.
@@ -279,7 +318,9 @@ class StrategyHistory:
     database says so, and ``DeleteStrategy`` answers it as ``HAS_HISTORY``.
 
     **Subscriptions are the same** (owner decision 19; migration 0031 cascades
-    ``fk_subscriptions_strategy``): every status is counted, none refuses.
+    ``fk_subscriptions_strategy``): every status is counted, none refuses. **So are
+    invitation codes** (decision 41; migration 0038 cascades
+    ``fk_invite_codes_strategy``): used, live, revoked or expired, none refuses.
     """
 
     signals: int
@@ -289,10 +330,11 @@ class StrategyHistory:
     booking_proposals: int
     enablement_events: int
     subscriptions: int
+    invite_codes: int
 
     def blocking(self) -> dict[str, int]:
         """The non-zero kinds that refuse a delete, in the fixed order of the
-        fields. Never ``enablement_events`` or ``subscriptions``."""
+        fields. Never ``enablement_events``, ``subscriptions`` or ``invite_codes``."""
         return {
             field.name: count
             for field in fields(self)

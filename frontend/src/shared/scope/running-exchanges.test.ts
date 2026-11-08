@@ -21,6 +21,7 @@ function strategy(exchange: string, overrides: Partial<Strategy> = {}): Strategy
     allowed_pairs: [],
     uptime: { seconds: 0, first_enabled_at: null, baseline: false },
     visibility: "PRIVATE",
+    share_token: null,
     secret_last4: "x4F2",
     description: null,
     subscribers: 0,

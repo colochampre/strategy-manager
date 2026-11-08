@@ -44,7 +44,13 @@ from strategy_manager.strategies.application.ports import (
     EnablementLogPort,
     StrategyRepositoryPort,
 )
-from strategy_manager.strategies.domain.strategy import FillMode, Strategy, Visibility
+from strategy_manager.strategies.domain.share_token import new_share_token
+from strategy_manager.strategies.domain.strategy import (
+    NEEDS_A_NAMED_AUTHOR,
+    FillMode,
+    Strategy,
+    Visibility,
+)
 
 
 class Unchanged:
@@ -125,13 +131,13 @@ class UpdateStrategy:
                 "and read-only; nothing about it may be edited"
             )
 
-        # On turning public, not on being public: a strategy made public before
-        # names existed stays editable (decision 27).
-        turns_public = (
-            command.visibility is Visibility.PUBLIC
-            and strategy.visibility is not Visibility.PUBLIC
+        # On turning public or LINK, not on being so: a strategy made public before
+        # names existed stays editable (decisions 27 and 41).
+        turns_named = (
+            command.visibility in NEEDS_A_NAMED_AUTHOR
+            and command.visibility is not strategy.visibility
         )
-        if turns_public and not await self._author_names.has_display_name(strategy.author_id):
+        if turns_named and not await self._author_names.has_display_name(strategy.author_id):
             raise AuthorHasNoDisplayName
 
         policy = strategy.policy
@@ -143,15 +149,16 @@ class UpdateStrategy:
             name=strategy.name if command.name is None else command.name,
             policy=policy,
             enabled=strategy.enabled if command.enabled is None else command.enabled,
-            visibility=(
-                strategy.visibility if command.visibility is None else command.visibility
-            ),
             description=(
                 strategy.description
                 if isinstance(command.description, Unchanged)
                 else command.description
             ),
         )
+        # Through ``with_visibility``, so the link's token is made, kept or dropped
+        # with the change (decision 41).
+        if command.visibility is not None:
+            updated = updated.with_visibility(command.visibility, new_share_token)
 
         await self._repository.update(updated)
 

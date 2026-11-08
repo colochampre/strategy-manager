@@ -292,6 +292,22 @@
       "capitalInfo": "Qué es este capital",
       "capitalHint": "El capital que asignan todos los que la operan en vivo, incluido su autor: la cuota de cada uno sobre el último saldo de su pool. Es capital asignado, no capital en uso, y el mismo dinero puede respaldar varias estrategias."
     },
+    "entry": {
+      "haveCode": "Tengo un código",
+      "codeLabel": "Código de invitación",
+      "open": "Abrir",
+      "codeHint": "Escriba el código que le envió el autor. Abre la página de la estrategia y solo se usa cuando usted se suscribe.",
+      "codeOpensNothing": "Ninguna estrategia se abre con ese código. Revíselo e inténtelo de nuevo.",
+      "linkOpensNothing": "Este enlace ya no abre la estrategia. Pídale a su autor el enlace actual.",
+      "dead": {
+        "EXPIRED": "Este código de invitación venció. Pídale uno nuevo al autor.",
+        "REVOKED": "Este código de invitación fue revocado. Pídale uno nuevo al autor.",
+        "SPENT": "Este código de invitación ya se usó. Pídale uno nuevo al autor.",
+        "other": "Este código de invitación ya no abre la estrategia. Pídale uno nuevo al autor."
+      },
+      "tooMany": "Demasiados códigos incorrectos en la última hora. Inténtelo más tarde.",
+      "lookupFailed": "No se pudo comprobar el código. Inténtelo de nuevo."
+    },
     "report": {
       "title": "Rendimiento",
       "views": "Vista del informe",
@@ -349,11 +365,41 @@
       "label": "Visibilidad",
       "options": {
         "PRIVATE": "Privada",
+        "LINK": "Con enlace",
         "PUBLIC": "Pública"
       },
-      "hint": "Otros usuarios no pueden suscribirse a una estrategia privada. Los suscriptores que ya tiene la conservan.",
+      "hint": "Pública: aparece en Explorar. Con enlace: solo quien tiene el enlace la ve y puede suscribirse. Privada: solo quien tiene un código de invitación. Los suscriptores que ya tiene la conservan.",
       "saveFailed": "La visibilidad no se guardó. Inténtelo de nuevo.",
-      "needsName": "Primero elija su nombre en Configuración: una estrategia pública muestra a su autor."
+      "needsName": "Primero elija su nombre en Configuración: una estrategia ofrecida a otros muestra a su autor."
+    },
+    "sharing": {
+      "linkTitle": "Enlace a esta estrategia",
+      "linkHint": "Quien abra este enlace ve la estrategia y puede suscribirse. Cambiar la visibilidad desactiva este enlace; volver a elegir Con enlace crea uno nuevo.",
+      "linkInfo": "Acerca del enlace",
+      "copyLink": "Copiar enlace",
+      "codesTitle": "Códigos de invitación",
+      "codesInfo": "Acerca de los códigos de invitación",
+      "codesHint": "Cada código permite que una persona se suscriba, una sola vez, dentro de los 7 días de su creación.",
+      "create": "Crear código",
+      "issuedTitle": "Código nuevo",
+      "issuedWarning": "Se muestra una sola vez: cópielo ahora y envíelo a la persona que invita.",
+      "copyCode": "Copiar código",
+      "done": "Listo",
+      "expires": "Vence el {{when}} UTC",
+      "listLabel": "Códigos sin usar",
+      "none": "No hay códigos sin usar.",
+      "loadFailed": "No se pudieron cargar los códigos.",
+      "revoke": "Revocar el código que termina en {{hint}}",
+      "createRefused": {
+        "notPrivate": "La estrategia ya no es privada, así que no se creó ningún código.",
+        "archived": "Esta estrategia está archivada y ya no puede cambiar.",
+        "gone": "Esta estrategia ya no existe.",
+        "failed": "El código no se creó. Inténtelo de nuevo."
+      },
+      "revokeRefused": {
+        "notLive": "Ese código ya se usó, venció o fue revocado.",
+        "failed": "El código no se revocó. Inténtelo de nuevo."
+      }
     },
     "leverage": {
       "label": "Apalancamiento",

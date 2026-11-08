@@ -106,6 +106,9 @@ class _SweepPairCatalog:
         return frozenset({"STXUSDT", "ETHUSDT", "SOLUSDT"})
 
 
+#: A live invitation code of the sweep's strategy, as its author was shown it.
+SWEEP_CODE = "QZRT-SWPC"
+
 _BODIES: dict[tuple[str, str], dict[str, Any]] = {
     ("PUT", "/api/strategies/{strategy_id}/allowed-pairs"): {"pairs": ["ETHUSDT", "SOLUSDT"]},
     ("PATCH", "/api/strategies/{strategy_id}"): {"name": "renamed", "enabled": False},
@@ -117,6 +120,8 @@ _BODIES: dict[tuple[str, str], dict[str, Any]] = {
     ("PATCH", "/api/subscriptions/{subscription_id}"): {"allocation_percent": "40"},
     ("POST", "/api/me/mode"): {"mode": "SIMULATION"},
     ("PUT", "/api/me/display-name"): {"display_name": "The sweep's author"},
+    # The live code the sweep seeds, so the lookup answers 200 with what it shows.
+    ("POST", "/api/public/invite-codes/lookup"): {"code": SWEEP_CODE},
 }
 
 
@@ -128,6 +133,8 @@ _NO_BODY = {
     ("POST", "/api/strategies/{strategy_id}/archive"),
     REGENERATE,
     ("POST", "/api/subscriptions/{subscription_id}/leave"),
+    ("POST", "/api/strategies/{strategy_id}/invite-codes"),
+    ("DELETE", "/api/strategies/{strategy_id}/invite-codes/{code_id}"),
 }
 
 
@@ -259,6 +266,20 @@ async def test_no_api_response_carries_a_secret_or_a_hash_except_the_two_that_is
                 "AND settlement_currency = 'USDT'"
             ),
             {"id": subscription_id, "user": admin, "strategy": strategy_id},
+        )
+        # A live invitation code, so the author's list of codes is not empty.
+        await session.execute(
+            text(
+                "INSERT INTO invite_codes (id, strategy_id, code_hash, hint, created_at, "
+                "expires_at) VALUES (:id, :strategy, :hash, 'SWPC', now(), "
+                "now() + interval '7 days')"
+            ),
+            {
+                "id": uuid4(),
+                "strategy": strategy_id,
+                # The hash of the code ``SWEEP_CODE`` spells, so the lookup finds it.
+                "hash": secret_hash(SWEEP_CODE.replace("-", "")),
+            },
         )
         await session.commit()
     await _snapshot(factory, "bybit", "usdt-m", "USDT", total="1000", available="800")

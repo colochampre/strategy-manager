@@ -1,4 +1,6 @@
-"""ORM row for ``subscriptions`` (migration ``0031``; multi-user design AD3).
+"""ORM rows for ``subscriptions`` (migration ``0031``; multi-user design AD3) and
+``invite_codes`` (migration ``0038``; decision 41) and ``invite_code_attempts``
+(migration ``0039``; tasks.md K.4).
 
 The constraints are declared here as well as in the migration, by the same
 names, because the integration tests build their schema with ``create_all``.
@@ -18,10 +20,12 @@ from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import (
+    BigInteger,
     CheckConstraint,
     DateTime,
     ForeignKey,
     ForeignKeyConstraint,
+    Identity,
     Index,
     Integer,
     Numeric,
@@ -93,3 +97,77 @@ class SubscriptionRow(Base):
     )
     left_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class InviteCodeRow(Base):
+    """Mirrors the ``invite_codes`` table created by migration ``0038`` (decision 41):
+    a single-use code that lets one user subscribe to a PRIVATE strategy.
+
+    Never the code: its SHA-256 in lower-case hex, and ``hint``, its last four
+    characters in Crockford base32, for the author's list. A code expires after it
+    was made, is revoked or redeemed but never both, and its redemption is recorded
+    whole: who, when, and the seat it made, one code per seat. Deleting the strategy,
+    or the seat a code made, takes the code with it."""
+
+    __tablename__ = "invite_codes"
+    __table_args__ = (
+        CheckConstraint("code_hash ~ '^[0-9a-f]{64}$'", name="ck_invite_codes_code_hash_shape"),
+        CheckConstraint("hint ~ '^[0-9A-HJKMNP-TV-Z]{4}$'", name="ck_invite_codes_hint_shape"),
+        CheckConstraint("expires_at > created_at", name="ck_invite_codes_expiry_after_creation"),
+        CheckConstraint(
+            "(redeemed_by IS NULL) = (redeemed_at IS NULL) "
+            "AND (redeemed_at IS NULL) = (subscription_id IS NULL)",
+            name="ck_invite_codes_redemption_whole",
+        ),
+        CheckConstraint(
+            "revoked_at IS NULL OR redeemed_at IS NULL",
+            name="ck_invite_codes_revoked_or_redeemed",
+        ),
+        Index("ux_invite_codes_code_hash", "code_hash", unique=True),
+        Index("ux_invite_codes_subscription", "subscription_id", unique=True),
+        Index("ix_invite_codes_strategy_id", "strategy_id"),
+    )
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    strategy_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("strategies.id", name="fk_invite_codes_strategy", ondelete="CASCADE"),
+        nullable=False,
+    )
+    code_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    hint: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    redeemed_by: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("users.id", name="fk_invite_codes_redeemed_by"),
+        nullable=True,
+    )
+    redeemed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    subscription_id: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("subscriptions.id", name="fk_invite_codes_subscription", ondelete="CASCADE"),
+        nullable=True,
+    )
+
+
+class InviteCodeAttemptRow(Base):
+    """Mirrors ``invite_code_attempts`` (migration ``0039``, tasks.md K.4): one code a
+    user got wrong. Who and when, nothing of the code; the limit counts a user's rows
+    in the last window."""
+
+    __tablename__ = "invite_code_attempts"
+    __table_args__ = (
+        Index("ix_invite_code_attempts_user_attempted_at", "user_id", "attempted_at"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    user_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("users.id", name="fk_invite_code_attempts_user", ondelete="CASCADE"),
+        nullable=False,
+    )
+    attempted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

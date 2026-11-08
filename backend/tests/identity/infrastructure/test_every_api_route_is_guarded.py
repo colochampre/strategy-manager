@@ -64,12 +64,17 @@ SCOPED_TO_THE_SIGNED_IN_USER = {
     ("PUT", "/api/strategies/{strategy_id}/allowed-pairs"),
     ("POST", "/api/strategies/{strategy_id}/archive"),
     ("POST", "/api/strategies/{strategy_id}/webhook-secret"),
+    ("POST", "/api/strategies/{strategy_id}/invite-codes"),
+    ("GET", "/api/strategies/{strategy_id}/invite-codes"),
+    ("DELETE", "/api/strategies/{strategy_id}/invite-codes/{code_id}"),
     ("GET", "/api/pools/{exchange}/{venue}/{settlement_currency}/available-pairs"),
     # The one read that crosses users on purpose (tasks.md F.4). They answer no
     # user's rows: only what a public strategy shows to everyone signed in.
     ("GET", "/api/public/strategies"),
     ("GET", "/api/public/strategies/{strategy_id}"),
     ("GET", "/api/public/strategies/{strategy_id}/record"),
+    # A code names its strategy to whoever holds it (tasks.md K.6), counted as on the page.
+    ("POST", "/api/public/invite-codes/lookup"),
     # Any author needs the origin to build their webhook's URL (tasks.md G.4). It is
     # one setting, the same for everyone, and no user's rows.
     ("GET", "/api/webhook-origin"),

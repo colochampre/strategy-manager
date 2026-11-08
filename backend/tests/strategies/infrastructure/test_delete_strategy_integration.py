@@ -116,7 +116,7 @@ class ZeroHistory:
     still be able to overrule."""
 
     async def history(self, strategy_id: UUID) -> StrategyHistory:
-        return StrategyHistory(0, 0, 0, 0, 0, 0, 0)
+        return StrategyHistory(0, 0, 0, 0, 0, 0, 0, 0)
 
 
 def _real_history(session: AsyncSession) -> StrategyHistoryAdapter:
@@ -221,12 +221,13 @@ async def test_a_never_enabled_strategy_is_deleted_and_no_table_carries_its_id(
     tables = await _tables_with_a_strategy_id(factory)
     assert tables == [
         "booking_proposals",
+        "invite_codes",
         "ledger_entries",
         "reservations",
         "signals",
         "strategy_enablement_events",
         "subscriptions",
-    ]  # the five tables of design addendum 9x, § A, and the subscriptions of 0031
+    ]  # the five tables of design addendum 9x, § A, the subscriptions of 0031, the codes of 0038
     for table in tables:
         count = await _scalar(
             factory, f"SELECT count(*) FROM {table} WHERE strategy_id = :id", id=strategy_id
@@ -319,6 +320,37 @@ async def test_a_subscribed_strategy_is_deleted_with_its_subscriptions_and_no_ot
     records = [record for record in caplog.records if record.name == LOGGER]
     assert [record.levelno for record in records] == [logging.INFO]
     assert "subscriptions=2" in records[0].getMessage()
+
+
+async def test_a_strategy_with_invitation_codes_is_deleted_with_them_and_no_others(
+    factory: Factory, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Migration 0038 (decision 41): the codes go with their strategy, through the
+    real foreign key; another strategy's code stays. The INFO line counts them."""
+    strategy_id = await _strategy(factory)
+    kept = await _strategy(factory)
+    for coded in (strategy_id, strategy_id, kept):
+        async with factory() as session:
+            await session.execute(
+                text(
+                    "INSERT INTO invite_codes (id, strategy_id, code_hash, hint, expires_at) "
+                    "VALUES (gen_random_uuid(), :strategy, md5(random()::text) || "
+                    "md5(random()::text), 'K7QM', now() + interval '7 days')"
+                ),
+                {"strategy": coded},
+            )
+            await session.commit()
+
+    with caplog.at_level(logging.DEBUG, logger=LOGGER):
+        refusal = await _refusal(factory, strategy_id)
+
+    assert refusal is None, repr(refusal)
+    count = "SELECT count(*) FROM invite_codes WHERE strategy_id = :id"
+    assert await _scalar(factory, count, id=strategy_id) == 0
+    assert await _scalar(factory, count, id=kept) == 1
+    records = [record for record in caplog.records if record.name == LOGGER]
+    assert [record.levelno for record in records] == [logging.INFO]
+    assert "invite_codes=2" in records[0].getMessage()
 
 
 async def _scalar_insert_subscription(
