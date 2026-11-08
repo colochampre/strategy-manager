@@ -246,6 +246,17 @@ async def test_a_job_whose_user_cannot_be_read_waits_for_every_job_before_it(
     world = await _world(pg_session_factory)
     opening = await _signal(world, position_size="1", minutes=1)
     await _fan_out(world, opening)
+    # The claim orders by (run_after, id), and the wall clock ticks every 15.6 ms on
+    # Windows: a continuation stamped in a delivery's tick, with a smaller random id,
+    # came before it and held it back. Moving the deliveries a second earlier makes
+    # "queued after" true in the column the claim reads.
+    async with pg_session_factory() as session:
+        await session.execute(
+            update(JobRow)
+            .where(JobRow.kind == JobKind.DELIVERY_PROCESS.value)
+            .values(run_after=JobRow.run_after - timedelta(seconds=1))
+        )
+        await session.commit()
     await _enqueue(
         pg_session_factory,
         Job(
