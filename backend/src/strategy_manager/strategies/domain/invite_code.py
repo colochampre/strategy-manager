@@ -7,8 +7,9 @@ digit they resemble, so a code read aloud or copied by hand still works. Typed
 back, case, dashes and spaces are ignored; anything else is no code.
 
 **What is kept.** Only the SHA-256 hex of the eight characters, and a hint of the
-last four for the author's list: the code itself is shown once. 40 bits hashed
-without a key could be searched offline by someone holding the database; the codes
+last four for the author's list: the code itself is shown once. Hashed without a
+key, and stored beside its last four, a code could be searched offline by someone
+holding the database in about 2^20 tries, the four characters the hint leaves; the codes
 live 7 days, are single use, and that reader already holds far more than a seat,
 so the decision keeps the plain hash. Guessing online is the API's to stop: it
 counts failed attempts per user (``MAX_FAILED_ATTEMPTS`` in ``ATTEMPT_WINDOW``,

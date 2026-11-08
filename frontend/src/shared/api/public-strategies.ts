@@ -1,7 +1,7 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 
 import { ApiError, apiFetch } from "@/shared/api/client";
-import { type Entry, entryKey, entryParams, NO_ENTRY, useEntry } from "@/shared/api/entry";
+import { type Entry, entryKey, entryParams, entryReadOptions, NO_ENTRY, useEntry } from "@/shared/api/entry";
 import type { PublicStrategy } from "@/shared/api/types";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -69,6 +69,7 @@ export function usePublicStrategy(strategyId: string) {
   return useQuery({
     queryKey: ["public-strategies", strategyId, ...entryKey(entry)],
     queryFn: () => fetchPublicStrategy(strategyId, entry),
+    ...entryReadOptions(entry),
   });
 }
 

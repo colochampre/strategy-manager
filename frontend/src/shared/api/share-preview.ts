@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 
 import { ApiError, apiFetch } from "@/shared/api/client";
-import { type Entry, entryKey, entryParams, NO_ENTRY, useEntry } from "@/shared/api/entry";
+import { type Entry, entryKey, entryParams, entryPoll, entryReadOptions, NO_ENTRY, useEntry } from "@/shared/api/entry";
 import type { SharePreview } from "@/shared/api/types";
 
 const STEP_COUNT = 100;
@@ -117,6 +117,7 @@ export function useSharePreview(strategyId: string, share?: string, leverage?: n
       ...entryKey(entry),
     ],
     queryFn: () => fetchSharePreview(strategyId, share, leverage, entry),
-    refetchInterval: PREVIEW_REFRESH_MS,
+    ...entryReadOptions(entry),
+    refetchInterval: entryPoll(entry, PREVIEW_REFRESH_MS),
   });
 }

@@ -1,3 +1,4 @@
+import { focusManager } from "@tanstack/react-query";
 import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -34,6 +35,7 @@ interface Answers {
   page?: (query: Record<string, string>) => Response;
   lookup?: Response;
   subscribe?: Response;
+  preview?: () => Response;
 }
 
 const refusal = (status: number, detail: unknown) => jsonResponse({ detail }, status);
@@ -67,7 +69,9 @@ function serve(answers: Answers = {}) {
     if (path === "/api/subscriptions" && method === "POST") {
       return Promise.resolve(answers.subscribe ?? jsonResponse(subscriptionOf(ID, "10"), 201));
     }
-    if (path === `/api/strategies/${ID}/share-preview`) return Promise.resolve(jsonResponse(unsyncedSharePreview(ID)));
+    if (path === `/api/strategies/${ID}/share-preview`) {
+      return Promise.resolve(answers.preview?.() ?? jsonResponse(unsyncedSharePreview(ID)));
+    }
     if (path === "/api/me") {
       return Promise.resolve(jsonResponse({ email: "b@example.com", is_admin: false, mode: "LIVE", dry_run_brake: false }));
     }
@@ -264,5 +268,72 @@ describe("a strategy's page opened by a link or a code", () => {
     await subscribeWithTenPercent();
 
     expect(await screen.findByRole("alert")).toHaveTextContent(text);
+  });
+});
+
+describe("a refused entry is counted against the reader, so it is not asked again", () => {
+  // The server counts every wrong or dead code as one of the reader's ten an hour. These run on the library's own
+  // retry defaults, as `main.tsx` does, with no delay between attempts.
+  const libraryDefaults = { retryDelay: 0 };
+
+  afterEach(() => {
+    vi.useRealTimers();
+    act(() => focusManager.setFocused(undefined));
+  });
+
+  it("reads a dead code's page once, with no retry", async () => {
+    const seen = serve({ page: () => dead("EXPIRED") });
+    renderAt(<AppRoutes />, `/strategies/explore/${ID}?code=${CODE}`, libraryDefaults);
+
+    expect(await screen.findByText("This invitation code has expired. Ask the author for a new one.")).toBeInTheDocument();
+    expect(reads(seen, pageOf)).toHaveLength(1);
+  });
+
+  it("does not read it again when the window regains focus", async () => {
+    const seen = serve({ page: () => refusal(404, "x") });
+    renderAt(<AppRoutes />, `/strategies/explore/${ID}?code=${CODE}`, libraryDefaults);
+    expect(await screen.findByText("No strategy opens to that code. Check it and try again.")).toBeInTheDocument();
+
+    act(() => focusManager.setFocused(false));
+    act(() => focusManager.setFocused(true));
+    await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
+
+    expect(reads(seen, pageOf)).toHaveLength(1);
+  });
+
+  it("still retries a page whose read failed for a reason that may pass", async () => {
+    let answered = 0;
+    const seen = serve({
+      page: () => {
+        answered += 1;
+        return answered === 1 ? refusal(503, "x") : jsonResponse(publicStrategy({ id: ID }));
+      },
+    });
+    renderAt(<AppRoutes />, `/strategies/explore/${ID}?code=${CODE}`, libraryDefaults);
+
+    expect(await screen.findByRole("heading", { level: 1, name: "Alpha" })).toBeInTheDocument();
+    expect(reads(seen, pageOf)).toHaveLength(2);
+  });
+
+  it("stops polling the share preview once the code it carries is refused", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const seen = serve({ preview: () => dead("SPENT") });
+    renderAt(<AppRoutes />, `/strategies/explore/${ID}?code=${CODE}`, libraryDefaults);
+    await waitFor(() => expect(reads(seen, `/api/strategies/${ID}/share-preview`)).toHaveLength(1));
+
+    await act(() => vi.advanceTimersByTimeAsync(3 * 60_000));
+
+    expect(reads(seen, `/api/strategies/${ID}/share-preview`)).toHaveLength(1);
+  });
+
+  it("keeps polling the share preview of a page opened with neither", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const seen = serve();
+    renderAt(<AppRoutes />, `/strategies/explore/${ID}`, libraryDefaults);
+    await waitFor(() => expect(reads(seen, `/api/strategies/${ID}/share-preview`)).toHaveLength(1));
+
+    await act(() => vi.advanceTimersByTimeAsync(60_000));
+
+    expect(reads(seen, `/api/strategies/${ID}/share-preview`).length).toBeGreaterThanOrEqual(2);
   });
 });

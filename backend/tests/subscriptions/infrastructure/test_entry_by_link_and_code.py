@@ -27,7 +27,12 @@ from uuid import UUID, uuid4
 import pytest
 from httpx import ASGITransport, AsyncClient, Response
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 
 from strategy_manager.main import create_app
 from strategy_manager.shared import db as shared_db
@@ -50,6 +55,7 @@ PAGE = "/api/public/strategies/{id}"
 RECORD = "/api/public/strategies/{id}/record"
 PREVIEW = "/api/strategies/{id}/share-preview"
 SUBSCRIBE = "/api/subscriptions"
+LOOKUP = "/api/public/invite-codes/lookup"
 #: The code as its author was shown it, and as a reader may type it.
 CODE = "K7QM-2XRA"
 TYPED = " k7qm 2xra "
@@ -497,6 +503,50 @@ async def test_one_users_codes_are_checked_one_at_a_time(world: World) -> None:
     assert await _failures(world, world.reader) == 1
 
 
+async def _ask_with_code(api: AsyncClient, route: str, strategy_id: UUID) -> Response:
+    if route == SUBSCRIBE:
+        body = {"strategy_id": str(strategy_id), "allocation_percent": "10"}
+        return await api.post(
+            SUBSCRIBE, json={**body, "invite_code": UNKNOWN_CODE}, headers=OTHER_HEADERS
+        )
+    if route == LOOKUP:
+        return await api.post(LOOKUP, json={"code": UNKNOWN_CODE}, headers=OTHER_HEADERS)
+    return await api.get(
+        route.format(id=strategy_id), params={"code": UNKNOWN_CODE}, headers=OTHER_HEADERS
+    )
+
+
+@pytest.mark.parametrize("route", [PAGE, RECORD, PREVIEW, SUBSCRIBE, LOOKUP])
+async def test_checks_beside_requests_that_hold_every_pooled_connection_still_answer(
+    world: World, pg_engine: AsyncEngine, route: str  # noqa: F811
+) -> None:
+    """Each request holds its own connection while its code is checked. Drawn from the
+    same pool, as many checks as connections held every one and waited for a second
+    until the pool timed out: a 500 for each, and a stall for every request beside them,
+    the webhook's included."""
+    strategy_id = await _strategy(world, "PRIVATE")
+    tight = create_async_engine(pg_engine.url, pool_size=2, max_overflow=0, pool_timeout=2)
+    tight_factory = async_sessionmaker(tight, class_=AsyncSession, expire_on_commit=False)
+    app = create_app()
+
+    async def _session() -> AsyncIterator[AsyncSession]:
+        async with tight_factory() as session:
+            yield session
+
+    app.dependency_overrides[shared_db.get_session] = _session
+    transport = ASGITransport(app=app, raise_app_exceptions=False)
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as api:
+            answers = await asyncio.gather(
+                *(_ask_with_code(api, route, strategy_id) for _ in range(2))
+            )
+    finally:
+        await tight.dispose()
+
+    assert [answer.status_code for answer in answers] == [404, 404]
+    assert await _failures(world, world.reader) == 2
+
+
 async def test_a_code_spent_while_a_subscription_waits_on_it_is_refused(world: World) -> None:
     """The spend waits on the code's row and reads it again, so one code makes one seat."""
     strategy_id = await _strategy(world, "PRIVATE")
@@ -571,7 +621,6 @@ async def test_a_link_or_code_longer_than_any_is_refused_unread(world: World, fi
 
 # --- finding a strategy by its code alone (tasks.md K.6) ----------------------------
 
-LOOKUP = "/api/public/invite-codes/lookup"
 
 
 async def _lookup(world: World, code: str) -> Response:

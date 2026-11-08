@@ -60,6 +60,29 @@ def test_neighbouring_credential_names_are_covered() -> None:
         assert "s3cr3t" not in redact_query_secrets(f"/hook?{name}=s3cr3t")
 
 
+def test_a_strategys_link_token_and_invitation_code_are_redacted() -> None:
+    """Decision 41: the page, its record and the share preview take ``?link=`` and
+    ``?code=``, and the panel sends them on every read. A live code opens a private
+    strategy for seven days; a link token opens it until the author rotates it."""
+    token = "Zr8kQ2vN_x1yPq3sLm4tB5wC6dE7fG8hJ9kL0mN1oP2"
+    line = (
+        "GET /api/strategies/0b0e/share-preview?share=10&leverage=2"
+        f"&link={token}&code=K7QM-2XRA HTTP/1.1"
+    )
+
+    redacted = redact_query_secrets(line)
+
+    assert token not in redacted
+    assert "K7QM" not in redacted
+    assert "2XRA" not in redacted
+    assert "link=REDACTED" in redacted
+    assert "code=REDACTED" in redacted
+    assert "share=10&leverage=2" in redacted
+    assert redact_query_secrets("GET /strategies/explore/0b0e?code=K7QM-2XRA HTTP/1.1") == (
+        "GET /strategies/explore/0b0e?code=REDACTED HTTP/1.1"
+    )
+
+
 def test_a_line_with_no_secret_is_unchanged() -> None:
     line = "GET /health HTTP/1.1"
 

@@ -91,3 +91,14 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
 
   return (await response.json()) as T;
 }
+
+/** Retried once or twice only when the failure may be transient: a refusal (4xx) or a malformed body will answer the same. */
+export function retryTransient(failureCount: number, error: Error): boolean {
+  const transient = error instanceof ApiError && (error.status === 0 || error.status >= 500);
+  return transient && failureCount < 2;
+}
+
+/** A refusal: the server answered, and asking again answers the same. */
+export function isRefusal(error: unknown): boolean {
+  return error instanceof ApiError && error.status >= 400 && error.status < 500;
+}

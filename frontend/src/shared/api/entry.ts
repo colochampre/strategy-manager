@@ -1,5 +1,7 @@
 import { createContext, useContext } from "react";
 
+import { isRefusal, retryTransient } from "@/shared/api/client";
+
 /**
  * How a reader entered a strategy off the public list (decision 41): the link's token, or an invitation code. The
  * strategy's page carries them in its address (`?link=`, `?code=`) and provides them to every read and to
@@ -28,9 +30,33 @@ export function entryParams(entry: Entry): string[] {
   return params;
 }
 
+function hasEntry(entry: Entry): boolean {
+  return entry.link !== undefined || entry.code !== undefined;
+}
+
+interface ReadState {
+  state: { error: unknown };
+}
+
+/**
+ * What a read that carries an entry adds to its query. The server counts every wrong or dead code as one of the
+ * reader's ten an hour, so a refused read is asked once: not retried, and not asked again on focus. Nothing for no
+ * entry, so every other read keeps the client's defaults.
+ */
+export function entryReadOptions(entry: Entry) {
+  if (!hasEntry(entry)) return {};
+  return { retry: retryTransient, refetchOnWindowFocus: (query: ReadState) => !isRefusal(query.state.error) };
+}
+
+/** A poll every `ms`, stopped for good once a read that carries an entry is refused. */
+export function entryPoll(entry: Entry, ms: number) {
+  if (!hasEntry(entry)) return ms;
+  return (query: ReadState) => (isRefusal(query.state.error) ? false : ms);
+}
+
 /** What an entry adds to a query key: nothing for no entry, so every key without one stays as it was. */
 export function entryKey(entry: Entry): unknown[] {
-  if (entry.link === undefined && entry.code === undefined) return [];
+  if (!hasEntry(entry)) return [];
   return [{ link: entry.link ?? null, code: entry.code ?? null }];
 }
 

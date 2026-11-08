@@ -943,9 +943,11 @@ async def preview_share(
     code: CodeQuery = None,
 ) -> SharePreviewBody:
     """What a share of this strategy's pool would ask for (design addendum "unit
-    12f", sections C2 and H). READ-ONLY: it reads the strategy and then the pool's
-    row and snapshot, and takes no lock, writes nothing and calls no exchange. The
-    API process decrypts nothing and this route needs no key.
+    12f", sections C2 and H). It reads the strategy and then the pool's row and
+    snapshot, and calls no exchange. The API process decrypts nothing and this route
+    needs no key. It writes only when the strategy opens to the reader by nothing but
+    a code (decision 41): the code check takes the reader's attempts lock and, for a
+    wrong or dead code, commits one failed attempt, on a connection of its own.
 
     The pool and the default share come from the strategy row the PATH names, never
     from the request: the inputs are the optional ``share``, bounded to

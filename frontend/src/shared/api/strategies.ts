@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { ApiError, apiFetch } from "@/shared/api/client";
+import { ApiError, apiFetch, retryTransient } from "@/shared/api/client";
 import { isSubscription } from "@/shared/api/subscriptions";
 import type {
   EnablementEvent,
@@ -361,12 +361,6 @@ function isEnablementEvent(value: unknown): value is EnablementEvent {
     typeof value.occurred_at === "string" &&
     typeof value.origin === "string"
   );
-}
-
-/** Retried once or twice only when the failure may be transient: a refusal (4xx) or a malformed body will answer the same. */
-function retryTransient(failureCount: number, error: unknown): boolean {
-  const transient = error instanceof ApiError && (error.status === 0 || error.status >= 500);
-  return transient && failureCount < 2;
 }
 
 /**
