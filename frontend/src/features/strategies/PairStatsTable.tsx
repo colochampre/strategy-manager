@@ -1,3 +1,4 @@
+import { ArrowLeftRight, Coins, ListChecks, Target, TrendingUp } from "lucide-react";
 import { useId } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -5,6 +6,7 @@ import { amountText, parseDecimal, percentText, toneClass } from "@/shared/lib/a
 import { rateText } from "@/shared/lib/figure-text";
 import type { PairStat } from "@/shared/api/types";
 import { cn } from "@/shared/lib/cn";
+import { ColumnHead } from "@/shared/ui/ColumnHead";
 import { ReportSection } from "@/shared/ui/ReportSection";
 
 const DASH = "—";
@@ -96,21 +98,21 @@ export function PairStatsTable({ pairs, currency }: PairStatsTableProps) {
           <thead>
             <tr className="text-right text-[10px] uppercase tracking-[0.09em] text-ink-3">
               <th scope="col" className="border-b border-rule py-2 pr-3 text-left font-medium">
-                {t("strategies.performance.byPair.pair")}
+                <ColumnHead icon={ArrowLeftRight} label={t("strategies.performance.byPair.pair")} align="start" />
               </th>
               <th scope="col" className="border-b border-rule py-2 pr-3 font-medium">
-                {t("strategies.performance.byPair.trades")}
+                <ColumnHead icon={ListChecks} label={t("strategies.performance.byPair.trades")} />
               </th>
               <th scope="col" className="border-b border-rule py-2 pr-3 font-medium">
-                {t("strategies.performance.byPair.winRate")}
+                <ColumnHead icon={Target} label={t("strategies.performance.byPair.winRate")} />
               </th>
               {currency !== undefined && (
                 <th scope="col" className="border-b border-rule py-2 pr-3 font-medium">
-                  {t("strategies.performance.byPair.pnl", { currency })}
+                  <ColumnHead icon={Coins} label={t("strategies.performance.byPair.pnl", { currency })} />
                 </th>
               )}
               <th scope="col" className="border-b border-rule py-2 font-medium">
-                {t("strategies.performance.byPair.return")}
+                <ColumnHead icon={TrendingUp} label={t("strategies.performance.byPair.return")} />
               </th>
             </tr>
           </thead>

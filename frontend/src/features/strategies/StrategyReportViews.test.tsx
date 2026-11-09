@@ -179,7 +179,7 @@ describe("StrategyReportViews", () => {
     expect(await recordButton()).toHaveAttribute("aria-pressed", "false");
     // Their own money, in their pool's currency, and their own pair.
     expect(await screen.findByRole("row", { name: /^XRPUSDT\b/ })).toBeInTheDocument();
-    expect(screen.getByText("PnL USDT")).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "PnL USDT" })).toBeInTheDocument();
     expect(screen.queryByRole("row", { name: /^SOLUSDT\b/ })).toBeNull();
   });
 

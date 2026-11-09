@@ -613,6 +613,7 @@
         "rehearsalNote": "Las operaciones marcadas \"Simulación\" fueron ejecutadas por el exchange simulado, no en el exchange real. No se cuentan en ninguna cifra de esta página.",
         "rehearsalFixedNote": "Una fila marcada \"precio fijo\" se abrió a un precio fijo de 1, cualquiera fuera el precio de mercado. Sus precios y su PnL no son un resultado.",
         "rehearsalAlertNote": "Una fila marcada \"precio de la alerta\" se abrió al precio que traía su alerta. Se dimensionó a 1x y su comisión es simulada a la tasa taker, así que su PnL no es el que habría dado en real.",
+        "notesInfo": "Sobre estas operaciones",
         "details": "Detalle",
         "detailsOf": "Detalle de {{pair}} {{side}}, cierre {{closed}}",
         "detail": {
@@ -651,7 +652,6 @@
         "capital": "Pool al abrir",
         "feesIncomplete": "comisiones incompletas",
         "feesIncompleteHint": "Una comisión pagada en una tercera moneda no está en este PnL.",
-        "feesIncompleteNote": "* Una comisión pagada en una tercera moneda no está en este PnL.",
         "noValue": "No hay capital registrado al abrir esta operación, por lo que no tiene rendimiento.",
         "cellUnreadable": "ilegible",
         "loading": "Cargando las operaciones cerradas…",
@@ -811,7 +811,8 @@
       "margin": "El margen otorgado es lo que la participación tomó del pool al abrir la posición. No es lo que el exchange retiene ahora.",
       "rehearsal": "Una posición de simulación fue ejecutada por el exchange simulado, a 1x. No está en el exchange real y no entra en ningún total.",
       "mixed": "Esta posición tiene ejecuciones de simulación y en vivo. Ningún modo puede cerrarla con seguridad: verifíquela a mano contra el exchange.",
-      "reservation": "Su reserva figura como {{status}}, no FILLED."
+      "reservation": "Su reserva figura como {{status}}, no FILLED.",
+      "info": "Sobre estas posiciones"
     }
   },
   "exchanges": {

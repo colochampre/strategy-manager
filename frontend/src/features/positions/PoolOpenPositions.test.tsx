@@ -118,7 +118,7 @@ function pairsOfTable(): string[] {
   // Found by its heading, so that a missing or extra column cannot make this read another column's text.
   const at = within(table)
     .getAllByRole("columnheader")
-    .findIndex((heading) => heading.textContent === "Pair");
+    .findIndex((heading) => within(heading).getByRole("img").getAttribute("aria-label") === "Pair");
   return positionRows(table).map((row) => (cellsOf(row)[at]?.firstChild?.textContent ?? "").trim());
 }
 
@@ -217,7 +217,7 @@ describe("the columns and the cells (T13; example 22)", () => {
 
     const headings = within(theTable())
       .getAllByRole("columnheader")
-      .map((heading) => heading.textContent);
+      .map((heading) => within(heading).getByRole("img").getAttribute("aria-label"));
     expect(headings).toEqual([
       "Strategy",
       "Opened (UTC)",
@@ -586,7 +586,7 @@ describe("in Spanish (T10 and T11; owner decision Q9, 2026-10-13)", () => {
     expect(screen.queryByRole("heading", { level: 2, name: "Posiciones abiertas" })).toBeInTheDocument();
     const headings = within(screen.getByRole("table", { name: "Posiciones abiertas" }))
       .getAllByRole("columnheader")
-      .map((heading) => heading.textContent);
+      .map((heading) => within(heading).getByRole("img").getAttribute("aria-label"));
     expect(headings).toEqual([
       "Estrategia",
       "Apertura (UTC)",

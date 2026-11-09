@@ -28,6 +28,11 @@ function stat(overrides: Partial<PairStat> = {}): PairStat {
   };
 }
 
+/** The columns' names in order; each is the accessible name of the icon that stands for it. */
+function headerNames(): (string | null)[] {
+  return screen.getAllByRole("columnheader").map((header) => within(header).getByRole("img").getAttribute("aria-label"));
+}
+
 function rowOf(pair: string): HTMLElement {
   return screen.getByRole("row", { name: new RegExp(`^${pair}\\b`) });
 }
@@ -59,8 +64,22 @@ describe("PairStatsTable", () => {
   it("names the columns and says which currency the PnL is in", () => {
     render(<PairStatsTable currency="USDT" pairs={[stat()]} />);
 
-    const headers = screen.getAllByRole("columnheader").map((header) => header.textContent);
-    expect(headers).toEqual(["Pair", "Trades", "Win rate", "PnL USDT", "Return"]);
+    expect(headerNames()).toEqual(["Pair", "Trades", "Win rate", "PnL USDT", "Return"]);
+  });
+
+  it("draws each column's name as an icon, with the name as its accessible name", () => {
+    render(<PairStatsTable currency="USDT" pairs={[stat()]} />);
+
+    const headers = screen.getAllByRole("columnheader");
+    expect(headers.map((header) => header.textContent)).toEqual(["", "", "", "", ""]);
+    expect(headers.map((header) => within(header).getByRole("img").getAttribute("aria-label"))).toEqual([
+      "Pair",
+      "Trades",
+      "Win rate",
+      "PnL USDT",
+      "Return",
+    ]);
+    for (const header of headers) expect(header.querySelector("svg")).not.toBeNull();
   });
 
   it("writes a coin-margined pool's PnL in its own currency with eight decimals", () => {
@@ -166,7 +185,7 @@ describe("PairStatsTable", () => {
     render(<PairStatsTable currency="USDT" pairs={[stat()]} />);
 
     expect(screen.getByRole("heading", { name: "Por par" })).toBeInTheDocument();
-    expect(screen.getAllByRole("columnheader").map((header) => header.textContent)).toEqual([
+    expect(headerNames()).toEqual([
       "Par",
       "Operaciones",
       "% acierto",
@@ -185,7 +204,7 @@ describe("PairStatsTable win rate column", () => {
   it("puts the Win rate column after Trades", () => {
     render(<PairStatsTable currency="USDT" pairs={[stat()]} />);
 
-    expect(screen.queryAllByRole("columnheader").map((header) => header.textContent)).toEqual([
+    expect(headerNames()).toEqual([
       "Pair",
       "Trades",
       "Win rate",

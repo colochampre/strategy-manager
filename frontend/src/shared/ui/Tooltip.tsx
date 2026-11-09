@@ -13,8 +13,9 @@ interface TooltipProps {
   tabbable?: boolean;
   /** How the wrapper lays out in its row; it is an inline flex box unless told otherwise (for example `flex w-full`). */
   className?: string;
-  /** Where the tip opens: above its trigger, or below and aligned to its right edge, for a trigger at the top of the page. */
-  placement?: "above" | "below";
+  /** Where the tip opens: above its trigger, or below it (lined up with its right edge, or with its left edge for
+   * `below-start`), for a trigger at the top of the page or of a table that scrolls sideways. */
+  placement?: "above" | "below" | "below-start";
 }
 
 /**
@@ -60,7 +61,11 @@ export function Tooltip({
           id={id}
           role="tooltip"
           className={`pointer-events-none absolute z-10 w-max max-w-64 rounded-md border border-rule bg-panel-2 px-2 py-1 text-xs font-normal normal-case tracking-normal text-ink ${
-            placement === "above" ? "bottom-full left-0 mb-1" : "right-0 top-full mt-1"
+            placement === "above"
+              ? "bottom-full left-0 mb-1"
+              : placement === "below"
+                ? "right-0 top-full mt-1"
+                : "left-0 top-full mt-1"
           }`}
         >
           {text}

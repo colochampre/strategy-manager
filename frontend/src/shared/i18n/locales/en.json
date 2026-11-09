@@ -613,6 +613,7 @@
         "rehearsalNote": "Operations marked \"Dry run\" were filled by the simulated exchange, not at the venue. They are not counted in any figure on this page.",
         "rehearsalFixedNote": "A row marked \"fixed price\" was opened at a fixed price of 1, whatever the market price was. Its prices and its PnL are not a result.",
         "rehearsalAlertNote": "A row marked \"alert price\" was opened at the price its alert carried. It was sized at 1x and its fee is simulated at the taker rate, so its PnL is not what it would have made live.",
+        "notesInfo": "About these trades",
         "details": "Details",
         "detailsOf": "Details of {{pair}} {{side}}, closed {{closed}}",
         "detail": {
@@ -651,7 +652,6 @@
         "capital": "Pool at open",
         "feesIncomplete": "fees incomplete",
         "feesIncompleteHint": "A fee paid in a third currency is not in this PnL.",
-        "feesIncompleteNote": "* A fee paid in a third currency is not in this PnL.",
         "noValue": "No capital at open is recorded for this trade, so it has no return.",
         "cellUnreadable": "unreadable",
         "loading": "Loading the closed trades…",
@@ -811,7 +811,8 @@
       "margin": "Margin granted is what the share took from the pool when the position opened. It is not what the exchange holds now.",
       "rehearsal": "A dry-run position was filled by the simulated exchange, at 1x. It is not at the exchange and enters no total.",
       "mixed": "This position holds dry-run and live fills. Neither mode can close it safely: check it against the exchange by hand.",
-      "reservation": "Its reservation reads {{status}}, not FILLED."
+      "reservation": "Its reservation reads {{status}}, not FILLED.",
+      "info": "About these positions"
     }
   },
   "exchanges": {

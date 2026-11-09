@@ -378,6 +378,9 @@ describe("StrategyDetailPage", () => {
     const table = await screen.findByRole("table", { name: en.strategies.performance.trades.title });
 
     expect(within(table).queryByText(en.strategies.performance.trades.rehearsal)).toBeInTheDocument();
+    // The sentence waits behind the (i) beside the title until it is clicked.
+    expect(screen.queryByText(en.strategies.performance.trades.rehearsalNote)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: en.strategies.performance.trades.notesInfo }));
     expect(screen.queryByText(en.strategies.performance.trades.rehearsalNote)).toBeInTheDocument();
     expect(screen.queryByText(en.strategies.performance.trades.empty)).toBeNull();
     expect(screen.queryByText(en.strategies.performance.trades.rehearsalFixedNote)).toBeNull();
