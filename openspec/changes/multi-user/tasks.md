@@ -1766,6 +1766,13 @@ The follow-up of the PNUT incident above, and decision 38. Branch `feat/subscrip
   - API: a fresh backup `pre-0037-deploy-20261106T151320Z.dump`, then production upgraded from `0036` to `0037` with the same counts. Both services restarted and read `active`, and no ERROR or Traceback line followed.
   - Then pps.6: the assistant built the bundle from a detached worktree of `origin/main` at `3d09d1f726e2`, 22 entries, SHA-256 `c453fc67269fda74db9647475aaa14debb2c3e1e5a51756864c0cceb12d9c2cc`. The owner's block printed `OK`, `readable`, and `bundle` and `checkout` both at `3d09d1f726e2`.
   - Not yet seen in production: a live opening that sets a pair's leverage (verifier A4), and its INFO line.
+    - **Pending check, armed 2026-11-09.** The owner set two of their four Binance pairs to x1 by hand, while their seats ask x2. The next live OPENING on one of them, with the pair flat, should set it back and log at INFO `Binance <PAIR> set to ISOLATED at 2x, was ISOLATED at 1x, before order <id>`. A close reads and writes no setting; a pair already held refuses with `LEVERAGE_CONFLICT`; a read-back that disagrees refuses with `LEVERAGE_NOT_APPLIED`. Once the signal has come (use `yesterday` if it came before midnight):
+
+      ```bash
+      ssh root@159.195.148.136 "journalctl -u strategy-worker --since today --no-pager -o cat | grep -E 'Binance .* set to|LEVERAGE_' | tail -5"
+      ```
+
+      The `set to ISOLATED at 2x` line closes A4.
 
 ## Decision 40: same-day trades that follow each other compound (PR #96)
 
