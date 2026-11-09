@@ -1957,3 +1957,38 @@ The owner's list of 2026-11-08, sent once PR K was deployed ("Son varias cosas, 
   - Review fixes before the owner's read (`c1509df`): on lg the card's figures share one row of equal columns (`lg:grid-flow-col lg:auto-cols-fr`, values `lg:whitespace-nowrap`), where eight fixed columns wrapped PnL and share onto a second row; the curve's gradient spans the curve's own height, from its farthest point to the waterline, where anchored to the plot's edges it was nearly invisible. 6 hand mutations killed; 3777 frontend tests, lint green. Render notes: Edge headless has a minimum width near 500 px, so phones are read at 500 px.
 
 L.1 comes before L.3, L.5 and L.6's figures; the rest depend on nothing else.
+
+### The owner's second round (2026-11-09), verbatim
+
+Sent after reading the running panel.
+
+> En los charts, apicarle un degradé también a la curva de deepest hacia 0.
+>
+> El botón de Delete strategy es una excepción de los botones de solo icono. Ponerle su texto Delete strategy, así el botón cobra importancia.
+>
+> En overview, prefiero que el icono de Saldo disponible esté a la izquierda del saldo. El resto de iconos encima de su valor está bien, porque son valores con fuente más chica y los iconos quedan bien alineados entre sí.
+> El texto de 'El saldo está desactualizado...' que aparezca dentro de un (i) a la derecha del saldo, solo si está desactualizado.
+>
+> Los tooltips de 'Deepest drawdown', cambiarlos por solo 'Drawdown'.
+>
+> En las tarjetas e estrategias, agregar align ítems center al contenedor del titulo de la estrategia y su tag enabled para que no se desalineen.
+>
+> Que otro icono para Win rate me podes proponer?
+>
+> En la vista de una estrategia:
+> - el numero de PnL tiene fuente más grande que la de aporte al pool y cauda máxima.
+> Además el tooltip muestra PnL 1A, Aporte al pool 1A. No se que es 1A, pero aparece en todas las estrategias.
+>
+> - que no son propias, la sección con antigüedad, operaciones cerradas, retorno, gente y capital, se podría unificar con los iconos y valores que mencioné antes, en la sección de Rendimiento.
+>
+> - la sección By pair tiene texto en lugar de los iconos. Implementarlos también en los nombres de las columnas. Lo mismo en las secciones Posiciones abiertas, operaciones cerradas
+>
+> - remover el texto 'Margin granted is what the share took...' de la sección Open positions. Opcionalmente moverlo a un (i). Como aparecen otros textos allí, también mostrarlos en un (i) donde corresponda, a veces se pueden relacionar con una columna de esa tabla, y si no quedan bien ahí, removerlos si no son indispensables.
+>
+> En ingles, el valor de share en las tarjetas se muestra como '20 %' y en español '20%'. Que en ambos sea '20%'
+>
+> En el contenido al desplegar 'Conectar una alerta de TradingView', mover el texto 'Use la misma URL y el mismo mensaje...' a un (i) al lado del titulo h2. Lo mismo con el texto de 'Solo se conservan los ultimos cuatro...' al lado de URL del webhook.
+>
+> Cambiar icono de language por una banderita circular. La americana para EN y la argentina para ES.
+>
+> Mover el texto 'El freno del servidor está activo: nadie opera...' a un (i) al lado de SIMULACION FORZADA en el header. Mostrarlo solo cuando corresponda.
