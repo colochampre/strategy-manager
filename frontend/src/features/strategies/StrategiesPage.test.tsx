@@ -523,7 +523,7 @@ describe("the author's card", () => {
   it("draws its figures in the grid every card shares: four a row on a phone, centred", async () => {
     const row = await oneCard();
     const grid = within(row).getByTestId("strategy-return").closest("dl") as HTMLElement;
-    expect(classesOf(grid)).toEqual(expect.arrayContaining(["grid", "grid-cols-4", "place-items-center", "lg:grid-cols-8"]));
+    expect(classesOf(grid)).toEqual(expect.arrayContaining(["grid", "grid-cols-4", "place-items-center", "lg:grid-flow-col", "lg:auto-cols-fr"]));
   });
 
   it("says once that its figures could not be read, and draws no PnL", async () => {

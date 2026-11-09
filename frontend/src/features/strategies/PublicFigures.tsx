@@ -43,7 +43,7 @@ export function Figure({ label, testId, value, tone = "text-ink", info, icon, va
         {icon === undefined ? label : <IconTip icon={icon} label={label} />}
         {info}
       </dt>
-      <dd data-testid={testId} className={cn("font-mono text-sm", tone, valueClassName)}>
+      <dd data-testid={testId} className={cn("font-mono text-sm lg:whitespace-nowrap", tone, valueClassName)}>
         {value}
       </dd>
     </div>

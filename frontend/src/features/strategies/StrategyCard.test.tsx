@@ -288,7 +288,9 @@ describe("the grid", () => {
     const row = draw();
 
     const grid = row.querySelector("dl") as HTMLElement;
-    expect(grid).toHaveClass("grid", "grid-cols-4", "place-items-center", "sm:place-items-start", "lg:grid-cols-8");
+    expect(grid).toHaveClass("grid", "grid-cols-4", "place-items-center", "sm:place-items-start", "lg:grid-flow-col", "lg:auto-cols-fr");
+    // From lg every figure stays whole on one line in its column; a phone may wrap it rather than widen the page.
+    for (const value of grid.querySelectorAll("dd")) expect(value).toHaveClass("lg:whitespace-nowrap");
   });
 
   it("keeps each icon centred over the figure it heads", () => {

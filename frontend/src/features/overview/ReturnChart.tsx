@@ -194,6 +194,11 @@ export function ReturnChart({
   const domain = start === null ? [] : [start, today];
   const x = timeScale(domain, LEFT, right);
   const curvePoints = days.map((day) => ({ x: x(day.date), y: toY(day.cumulative) }));
+  // The gradient spans the curve's own height, from its farthest point above the waterline to its farthest below,
+  // so it is strongest where the curve is and fades to nothing at 0%, however close to 0% the curve stays.
+  const fillTop = Math.min(waterY, ...curvePoints.map((point) => point.y));
+  const fillBottom = Math.max(waterY, ...curvePoints.map((point) => point.y));
+  const waterOffset = fillBottom > fillTop ? (waterY - fillTop) / (fillBottom - fillTop) : 0;
   const drawdownPoints = days.map((day) => ({ x: x(day.date), y: toY(day.drawdown) }));
 
   const upperTicks = days.length === 0 ? [] : tickValues(scale.upperMax);
@@ -295,12 +300,12 @@ export function ReturnChart({
               gradientUnits="userSpaceOnUse"
               x1={0}
               x2={0}
-              y1={TOP}
-              y2={TOP + PLOT_HEIGHT}
+              y1={fillTop}
+              y2={fillBottom}
               className="text-gain"
             >
               <stop offset={0} stopColor="currentColor" stopOpacity={FILL_OPACITY} />
-              <stop offset={WATER_RATIO} stopColor="currentColor" stopOpacity={0} />
+              <stop offset={waterOffset} stopColor="currentColor" stopOpacity={0} />
               <stop offset={1} stopColor="currentColor" stopOpacity={FILL_OPACITY} />
             </linearGradient>
           </defs>

@@ -16,11 +16,12 @@ const NO_FIGURE = "—";
 const LOADING = "…";
 
 /**
- * The grid every card draws its figures in: four a row on a phone, with the items centred, and the card's eight
- * on one row from `lg`. One grid for the three lists.
+ * The grid every card draws its figures in: four a row on a phone, with the items centred, and every figure of the
+ * card on one row of equal columns from `lg`, however many the list adds (share and leverage, PnL). One grid for the
+ * three lists.
  */
 const CARD_GRID =
-  "grid grid-cols-4 place-items-center gap-x-4 gap-y-3 sm:place-items-start lg:grid-cols-8 lg:gap-x-6";
+  "grid grid-cols-4 place-items-center gap-x-4 gap-y-3 sm:place-items-start lg:grid-flow-col lg:auto-cols-fr lg:gap-x-6";
 
 /**
  * What a card shows of a strategy's record. `undefined` is a figure still being read ("…"); `null` is a figure

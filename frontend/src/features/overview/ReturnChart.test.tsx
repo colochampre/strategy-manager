@@ -755,10 +755,17 @@ describe("the modern chart: smoothing, gradient, vertical grid", () => {
     expect(stops.length).toBeGreaterThanOrEqual(2);
     expect(gradient).toHaveClass("text-gain");
     for (const stop of stops) expect(stop.getAttribute("stop-color")).toBe("currentColor");
-    // It fades: strongest at the ends of the plot, none at the waterline.
+    // It fades: strongest at the curve's farthest point from the waterline, none at the waterline. It spans the
+    // curve's own height, not the plot's, so a curve near 0% still shows it.
     const opacities = stops.map((stop) => Number(stop.getAttribute("stop-opacity")));
     expect(Math.max(...opacities)).toBeGreaterThan(0.1);
     expect(Math.min(...opacities)).toBe(0);
+    const ys = coordinates(attr("return-curve", "d")).map(([, y]) => y);
+    expect(Number(gradient!.getAttribute("y1"))).toBeCloseTo(Math.min(WATER_Y, ...ys), 1);
+    expect(Number(gradient!.getAttribute("y2"))).toBeCloseTo(Math.max(WATER_Y, ...ys), 1);
+    const waterStop = stops.find((stop) => Number(stop.getAttribute("stop-opacity")) === 0)!;
+    const span = Math.max(WATER_Y, ...ys) - Math.min(WATER_Y, ...ys);
+    expect(Number(waterStop.getAttribute("offset"))).toBeCloseTo((WATER_Y - Math.min(WATER_Y, ...ys)) / span, 3);
     // The fill is the curve closed down to the waterline.
     const shape = attr("return-fill", "d");
     const corners = coordinates(shape);
@@ -768,6 +775,21 @@ describe("the modern chart: smoothing, gradient, vertical grid", () => {
     // Between those two waterline corners it runs along the return curve itself.
     expect(corners.slice(1, -1)).toEqual(coordinates(attr("return-curve", "d")));
     expect(fill).toHaveClass("stroke-none");
+  });
+
+  it("starts the gradient at the waterline when the curve never rises above 0%", () => {
+    renderChart(
+      [point("2026-07-01", 1, 0), point("2026-07-02", 0.95, -0.05), point("2026-07-03", 0.9, -0.1)],
+      "All",
+      Date.UTC(2026, 6, 3, 12),
+    );
+    const id = /^url\(#(.+)\)$/.exec(attr("return-fill", "fill"))?.[1];
+    const gradient = screen.getByRole("img").querySelector(`linearGradient[id="${id}"]`)!;
+    const ys = coordinates(attr("return-curve", "d")).map(([, y]) => y);
+    expect(Number(gradient.getAttribute("y1"))).toBeCloseTo(WATER_Y, 1);
+    expect(Number(gradient.getAttribute("y2"))).toBeCloseTo(Math.max(...ys), 1);
+    const waterStop = [...gradient.querySelectorAll("stop")].find((stop) => Number(stop.getAttribute("stop-opacity")) === 0)!;
+    expect(Number(waterStop.getAttribute("offset"))).toBe(0);
   });
 
   it("gives each chart its own gradient id, so two on a page do not share one", () => {
