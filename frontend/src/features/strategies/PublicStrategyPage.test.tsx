@@ -238,7 +238,7 @@ describe("the public page", () => {
     expect(section.querySelector("p")).toHaveClass("whitespace-pre-line", "break-words");
   });
 
-  it("draws the strategy's figures and its record's in one row of the cards' icons, under Performance (L.10)", async () => {
+  it("draws the strategy's figures and its record's in one grid of the cards' icons, under Performance (L.10)", async () => {
     serve();
     open();
 
@@ -263,6 +263,9 @@ describe("the public page", () => {
     expect(within(line).getAllByRole("button", { name: i18n.t("strategies.public.returnInfo") })).toHaveLength(1);
     expect(within(line).getAllByRole("button", { name: i18n.t("strategies.public.capitalInfo") })).toHaveLength(1);
     expect(screen.getAllByTestId("public-return")).toHaveLength(1);
+    // The page's column is narrower than a card: four a row there too, two rows, never eight squeezed into one.
+    expect(line).toHaveClass("lg:grid-cols-4");
+    expect(line).not.toHaveClass("lg:grid-flow-col");
   });
 
   it("explains the return and the capital on request, closed by default", async () => {

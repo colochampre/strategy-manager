@@ -34,6 +34,8 @@ export function RecordFigures({ strategy }: { strategy: PublicStrategy }) {
     <div className="flex flex-col gap-2">
       <CardFigureGrid
         testId="record-line"
+        // The page's column is narrower than a card, so four a row on every width: two rows, never eight squeezed.
+        className="lg:grid-flow-row lg:grid-cols-4"
         prefix="public"
         since={strategy.created_at}
         sinceKind="age"
