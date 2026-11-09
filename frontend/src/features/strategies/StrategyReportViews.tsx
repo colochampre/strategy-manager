@@ -48,7 +48,7 @@ export function StrategyReportViews({ strategy }: { strategy: PublicStrategy }) 
   const settled = !me.isPending && !held.isPending;
 
   return (
-    <section aria-label={t("strategies.report.title")} className="flex min-w-0 flex-col gap-4">
+    <section aria-label={t("strategies.report.title")} className="flex min-w-0 flex-col gap-3">
       <h2 className="font-display text-base font-semibold text-ink">{t("strategies.report.title")}</h2>
       {/* The strategy's figures first, the ones its card shows; under My results the return and the drawdown are
           the reader's own, with their PnL. Until the view is known they wait, so they never switch under the eye. */}

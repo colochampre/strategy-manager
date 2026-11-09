@@ -111,7 +111,7 @@ export function PublicRecordReport({ strategyId, joined }: PublicRecordReportPro
     );
   }
   return (
-    <div className="flex min-w-0 flex-col gap-6">
+    <div className="flex min-w-0 flex-col gap-3">
       <RecordView record={query.data} asOf={query.dataUpdatedAt} joined={joined} />
     </div>
   );

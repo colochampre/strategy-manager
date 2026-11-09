@@ -113,7 +113,7 @@ export function StrategyPerformance({ strategyId, ledger = true }: StrategyPerfo
     );
   }
   return (
-    <div className="flex min-w-0 flex-col gap-6">
+    <div className="flex min-w-0 flex-col gap-3">
       <ReportView report={performance.data} asOf={performance.dataUpdatedAt} ledger={ledger} />
     </div>
   );

@@ -73,6 +73,8 @@ describe("StrategyHeader status", () => {
     expect(mark).toHaveClass("rounded", "border", "px-2", "py-1", "font-mono", "uppercase", "border-gain", "text-gain");
     expect(mark).not.toHaveClass("rounded-full");
     expect(mark.parentElement).toHaveClass("items-center");
+    // The title steps 6 to the page's blocks, which stack 3 apart (L.13).
+    expect(mark.closest("header")).toHaveClass("mb-3");
   });
 
   it("says Disabled, and Archived for an archived strategy, in the quiet colour (L.12)", () => {

@@ -91,6 +91,10 @@ describe("the page's structure", () => {
     mountPage();
 
     expect(screen.queryByRole("heading", { level: 1, name: "Settings" })).toBeInTheDocument();
+    // The sections stack 3 apart; the title alone steps 6 to them (L.13).
+    const title = screen.getByRole("heading", { level: 1, name: "Settings" });
+    expect(title).toHaveClass("mb-3");
+    expect(title.parentElement).toHaveClass("gap-3");
     expect(screen.queryByRole("heading", { level: 2, name: "Exchange keys" })).toBeInTheDocument();
     const info = screen.getByRole("button", { name: "About exchange keys" });
     expect(info).toHaveAttribute("aria-expanded", "false");

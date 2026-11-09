@@ -321,6 +321,8 @@ describe("the public page", () => {
     // The name and its mark share one centred line (L.11).
     expect(title).toHaveClass("items-center");
     expect(title).not.toHaveClass("items-baseline");
+    // The title steps 6 to the page's blocks, which stack 3 apart (L.13).
+    expect(title.closest("header")).toHaveClass("mb-3");
   });
 
   it("says disabled when the strategy does not run", async () => {

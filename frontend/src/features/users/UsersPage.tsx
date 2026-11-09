@@ -95,7 +95,7 @@ function UsersList() {
 export function UsersPage() {
   const { t } = useTranslation();
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex flex-col gap-6">
       <h1 className="font-display text-2xl font-bold text-ink">{t("users.title")}</h1>
       <UsersList />
     </div>
