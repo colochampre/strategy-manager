@@ -120,7 +120,7 @@ describe("StrategyPerformance", () => {
   });
 
   it("starts the strategy's curve and the pool's at 0 on the day the first trade opened (decision 36)", async () => {
-    const vertices = () => (screen.getByTestId("return-curve").getAttribute("d") ?? "").match(/[ML]/g) ?? [];
+    const vertices = () => (screen.getByTestId("return-curve").getAttribute("d") ?? "").match(/[MLC]/g) ?? [];
     const opened = new Date(Date.now() - 5 * 86_400_000).toISOString().slice(0, 10);
     const strategy = report({ origin: opened });
     const poolRow = pool("bybit", "usdt-m", "USDT");

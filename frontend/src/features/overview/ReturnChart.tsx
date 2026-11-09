@@ -1,4 +1,5 @@
-import type { ReactNode } from "react";
+import { useId, useState } from "react";
+import type { PointerEvent, ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
 import type { RangeName } from "@/features/overview/RangeSelector";
@@ -74,6 +75,10 @@ const MONTH_LABEL_Y = 274;
 const MIN_LABEL_GAP = 28;
 /** The All range's two end labels are written as days, wider than a month: a date between keeps this far from them. */
 const END_LABEL_GAP = 40;
+/** The hover label is about this wide; past it from the right edge it is written to the guide's left. */
+const HOVER_LABEL_WIDTH = 96;
+/** The fill under the curve is this opaque at the plot's top and bottom edges, and clear at the waterline. */
+const FILL_OPACITY = 0.28;
 
 type TickKind = "day" | "week" | "month";
 
@@ -142,6 +147,8 @@ export function ReturnChart({
 }: ReturnChartProps) {
   const { t, i18n } = useTranslation();
   const [measure, measuredWidth] = useElementWidth<HTMLDivElement>(DEFAULT_WIDTH);
+  const gradientId = useId();
+  const [hovered, setHovered] = useState<number | null>(null);
   const viewWidth = Math.max(MIN_WIDTH, measuredWidth);
   const right = viewWidth - RIGHT_MARGIN;
   const series = readCurve(curve);
@@ -244,6 +251,25 @@ export function ReturnChart({
       : t("overview.returnChart.emptyRange");
 
   const first = curvePoints[0];
+
+  /** The day nearest the pointer, in drawing units; none while the pointer is off the plot. */
+  function hover(event: PointerEvent<SVGSVGElement>) {
+    const box = event.currentTarget.getBoundingClientRect();
+    const unit = box.width > 0 ? viewWidth / box.width : 1;
+    const pointerX = (event.clientX - box.left) * unit;
+    if (first === undefined || pointerX < LEFT || pointerX > right) {
+      setHovered(null);
+      return;
+    }
+    let nearest = 0;
+    curvePoints.forEach((candidate, i) => {
+      if (Math.abs(candidate.x - pointerX) < Math.abs((curvePoints[nearest]?.x ?? 0) - pointerX)) nearest = i;
+    });
+    setHovered(nearest);
+  }
+
+  const hoveredDay = hovered === null ? undefined : days[hovered];
+  const hoveredPoint = hovered === null ? undefined : curvePoints[hovered];
   // ISO dates compare as text. Outside [start, today] there is nothing on the axis to mark.
   const markerShown = marker !== null && start !== null && marker.date >= start && marker.date <= today;
   const markerX = markerShown ? x(marker.date) : 0;
@@ -257,8 +283,38 @@ export function ReturnChart({
           aria-label={t("overview.returnChart.ariaLabel")}
           viewBox={`0 0 ${viewWidth} ${VIEW_HEIGHT}`}
           height={VIEW_HEIGHT}
-          className="block w-full"
+          className="block w-full touch-pan-y"
+          onPointerMove={hover}
+          onPointerDown={hover}
+          onPointerLeave={() => setHovered(null)}
+          onPointerCancel={() => setHovered(null)}
         >
+          <defs>
+            <linearGradient
+              id={gradientId}
+              gradientUnits="userSpaceOnUse"
+              x1={0}
+              x2={0}
+              y1={TOP}
+              y2={TOP + PLOT_HEIGHT}
+              className="text-gain"
+            >
+              <stop offset={0} stopColor="currentColor" stopOpacity={FILL_OPACITY} />
+              <stop offset={WATER_RATIO} stopColor="currentColor" stopOpacity={0} />
+              <stop offset={1} stopColor="currentColor" stopOpacity={FILL_OPACITY} />
+            </linearGradient>
+          </defs>
+          {labels.map(({ date, x: tickX }) => (
+            <line
+              key={date}
+              data-testid="vgridline"
+              x1={tickX}
+              x2={tickX}
+              y1={TOP}
+              y2={TOP + PLOT_HEIGHT}
+              className="stroke-rule-soft"
+            />
+          ))}
           <g className="fill-ink-3 font-mono text-[10px]">
             {rows.map(({ value, y }) => (
               <g key={value}>
@@ -299,6 +355,12 @@ export function ReturnChart({
           ) : (
             <>
               <path
+                data-testid="return-fill"
+                d={drawdownPath(curvePoints, waterY)}
+                fill={`url(#${gradientId})`}
+                className="stroke-none"
+              />
+              <path
                 data-testid="drawdown-fill"
                 d={drawdownPath(drawdownPoints, waterY)}
                 className="fill-loss/20 stroke-none"
@@ -321,6 +383,39 @@ export function ReturnChart({
                 <circle data-testid="return-dot" cx={first.x} cy={first.y} r={3} className="fill-gain" />
               )}
             </>
+          )}
+          {hoveredDay !== undefined && hoveredPoint !== undefined && (
+            <g className="pointer-events-none">
+              <line
+                data-testid="hover-guide"
+                x1={hoveredPoint.x}
+                x2={hoveredPoint.x}
+                y1={TOP}
+                y2={TOP + PLOT_HEIGHT}
+                strokeWidth={1}
+                className="stroke-ink-3"
+              />
+              <circle
+                data-testid="hover-dot"
+                cx={hoveredPoint.x}
+                cy={hoveredPoint.y}
+                r={4}
+                strokeWidth={2}
+                className="fill-gain stroke-ground"
+              />
+              <text
+                data-testid="hover-label"
+                x={hoveredPoint.x > right - HOVER_LABEL_WIDTH ? hoveredPoint.x - 6 : hoveredPoint.x + 6}
+                y={TOP + 22}
+                textAnchor={hoveredPoint.x > right - HOVER_LABEL_WIDTH ? "end" : "start"}
+                paintOrder="stroke"
+                strokeWidth={4}
+                strokeLinejoin="round"
+                className="fill-ink stroke-ground font-mono text-[11px]"
+              >
+                {`${dayFormat.format(utcInstant(hoveredDay.date))} · ${percentLabel(hoveredDay.cumulative)}`}
+              </text>
+            </g>
           )}
           {markerShown && (
             <g>

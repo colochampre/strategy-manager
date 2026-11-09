@@ -512,7 +512,7 @@ const CONSISTENT_DAYS_30D = 8;
 
 function chartDays(scope: HTMLElement): number {
   const curve = within(scope).queryByTestId("return-curve");
-  return curve === null ? 0 : (curve.getAttribute("d") ?? "").split("L").length;
+  return curve === null ? 0 : ((curve.getAttribute("d") ?? "").match(/[MLC]/g) ?? []).length;
 }
 
 function finalReturn(scope: HTMLElement): number {

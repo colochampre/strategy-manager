@@ -1,4 +1,4 @@
-import { act, render, screen, within } from "@testing-library/react";
+import { act, createEvent, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ReturnChart } from "@/features/overview/ReturnChart";
@@ -28,9 +28,13 @@ function point(date: string, index: number, drawdown: number): CurvePoint {
   return { date, daily_return: "0", index: String(index), drawdown: String(drawdown) };
 }
 
-/** Parses `M x,y L x,y ...` into coordinates. */
+/** The point each command of `M x,y L x,y C c1 c2 x,y ...` arrives at (a curve's control points skipped). */
 function coordinates(d: string): Array<[number, number]> {
-  return [...d.matchAll(/[ML]\s*(-?[\d.]+),(-?[\d.]+)/g)].map((m) => [Number(m[1]), Number(m[2])]);
+  return [...d.matchAll(/[MLC]((?:\s*-?[\d.]+,-?[\d.]+)+)/g)].map((m) => {
+    const pairs = [...m[1]!.matchAll(/(-?[\d.]+),(-?[\d.]+)/g)];
+    const last = pairs[pairs.length - 1]!;
+    return [Number(last[1]), Number(last[2])];
+  });
 }
 
 function attr(testId: string, name: string): string {
@@ -70,8 +74,6 @@ describe("ReturnChart", () => {
     expect(line[1]![1]).toBeCloseTo(WATER_Y - UPPER / 3, 1);
     expect(line[2]![1]).toBeCloseTo(TOP, 1);
     expect(line[3]![1]).toBeCloseTo(WATER_Y - (UPPER * 2) / 3, 1);
-    // No smoothing: straight segments only.
-    expect(attr("return-curve", "d")).not.toMatch(/[CQSTA]/);
 
     const fill = attr("drawdown-fill", "d");
     const fillPoints = coordinates(fill);
@@ -103,8 +105,9 @@ describe("ReturnChart", () => {
     const svg = screen.getByRole("img");
     for (const element of [svg, ...svg.querySelectorAll("*")]) {
       for (const name of ["fill", "stroke", "style"]) {
-        // `none` is a keyword, not a colour; nothing may carry a colour attribute.
-        expect(element.getAttribute(name) ?? "none").toMatch(/^none$/);
+        // `none` is a keyword, not a colour, and `url(#id)` points at the gradient, whose own
+        // colour is a class; nothing may carry a colour attribute.
+        expect(element.getAttribute(name) ?? "none").toMatch(/^(none|url\(#[^)]+\))$/);
       }
       expect(element.getAttribute("class") ?? "").not.toMatch(/#[0-9a-f]{3,8}|var\(/i);
     }
@@ -713,5 +716,216 @@ describe("ReturnChart marker", () => {
     unmount();
     renderMarked(MARK);
     expect(attr("return-curve", "d")).toBe(without);
+  });
+});
+
+describe("the modern chart: smoothing, gradient, vertical grid", () => {
+  const CURVE = [
+    point("2026-07-01", 1, 0),
+    point("2026-07-02", 1.1, 0),
+    point("2026-07-03", 1.3, 0),
+    point("2026-07-04", 1.2, -1 / 13),
+  ];
+  const READ_ON_LAST_DAY = Date.UTC(2026, 6, 4, 12);
+
+  it("draws the return curve and the drawdown edge and fill as cubic curves", () => {
+    renderChart(CURVE, "All", READ_ON_LAST_DAY);
+    for (const id of ["return-curve", "drawdown-edge", "drawdown-fill"]) {
+      expect(attr(id, "d")).toMatch(/C/);
+    }
+  });
+
+  it("never draws the curve above its highest day or below its lowest", () => {
+    renderChart(CURVE, "All", READ_ON_LAST_DAY);
+    const d = attr("return-curve", "d");
+    // Every number of the path, control points included, lies between the plot's top (30%, the peak) and the waterline.
+    const ys = [...d.matchAll(/-?[\d.]+,(-?[\d.]+)/g)].map((m) => Number(m[1]));
+    expect(Math.min(...ys)).toBeGreaterThanOrEqual(TOP - 0.01);
+    expect(Math.max(...ys)).toBeLessThanOrEqual(WATER_Y + 0.01);
+  });
+
+  it("fills under the return curve with a gradient in the curve's own colour", () => {
+    renderChart(CURVE, "All", READ_ON_LAST_DAY);
+    const fill = screen.getByTestId("return-fill");
+    const id = /^url\(#(.+)\)$/.exec(fill.getAttribute("fill") ?? "")?.[1];
+    expect(id).toBeTruthy();
+    const gradient = screen.getByRole("img").querySelector(`linearGradient[id="${id}"]`);
+    expect(gradient).not.toBeNull();
+    const stops = [...gradient!.querySelectorAll("stop")];
+    expect(stops.length).toBeGreaterThanOrEqual(2);
+    expect(gradient).toHaveClass("text-gain");
+    for (const stop of stops) expect(stop.getAttribute("stop-color")).toBe("currentColor");
+    // It fades: strongest at the ends of the plot, none at the waterline.
+    const opacities = stops.map((stop) => Number(stop.getAttribute("stop-opacity")));
+    expect(Math.max(...opacities)).toBeGreaterThan(0.1);
+    expect(Math.min(...opacities)).toBe(0);
+    // The fill is the curve closed down to the waterline.
+    const shape = attr("return-fill", "d");
+    const corners = coordinates(shape);
+    expect(corners[0]![1]).toBeCloseTo(WATER_Y, 1);
+    expect(corners[corners.length - 1]![1]).toBeCloseTo(WATER_Y, 1);
+    expect(shape.trim().endsWith("Z")).toBe(true);
+    // Between those two waterline corners it runs along the return curve itself.
+    expect(corners.slice(1, -1)).toEqual(coordinates(attr("return-curve", "d")));
+    expect(fill).toHaveClass("stroke-none");
+  });
+
+  it("gives each chart its own gradient id, so two on a page do not share one", () => {
+    render(
+      <>
+        <ReturnChart curve={CURVE} range="All" asOf={READ_ON_LAST_DAY} />
+        <ReturnChart curve={CURVE} range="All" asOf={READ_ON_LAST_DAY} />
+      </>,
+    );
+    const [one, two] = screen.getAllByTestId("return-fill").map((n) => n.getAttribute("fill"));
+    expect(one).toMatch(/^url\(#.+\)$/);
+    expect(one).not.toBe(two);
+    const ids = [...document.querySelectorAll("linearGradient")].map((g) => g.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it("draws no fill when there is no curve", () => {
+    renderChart([]);
+    expect(screen.queryByTestId("return-fill")).toBeNull();
+  });
+
+  it("draws a vertical grid line under each date label, styled like the horizontal ones", () => {
+    renderChart(CURVE, "All", READ_ON_LAST_DAY);
+    const labelXs = screen.getAllByTestId("day-label").map((n) => Number(n.getAttribute("x")));
+    expect(labelXs).toHaveLength(4);
+    const lines = screen.getAllByTestId("vgridline");
+    expect(lines.map((line) => Number(line.getAttribute("x1")))).toEqual(labelXs);
+    for (const line of lines) {
+      expect(line.getAttribute("x2")).toBe(line.getAttribute("x1"));
+      expect(Number(line.getAttribute("y1"))).toBeCloseTo(TOP, 1);
+      expect(Number(line.getAttribute("y2"))).toBeCloseTo(TOP + 244, 1);
+      expect(line).toHaveClass("stroke-rule-soft");
+    }
+  });
+
+  it("draws the vertical lines of month labels too", () => {
+    renderChart([point("2026-07-01", 1, 0), point("2026-09-30", 1.2, 0)]);
+    const monthXs = screen.getAllByTestId("month-label").map((n) => Number(n.getAttribute("x")));
+    expect(monthXs.length).toBeGreaterThan(0);
+    const lineXs = screen.getAllByTestId("vgridline").map((n) => Number(n.getAttribute("x1")));
+    for (const monthX of monthXs) expect(lineXs).toContain(monthX);
+  });
+});
+
+describe("the hover readout", () => {
+  const CURVE = [
+    point("2026-07-01", 1, 0),
+    point("2026-07-02", 1.1, 0),
+    point("2026-07-03", 1.3, 0),
+    point("2026-07-04", 1.2, -1 / 13),
+  ];
+  const STEP = (RIGHT - LEFT) / 3;
+
+  function stubBox(svg: Element, width: number) {
+    svg.getBoundingClientRect = () => ({
+      left: 10,
+      top: 0,
+      width,
+      height: 280,
+      right: 10 + width,
+      bottom: 280,
+      x: 10,
+      y: 0,
+      toJSON: () => ({}),
+    });
+  }
+
+  /** Stubs the svg's box: `width` CSS pixels for the 796-unit drawing. */
+  function renderHovered(width = 796) {
+    renderChart(CURVE, "All", Date.UTC(2026, 6, 4, 12));
+    const svg = screen.getByRole("img");
+    stubBox(svg, width);
+    return svg;
+  }
+
+  /** jsdom has no PointerEvent, so the event is a plain one that carries the pointer's `clientX`. */
+  function pointer(svg: Element, type: "pointerMove" | "pointerDown", clientX: number) {
+    const event = createEvent[type](svg);
+    Object.defineProperty(event, "clientX", { value: clientX });
+    fireEvent(svg, event);
+  }
+
+  /** The client x that lands on the drawing's unit `x`. */
+  const clientFor = (x: number, width = 796) => 10 + (x * width) / 796;
+
+  it("shows nothing until the pointer is over the plot", () => {
+    renderHovered();
+    expect(screen.queryByTestId("hover-guide")).toBeNull();
+    expect(screen.queryByTestId("hover-dot")).toBeNull();
+    expect(screen.queryByTestId("hover-label")).toBeNull();
+  });
+
+  it("marks the nearest day with a guide, a dot on the curve and its date and return", () => {
+    const svg = renderHovered();
+    pointer(svg, "pointerMove", clientFor(LEFT + 2 * STEP + 9));
+
+    const guide = screen.getByTestId("hover-guide");
+    expect(Number(guide.getAttribute("x1"))).toBeCloseTo(LEFT + 2 * STEP, 1);
+    expect(Number(guide.getAttribute("x2"))).toBeCloseTo(LEFT + 2 * STEP, 1);
+    expect(Number(guide.getAttribute("y1"))).toBeCloseTo(TOP, 1);
+    expect(Number(guide.getAttribute("y2"))).toBeCloseTo(TOP + 244, 1);
+
+    const dot = screen.getByTestId("hover-dot");
+    expect(Number(dot.getAttribute("cx"))).toBeCloseTo(LEFT + 2 * STEP, 1);
+    // 07-03 is the 30% peak: the top of the plot.
+    expect(Number(dot.getAttribute("cy"))).toBeCloseTo(TOP, 1);
+    expect(dot).toHaveClass("fill-gain");
+
+    expect(screen.getByTestId("hover-label")).toHaveTextContent("Jul 3 · +30%");
+  });
+
+  it("follows the pointer to another day", () => {
+    const svg = renderHovered();
+    pointer(svg, "pointerMove", clientFor(LEFT + 1 * STEP - 7));
+    expect(screen.getByTestId("hover-label")).toHaveTextContent("Jul 2 · +10%");
+    pointer(svg, "pointerMove", clientFor(RIGHT));
+    expect(screen.getByTestId("hover-label")).toHaveTextContent("Jul 4 · +20%");
+    expect(Number(screen.getByTestId("hover-guide").getAttribute("x1"))).toBeCloseTo(RIGHT, 1);
+  });
+
+  it("reads the position in drawing units when the box is narrower than the drawing", () => {
+    const svg = renderHovered(398);
+    pointer(svg, "pointerMove", clientFor(LEFT + 1 * STEP, 398));
+    expect(screen.getByTestId("hover-label")).toHaveTextContent("Jul 2 · +10%");
+  });
+
+  it("goes away when the pointer leaves, and when it is in the label gutter", () => {
+    const svg = renderHovered();
+    pointer(svg, "pointerMove", clientFor(LEFT + STEP));
+    expect(screen.getByTestId("hover-guide")).toBeInTheDocument();
+    fireEvent.pointerLeave(svg);
+    expect(screen.queryByTestId("hover-guide")).toBeNull();
+    expect(screen.queryByTestId("hover-label")).toBeNull();
+
+    pointer(svg, "pointerMove", clientFor(LEFT + STEP));
+    pointer(svg, "pointerMove", clientFor(LEFT - 20));
+    expect(screen.queryByTestId("hover-guide")).toBeNull();
+  });
+
+  it("answers a touch (pointer down) like a move", () => {
+    const svg = renderHovered();
+    pointer(svg, "pointerDown", clientFor(LEFT));
+    expect(screen.getByTestId("hover-label")).toHaveTextContent("Jul 1 · 0%");
+  });
+
+  it("draws no readout over an empty chart", () => {
+    renderChart([]);
+    const svg = screen.getByRole("img");
+    stubBox(svg, 796);
+    pointer(svg, "pointerMove", 410);
+    expect(screen.queryByTestId("hover-guide")).toBeNull();
+  });
+
+  it("keeps the readout's label inside the drawing near either edge", () => {
+    const svg = renderHovered();
+    pointer(svg, "pointerMove", clientFor(RIGHT));
+    expect(screen.getByTestId("hover-label")).toHaveAttribute("text-anchor", "end");
+    pointer(svg, "pointerMove", clientFor(LEFT));
+    expect(screen.getByTestId("hover-label")).toHaveAttribute("text-anchor", "start");
   });
 });

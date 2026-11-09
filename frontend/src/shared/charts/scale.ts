@@ -66,13 +66,69 @@ function pair(point: Point): string {
   return `${coordinate(point.x)},${coordinate(point.y)}`;
 }
 
-/** Straight segments, one vertex per point: smoothing would invent values. */
-export function linePath(points: readonly Point[]): string {
-  return points.map((point, i) => `${i === 0 ? "M" : "L"}${pair(point)}`).join(" ");
+/**
+ * The slope of the curve at each point, by Fritsch-Carlson (what d3 calls
+ * `curveMonotoneX`). A point between a rise and a fall, or beside a flat run, gets a
+ * level tangent; any other gets the weighted harmonic mean of its two secants,
+ * which never exceeds three times the smaller one. So the curve never leaves the band between two
+ * neighbours: it can show no high or low that the data does not hold.
+ */
+function tangents(points: readonly Point[]): number[] {
+  const count = points.length;
+  const secants: number[] = [];
+  for (let i = 0; i < count - 1; i += 1) {
+    const a = points[i]!;
+    const b = points[i + 1]!;
+    const dx = b.x - a.x;
+    secants.push(dx > 0 ? (b.y - a.y) / dx : 0);
+  }
+  const result: number[] = [];
+  for (let i = 0; i < count; i += 1) {
+    const before = secants[i - 1];
+    const after = secants[i];
+    if (before === undefined || after === undefined) {
+      // An end follows its only secant, which keeps its segment inside its two points.
+      result.push(before ?? after ?? 0);
+    } else if (before * after <= 0) {
+      result.push(0);
+    } else {
+      const wide = points[i + 1]!.x - points[i - 1]!.x;
+      const left = points[i]!.x - points[i - 1]!.x;
+      const right = points[i + 1]!.x - points[i]!.x;
+      const mean = (3 * wide) / ((wide + right) / before + (wide + left) / after);
+      result.push(mean);
+    }
+  }
+  return result;
+}
+
+/** One cubic segment from `index - 1` to `index`, its control points a third of the gap along each tangent. */
+function segment(points: readonly Point[], slopes: readonly number[], index: number): string {
+  const a = points[index - 1]!;
+  const b = points[index]!;
+  const dx = b.x - a.x;
+  // Two points on one x have no horizontal run to curve over.
+  if (dx <= 0) return `L${pair(b)}`;
+  const first = { x: a.x + dx / 3, y: a.y + (slopes[index - 1]! * dx) / 3 };
+  const second = { x: b.x - dx / 3, y: b.y - (slopes[index]! * dx) / 3 };
+  return `C${pair(first)} ${pair(second)} ${pair(b)}`;
 }
 
 /**
- * A closed shape from the waterline, down (or up) along the series, and back to
+ * A smooth curve through every point: monotone cubic segments, so it passes through each
+ * real value and, between two neighbours, never rises above the higher or falls below the
+ * lower (smoothing that overshot would invent a high or a low that did not happen).
+ */
+export function linePath(points: readonly Point[]): string {
+  const first = points[0];
+  if (first === undefined) return "";
+  const slopes = tangents(points);
+  const rest = points.slice(1).map((_, i) => segment(points, slopes, i + 1));
+  return [`M${pair(first)}`, ...rest].join(" ");
+}
+
+/**
+ * A closed shape from the waterline, down (or up) along the (smoothed) series, and back to
  * the waterline at the last x.
  */
 export function drawdownPath(points: readonly Point[], waterY: number): string {
@@ -80,7 +136,9 @@ export function drawdownPath(points: readonly Point[], waterY: number): string {
   const last = points[points.length - 1];
   if (first === undefined || last === undefined) return "";
   const edge = (x: number) => pair({ x, y: waterY });
-  return `M${edge(first.x)} ${points.map((point) => `L${pair(point)}`).join(" ")} L${edge(last.x)} Z`;
+  const slopes = tangents(points);
+  const rest = points.slice(1).map((_, i) => segment(points, slopes, i + 1));
+  return [`M${edge(first.x)}`, `L${pair(first)}`, ...rest, `L${edge(last.x)}`, "Z"].join(" ");
 }
 
 function utcDay(date: string): number {

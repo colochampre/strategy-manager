@@ -128,28 +128,81 @@ describe("waterlineScale", () => {
   });
 });
 
-describe("linePath", () => {
-  it("test_line_path_no_smoothing_one_point_per_utc_day", () => {
-    const points = [
-      { x: 0, y: 10 },
-      { x: 10, y: 20.5 },
-      { x: 20, y: 5 },
-      { x: 30, y: 7.25 },
+/** The numbers of a path, command by command: `M` and `L` carry one pair, `C` three. */
+function commands(path: string): Array<{ op: string; pairs: Array<[number, number]> }> {
+  return [...path.matchAll(/([MLC])\s*((?:-?[\d.]+,-?[\d.]+\s*)+)/g)].map((m) => ({
+    op: m[1]!,
+    pairs: [...m[2]!.matchAll(/(-?[\d.]+),(-?[\d.]+)/g)].map((p) => [Number(p[1]), Number(p[2])] as [number, number]),
+  }));
+}
+
+describe("linePath (monotone cubic: through every point, never past a neighbour)", () => {
+  const points = [
+    { x: 0, y: 10 },
+    { x: 10, y: 20.5 },
+    { x: 20, y: 5 },
+    { x: 30, y: 7.25 },
+    { x: 40, y: 30 },
+  ];
+
+  it("passes through every input point, one cubic segment per gap", () => {
+    const path = commands(linePath(points));
+    expect(path.map((c) => c.op)).toEqual(["M", "C", "C", "C", "C"]);
+    const ends = path.map((c) => c.pairs[c.pairs.length - 1]!);
+    expect(ends).toEqual(points.map((p) => [p.x, p.y]));
+  });
+
+  it("keeps every control point's height inside its two neighbours' heights", () => {
+    const path = commands(linePath(points));
+    path.slice(1).forEach((segment, i) => {
+      const low = Math.min(points[i]!.y, points[i + 1]!.y);
+      const high = Math.max(points[i]!.y, points[i + 1]!.y);
+      for (const [, y] of segment.pairs) {
+        expect(y).toBeGreaterThanOrEqual(low - 0.01);
+        expect(y).toBeLessThanOrEqual(high + 0.01);
+      }
+    });
+  });
+
+  it("flattens the tangent at a local extreme, so a peak is not drawn higher than it was", () => {
+    const path = commands(linePath(points));
+    // (10, 20.5) is a peak: the control point leaving the previous point arrives level with it,
+    // and the one leaving the peak starts level with it.
+    expect(path[1]!.pairs[1]![1]).toBe(20.5);
+    expect(path[2]!.pairs[0]![1]).toBe(20.5);
+  });
+
+  it("rises and falls through a monotone run without a dip", () => {
+    const run = [
+      { x: 0, y: 100 },
+      { x: 10, y: 99 },
+      { x: 20, y: 40 },
+      { x: 30, y: 39 },
     ];
-    const path = linePath(points);
-    expect(path).toBe("M0,10 L10,20.5 L20,5 L30,7.25");
-    // One command per point, straight segments only.
-    expect(path.match(/[A-Za-z]/g)).toEqual(["M", "L", "L", "L"]);
-    expect(path).not.toMatch(/[CQSTA]/);
+    commands(linePath(run))
+      .slice(1)
+      .forEach((segment, i) => {
+        for (const [, y] of segment.pairs) {
+          expect(y).toBeLessThanOrEqual(run[i]!.y + 0.01);
+          expect(y).toBeGreaterThanOrEqual(run[i + 1]!.y - 0.01);
+        }
+      });
   });
 
   it("rounds coordinates to two decimals and never writes exponents or NaN", () => {
-    expect(linePath([{ x: 1 / 3, y: 2 / 3 }, { x: 1e-9, y: 100 }])).toBe("M0.33,0.67 L0,100");
+    const path = linePath([{ x: 1 / 3, y: 2 / 3 }, { x: 1e-9 + 1, y: 100 }]);
+    expect(path).not.toMatch(/NaN|Infinity|e[+-]/);
+    expect(path.startsWith("M0.33,0.67 C")).toBe(true);
   });
 
-  it("is empty for no points and a single move for one point", () => {
+  it("is empty for no points, a single move for one, and a straight cubic for two", () => {
     expect(linePath([])).toBe("");
     expect(linePath([{ x: 5, y: 7 }])).toBe("M5,7");
+    expect(linePath([{ x: 0, y: 0 }, { x: 9, y: 9 }])).toBe("M0,0 C3,3 6,6 9,9");
+  });
+
+  it("falls back to a straight line between two points on the same x", () => {
+    expect(linePath([{ x: 4, y: 1 }, { x: 4, y: 9 }])).toBe("M4,1 L4,9");
   });
 });
 
@@ -160,7 +213,11 @@ describe("drawdownPath", () => {
       { x: 20, y: 190 },
       { x: 30, y: 180 },
     ];
-    expect(drawdownPath(points, 173.6)).toBe("M10,173.6 L10,170 L20,190 L30,180 L30,173.6 Z");
+    const path = drawdownPath(points, 173.6);
+    expect(path.startsWith("M10,173.6 L10,170 C")).toBe(true);
+    expect(path.endsWith(" L30,173.6 Z")).toBe(true);
+    const ends = commands(path).map((c) => c.pairs[c.pairs.length - 1]!);
+    expect(ends).toEqual([[10, 173.6], [10, 170], [20, 190], [30, 180], [30, 173.6]]);
   });
 
   it("is empty for an empty series and still closed for a single point", () => {
