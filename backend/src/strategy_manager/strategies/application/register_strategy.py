@@ -223,6 +223,15 @@ class RegisterStrategy:
             )
 
         await self._commit.commit()
+        # A link opens the strategy to whoever holds it: its making is answerable
+        # from the log, never the token itself (K.D advisory A3), as on a PATCH.
+        if strategy.share_token is not None:
+            logger.info(
+                "strategy link made: strategy=%s author=%s visibility=%s",
+                strategy.id,
+                strategy.author_id,
+                strategy.visibility.value,
+            )
         return Registration(strategy=strategy, webhook_secret=webhook_secret)
 
     async def _assert_pairs_listed(

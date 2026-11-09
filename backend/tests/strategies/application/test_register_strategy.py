@@ -231,6 +231,29 @@ async def test_a_private_strategy_needs_no_name() -> None:
     assert repository.inserted[0].visibility is Visibility.PRIVATE
 
 
+@pytest.mark.parametrize(
+    ("visibility", "lines"), [(Visibility.LINK, 1), (Visibility.PRIVATE, 0), (Visibility.PUBLIC, 0)]
+)
+async def test_a_strategy_registered_with_a_link_says_so_at_info_never_the_token(
+    visibility: Visibility, lines: int, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A link opens the strategy to whoever holds it, so its making is answerable from
+    the log (K.D advisory A3), as on a PATCH."""
+    use_case, repository, _, _, _ = _build()
+
+    with caplog.at_level(logging.INFO, logger=_LOGGER):
+        await use_case.register(_command(visibility=visibility))
+
+    said = [each for each in caplog.records if each.name == _LOGGER and "link" in each.getMessage()]
+    assert [each.levelno for each in said] == [logging.INFO] * lines
+    token = repository.inserted[0].share_token
+    for each in said:
+        line = each.getMessage()
+        assert "link made" in line
+        assert str(repository.inserted[0].id) in line and str(AUTHOR_ID) in line
+        assert token is not None and token not in line
+
+
 async def test_the_id_is_the_one_supplied_and_never_generated() -> None:
     """The webhook looks a strategy up under the alert's signalType. An id
     invented here would match no alert that will ever arrive."""

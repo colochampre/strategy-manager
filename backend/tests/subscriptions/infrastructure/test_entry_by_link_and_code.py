@@ -55,6 +55,7 @@ pytestmark = pytest.mark.integration
 Factory = async_sessionmaker[AsyncSession]
 MARKET = ("bybit", "usdt-m", "USDT")
 LOGGER = "strategy_manager.strategies.application.code_entry"
+SPEND_LOGGER = "strategy_manager.subscriptions.application.subscribe"
 PAGE = "/api/public/strategies/{id}"
 RECORD = "/api/public/strategies/{id}/record"
 PREVIEW = "/api/strategies/{id}/share-preview"
@@ -260,7 +261,9 @@ async def test_a_link_opens_nothing_but_a_link_strategy(world: World) -> None:
     assert response.status_code == 404
 
 
-async def test_a_link_lets_its_holder_subscribe_and_nobody_else(world: World) -> None:
+async def test_a_link_lets_its_holder_subscribe_and_nobody_else(
+    world: World, caplog: pytest.LogCaptureFixture
+) -> None:
     strategy_id = await _strategy(world, "LINK", TOKEN)
 
     without = await _subscribe(world, strategy_id)
@@ -268,11 +271,14 @@ async def test_a_link_lets_its_holder_subscribe_and_nobody_else(world: World) ->
     assert [without.status_code, wrong.status_code] == [404, 404]
     assert await _seats(world, strategy_id) == []
 
-    response = await _subscribe(world, strategy_id, link_token=TOKEN)
+    with caplog.at_level(logging.INFO, logger=SPEND_LOGGER):
+        response = await _subscribe(world, strategy_id, link_token=TOKEN)
 
     assert response.status_code == 201, response.text
     seats = [tuple(row) for row in await _seats(world, strategy_id)]
     assert seats == [(UUID(response.json()["id"]),)]
+    # No code paid for this seat, so no redemption is said (K.D advisory A3).
+    assert [each for each in caplog.records if each.name == SPEND_LOGGER] == []
 
 
 # --- a live code ------------------------------------------------------------------
@@ -294,13 +300,14 @@ async def test_a_live_code_opens_a_strategy_off_the_list_and_reading_spends_noth
 
 
 async def test_a_code_lets_its_holder_subscribe_once_and_is_spent_with_the_seat(
-    world: World,
+    world: World, caplog: pytest.LogCaptureFixture
 ) -> None:
     strategy_id = await _strategy(world, "PRIVATE")
     code_id = await _code(world, strategy_id)
     before = datetime.now(UTC)
 
-    response = await _subscribe(world, strategy_id, invite_code=TYPED)
+    with caplog.at_level(logging.INFO, logger=SPEND_LOGGER):
+        response = await _subscribe(world, strategy_id, invite_code=TYPED)
 
     assert response.status_code == 201, response.text
     seat = UUID(response.json()["id"])
@@ -311,6 +318,12 @@ async def test_a_code_lets_its_holder_subscribe_once_and_is_spent_with_the_seat(
         f"/api/strategies/{strategy_id}/invite-codes", headers=ADMIN_HEADERS
     )
     assert listed.json() == []
+    # Who got in with which code's seat, answerable from the log (K.D advisory A3).
+    said = [each for each in caplog.records if each.name == SPEND_LOGGER]
+    assert [each.levelno for each in said] == [logging.INFO]
+    line = said[0].getMessage()
+    assert all(str(each) in line for each in (world.reader, strategy_id, seat))
+    assert "K7QM" not in line and "2XRA" not in line
 
 
 # --- a code that opens nothing ----------------------------------------------------
@@ -611,7 +624,9 @@ async def test_the_checks_pool_belongs_to_its_request_engine_and_closes_with_it(
     assert check_engine.sync_engine.pool.checkedin() == 0  # type: ignore[attr-defined]
 
 
-async def test_a_code_spent_while_a_subscription_waits_on_it_is_refused(world: World) -> None:
+async def test_a_code_spent_while_a_subscription_waits_on_it_is_refused(
+    world: World, caplog: pytest.LogCaptureFixture
+) -> None:
     """The spend waits on the code's row and reads it again, so one code makes one seat."""
     strategy_id = await _strategy(world, "PRIVATE")
     code_id = await _code(world, strategy_id)
@@ -619,6 +634,7 @@ async def test_a_code_spent_while_a_subscription_waits_on_it_is_refused(world: W
         await holder.execute(
             text("SELECT id FROM invite_codes WHERE id = :id FOR UPDATE"), {"id": code_id}
         )
+        caplog.set_level(logging.INFO, logger=SPEND_LOGGER)
         task = asyncio.create_task(_subscribe(world, strategy_id, invite_code=CODE))
         await _not_done_while_held(task)
         seat = uuid4()
@@ -644,6 +660,12 @@ async def test_a_code_spent_while_a_subscription_waits_on_it_is_refused(world: W
     assert response.json()["detail"]["reason"] == "SPENT"
     assert await _seats(world, strategy_id) == []
     assert (await _code_row(world, code_id))[2] == seat
+    # The loser of the race says so (K.D advisory A3).
+    said = [each for each in caplog.records if each.name == SPEND_LOGGER]
+    assert [each.levelno for each in said] == [logging.WARNING]
+    line = said[0].getMessage()
+    assert str(world.reader) in line and str(strategy_id) in line and "SPENT" in line
+    assert "K7QM" not in line and "2XRA" not in line
 
 
 # --- what nothing opens -----------------------------------------------------------
@@ -726,6 +748,62 @@ async def test_a_code_that_names_no_strategy_answers_404_and_counts(
     line = said[0].getMessage()
     assert str(world.reader) in line
     assert "K7QM" not in line and "B4TN" not in line and str(strategy_id) not in line
+
+
+@pytest.mark.parametrize("why", ["archived", "unnamed"])
+async def test_a_live_code_of_a_strategy_that_opens_to_nobody_names_nothing_and_counts_nothing(
+    world: World, why: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    """K.D advisory A2: the page refuses an archived strategy, and every strategy of an
+    author with no name (decision 27), so the lookup answers as the page would, the 404
+    of a code that opens nothing, and names no strategy. The code is real, not a guess,
+    so nothing is counted, as the page counts nothing there."""
+    strategy_id = await _strategy(world, "PRIVATE")
+    code_id = await _code(world, strategy_id)
+    if why == "archived":
+        await _sql(
+            world,
+            "UPDATE strategies SET enabled = false, archived_at = now() WHERE id = :id",
+            {"id": strategy_id},
+        )
+    else:
+        await _sql(
+            world, "UPDATE users SET display_name = NULL WHERE id = :id", {"id": world.author}
+        )
+
+    with caplog.at_level(logging.INFO, logger=LOGGER):
+        response = await _lookup(world, CODE)
+
+    assert response.status_code == 404, response.text
+    assert response.json() == {"detail": "no strategy opens to that code"}
+    assert str(strategy_id) not in response.text
+    assert await _failures(world, world.reader) == 0
+    assert await _code_row(world, code_id) == (None, None, None, None)
+    said = [each for each in caplog.records if each.name == LOGGER]
+    assert [each.levelno for each in said] == [logging.INFO]
+    line = said[0].getMessage()
+    assert str(world.reader) in line and str(strategy_id) in line
+    assert "K7QM" not in line and "2XRA" not in line
+
+
+async def test_a_dead_code_of_an_archived_strategy_still_says_why_and_counts(
+    world: World,
+) -> None:
+    """Only a LIVE code of a strategy that opens to nobody goes uncounted (A2): a dead
+    one is a failure wherever its strategy stands, as on the page."""
+    strategy_id = await _strategy(world, "PRIVATE")
+    await _code(world, strategy_id, revoked=True)
+    await _sql(
+        world,
+        "UPDATE strategies SET enabled = false, archived_at = now() WHERE id = :id",
+        {"id": strategy_id},
+    )
+
+    response = await _lookup(world, CODE)
+
+    assert response.status_code == 410, response.text
+    assert response.json()["detail"]["reason"] == "REVOKED"
+    assert await _failures(world, world.reader) == 1
 
 
 @pytest.mark.parametrize("reason", ["EXPIRED", "REVOKED", "SPENT"])

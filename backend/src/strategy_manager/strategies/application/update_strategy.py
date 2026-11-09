@@ -32,6 +32,7 @@ subscriber's, changed through ``ChangeShare``. The strategy's own copy is writte
 once, at registration, and ``process_signal`` keeps sizing from it until C.6.
 """
 
+import logging
 from dataclasses import dataclass, replace
 from uuid import UUID
 
@@ -51,6 +52,8 @@ from strategy_manager.strategies.domain.strategy import (
     Strategy,
     Visibility,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class Unchanged:
@@ -173,4 +176,15 @@ class UpdateStrategy:
             )
 
         await self._commit.commit()
+        # Whoever holds a link opens the strategy, so when one began or stopped
+        # working is answerable from the log, never the token itself; a link killed
+        # and made again is how it rotates (K.D advisory A3).
+        if (strategy.share_token is None) != (updated.share_token is None):
+            logger.info(
+                "strategy link %s: strategy=%s author=%s visibility=%s",
+                "made" if updated.share_token is not None else "killed",
+                updated.id,
+                updated.author_id,
+                updated.visibility.value,
+            )
         return updated

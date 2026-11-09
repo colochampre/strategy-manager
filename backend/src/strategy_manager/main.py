@@ -2310,6 +2310,9 @@ def create_app() -> FastAPI:
     app.add_middleware(NoStoreMiddleware, prefix="/api/me")
     # Nor the one that names every user (decision 8).
     app.add_middleware(NoStoreMiddleware, prefix="/api/admin")
+    # Nor an author's own strategies: a LINK one carries the token that opens it
+    # (decision 41; K.D advisory A5).
+    app.add_middleware(NoStoreMiddleware, prefix="/api/strategies")
 
     @app.get("/health")
     async def health() -> dict[str, str | bool]:
