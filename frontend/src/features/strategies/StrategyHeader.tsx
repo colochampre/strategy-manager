@@ -40,8 +40,8 @@ export function StrategyHeader({ strategy }: StrategyHeaderProps) {
   const archived = strategy.archived_at !== null;
 
   return (
-    // The title steps 6 to the page below it, whose blocks stack 3 apart (L.13).
-    <header className="mb-3 flex flex-col gap-1.5">
+    // The title steps 6 to the page below it, whose blocks stack 4 apart (L.13).
+    <header className="mb-2 flex flex-col gap-1.5">
       <BackToStrategies />
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         <StrategyTitle strategy={strategy} />

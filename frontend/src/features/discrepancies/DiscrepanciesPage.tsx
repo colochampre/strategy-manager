@@ -21,7 +21,7 @@ interface SectionProps {
 
 function Section({ headingId, title, note, children }: SectionProps) {
   return (
-    <section aria-labelledby={headingId} className="flex min-w-0 flex-col gap-3">
+    <section aria-labelledby={headingId} className="flex min-w-0 flex-col gap-4">
       <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
         <h2 id={headingId} className="font-display text-lg font-semibold text-ink">
           {title}
@@ -45,7 +45,7 @@ function Items({ items, variant, readAt }: ItemsProps) {
     <>
       {groupByExchange(items).map((group) => (
         <ExchangeGroup key={group.exchange} exchange={group.exchange}>
-          <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-4">
             {group.items.map((item) => (
               <DiscrepancyItem key={item.discrepancy_id} item={item} variant={variant} readAt={readAt} />
             ))}

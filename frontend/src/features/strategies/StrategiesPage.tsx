@@ -36,7 +36,7 @@ function StrategyList({ strategies }: { strategies: readonly Strategy[] }) {
   return (
     <>
       <SortControl sort={sort} onChange={(key) => setSort((current) => nextSort(current, key))} />
-      <ul className="flex flex-col gap-3">
+      <ul className="flex flex-col gap-4">
         {ordered.map(({ strategy, card }) => (
           <StrategyRow key={strategy.id} strategy={strategy} card={card} />
         ))}
@@ -106,7 +106,7 @@ export function StrategiesPage() {
   }
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-end gap-x-4 gap-y-2">
         <ArchivedToggle checked={includeArchived} onChange={setIncludeArchived} />
         <button

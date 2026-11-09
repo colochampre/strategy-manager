@@ -130,14 +130,14 @@ export function MySubscriptionsPage() {
   );
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-4">
       {publics.status === "error" && (
         <p role="alert" className="text-sm text-loss">
           {t("strategies.subscriptions.figuresError")}
         </p>
       )}
       <SortControl sort={sort} onChange={(key) => setSort((current) => nextSort(current, key))} />
-      <ul className="flex flex-col gap-3">
+      <ul className="flex flex-col gap-4">
         {ordered.map((subscription) => (
           <SubscriptionCard key={subscription.id} held={subscription} figures={figuresOf(subscription)} />
         ))}

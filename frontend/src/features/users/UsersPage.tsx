@@ -76,9 +76,9 @@ function UsersList() {
   }
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-4">
       {me.data?.dryRunBrake === true && <p className="text-sm text-ink-2">{t("users.brake")}</p>}
-      <ul className="flex flex-col gap-3">
+      <ul className="flex flex-col gap-4">
         {users.data.map((user) => (
           <UserRow key={user.email} user={user} />
         ))}

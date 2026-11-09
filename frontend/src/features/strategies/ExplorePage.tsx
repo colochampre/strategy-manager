@@ -35,7 +35,7 @@ function PublicStrategyCard({ strategy }: { strategy: PublicStrategy }) {
  */
 export function ExplorePage() {
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-4">
       <CodeEntry />
       <PublicList />
     </div>
@@ -64,7 +64,7 @@ function PublicList() {
   return (
     <>
       <SortControl sort={sort} onChange={(key) => setSort((current) => nextSort(current, key))} />
-      <ul className="flex flex-col gap-3">
+      <ul className="flex flex-col gap-4">
         {ordered.map((strategy) => (
           <PublicStrategyCard key={strategy.id} strategy={strategy} />
         ))}

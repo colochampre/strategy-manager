@@ -32,7 +32,7 @@ function ReportView({ report, asOf, ledger }: ReportViewProps) {
 
   return (
     <>
-      <div className="flex min-w-0 flex-col gap-3">
+      <div className="flex min-w-0 flex-col gap-4">
         {!ledger ? null : summary === undefined ? (
           <p role="alert" data-testid="ledger-line" className="text-sm text-loss">
             {t("overview.ledger.unreadable")}
@@ -113,7 +113,7 @@ export function StrategyPerformance({ strategyId, ledger = true }: StrategyPerfo
     );
   }
   return (
-    <div className="flex min-w-0 flex-col gap-3">
+    <div className="flex min-w-0 flex-col gap-4">
       <ReportView report={performance.data} asOf={performance.dataUpdatedAt} ledger={ledger} />
     </div>
   );

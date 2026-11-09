@@ -357,7 +357,7 @@ export function PositionsTable(props: PositionsTableProps) {
   if (table) return <DesktopTable {...props} />;
   const locale = i18n.resolvedLanguage ?? "en";
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-4">
       {props.positions.map((position) => (
         <PositionCard
           key={position.allocation_id}

@@ -49,7 +49,7 @@ export function OpenPositionsSection({ strategy }: OpenPositionsSectionProps) {
   if (open.data === undefined) {
     return (
       <ReportSection>
-        <section aria-labelledby={headingId} className="flex flex-col gap-3">
+        <section aria-labelledby={headingId} className="flex flex-col gap-4">
           {title}
           <OpenReadState status={open.status} errorUpdateCount={open.errorUpdateCount} />
         </section>
@@ -87,7 +87,7 @@ export function OpenPositionsSection({ strategy }: OpenPositionsSectionProps) {
 
   return (
     <ReportSection>
-      <section aria-labelledby={headingId} className="flex flex-col gap-3">
+      <section aria-labelledby={headingId} className="flex flex-col gap-4">
         {heading}
         {notes.length > 0 && (
           <InfoText disclosure={info}>

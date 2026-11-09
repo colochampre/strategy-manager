@@ -222,15 +222,15 @@ export function SettingsPage() {
   }
 
   return (
-    // The sections stack 3 apart, as every view's blocks do; the title alone steps 6 to them (L.13).
-    <div className="flex flex-col gap-3">
-      <h1 className="mb-3 font-display text-2xl font-bold text-ink">{t("settings.title")}</h1>
+    // The sections stack 4 apart, as every view's blocks do; the title alone steps 6 to them (L.13).
+    <div className="flex flex-col gap-4">
+      <h1 className="mb-2 font-display text-2xl font-bold text-ink">{t("settings.title")}</h1>
       <DisplayNameSection />
       {/* The one status region: always in the document, hidden from sight, said once at a save. */}
       <p role="status" className="sr-only">
         {announcement}
       </p>
-      <section aria-labelledby={titleId} className="flex flex-col gap-3">
+      <section aria-labelledby={titleId} className="flex flex-col gap-4">
         <div className="flex flex-col gap-1.5">
           <div className="flex items-center">
             <h2 id={titleId} className="font-display text-base font-semibold text-ink">
@@ -273,7 +273,7 @@ export function SettingsPage() {
               </div>
             )}
             {pools.isError && <p className="text-[13px] text-ink-2">{t("settings.keys.poolsUnknown")}</p>}
-            <ul aria-labelledby={titleId} className="flex flex-col gap-3">
+            <ul aria-labelledby={titleId} className="flex flex-col gap-4">
               {cards.map((exchange) => (
                 <li key={exchange}>
                   <ExchangeKeyCard

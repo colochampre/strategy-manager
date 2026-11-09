@@ -56,7 +56,7 @@ function ReportTop({ pool, balanceInfo, report, range, asOf, onRangeChange }: Re
   const summary = report.ranges.find((entry) => entry.range === range);
 
   return (
-    <div className="flex min-w-0 flex-col gap-3">
+    <div className="flex min-w-0 flex-col gap-4">
       {summary === undefined ? (
         <p role="alert" data-testid="ledger-line" className="text-sm text-loss">
           {t("overview.ledger.unreadable")}
@@ -154,7 +154,7 @@ export function PoolPanel({ pool }: PoolPanelProps) {
     <section
       data-testid="pool-panel"
       aria-label={`${pool.exchange} · ${pool.venue} · ${pool.settlement_currency}`}
-      className="flex w-full min-w-0 flex-col gap-3"
+      className="flex w-full min-w-0 flex-col gap-4"
     >
       {/* A stale balance says so behind an (i) right of the balance, not on this row. */}
       <PoolEyebrow exchange={pool.exchange} venue={pool.venue} currency={pool.settlement_currency} />

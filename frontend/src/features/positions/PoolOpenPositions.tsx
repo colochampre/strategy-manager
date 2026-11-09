@@ -37,7 +37,7 @@ export function PoolOpenPositions({ pool }: PoolOpenPositionsProps) {
   if (open.data === undefined) {
     return (
       <ReportSection>
-        <section aria-labelledby={headingId} className="flex flex-col gap-3">
+        <section aria-labelledby={headingId} className="flex flex-col gap-4">
           {heading}
           <OpenReadState status={open.status} errorUpdateCount={open.errorUpdateCount} />
         </section>
@@ -51,7 +51,7 @@ export function PoolOpenPositions({ pool }: PoolOpenPositionsProps) {
 
   return (
     <ReportSection>
-      <section aria-labelledby={headingId} className="flex flex-col gap-3">
+      <section aria-labelledby={headingId} className="flex flex-col gap-4">
         {heading}
         <div aria-live="polite" className="flex flex-col gap-1">
           {open.status === "error" && <p className="text-sm text-loss">{t("positions.state.stale", { time: lastRead })}</p>}

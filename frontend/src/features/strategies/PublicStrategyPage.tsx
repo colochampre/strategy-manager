@@ -29,9 +29,9 @@ function PublicRecord({ strategy }: { strategy: PublicStrategy }) {
   // aside on the right. Stacked on a phone, the aside comes last.
   return (
     <div className="grid gap-9 lg:grid-cols-[minmax(0,1fr)_25rem]">
-      {/* Blocks 3 apart, as on every view; the title alone steps 6 to what follows (L.13). */}
-      <div className="flex min-w-0 flex-col gap-3">
-        <header className="mb-3 flex flex-col gap-1.5">
+      {/* Blocks 4 apart, as on every view; the title alone steps 6 to what follows (L.13). */}
+      <div className="flex min-w-0 flex-col gap-4">
+        <header className="mb-2 flex flex-col gap-1.5">
           <BackToExplore />
           <div className="flex flex-wrap items-center gap-x-2">
             <h1 className="font-display text-2xl font-bold text-ink">{strategy.name}</h1>
@@ -95,7 +95,7 @@ function PublicStrategyRead({ entry }: { entry: Entry }) {
   if (strategy.data !== undefined && !gone && refused === null) return <PublicRecord strategy={strategy.data} />;
 
   return (
-    <div className="flex flex-col items-start gap-3">
+    <div className="flex flex-col items-start gap-4">
       <BackToExplore />
       {strategy.status === "pending" && <p className="text-sm text-ink-2">{t("strategies.public.loading")}</p>}
       {gone && <p className="text-sm text-ink-2">{t("strategies.public.notFound")}</p>}

@@ -40,7 +40,7 @@ function RecordView({ record, asOf, joined }: { record: PublicRecord; asOf: numb
 
   return (
     <>
-      <div className="flex min-w-0 flex-col gap-3">
+      <div className="flex min-w-0 flex-col gap-4">
         <ReportSection>
           <ReturnChart
             curve={record.curve}
@@ -111,7 +111,7 @@ export function PublicRecordReport({ strategyId, joined }: PublicRecordReportPro
     );
   }
   return (
-    <div className="flex min-w-0 flex-col gap-3">
+    <div className="flex min-w-0 flex-col gap-4">
       <RecordView record={query.data} asOf={query.dataUpdatedAt} joined={joined} />
     </div>
   );
