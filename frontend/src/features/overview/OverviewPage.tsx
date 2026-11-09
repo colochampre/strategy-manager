@@ -45,7 +45,7 @@ export function OverviewPage() {
         <p className="text-sm text-ink-3">{t("overview.scope.noExchanges")}</p>
       )}
       {panels.length > 0 && (
-        <div data-testid="overview-layout" className="flex min-w-0 flex-col gap-10">
+        <div data-testid="overview-layout" className="flex min-w-0 flex-col gap-4">
           {panels.map((pool) => (
             <PoolPanel key={`${pool.exchange}/${pool.venue}/${pool.settlement_currency}`} pool={pool} />
           ))}

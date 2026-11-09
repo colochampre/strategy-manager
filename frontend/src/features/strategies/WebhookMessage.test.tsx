@@ -105,7 +105,8 @@ const copyIssued = () => {
   const buttons = within(row).getAllByRole("button");
   return buttons[buttons.length - 1] as HTMLElement;
 };
-const statusBeside = (button: HTMLElement) => within(button.parentElement as HTMLElement).getByRole("status");
+// The icon button sits in its tooltip wrapper; the status region follows the wrapper.
+const statusBeside = (button: HTMLElement) => within(button.parentElement?.parentElement as HTMLElement).getByRole("status");
 const press = (button: HTMLElement) =>
   act(async () => {
     fireEvent.click(button);
@@ -190,10 +191,27 @@ describe("WebhookMessage", () => {
     expect(four).toHaveClass("tracking-wider", "text-ink");
   });
 
-  it("says what the four characters are for", async () => {
+  it("says what the four characters are for behind an (i) beside the URL's label, closed until asked (L.10)", async () => {
     setup();
+    await waitFor(() => expect(urlText()).toBe(`${HOST}${MASKED_URL}`));
+    expect(screen.queryByText(MASK_HINT_EN)).toBeNull();
 
-    expect(await screen.findByText(MASK_HINT_EN)).toBeInTheDocument();
+    const button = screen.getByRole("button", { name: "About the last four characters" });
+    expect(button.parentElement).toContainElement(screen.getByText("Webhook URL"));
+    fireEvent.click(button);
+    expect(screen.getByText(MASK_HINT_EN)).toBeInTheDocument();
+  });
+
+  it("says one URL and one message serve every pair behind an (i) beside the heading (L.10)", async () => {
+    setup();
+    const hint = i18n.t("strategies.webhook.hint");
+    expect(screen.queryByText(hint)).toBeNull();
+
+    const heading = screen.getByRole("heading", { name: i18n.t("strategies.webhook.title") });
+    const button = screen.getByRole("button", { name: "About these alerts" });
+    expect(button.parentElement).toContainElement(heading);
+    fireEvent.click(button);
+    expect(screen.getByText(hint)).toBeInTheDocument();
   });
 
   it("leaves the alert message free of the secret and of its mask", async () => {
@@ -210,14 +228,16 @@ describe("WebhookMessage", () => {
     expect(JSON.parse(messageText() ?? "")).toMatchObject({ signal_type: ID, symbol: "{{ticker}}" });
   });
 
-  it("draws an aria-hidden Copy left of the text of Copy message, its name unchanged", () => {
+  it("draws an aria-hidden Copy icon alone, its name unchanged, and says Copy message in a tooltip (L.8)", () => {
     setup();
 
     const button = copyMessage();
     const svg = button.querySelector("svg");
-    expect(svg).toHaveClass("lucide-copy", "size-4", "shrink-0");
+    expect(svg).toHaveClass("lucide-copy", "size-4");
     expect(svg).toHaveAttribute("aria-hidden", "true");
-    expect(button.firstElementChild).toBe(svg);
+    expect(button).toHaveTextContent("");
+    fireEvent.mouseEnter(button.parentElement as HTMLElement);
+    expect(screen.getByRole("tooltip")).toHaveTextContent("Copy message");
     expect(button).toHaveAccessibleName("Copy message");
   });
 
@@ -471,6 +491,7 @@ describe("WebhookMessage", () => {
       copyUrl: "Copy URL",
       masked: MASKED_URL,
       maskHint: MASK_HINT_EN,
+      maskInfo: "About the last four characters",
     },
     {
       language: "es",
@@ -484,6 +505,7 @@ describe("WebhookMessage", () => {
       copyUrl: "Copiar URL",
       masked: MASKED_URL,
       maskHint: MASK_HINT_ES,
+      maskInfo: "Sobre los últimos cuatro caracteres",
     },
   ])("the texts in $language", (T) => {
     beforeEach(async () => {
@@ -493,6 +515,7 @@ describe("WebhookMessage", () => {
     it("renders the mask and what it is for, the regenerate flow, the warning and the shared buttons", async () => {
       setup();
       await waitFor(() => expect(screen.getByLabelText(T.urlLabel).textContent).toBe(`${HOST}${T.masked}`));
+      fireEvent.click(screen.getByRole("button", { name: T.maskInfo }));
       expect(screen.getByText(T.maskHint)).toBeInTheDocument();
 
       fireEvent.click(screen.getByRole("button", { name: T.regenerate }));

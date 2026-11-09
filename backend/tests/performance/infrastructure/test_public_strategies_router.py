@@ -64,6 +64,11 @@ BODY_KEYS = {
     "unleveraged_return_before_fees",
     "live_subscribers",
     "capital",
+    "subscribers",
+    "max_drawdown",
+    "win_rate",
+    "enabled",
+    "uptime",
 }
 
 Factory = async_sessionmaker[AsyncSession]
@@ -380,6 +385,127 @@ async def test_a_strategy_with_no_real_trade_answers_zero_trades_and_zero_return
     assert Decimal(listed["unleveraged_return_before_fees"]) == 0
 
 
+
+async def test_the_list_counts_every_active_seat_and_says_whether_the_strategy_runs(
+    pg_session_factory: Factory, api: _Api, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """tasks.md L.1: a seat counts whether or not it trades live, as the author's own
+    list counts it; one on its way out does not. The brake changes the live count,
+    never this one."""
+    author = await _new_user(pg_session_factory)
+    simulated = await _new_user(pg_session_factory)
+    leaving = await _new_user(pg_session_factory)
+    strategy_id = await _strategy(pg_session_factory, author)
+    await _subscribe(pg_session_factory, author, strategy_id, share="10", total="1000")
+    await _subscribe(pg_session_factory, simulated, strategy_id, share="10", total="100", key=False)
+    await _subscribe(
+        pg_session_factory, leaving, strategy_id, share="10", total="100", status="LEAVING"
+    )
+
+    [listed] = await api.listed()
+
+    assert (listed["subscribers"], listed["live_subscribers"]) == (2, 1)
+    assert listed["enabled"] is True
+    async with pg_session_factory() as session:
+        await session.execute(
+            text("UPDATE strategies SET enabled = false WHERE id = :id"), {"id": strategy_id}
+        )
+        await session.commit()
+    monkeypatch.setattr(get_settings(), "dry_run", True)
+    page = await api.page(strategy_id)
+    assert (page["subscribers"], page["live_subscribers"]) == (2, 0)
+    assert page["enabled"] is False
+
+
+async def test_the_record_names_its_deepest_drop_and_its_win_rate(
+    pg_session_factory: Factory, api: _Api
+) -> None:
+    """tasks.md L.1: from the same real trades as the return. +10%, -10%, +10% and 0%
+    on four days fall 10% from the top once; two wins in four closed trades, since a
+    trade that returns nothing is no win."""
+    author = await _new_user(pg_session_factory)
+    strategy_id = await _strategy(pg_session_factory, author)
+    for day, sold in enumerate(("110", "90", "110", "100")):
+        await _trade(
+            pg_session_factory,
+            author,
+            strategy_id,
+            bought="100",
+            sold=sold,
+            at=T0 + timedelta(days=day),
+        )
+
+    listed = await api.page(strategy_id)
+
+    assert Decimal(listed["max_drawdown"]) == Decimal("-0.1")
+    assert Decimal(listed["win_rate"]) == Decimal("0.5")
+
+
+async def test_with_no_closed_trade_there_is_no_win_rate_and_no_drop(
+    pg_session_factory: Factory, api: _Api
+) -> None:
+    author = await _new_user(pg_session_factory)
+    strategy_id = await _strategy(pg_session_factory, author)
+    await _trade(pg_session_factory, author, strategy_id, sold=None)
+
+    listed = await api.page(strategy_id)
+
+    assert listed["win_rate"] is None
+    assert Decimal(listed["max_drawdown"]) == 0
+
+
+async def _enabled_ten_days_off_two(factory: Any, strategy_id: UUID) -> datetime:
+    """The strategy's whole enablement log: on ten days ago, off from six to four days
+    ago, on since. Eight days active; the first enable ten days ago."""
+    now = datetime.now(UTC)
+    async with factory() as session:
+        await session.execute(
+            text("DELETE FROM strategy_enablement_events WHERE strategy_id = :id"),
+            {"id": strategy_id},
+        )
+        for days_ago, enabled in ((10, True), (6, False), (4, True)):
+            await session.execute(
+                text(
+                    "INSERT INTO strategy_enablement_events "
+                    "(id, strategy_id, enabled, occurred_at, origin) "
+                    "VALUES (:id, :strategy, :enabled, :at, 'OBSERVED')"
+                ),
+                {
+                    "id": uuid4(),
+                    "strategy": strategy_id,
+                    "enabled": enabled,
+                    "at": now - timedelta(days=days_ago),
+                },
+            )
+        await session.commit()
+    return now - timedelta(days=10)
+
+
+def _reads_eight_days(uptime: dict[str, Any], first: datetime) -> bool:
+    eight = timedelta(days=8).total_seconds()
+    return (
+        eight <= uptime["seconds"] < eight + 120
+        and datetime.fromisoformat(uptime["first_enabled_at"]) == first
+        and uptime["baseline"] is False
+    )
+
+
+async def test_the_list_and_the_page_say_how_long_the_strategy_has_run(
+    pg_session_factory: Factory, api: _Api
+) -> None:
+    """tasks.md L.1: the days active beside the age, the same figure the author's own
+    card shows: the enabled stretches added up, not the time since it was made."""
+    author = await _new_user(pg_session_factory)
+    strategy_id = await _strategy(pg_session_factory, author)
+    first = await _enabled_ten_days_off_two(pg_session_factory, strategy_id)
+
+    [listed] = await api.listed()
+    page = await api.page(strategy_id)
+
+    assert _reads_eight_days(listed["uptime"], first), listed["uptime"]
+    assert _reads_eight_days(page["uptime"], first), page["uptime"]
+
+
 # --- the record -----------------------------------------------------------------------
 
 
@@ -649,7 +775,8 @@ async def test_no_body_carries_an_id_an_email_a_secret_hint_or_a_subscriber_row(
             "allocation_percent",
             "author_id",
             "user_id",
-            "enabled",
+            # "enabled" leaves since tasks.md L.1: the owner asked that a reader see
+            # whether another author's strategy runs.
         ):
             assert private not in response.text, private
 
@@ -996,7 +1123,9 @@ async def test_the_read_runs_in_one_read_only_snapshot_and_touches_no_signal_or_
     transaction = [each for each in statements if "SET TRANSACTION" in each]
     assert transaction == ["SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY"]
     read = statements[statements.index(transaction[0]) :]
-    assert len(read) == 4, "the snapshot, the listings, the author's fills and the seats"
+    assert len(read) == 5, (
+        "the snapshot, the listings, the author's fills, the seats and the enablement log"
+    )
     assert not [each for each in read if "signals" in each]
     assert not [each for each in statements if "raw_payload" in each]
 

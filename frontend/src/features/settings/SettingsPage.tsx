@@ -222,8 +222,9 @@ export function SettingsPage() {
   }
 
   return (
-    <div className="flex flex-col gap-6">
-      <h1 className="font-display text-2xl font-bold text-ink">{t("settings.title")}</h1>
+    // The sections stack 4 apart, as every view's blocks do; the title alone steps 6 to them (L.13).
+    <div className="flex flex-col gap-4">
+      <h1 className="mb-2 font-display text-2xl font-bold text-ink">{t("settings.title")}</h1>
       <DisplayNameSection />
       {/* The one status region: always in the document, hidden from sight, said once at a save. */}
       <p role="status" className="sr-only">

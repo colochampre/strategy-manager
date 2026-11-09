@@ -41,6 +41,8 @@ function openCountOf(answer: OpenState, pool: Pool): OpenCount {
 
 interface ReportTopProps {
   pool: Pool;
+  /** The note behind the balance's (i), only while the snapshot is stale. */
+  balanceInfo: { label: string; text: string } | undefined;
   report: PoolPerformance;
   range: RangeName;
   /** When the report was read (ms): the "now" the chart's range windows end on. */
@@ -49,12 +51,12 @@ interface ReportTopProps {
 }
 
 /** The ledger line, then the chart with its range selector in the chart's header: both follow the same range. */
-function ReportTop({ pool, report, range, asOf, onRangeChange }: ReportTopProps) {
+function ReportTop({ pool, balanceInfo, report, range, asOf, onRangeChange }: ReportTopProps) {
   const { t } = useTranslation();
   const summary = report.ranges.find((entry) => entry.range === range);
 
   return (
-    <div className="flex min-w-0 flex-col gap-3">
+    <div className="flex min-w-0 flex-col gap-4">
       {summary === undefined ? (
         <p role="alert" data-testid="ledger-line" className="text-sm text-loss">
           {t("overview.ledger.unreadable")}
@@ -67,6 +69,7 @@ function ReportTop({ pool, report, range, asOf, onRangeChange }: ReportTopProps)
           pnl={summary.pnl}
           ret={summary.return}
           maxDrawdown={report.max_drawdown}
+          availableInfo={balanceInfo}
         />
       )}
       <ReportSection>
@@ -129,6 +132,16 @@ export function PoolPanel({ pool }: PoolPanelProps) {
     top = (
       <ReportTop
         pool={pool}
+        balanceInfo={
+          staleBalance === null
+            ? undefined
+            : {
+                label: t("overview.pool.staleInfo"),
+                text: t("overview.pool.stale", {
+                  time: observedAtText(staleBalance.observed_at, i18n.resolvedLanguage ?? "en"),
+                }),
+              }
+        }
         report={report}
         range={range}
         asOf={performance.dataUpdatedAt}
@@ -141,18 +154,10 @@ export function PoolPanel({ pool }: PoolPanelProps) {
     <section
       data-testid="pool-panel"
       aria-label={`${pool.exchange} · ${pool.venue} · ${pool.settlement_currency}`}
-      className="flex w-full min-w-0 flex-col gap-3"
+      className="flex w-full min-w-0 flex-col gap-4"
     >
-      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-        <PoolEyebrow exchange={pool.exchange} venue={pool.venue} currency={pool.settlement_currency} />
-        {staleBalance !== null && (
-          <p data-testid="balance-stale" className="font-mono text-[11px] text-ink-2">
-            {t("overview.pool.stale", {
-              time: observedAtText(staleBalance.observed_at, i18n.resolvedLanguage ?? "en"),
-            })}
-          </p>
-        )}
-      </div>
+      {/* A stale balance says so behind an (i) right of the balance, not on this row. */}
+      <PoolEyebrow exchange={pool.exchange} venue={pool.venue} currency={pool.settlement_currency} />
       {top}
       {report !== null && (
         <ReportSection>

@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { PoolShareEditor } from "@/features/strategies/PoolShareEditor";
@@ -39,6 +39,7 @@ function strategy({ allocation_percent = "30", ...overrides }: Partial<Strategy>
     description: null,
     subscribers: 1,
     live_subscribers: 0,
+    created_at: null,
     capital: null,
     ...overrides,
   };
@@ -726,7 +727,7 @@ describe("PoolShareEditor, step 3b: the states and the refusals", () => {
 function savedRegion(): HTMLElement {
   // The button reads "Saving…" while a save is in flight and "Saved" after it, so it is found by any of its names.
   const button = screen.getByRole("button", { name: /^(Save|Saving…|Saved)$/ });
-  const region = button.parentElement?.querySelector<HTMLElement>('[role="status"]');
+  const region = button.closest("div")?.querySelector<HTMLElement>('[role="status"]');
   if (region === null || region === undefined) throw new Error("no live region beside Save");
   return region;
 }
@@ -2063,7 +2064,7 @@ describe.each(["en", "es"] as const)("PoolShareEditor, every text of design § I
     fireEvent.click(named(T.save));
 
     const button = await waitFor(() => named(T.saved));
-    expect(button.parentElement?.querySelector('[role="status"]')).toHaveTextContent(T.saved);
+    expect(button.closest("div")?.querySelector('[role="status"]')).toHaveTextContent(T.saved);
   });
 });
 
@@ -2126,7 +2127,7 @@ describe("PoolShareEditor, Save sits on the row of the field (I.4)", () => {
     expect(classesOf(actions)).not.toContain("flex-1");
     expect(status).not.toBeNull();
     expect(precedes(saveButton(), status as HTMLElement)).toBe(true);
-    expect(saveButton().className).toContain("min-h-11");
+    expect(classesOf(saveButton())).toContain("size-11");
   });
 
   it("in the document: the field, then Save, then its status, then the track and the amount", async () => {
@@ -2194,12 +2195,11 @@ describe("PoolShareEditor, every Save says only Save (I.4)", () => {
   });
 });
 
-// 12f.10.30d. jsdom has no layout, so the width rule is pinned by structure: every text the button can show
-// is in the button, in one cell, and the ones not shown are hidden from sight and from assistive technology.
+// L.8 (was 12f.10.30d): Save is an icon button. Its state is told by the icon, the accessible name and the tooltip.
 describe.each([
   { language: "en", save: "Save", saving: "Saving…", saved: "Saved" },
   { language: "es", save: "Guardar", saving: "Guardando…", saved: "Guardado" },
-] as const)("PoolShareEditor, Saved is the button's own text, in $language (12f.10.30d)", (T) => {
+] as const)("PoolShareEditor, Save is an icon button, in $language (L.8)", (T) => {
   beforeEach(async () => {
     await act(() => i18n.changeLanguage(T.language));
   });
@@ -2208,36 +2208,18 @@ describe.each([
   });
 
   const button = (name: string) => screen.getByRole("button", { name });
-  const cellOf = (host: HTMLElement, text: string) => within(host).getByText(text);
-  const isShown = (cell: HTMLElement) => !cell.hasAttribute("aria-hidden") && !classesOf(cell).includes("invisible");
-  const isHidden = (cell: HTMLElement) =>
-    cell.getAttribute("aria-hidden") === "true" && classesOf(cell).includes("invisible");
-  /** Every element that holds exactly `text`, outside the button that owns it. */
-  const outside = (host: HTMLElement, text: string) => screen.queryAllByText(text).filter((node) => !host.contains(node));
 
-  it("draws an aria-hidden Save icon left of the texts' cell, outside it, the name unchanged", () => {
+  it("draws only an aria-hidden Save icon, the name unchanged", () => {
     setup(strategy());
 
     const host = button(T.save);
-    const svg = host.querySelector("svg");
-    expect(svg).toHaveClass("lucide-save", "size-4", "shrink-0");
-    expect(svg).toHaveAttribute("aria-hidden", "true");
-    expect(host.firstElementChild).toBe(svg);
-    expect(cellOf(host, T.saved).parentElement?.contains(svg)).toBe(false);
+    expect(host).toHaveTextContent("");
+    expect(host.querySelector("svg")).toHaveClass("lucide-save");
+    expect(host.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
     expect(host).toHaveAccessibleName(T.save);
   });
 
-  it("holds all three of its texts and shows only Save while nothing was saved", () => {
-    setup(strategy());
-
-    const host = button(T.save);
-
-    expect(isShown(cellOf(host, T.save))).toBe(true);
-    expect(isHidden(cellOf(host, T.saving))).toBe(true);
-    expect(isHidden(cellOf(host, T.saved))).toBe(true);
-  });
-
-  it("reads Saved after a save, disabled, and shows only that one of its three texts", async () => {
+  it("names the button Saved after a save, disabled, with a check", async () => {
     setup(strategy());
     type("40");
     fireEvent.click(button(T.save));
@@ -2246,12 +2228,10 @@ describe.each([
 
     expect(host).toBeDisabled();
     expect(screen.queryByRole("button", { name: T.save })).toBeNull();
-    expect(isShown(cellOf(host, T.saved))).toBe(true);
-    expect(isHidden(cellOf(host, T.save))).toBe(true);
-    expect(isHidden(cellOf(host, T.saving))).toBe(true);
+    expect(host.querySelector("svg")).toHaveClass("lucide-check");
   });
 
-  it("shows only Saving while a save is in flight", async () => {
+  it("names the button Saving while a save is in flight, with a spinner", async () => {
     setup(strategy(), { patch: () => new Promise<Response>(() => undefined) });
     type("40");
     fireEvent.click(button(T.save));
@@ -2259,27 +2239,23 @@ describe.each([
     const host = await screen.findByRole("button", { name: T.saving });
 
     expect(host).toBeDisabled();
-    expect(isShown(cellOf(host, T.saving))).toBe(true);
-    expect(isHidden(cellOf(host, T.save))).toBe(true);
-    expect(isHidden(cellOf(host, T.saved))).toBe(true);
+    expect(host.querySelector("svg")).toHaveClass("animate-spin");
   });
 
-  it("leaves no visible Saved beside the button: the one text outside it is the hidden status", async () => {
+  it("says Saved in a status region after the button and nowhere visible", async () => {
     setup(strategy());
     type("40");
     fireEvent.click(button(T.save));
     const host = await screen.findByRole("button", { name: T.saved });
 
-    const elsewhere = outside(host, T.saved);
+    const status = screen.getAllByText(T.saved).find((node) => node.getAttribute("role") === "status") as HTMLElement;
 
-    expect(elsewhere).toHaveLength(1);
-    const status = elsewhere[0] as HTMLElement;
-    expect(status).toHaveAttribute("role", "status");
     expect(classesOf(status)).toContain("sr-only");
-    expect(host.parentElement).toContainElement(status);
+    expect(precedes(host, status)).toBe(true);
+    expect(screen.queryAllByText(T.saved).filter((node) => node !== status)).toEqual([]);
   });
 
-  it("goes back to Save when the value changes, and Saved is then in no visible text", async () => {
+  it("goes back to Save when the value changes", async () => {
     setup(strategy());
     type("40");
     fireEvent.click(button(T.save));
@@ -2287,10 +2263,7 @@ describe.each([
 
     type("41");
 
-    const host = button(T.save);
-    expect(host).toBeEnabled();
-    expect(isShown(cellOf(host, T.save))).toBe(true);
-    expect(isHidden(cellOf(host, T.saved))).toBe(true);
-    expect(outside(host, T.saved)).toEqual([]);
+    expect(button(T.save)).toBeEnabled();
+    expect(button(T.save).querySelector("svg")).toHaveClass("lucide-save");
   });
 });

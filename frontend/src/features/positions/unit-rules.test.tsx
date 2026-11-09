@@ -3,7 +3,6 @@ import { useLocation } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { OpenMarks } from "@/features/positions/OpenMarks";
-import { OpenStateLine } from "@/features/positions/OpenStateLine";
 import type { Strategy } from "@/shared/api/types";
 import i18n from "@/shared/i18n";
 import {
@@ -54,6 +53,7 @@ function strategy(): Strategy {
     description: null,
     subscribers: 1,
     live_subscribers: 0,
+    created_at: null,
     capital: null,
   };
 }
@@ -103,15 +103,13 @@ function Where() {
   return <p data-testid="where">{`${location.pathname}${location.hash}`}</p>;
 }
 
-/** Mounts the summary, the marks and a probe of the location; `current` is the positions answer a test may break. */
+/** Mounts the marks and a probe of the location. */
 async function mountUnit() {
-  const current: { status: number; body: unknown } = { status: 200, body: STATE };
   const route = (url: string) =>
-    url.endsWith("/positions/open") ? Promise.resolve(jsonResponse(current.body, current.status)) : undefined;
+    url.endsWith("/positions/open") ? Promise.resolve(jsonResponse(STATE)) : undefined;
   const api = stubApi(HEALTH, [], undefined, {}, route, {}, undefined, undefined, CONFIRMED);
   const view = renderAt(
     <>
-      <OpenStateLine exchange="bybit" visibleStrategyIds={new Set([ALPHA])} />
       <ul>
         <li>
           <OpenMarks strategy={strategy()} />
@@ -122,15 +120,7 @@ async function mountUnit() {
   );
   await waitFor(() => expect(view.container.querySelectorAll("[class*='border']").length).toBeGreaterThan(3));
   await waitFor(() => expect(screen.queryByRole("link")).toBeInTheDocument());
-  return { api, current, view };
-}
-
-/** Breaks the next read and presses the refresh button, so the summary says since when. */
-async function goStale(current: { status: number; body: unknown }, refresh: string) {
-  current.status = 500;
-  current.body = { detail: "down" };
-  fireEvent.click(screen.getByRole("button", { name: refresh }));
-  await waitFor(() => expect(document.body.textContent ?? "").toMatch(/21:40:03 UTC\./));
+  return { api, view };
 }
 
 beforeEach(async () => {
@@ -145,8 +135,7 @@ afterEach(async () => {
 
 describe("the marks follow one rule (palette, red with its words, dashed for an order)", () => {
   it("uses palette tokens only: no hex, no var() in a class, no style attribute", async () => {
-    const { current, view } = await mountUnit();
-    await goStale(current, "Read again");
+    const { view } = await mountUnit();
 
     const everything = [...view.container.querySelectorAll("*")];
     expect(everything.length).toBeGreaterThan(20);
@@ -156,17 +145,15 @@ describe("the marks follow one rule (palette, red with its words, dashed for an 
     }
   });
 
-  it("draws red only beside its words, the stale sentence and the venue chip included", async () => {
-    const { current, view } = await mountUnit();
-    await goStale(current, "Read again");
+  it("draws red only beside its words, the venue chip included", async () => {
+    const { view } = await mountUnit();
 
     const red = [...view.container.querySelectorAll("*")].filter((element) =>
       /(^|\s)(text|border|bg)-loss(\s|$)/.test(element.getAttribute("class") ?? ""),
     );
-    // The venue chip (twice), the mixed origin's word and the stale sentence.
-    expect(red.length).toBeGreaterThanOrEqual(4);
+    // The venue chip (twice) and the mixed origin's word.
+    expect(red.length).toBeGreaterThanOrEqual(3);
     for (const element of red) expect((element.textContent ?? "").trim()).not.toBe("");
-    expect(red.map((element) => element.textContent)).toContain("Could not be refreshed since 21:40:03 UTC.");
   });
 
   it("draws a dashed border on the three orders and on nothing else", async () => {
@@ -187,7 +174,6 @@ describe("the accessible names of the unit", () => {
 
     expect(screen.getByRole("list", { name: "Open positions of Alpha" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "See the discrepancy, AAVEUSDT" })).toBeInTheDocument();
-    expect(screen.getByRole("status")).toHaveTextContent("Open:");
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     // The decorative icons (owner decision 67) are hidden on purpose; nothing else may be.
     expect(view.container.querySelectorAll("[aria-hidden='true']:not(svg.lucide)")).toHaveLength(0);
@@ -216,7 +202,6 @@ describe("what a mark and a row never do", () => {
       ...chips,
       screen.getByText(/^Being booked automatically\./),
       ...screen.getAllByRole("listitem"),
-      screen.getByText(/^Not on this list:/),
     ]) {
       fireEvent.click(target);
     }
@@ -252,17 +237,10 @@ describe("what a mark and a row never do", () => {
 describe("the same unit in Spanish", () => {
   it("writes every text of the unit in Spanish and leaves none of the English", async () => {
     await act(() => i18n.changeLanguage("es"));
-    const { current, view } = await mountUnit();
-    await goStale(current, "Leer de nuevo");
+    const { view } = await mountUnit();
 
     const text = view.container.textContent ?? "";
     for (const spanish of [
-      "Abiertas:",
-      "Órdenes en curso:",
-      "Última lectura:",
-      "Fuera de esta lista: LINK · archivada · LINKUSDT · En vivo.",
-      "No se pudo actualizar desde las 21:40:03 UTC.",
-      "Leer de nuevo",
       "Simulación",
       "En vivo",
       "Simulación y en vivo",

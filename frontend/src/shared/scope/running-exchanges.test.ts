@@ -26,6 +26,7 @@ function strategy(exchange: string, overrides: Partial<Strategy> = {}): Strategy
     description: null,
     subscribers: 0,
     live_subscribers: 0,
+    created_at: null,
     capital: null,
     ...overrides,
   };

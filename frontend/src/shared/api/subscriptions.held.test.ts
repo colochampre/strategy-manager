@@ -67,6 +67,26 @@ describe("fetchHeldSubscriptions", () => {
     await expect(fetchHeldSubscriptions()).resolves.toEqual([row]);
   });
 
+  it("carries whether the strategy runs and for how long", async () => {
+    const row = heldSubscription({ strategy_enabled: false });
+    stubFetch(jsonResponse([row]));
+
+    await expect(fetchHeldSubscriptions()).resolves.toMatchObject([
+      { strategy_enabled: false, strategy_uptime: { baseline: false } },
+    ]);
+  });
+
+  it.each([
+    ["an enabled flag that is missing", [heldSubscription({ strategy_enabled: undefined })]],
+    ["an enabled flag that is a string", [heldSubscription({ strategy_enabled: "yes" })]],
+    ["an uptime that is missing", [heldSubscription({ strategy_uptime: undefined })]],
+    ["an uptime whose seconds are text", [heldSubscription({ strategy_uptime: { seconds: "5", first_enabled_at: null, baseline: false } })]],
+  ])("refuses a row with %s", async (_name, body) => {
+    stubFetch(jsonResponse(body));
+
+    await expect(fetchHeldSubscriptions()).rejects.toBeInstanceOf(ApiError);
+  });
+
   it.each([
     ["a body that is not a list", { rows: [] }],
     ["a row with no strategy name", [heldSubscription({ strategy_name: null })]],

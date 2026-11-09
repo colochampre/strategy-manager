@@ -24,6 +24,13 @@
   --color-brand-bybit: #F7A600;
   --color-brand-pionex: #FF7028;
 
+  /* The language switch's round flags (shared/layout/Flag.tsx), in each flag's own colours. */
+  --color-flag-us-red: #B22234;
+  --color-flag-us-blue: #3C3B6E;
+  --color-flag-white: #FFFFFF;
+  --color-flag-ar-blue: #74ACDF;
+  --color-flag-ar-sun: #F6B40E;
+
   /* Monthly grid bands: fixed ±15% scale, 6 bands of 2.5 points each. */
   --color-gain-1: color-mix(in srgb, #1FA6B8 20%, #1E272F);
   --color-gain-2: color-mix(in srgb, #1FA6B8 32%, #1E272F);

@@ -13,8 +13,18 @@ from strategy_manager.performance.application.ports import NO_ENTRY, PageEntry, 
 from strategy_manager.performance.application.read_public_strategies import ReadPublicStrategies
 from strategy_manager.performance.domain.closed_trade import FillGroup
 from strategy_manager.performance.domain.public_capital import LiveSeat
+from strategy_manager.strategies.domain.enablement import EnablementEvent, EnablementOrigin
 
 T0 = datetime(2026, 10, 1, 12, tzinfo=UTC)
+NOW = datetime(2026, 11, 1, 12, tzinfo=UTC)
+
+
+class _Clock:
+    def now(self) -> datetime:
+        return NOW
+
+
+CLOCK = _Clock()
 USE_CASE_LOGGER = "strategy_manager.performance.application.read_public_strategies"
 
 
@@ -27,6 +37,8 @@ def _listing(strategy_id: UUID | None = None) -> PublicListing:
         venue="usdt-m",
         settlement_currency="USDT",
         created_at=T0,
+        enabled=True,
+        subscribers=0,
     )
 
 
@@ -71,6 +83,7 @@ class _Source:
         self._listings = listings
         self._fills = fills or {}
         self._seats = seats or {}
+        self._events: Mapping[UUID, Sequence[EnablementEvent]] = {}
         self.calls: list[tuple[str, tuple[UUID, ...]]] = []
 
     async def listings(self) -> Sequence[PublicListing]:
@@ -94,6 +107,12 @@ class _Source:
         self.calls.append(("live_seats", tuple(strategy_ids)))
         return self._seats
 
+    async def enablement(
+        self, strategy_ids: Sequence[UUID]
+    ) -> Mapping[UUID, Sequence[EnablementEvent]]:
+        self.calls.append(("enablement", tuple(strategy_ids)))
+        return self._events
+
 
 async def test_a_strategy_carries_its_listing_record_live_count_and_capital() -> None:
     listing = _listing()
@@ -108,7 +127,7 @@ async def test_a_strategy_carries_its_listing_record_live_count_and_capital() ->
         },
     )
 
-    [strategy] = await ReadPublicStrategies(source, brake=False).read_all()
+    [strategy] = await ReadPublicStrategies(source, brake=False, clock=CLOCK).read_all()
 
     assert strategy.listing == listing
     assert strategy.record.closed_trade_count == 1
@@ -125,7 +144,7 @@ async def test_each_strategy_reads_its_own_fills_and_seats_in_the_listed_order()
         {second.strategy_id: [LiveSeat(Decimal("100"), Decimal("70"))]},
     )
 
-    answer = await ReadPublicStrategies(source, brake=False).read_all()
+    answer = await ReadPublicStrategies(source, brake=False, clock=CLOCK).read_all()
 
     assert [each.listing for each in answer] == [first, second]
     assert [each.record.closed_trade_count for each in answer] == [1, 0]
@@ -136,7 +155,7 @@ async def test_each_strategy_reads_its_own_fills_and_seats_in_the_listed_order()
 async def test_a_strategy_nobody_signals_or_holds_reads_zero() -> None:
     source = _Source([_listing()])
 
-    [strategy] = await ReadPublicStrategies(source, brake=False).read_all()
+    [strategy] = await ReadPublicStrategies(source, brake=False, clock=CLOCK).read_all()
 
     assert strategy.record.closed_trade_count == 0
     assert strategy.record.total_return == Decimal(0)
@@ -152,28 +171,59 @@ async def test_under_the_brake_nobody_trades_live_and_the_capital_is_absent() ->
         {listing.strategy_id: [LiveSeat(Decimal("50"), Decimal("1000"))]},
     )
 
-    [strategy] = await ReadPublicStrategies(source, brake=True).read_all()
+    [strategy] = await ReadPublicStrategies(source, brake=True, clock=CLOCK).read_all()
 
     assert strategy.live_subscribers == 0
     assert strategy.capital is None
     assert strategy.record.closed_trade_count == 1
-    assert [name for name, _ in source.calls] == ["listings", "author_fills"]
+    assert [name for name, _ in source.calls] == ["listings", "author_fills", "enablement"]
 
 
 async def test_every_listed_strategy_is_asked_about_in_one_call_each() -> None:
     first, second = _listing(), _listing()
     source = _Source([first, second])
 
-    await ReadPublicStrategies(source, brake=False).read_all()
+    await ReadPublicStrategies(source, brake=False, clock=CLOCK).read_all()
 
     ids = (first.strategy_id, second.strategy_id)
-    assert source.calls == [("listings", ()), ("author_fills", ids), ("live_seats", ids)]
+    assert source.calls == [
+        ("listings", ()),
+        ("author_fills", ids),
+        ("live_seats", ids),
+        ("enablement", ids),
+    ]
+
+
+async def test_each_strategy_reads_its_days_active_from_its_own_log_at_the_clocks_now() -> None:
+    """tasks.md L.1: on twelve days ago, off from ten to four, on since: six days,
+    counted to the use case's clock; a strategy with no log has none."""
+    listing, quiet = _listing(), _listing()
+    source = _Source([listing, quiet])
+    source._events = {
+        listing.strategy_id: [
+            EnablementEvent(
+                listing.strategy_id, True, NOW - timedelta(days=12), EnablementOrigin.OBSERVED
+            ),
+            EnablementEvent(
+                listing.strategy_id, False, NOW - timedelta(days=10), EnablementOrigin.OBSERVED
+            ),
+            EnablementEvent(
+                listing.strategy_id, True, NOW - timedelta(days=4), EnablementOrigin.OBSERVED
+            ),
+        ]
+    }
+
+    first, second = await ReadPublicStrategies(source, brake=False, clock=CLOCK).read_all()
+
+    assert first.uptime.seconds == timedelta(days=6).total_seconds()
+    assert first.uptime.first_enabled_at == NOW - timedelta(days=12)
+    assert (second.uptime.seconds, second.uptime.first_enabled_at) == (0, None)
 
 
 async def test_nothing_listed_asks_for_nothing_else() -> None:
     source = _Source()
 
-    assert await ReadPublicStrategies(source, brake=False).read_all() == ()
+    assert await ReadPublicStrategies(source, brake=False, clock=CLOCK).read_all() == ()
     assert [name for name, _ in source.calls] == ["listings"]
 
 
@@ -187,7 +237,9 @@ async def test_one_strategy_reads_as_it_does_on_the_list() -> None:
 
     reader = uuid4()
 
-    strategy = await ReadPublicStrategies(source, brake=False).read_one(listing.strategy_id, reader)
+    strategy = await ReadPublicStrategies(source, brake=False, clock=CLOCK).read_one(
+        listing.strategy_id, reader
+    )
 
     assert strategy is not None
     assert strategy.listing == listing
@@ -200,6 +252,7 @@ async def test_one_strategy_reads_as_it_does_on_the_list() -> None:
         ("listing", (listing.strategy_id, reader)),
         ("author_fills", ids),
         ("live_seats", ids),
+        ("enablement", ids),
     ]
 
 
@@ -212,7 +265,7 @@ async def test_a_trade_the_record_cannot_read_is_said_in_a_warning_naming_it(
     source = _Source([listing], {listing.strategy_id: [*_round_trip("100", "110"), *unreadable]})
 
     with caplog.at_level(logging.WARNING, logger=USE_CASE_LOGGER):
-        [strategy] = await ReadPublicStrategies(source, brake=False).read_all()
+        [strategy] = await ReadPublicStrategies(source, brake=False, clock=CLOCK).read_all()
 
     assert strategy.record.closed_trade_count == 1
     said = [each for each in caplog.records if each.name == USE_CASE_LOGGER]
@@ -227,5 +280,8 @@ async def test_a_strategy_not_on_the_list_is_none_and_asks_for_nothing_else() ->
     source = _Source([_listing()])
     missing, reader = uuid4(), uuid4()
 
-    assert await ReadPublicStrategies(source, brake=False).read_one(missing, reader) is None
+    assert (
+        await ReadPublicStrategies(source, brake=False, clock=CLOCK).read_one(missing, reader)
+        is None
+    )
     assert source.calls == [("listing", (missing, reader))]

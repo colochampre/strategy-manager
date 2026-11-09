@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 
 import { DeleteKeyDialog } from "@/features/settings/DeleteKeyDialog";
 import { useDeleteCredential } from "@/shared/api/credentials";
-import { DANGER_CONTROL } from "@/shared/ui/danger-control";
+import { IconButton } from "@/shared/ui/IconButton";
 
 export interface DeleteKeyControlProps {
   exchange: string;
@@ -99,17 +99,15 @@ export function DeleteKeyControl({
   return (
     <>
       {last4 !== null && (
-        <button
+        <IconButton
           ref={button}
-          type="button"
-          aria-label={`${t("settings.card.delete")} ${name}`}
+          icon={Trash}
+          label={t("settings.card.delete")}
+          name={`${t("settings.card.delete")} ${name}`}
           disabled={disabled}
           onClick={open}
-          className={DANGER_CONTROL}
-        >
-          <Trash aria-hidden="true" className="size-4 shrink-0" />
-          {t("settings.card.delete")}
-        </button>
+          tone="danger"
+        />
       )}
       {shown !== null && (
         <DeleteKeyDialog

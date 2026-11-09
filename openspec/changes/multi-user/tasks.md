@@ -1861,7 +1861,7 @@ Decision 41: a strategy off Explore can be shared by a link or by single-use inv
   - Done (inline): `Visibility` gains `LINK` and `Strategy` gains `share_token` (the guard requires the key, a string or null). The select offers Private · With link · Public, most closed first so the default stays first, with a link icon for With link; the new-strategy dialog offers the same three. The hint says what each one means, and "choose your name first" now speaks of a strategy offered to others. `StrategySharing` sits in the aside right after the seat's settings (the share stays the first setting, as pinned): a LINK strategy shows `<origin>/strategies/explore/<id>?link=<token>` with Copy link; a PRIVATE one shows Create code, the new code once (`gcTime: 0`, put away with Done, never shown again), and the unused codes as `····-XXXX` with their expiry in UTC, each with an ✕ that revokes it. Creating and revoking read the list again whatever the outcome. An archived strategy creates no code and still revokes. Refusals in words: not private, no name, archived, gone, failed; a revoke's 404 says the code was already used, expired or revoked. API client: `fetchInviteCodes`, `issueInviteCode` (a body without a code is an error that never echoes it), `revokeInviteCode`, with their hooks under `['strategy', id, 'invite-codes']`. 34 hand mutations, 32 killed; the 2 survivors are equivalent under the `share_token` CHECK (only a LINK strategy holds a token): showing the link for any strategy with a token, and showing codes for any non-public one.
 - [x] K.6 Panel, reader: "I have a code" on Explore opens the strategy's page; a link opens it too; Subscribe sends the link or the code. A spent, expired or revoked code says so in words. EN/ES.
   - Done (inline). **A route K.4 did not have:** a code alone names no strategy, and the page needs one, so `POST /api/public/invite-codes/lookup` (`{code}` in the body, never the path, so no access log keeps it) answers `{strategy_id}`. A code's hash is unique across every strategy (`ux_invite_codes_code_hash`). It spends nothing and counts like every other code: `CheckInviteCode.locate` shares the lock, the limit and the failure writing with `check` (`_admit`, `_settle`); the port gains `locate(code_hash)`. Wrong or malformed is a 404, dead a 410 with its reason that names no strategy, the limit a 429, longer than 32 a 422 that counts nothing. Added to the guarded routes, the cross-user sweep (B holding A's real code learns its strategy, on purpose, and nothing of A's changes; `shows` may now name an id) and the secret sweep (a real seeded code, answered 200). Panel: Explore always shows "I have a code" above the list, whatever its state; it opens a form, looks the code up (trimmed), and opens `/strategies/explore/<id>?code=<code>`. The page reads `?link=` and `?code=` (an empty one is none) into an `Entry` context that its read, its record, the share preview and Subscribe take (`link_token`, `invite_code`); keys gain the entry only when there is one. A dead code, too many wrong codes, and a link or code that opens nothing say so in words on the page, on Explore and on Subscribe, and a refusal wins over a strategy read before it. EN/ES with usted. Backend: 8 hand mutations, all killed. Panel: 25 hand mutations, 24 killed; the survivor drops the entry from the query keys, whose only effect is a stale 404 shown for a moment before the refetch when the same page is opened again with a code. Gate: ruff, mypy, frontend lint and 3585 tests green; one backend failure, `test_a_job_whose_user_cannot_be_read_waits_for_every_job_before_it` (G.7 lanes, nothing K.6 touches), seen once while the frontend suite ran beside it and passing alone three times out of three: a flake under load, for K.D to look at.
-- [ ] K.D Gate, independent verifier, owner reads the running panel (fixture config), push and PR on the owner's word, rehearse `0038` and `0039` (K.4 added the attempts table), deploy (migration, API restart, then pps.6).
+- [x] K.D Gate, independent verifier, owner reads the running panel (fixture config), push and PR on the owner's word, rehearse `0038` and `0039` (K.4 added the attempts table), deploy (migration, API restart, then pps.6).
   - **The G.7 lanes flake** (`test_a_job_whose_user_cannot_be_read_waits_for_every_job_before_it`) was the test's, not the claim's: the claim orders by `(run_after, id)`, and Python 3.12's wall clock ticks every 15.6 ms on Windows, so the continuation could share a delivery's `run_after` and, with a smaller random id, come before it. Forcing that tie reproduced `{None, delivery}` every time. The test now moves the deliveries a second earlier (6b954e8). The VPS clock is not that coarse; production orders simultaneous jobs arbitrarily, as designed.
   - **Opus verifier, 2026-11-07, three blockers**, fixed in one batch:
     - **B1, codes and link tokens in the access log.** `access_log.py` redacted only `secret|token|api_key|password`, and the page, the record and the share preview take `?link=` and `?code=` on every read. `link` and `code` are now redacted (2 mutations, killed).
@@ -1874,3 +1874,175 @@ Decision 41: a strategy off Explore can be shared by a link or by single-use inv
     - **Recheck (92c3165): closed.** The verifier's probe read 3 connections waiting on the lock, not 20; 30 concurrent page reads with a code on a request pool of 5 answered 10 404s and 20 429s, the limit exactly, no 500 and no stall. Advisory: a check that waits the 10 s for a slot (a stalled database, a held lock) answers a generic 500 while its request holds its main-pool connection; a 503 with a WARNING line would say why.
     - **Owner's reading of the panel (2026-11-08):** "Revisado. Todo correcto, aunque casi no veo la seccion nueva del link. La pondría inmediatamente debajo del titulo y selector de visibilidad de la estrategia, por encima de la seccion de sliders de share y leverage. Además lo compactaría dejando el input de link sin salto de linea y con overflow horizontal y el botón Copiar enlace, simplemente con un icono de copy, y a lo sumo un tooltip de Copiar, y llevaría el texto 'Quien abra este enlace ve la estrategia...' a un (i) al lado de 'Enlace de la estrategia'. Lo mismo con el texto en modo privado de 'Cada código permite...' en su (i) al lado de 'Códigos de invitacion'." Done: the sharing block sits right under the settings' heading and visibility, above the share and the leverage (it supersedes K.5's "the share stays first", which still holds for a public strategy); the link is a read-only one-line input that scrolls; Copy link is an icon with its name and tip, "Copied" once done, the failure in words; both hints behind an information button beside their titles (`linkInfo`, `codesInfo`, EN/ES). `Tooltip` gains `tabbable` so a tip around a button is one keyboard stop. 8 mutations, killed; frontend lint and 3595 tests green.
     - Left as advisories: a refused read is asked again when the network comes back (`refetchOnReconnect`), and a 5xx or lost answer is retried, so a counted failure whose answer was lost can count up to twice more.
+    - **Delivered 2026-11-08.** PR #99 merged with a merge commit, `e4e28ce` (parents `4011f91` and `9ca8ee1`). Rehearsal on a copy restored from `/var/backups/strategy-manager/pre-0039-rehearsal-20261108T223812Z.dump`: 0037 to 0039 clean; strategies PRIVATE 3 and PUBLIC 4, none with a token; 8 sharing constraints; 0 codes and 0 attempts; a LINK strategy with no token refused; downgrade to 0037 left no `share_token` column and no sharing table, and the upgrade back reached 0039. Production: backup `pre-0039-deploy-20261108T223927Z.dump`, migrated 0037 to 0039 with the same counts, `strategy-api` and `strategy-worker` active, no ERROR or Traceback line since the restart. Panel (pps.6): built from a detached worktree of `origin/main` at `e4e28ce657d8`, 22 entries, SHA-256 `44b0a3a1b04d03c6b65541a009615bd83b009761e4d488c621665decf6ac4d20`; the owner's block printed `OK`, `readable`, and bundle and checkout `e4e28ce657d8`. Not yet seen in production: a link or a code used by a real reader.
+
+## PR L: the panel asks after PR K
+
+The owner's list of 2026-11-08, sent once PR K was deployed ("Son varias cosas, y las fui redactando a medida que surgían. Si alguna se contradice o ya se hizo, avisame o ignorala"). Branch `feat/panel-after-k`, cut from `docs/pr-k-delivery` (`main` plus PR K's delivery record). No migration. The owner reads the running panel (fixture config) before the PR.
+
+### The owner's asks (2026-11-08), verbatim
+
+> En strategies/explore dentro de una estrategia el info (i) de rendimiento se repite en la tarjeta con iconos y en el encabezado del chart <p> 'return All x% · caída máxima x% (i)', y dicen lo mismo. Mantener el del encabezado en <p>
+>
+> Todos los tooltip se deben emprolijar, deben comenzar con mayuscula y ser concisos y precisos.
+>
+> Se puede agregar al chart de las curvas un hover que muestre el return del momento a la altura donde esté el puntero?
+> Además un efecto degradé debajo de la curva con su color. Es bastante común en charts hoy en día y queda muy bien. Así como hay grilla horizontal, agregar verticales, para referencia visual del tiempo. También suavizar las curvas un poco. En definitiva, modernizar un poco el chart.
+>
+> Filtrar estrategias desc por antiguedad, closed trades, return, personas suscritas o capital, segun seleccione el usuario. Por defecto return/contribution to the pool. Volver a hacer clic pasa de desc a asc.
+> Los mismos iconos que usamos en las tarjetas de strategy, usarlos en overview para available, return, PnL y deepest, y pasar lo textual a tooltips. Lo mismo en stratgies/explore/id y strategies/id.
+> El icono de deepest puede ser el opuesto a return, un trending hacia abajo. Agregar el deepest en las tarjetas de estrategias al lado de return.
+> Cuando aún no hay historial de return, en lugar del valor 'not yet' prefiero el mismo carácter que usa capital '—' cuando no hay capital.
+> Añadir icono de winrate a las tarjetas de estrategia donde tenga sentido, luego de lo return y deepest o antes.
+> En mobile las filas solo tienen dos iconos, ocupan mucho el espacio vertical, y se podría reducir permitiendo  por ejemplo 4 iconos por fila. Y en el caso de mobile, usar place-ítems: center para el grid.
+>
+> En el encabezado de overview y estrategias, cuando esté seleccionado All en el rango de tiempo, no aclarar en aporte al pool el tiempo. Solo si está seleccionado last 7D, 30D, etc.
+>
+> Que las tarjetas de estrategia sean enteramente cliqueables para entrar a la vista de la estrategia
+> Las tarjetas en /authored que tengan el mismo formato de iconos que las de suscripciones y /explore, con su switch al final.
+> No vi si en las tarjetas de suscripciones aparecen las tags tipo 'AAVEUSDT · LONG · Live' como veo en /authored. Pero si ya aparecen, dejarlo así. En /explore también deberían aparecer. Las tarjetas deberían ser iguales en las tres secciones, con la diferencia de qué se muestra. Lo que varía sería el share, apalancamiento y el switch según la vista.
+> Una estrategia de otro autor no muestra si esta activada o desactivada. Mostrar tanto en las tarjetas como en la vista de la estrategia. Actualmente solo lo muestra la vista de una estrategia propia.
+>
+> Que el input de código en /explore siga el mismo formato del div de New strategy en /authored.
+> En /authored remover el div que muestra 'Open: 0 Orders in flight: 0 Last read: 22:56:29 UTC Read again'.
+> Para mi, cas asi nunca es relevante.
+>
+> En Strategy settings, aside sección description, poner en la misma fila el <p> de '0 / 2000' en el mismo div de 'Description (i)' y el botón Save que pase de estar de la izquierda a la derecha.
+>
+> En Strategy settings, aside sección allowed pairs, poner en la misma fila el input de search symbol y su botón Save. Y pasar el texto 'Removing a pair stops new entries...' a un (i) al lado de Allowed pairs.
+> Además las etiquetas de los pares añadidos, que pasen al lado de <legend> Allowed pairs, para ocupar menos espacio vertical.
+>
+> Poner los botones de Disable strategy y Archive en la misma fila, con Archive en rojo, que se dividan por igual el ancho, y Enable history debajo. El texto 'Archive is available once...' se quita, y se deja como tooltip al pasar el mouse por encima del botón Archive si no está habilitado.
+>
+> Cuando una estrategia solo tiene un par con trades, la sección By pair solo repite información que ya se muestra en el encabezado de la vista. Solo mostrarla si hay más de un par con trades.
+>
+> Cambiar botones de guardar y copiar texto solo por su icono con tooltip. Lo mismo con otros botones como delete.
+>
+> El botón de Leave en el aside de una estrategia suscrita, debe ocupar todo el ancho disponible, como lo hacen los botones de disable strategy y archive.
+>
+> Compactar el gap entre secciones del aside. El multiplicador actual es .gap-5. Con * 2 se puede reducir bastante y sigue quedando bien.
+
+### What the code says about them (read-only map, 2026-11-08)
+
+- Nothing on the list is already done. Two asks supersede earlier owner words: icon-only Save and Copy replace I.4's "Save" labels, and "—" replaces I.14's "not yet".
+- **The "AAVEUSDT · LONG · Live" line is not a strategy tag.** It is the author's open positions (`Mark` chips through `OpenMarks`), so it appears only on the author's own cards. On Explore it would show anyone a stranger's open positions as they stand; on My subscriptions the natural reading is the reader's own seat's positions. Settled by the owner in L.4: only the reader's own.
+- The Overview has no "contribution to the pool" label: it says "PnL {{range}}" and "return {{range}}". The strategy page says "contribution to the pool {{range}}", the public record "return {{range}}". All four drop the range under All.
+- Data the lists lack: Explore has no total subscribers, no max drawdown, no win rate and no enabled state; My strategies has no creation date, and its return and closed trades come from each card's own performance read; My subscriptions takes its figures from the public list, so a seat on a LINK or PRIVATE strategy has none.
+- Win rate exists only per pair (`by_pair.py`, `public_record.py`); a strategy's rate is the sum of wins over the sum of closed trades.
+- The chart's straight segments are deliberate ("smoothing would invent values"). A monotone cubic (Fritsch-Carlson) passes through every real point and never overshoots between two of them, so it invents no high and no low.
+
+### PR L's plan (2026-11-08)
+
+- [x] L.1 Backend: the public body (`PublicStrategyBody`, list and page) gains `subscribers` (ACTIVE seats, the author counted, as `StrategyView`), `max_drawdown` and `win_rate` (from the record's real fills, as the record route; null with no closed trade) and `enabled`; the held seat view gains `enabled`; `StrategyView` gains `created_at`. Added fields only; no money is added to a public body.
+  - Owner (2026-11-08), on `enabled` leaving the public body (F.4 had kept it out as a setting): "Si la estrategia esta habilitada o no, debería ser del conocimiento de sus suscriptores. Si una estrategia está habilitada, o no le aporta información al suscriptor para saber si se adhiere o no. Si la monitorea y constantemente está deshabilitada, probablemente la evitaría o se desuscribiría".
+  - Days active on every card (owner, 2026-11-08). Asked whether to show the days active beside the age, after reading that they are different figures (the age counts from `created_at`, the days active add up the enabled stretches of the enablement log, so a strategy made 90 days ago and disabled for 60 reads 90 and 30): "Dale, mostrá los dos en todas las tarjetas". So the public body and the held seat view also carry the strategy's `uptime` (seconds, first enable, baseline), the same shape `StrategyView` carries, and every card shows the calendar (age, or time subscribed on My subscriptions) and the clock (days active).
+  - Done 32e470e and 0cd3feb (inline): `PublicListing` gains `enabled` and `subscribers` (an ACTIVE-seat count subquery), `PublicRecord` gains `max_drawdown` and `win_rate` (a return of 0 is no win, null with no closed trade); the source's `enablement` reads the log through `SqlAlchemyEnablementLog.list_for_many`, and `ReadPublicStrategies` (now given a clock) adds the uptime; the held view reads the log for its seats; `UptimeView` has its own module. The leak test had `enabled` among the private words (F.4) and lets it out now; the public read is five statements, one more, whatever the length. RED on assertions (KeyError on the missing fields for some); 12 mutations killed, one survivor first (a win rate of one win in two cannot tell wins from losses), closed with four trades. Gates green.
+- [x] L.2 Panel, chart: monotone smoothing for the curve and the drawdown edge, a gradient under the curve in its colour, vertical grid lines at the existing date ticks, and a hover that marks the nearest day and shows its date and cumulative return (pointer; the figures stay readable without it).
+  - Done 7849f45 (Sonnet writer, reviewed): monotone cubic segments (`M … C …`) for the curve and the drawdown edge in `scale.ts`, a level tangent at each local extreme; `return-fill` under the curve, `text-gain` stops, opacity 0 at the waterline, per-chart `useId`; `vgridline` at each date label; pointer move, down, leave and cancel draw `hover-guide`, `hover-dot` and `hover-label` ("Jul 3 · +30%"), `touch-pan-y` keeps vertical scrolling. Four older tests counted vertices as `L` and now count `M`, `L` and `C`. 15 of 16 mutations killed, the survivor equivalent.
+- [x] L.3 Panel, one card for the three lists: the whole card opens the strategy (the switch and any other control keep their own action), the same figure row everywhere (age or time subscribed, days active, closed trades, return, deepest with TrendingDown, win rate, subscribers, capital), "—" where there is no figure yet, four icons a row on a phone with centred items; what varies is the share and leverage (My subscriptions) and the switch, last (My strategies). Another author's strategy shows enabled or disabled on its card and its page.
+  - Done 2f108d3 (two Sonnet writers, the first cut by the usage limit and not resumed; reviewed): `StrategyCard` with the title link stretched over the card and every control `relative z-10`, `CARD_GRID` four a row and centred on a phone, eight from `lg`; `card-figures.ts` builds Explore's and the seats' figures from the public body and My strategies' from the per-card report (`authoredFigures`: the win rate is the sum of wins over the sum of trades across pairs), PnL kept on that card only; an enabled pill for another author's strategy; "—" where there is no figure, `noRealTrade` removed. The clock's tooltip keeps the old "active N days" wording until L.9's tooltip pass.
+- [x] L.4 Panel, the open-position chips: only the reader's own. My subscriptions shows the reader's seat's open positions on each card, as My strategies shows the author's; Explore shows none. Owner (2026-11-08), asked whether Explore shows an author's open positions: "Solo las mías, en Explore no".
+  - Done 2f108d3: `OpenMarks` takes the card's id, name and exchange; My subscriptions draws the reader's own positions on the strategy; Explore draws none and asks for no positions (a test pins both).
+- [x] L.5 Panel, sorting: one sort control on the three lists (age, closed trades, return, subscribers, capital), descending first, a second click ascending, return by default (contribution to the pool on My strategies, the record's return elsewhere). A strategy with no figure for the key sorts last both ways.
+  - Done 2f108d3: `card-sort.ts` (a missing figure last both ways, ties in the list's order) and `SortControl` (`aria-pressed`, direction arrow); My strategies sorts on the same reports the cards draw through `useStrategiesPerformance`, which shares `useStrategyPerformance`'s query key. Also from L.9: "I have a code" is a green button opening a dialog like New strategy, and `OpenStateLine` is deleted with its test. About 50 mutations killed across the unit (three survivors first, each closed by a new test). Gates: lint clean, 140 files and 3722 frontend tests green.
+- [x] L.6 Panel, figures as icons: the Overview's available, PnL, return and deepest, the strategy page's ledger and the public record line become icons with their words in tooltips; the public page's figure card loses its return (i), the record line keeps it; the range is said only when it is not All.
+  - Done (Sonnet writer, reviewed): `LedgerLine` is a `<dl>` of `Figure`s, Wallet, Coins, TrendingUp and TrendingDown with the words in their tooltips, on the Overview and the strategy page; the public record line draws return and deepest the same way and keeps the only (i), the figure card's gone. `rangeLabel` picks `pnl`/`return`/`contribution`/`recordReturn` under All and their `*Range` keys otherwise. The public page's header carries the enabled pill (`EnabledBadge`, shared with the card).
+- [x] L.7 Panel, the aside: Description's counter on its heading's row and Save on the right; Allowed pairs' chips beside the legend, the search and Save on one row, the hint behind an (i); Disable and Archive side by side at equal width, Archive red, its disabled reason as Archive's tooltip, Enable history below; Leave full width; the section gap `gap-2` in both asides.
+  - Done c75cf1b with L.8 (Sonnet writer, reviewed): the counter on the heading's row in `DescriptionField` (the new-strategy dialog too), Save right-aligned; `PairSelector` names its fieldset through `aria-labelledby` on a span (a `<legend>` cannot share a wrapping row with chips), with (i) and chips in that row and the search beside Save; Disable and Archive `flex-1` in one row, Archive `DANGER_CONTROL`, its reason a tooltip on a focusable wrapper and a hidden `aria-describedby` text; Leave `w-full`; `gap-2`. The Archive tip is still the long `archive.disabledHint`, left for L.9's tooltip pass.
+- [x] L.8 Panel, buttons: Save, Copy and Delete become icon buttons with a tooltip (the saving and saved states kept, as icon and tooltip), on the pattern of PR K's copy icon. A dialog's own confirm button keeps its words.
+  - Done c75cf1b: `shared/ui/IconButton` (44 px, tooltip that does not also describe, tones neutral, primary, danger; `name` when the accessible name says more than the tip, as "Delete key Bybit"); `StatusButton` `iconOnly` (spinner while busy, check once saved, the shown text as name and tip). Save in seven editors, Copy, Delete strategy and Delete key; the sharing block's copy icon reuses it. 40 mutations killed (one survivor first, closed). Gates: lint clean, 136 files and 3639 frontend tests green.
+- [x] L.9 Panel, the rest: "I have a code" on Explore takes New strategy's form, a button in the same place opening a dialog with the input; My strategies drops the open-state line (Open, Orders in flight, Last read, Read again; the Discrepancies page keeps its own); By pair shows only with more than one pair with trades; every tooltip starts with a capital and says one thing briefly, EN and ES.
+  - Done: By pair only when more than one pair has a trade (its empty state and key gone); every tooltip capitalised and short, pinned by `shared/i18n/tooltips.test.ts` (the clock reads "Days active" with the count in the value; Archive's reason "Disable it and close its positions first" / "Primero desactívela y cierre sus posiciones"; capital "Capital it trades with" / "Capital con el que opera", kept from I.14's ask); dead keys removed (`positions.state.figures`, `notShown`, `archived`, `strategies.row.active*`, the unused `strategies.subscriptions.*` tips). Native `title=` hints outside the tooltip components were not part of the pass. 10 mutations killed. Gates: lint clean, 141 files and 3776 frontend tests green.
+- [ ] L.D Gate, owner reads the running panel (fixture config), push and PR on the owner's word, deploy (API restart, then pps.6).
+  - Review fixes before the owner's read (`c1509df`): on lg the card's figures share one row of equal columns (`lg:grid-flow-col lg:auto-cols-fr`, values `lg:whitespace-nowrap`), where eight fixed columns wrapped PnL and share onto a second row; the curve's gradient spans the curve's own height, from its farthest point to the waterline, where anchored to the plot's edges it was nearly invisible. 6 hand mutations killed; 3777 frontend tests, lint green. Render notes: Edge headless has a minimum width near 500 px, so phones are read at 500 px.
+
+L.1 comes before L.3, L.5 and L.6's figures; the rest depend on nothing else.
+
+### The owner's second round (2026-11-09), verbatim
+
+Sent after reading the running panel.
+
+> En los charts, apicarle un degradé también a la curva de deepest hacia 0.
+>
+> El botón de Delete strategy es una excepción de los botones de solo icono. Ponerle su texto Delete strategy, así el botón cobra importancia.
+>
+> En overview, prefiero que el icono de Saldo disponible esté a la izquierda del saldo. El resto de iconos encima de su valor está bien, porque son valores con fuente más chica y los iconos quedan bien alineados entre sí.
+> El texto de 'El saldo está desactualizado...' que aparezca dentro de un (i) a la derecha del saldo, solo si está desactualizado.
+>
+> Los tooltips de 'Deepest drawdown', cambiarlos por solo 'Drawdown'.
+>
+> En las tarjetas e estrategias, agregar align ítems center al contenedor del titulo de la estrategia y su tag enabled para que no se desalineen.
+>
+> Que otro icono para Win rate me podes proponer?
+>
+> En la vista de una estrategia:
+> - el numero de PnL tiene fuente más grande que la de aporte al pool y cauda máxima.
+> Además el tooltip muestra PnL 1A, Aporte al pool 1A. No se que es 1A, pero aparece en todas las estrategias.
+>
+> - que no son propias, la sección con antigüedad, operaciones cerradas, retorno, gente y capital, se podría unificar con los iconos y valores que mencioné antes, en la sección de Rendimiento.
+>
+> - la sección By pair tiene texto en lugar de los iconos. Implementarlos también en los nombres de las columnas. Lo mismo en las secciones Posiciones abiertas, operaciones cerradas
+>
+> - remover el texto 'Margin granted is what the share took...' de la sección Open positions. Opcionalmente moverlo a un (i). Como aparecen otros textos allí, también mostrarlos en un (i) donde corresponda, a veces se pueden relacionar con una columna de esa tabla, y si no quedan bien ahí, removerlos si no son indispensables.
+>
+> En ingles, el valor de share en las tarjetas se muestra como '20 %' y en español '20%'. Que en ambos sea '20%'
+>
+> En el contenido al desplegar 'Conectar una alerta de TradingView', mover el texto 'Use la misma URL y el mismo mensaje...' a un (i) al lado del titulo h2. Lo mismo con el texto de 'Solo se conservan los ultimos cuatro...' al lado de URL del webhook.
+>
+> Cambiar icono de language por una banderita circular. La americana para EN y la argentina para ES.
+>
+> Mover el texto 'El freno del servidor está activo: nadie opera...' a un (i) al lado de SIMULACION FORZADA en el header. Mostrarlo solo cuando corresponda.
+
+- [x] L.10 The second round, inline except the tables (a Sonnet writer, for context):
+  - Done (`b558c6c`): the drawdown area fades from the waterline to its deepest fall in the loss colour; Delete strategy keeps its words beside its icon (`DANGER_CONTROL`), the one destructive button that does; the Overview's wallet sits left of the balance (`Figure inline`) and a stale balance says so behind an (i) right of it, the eyebrow row alone; a strategy's PnL is the size of the figures beside it; "Deepest drawdown" reads "Drawdown" (ES keeps "Caída máxima"); a range is said in words in tooltips ("PnL, last 30 days"; "1A" was the 1Y range in Spanish); a card's name and its enabled mark share one centred line; a share reads "20%" in both languages (the space was in ES, not EN). 13 of 13 hand mutations killed.
+  - Done (`7acc919`): another author's page draws its card's figures in one row at the top of Performance (`CardFigureGrid`, shared with the cards; `RecordFigures`), the return and the fall following the chart's range from the record, one read (`RECORD_STALE_MS` 60 s) for the row and the record below; the old figure card and five dead keys go; the webhook's two hints behind (i)s beside its heading and its URL's label; round flags (US for EN, AR for ES, theme tokens `flag-*`) on the language switch; the brake's text moves from Explore to an (i) beside "Simulation forced" (`InfoTip`, opening below), shown only under the brake. 13 of 13 hand mutations killed.
+  - Done (`65e0486`, Sonnet writer, reviewed and mutated by the parent): column names as icons with their names in tooltips (`ColumnHead`) in By pair, Open positions and Closed trades; the margin note and the incomplete-fees note become their column's tooltip; the dry-run notes go behind one (i) beside each section's heading. Supersedes decision 46 (notes below the table). The PnL tip reuses `feesIncompleteHint` (no leading asterisk); `feesIncompleteNote` is gone. Each icon header is a tab stop, as every figure icon is. 12 of 12 hand mutations killed (one survivor, the tip's placement, closed by `ColumnHead.test.tsx`); 3787 frontend tests, lint green.
+  - Win rate's icon: a trophy (`Trophy`), the owner's choice in the third round (L.11).
+
+### The owner's third round (2026-11-09), verbatim
+
+Sent after reading the second round.
+
+> El selector de idioma muestra la opción a la que cambiar, en lugar de la opción activa. Si tengo seleccionado ES, mostrar ES. Si tengo seleccionado EN, mostrar EN
+>
+> En overview:
+> - aplicar align ítems center al contenedor del saldo PnL return y drawdown, que encabezan el chart.
+>
+> En las tarjetas de estrategia:
+> - en el valor de Subscribers, mostrar solo los que esten en vivo para que sea un solo valor. Aclarar que son en vivo en su tooltip.
+> - mover el icono de PnL (el que muestra +x USDT) a la izquierda de Return. Este icono solo se muestra en My strategies, y se podría mostrar también en My subscriptions. Darle el mismo formato que el resto de iconos.
+>
+> En la vista de una estrategia:
+> - aplicar align ítems center al contenedor del h1 y el tag de enabled.
+> - mostrar los iconos en una sola fila. Actualmente en desktop se dividen en dos filas.
+> - en estrategia ajena, los iconos de Record no se terminaron de unificar con Performance. En My results siguen estando los iconos de PnL Return y Drawdown, de los cuales estos dos ultimos, se repiten en Performance. Que se muestren solo en la sección Performance, y si está seleccionado My results los valores de return y drawdown sean los propios y se agregue el PnL. Mostrarlos en una sola fila. Habiendo simplificado Suscriptores a un solo valor, debería haber más espacio. Si aún asi, no lo hubiera, omitir PnL.
+>
+> Para el icono de Win rate, vamos con el trophy.
+
+- [x] L.11 The third round, inline:
+  - Built, awaiting its commit and the owner's read: the language switch shows the language in use (its flag and code) and its name says what pressing it does (`app.language`); the Overview's balance and the figures beside it share one middle line; a card's subscribers are the live count alone ("Live subscribers" in the tooltip; sorting by subscribers follows it); a PnL is a figure of the card's grid, left of the return (`CardFigureGrid pnl`): the author's on My strategies, the reader's own all-time PnL on My subscriptions ("Your PnL", from their report in the strategy); another author's page centres its name and its mark, and draws its figures in one row wherever its column holds eight (a container query, 32rem; four a row below it); under My results that row carries the reader's own PnL, contribution and drawdown over the chart's range, and the report below draws no ledger line of its own (`StrategyPerformance ledger={false}`); the PnL, a ninth figure, goes where the column holds one row of eight but not of nine (32rem to 40rem, the owner's word); the record is not read until its view is known; win rate's icon is a trophy. Found while rendering: a card's first four columns stayed the phone's explicit `minmax(0, 1fr)` on lg, so a long PnL (+2058.38 USDT) ran into the return; the card's grid drops them on lg (`lg:grid-cols-none`) and no column is narrower than its value (`minmax(max-content, 1fr)`). 31 of 31 hand mutations killed; 3793 frontend tests, lint green.
+
+### The owner's fourth round (2026-11-09), verbatim
+
+Sent after reading the third round.
+
+> Aplicar place ítems center a los iconos de los grid los distribuye mejor cuando un item tiene un valor de varios caracteres. Por ejemplo PnL con '+2058,38 USDT' queda muy cercano a Return y alejado de Closed trades. Con esta solucion los iconos se separan del borde izquierdo, perdiendo un poco la prolijidad de la tarjeta. Cómo se podría conseguir lo mejor de ambos? En la vista de una estrategia ajena, quedaron bien distribuidos. No se si tenga la misma configuración, pero a lo mejor sirve.
+>
+> En las tarjetas de estrategia:
+> - en las tarjetas de My strategies colocar el switch de activar/desactivar a la altura del titulo de la estrategia, en la esquina derecha, asi los iconos tienen más lugar.
+> - Como el tag de enabled es muy repetitivo, en las tarjetas, cambiarlo por un circulo relleno de color. Si está activa o deshabilitada, vos decidis qué colores usar, verde, gris, rojo u otros.
+>
+> En la vista de estrategias:
+> - en la vista de una estrategia ajena, el tag de enabled usa un estilo distinto al de una estrategia propia. Que sean consistentes.
+
+- [x] L.12 The fourth round, inline:
+  - Built, awaiting the owner's read: a card's figures are spread as another author's page spreads them, the best of both the owner asked for: on lg each column is as wide as its value, the first at the card's left edge and the last at its right, the room left shared out equally between them (`lg:auto-cols-max lg:justify-between`), so a long PnL takes nothing from its neighbours and the left edge stays straight. The price: a middle figure no longer sits under the same figure of the card above, since each card's columns follow its own values. My strategies' switch sits on the title's line at its right end, so the figures have the card's width. A card marks whether its strategy runs with a filled dot (`EnabledDot`): green when it runs, grey when it does not, never the loss colour since a stopped strategy is not a fault; the word is the dot's name and tooltip. A strategy's page, the author's own or another author's, draws one mark beside its name (`EnabledBadge`, the own page's square mono style; Archived on an archived one). 12 of 12 hand mutations killed; 3795 frontend tests, lint green.
+
+### The owner's fifth round (2026-11-09), verbatim
+
+> En las tarjetas de strategies:
+> - En My subscriptions y Explore se usa un gap de * 3 pero en My strategies se usa * 6. Que los espaciados sean consistentes entre vistas. Aplica a Overview, Settings, etc. * 3 está bien.
+
+- [x] L.13 One spacing for every view, inline:
+  - Built, awaiting the owner's read: every view stacks its blocks 3 apart (`gap-3`), as Explore and My subscriptions did: My strategies' toolbar, sort and cards; the Overview's pools (were 10); Settings' sections and key cards (were 6 and 4); a strategy's page, own and another author's (column, report boxes, positions, trades; were 6 and 8). The one wider step stays the page title's to what follows (6): a stack holding the `h1` keeps `gap-6`, and where the title shares the stack (Settings, both strategy headers) it carries `mb-3`. Users' title step was 5, now 6. Dialogs and a block's own inner rhythm (label over field, 2.5 and 3.5) are left alone. `shared/ui/page-spacing.test.ts` reads every view's source and refuses a wider stacking gap anywhere but a title's, so a new view keeps the rule. 7 of 7 hand mutations killed; 3797 frontend tests, lint green.
+  - The owner then asked for 4 in place of 3 (2026-11-09, verbatim: "Mejor pone las que son *3 en * 4 y luego ya si: push y PR"): every stack of blocks is `gap-4` (16 px): card lists, report boxes, sections, item lists, a page's loading and not-found states; inside a block (a card's lines, forms, the aside's controls, sliders) the rhythm stays 3. The title's step stays 6: `mb-2` where it shares the stack. The source scan refuses a stack wider than 4 anywhere but a title's, and a borderless `gap-3` stack in any `*Page.tsx`; the stacks in the report components (PoolPanel, StrategyPerformance, PublicRecordReport, the positions sections) are moved but not scanned. 6 of 6 hand mutations killed; 3798 frontend tests, lint green.

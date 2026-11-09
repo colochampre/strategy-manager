@@ -33,6 +33,7 @@ function strategy(overrides: Partial<Strategy> = {}): Strategy {
     description: null,
     subscribers: 1,
     live_subscribers: 0,
+    created_at: null,
     capital: null,
     ...overrides,
   };
@@ -304,5 +305,17 @@ describe("SubscriptionLeverageEditor", () => {
     expect(within(screen.getByRole("region", { name: "Leverage" })).getByRole("button", { name: "Save" })).toBe(
       saveButton(),
     );
+  });
+});
+
+describe("SubscriptionLeverageEditor Save icon (L.8)", () => {
+  it("is an icon with a tooltip, named Save", async () => {
+    setupPage(strategy());
+    await ready();
+
+    expect(saveButton()).toHaveTextContent("");
+    expect(saveButton().querySelector("svg")).toHaveClass("lucide-save");
+    fireEvent.mouseEnter(saveButton().parentElement as HTMLElement);
+    expect(screen.getByRole("tooltip")).toHaveTextContent("Save");
   });
 });

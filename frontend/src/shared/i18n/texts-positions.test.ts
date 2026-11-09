@@ -20,12 +20,6 @@ function lookup(locale: unknown, path: string): unknown {
  * the Spanish is example 25's, and section I's where the prototype draws none.
  */
 const TEXTS: ReadonlyArray<readonly [string, string, string]> = [
-  ["positions.state.figures.open", "Open", "Abiertas"],
-  ["positions.state.figures.orders", "Orders in flight", "Órdenes en curso"],
-  ["positions.state.figures.lastRead", "Last read", "Última lectura"],
-  ["positions.state.figures.time", "{{time}} UTC", "{{time}} UTC"],
-  ["positions.state.notShown", "Not on this list: {{items}}.", "Fuera de esta lista: {{items}}."],
-  ["positions.state.archived", "archived", "archivada"],
   ["positions.state.unreadable", "figures not readable", "cifras no legibles"],
   ["positions.state.refresh", "Read again", "Leer de nuevo"],
   ["positions.state.loading", "Reading open positions…", "Leyendo posiciones abiertas…"],
@@ -172,6 +166,11 @@ const NO_LONGER_EXIST = [
   "positions.state.orders_other",
   "positions.venue.detail",
   "positions.venue.shared",
+  // The open-state line (Open, Orders in flight, Last read, Read again) left My strategies (tasks.md L.9).
+  "positions.state.figures",
+  "positions.state.notShown",
+  "positions.state.archived",
+  "positions.state.lastRead",
 ];
 
 describe("the open-positions texts of the Strategies page exist in both languages", () => {

@@ -54,6 +54,7 @@ function strategy(overrides: Partial<Strategy> = {}): Strategy {
     description: null,
     subscribers: 1,
     live_subscribers: 0,
+    created_at: null,
     capital: null,
     ...overrides,
   };
@@ -159,7 +160,7 @@ describe("the cells of a position (T10; spec 'Times And Figures Of Open Position
     const table = theTable();
     const headings = within(table)
       .getAllByRole("columnheader")
-      .map((heading) => heading.textContent);
+      .map((heading) => within(heading).getByRole("img").getAttribute("aria-label"));
     expect(headings).toEqual([
       "Opened (UTC)",
       "Pair",
@@ -514,42 +515,67 @@ const MATCHED_ONE = "1 open position or order could not be matched to a strategy
 const MATCHED_TWO = "2 open positions or orders could not be matched to a strategy. The Strategies page names them.";
 const MATCHED_ONE_ES = "1 posición u orden abierta no se pudo asociar a una estrategia. La página Estrategias la nombra.";
 
+/** The (i) beside the heading that holds the dry-run note and the note of both origins, or null when none is drawn. */
+function notesButton(): HTMLElement | null {
+  return screen.queryByRole("button", { name: "About these positions" });
+}
+
+/** Opens the (i) and reads the notes it reveals, in document order, as their keys. */
+function openNotes(container: HTMLElement): string[] {
+  const button = notesButton();
+  expect(button).toBeInTheDocument();
+  expect(button).toHaveAttribute("aria-expanded", "false");
+  expect(notesOnScreen(container)).toEqual([]);
+  fireEvent.click(button as HTMLElement);
+  expect(button).toHaveAttribute("aria-expanded", "true");
+  return notesOnScreen(container);
+}
+
 describe("the notes and the unmatched sentence (T10; spec 'Drawn Only When True')", () => {
-  it("draws only the margin note for one live position", async () => {
+  it("draws no (i) for one live position, and the margin note is the Margin column's tip, not a paragraph", async () => {
     const { view } = await mountSection(answering([aave()]));
 
-    expect(notesOnScreen(view.container)).toEqual(["margin"]);
+    expect(notesButton()).toBeNull();
+    expect(notesOnScreen(view.container)).toEqual([]);
+    const margin = within(theTable()).getByRole("img", { name: "Margin granted USDT" });
+    fireEvent.mouseEnter(margin);
+    expect(screen.getByRole("tooltip")).toHaveTextContent(`Margin granted USDT. ${NOTE.margin}`);
   });
 
-  it("draws the dry-run note, then the margin note, for a rehearsal position", async () => {
+  it("puts the dry-run note behind the (i) for a rehearsal position", async () => {
     const { view } = await mountSection(answering([aave({ origin: "rehearsal" })]));
 
-    expect(notesOnScreen(view.container)).toEqual(["rehearsal", "margin"]);
+    expect(openNotes(view.container)).toEqual(["rehearsal"]);
   });
 
-  it("draws the note of both origins, not the dry-run note, then the margin note, for a mixed position", async () => {
+  it("puts the note of both origins, not the dry-run note, behind the (i) for a mixed position", async () => {
     const { view } = await mountSection(answering([aave({ origin: "mixed" })]));
 
-    expect(notesOnScreen(view.container)).toEqual(["mixed", "margin"]);
+    expect(openNotes(view.container)).toEqual(["mixed"]);
   });
 
-  it("orders the notes dry-run, both origins, margin", async () => {
+  it("orders the notes dry-run, then both origins", async () => {
     const { view } = await mountSection(
       answering([aave({ origin: "mixed", markets: ["STXUSDT"] }), aave({ origin: "rehearsal", markets: ["SFPUSDT"] })]),
     );
 
-    expect(notesOnScreen(view.container)).toEqual(["rehearsal", "mixed", "margin"]);
+    expect(openNotes(view.container)).toEqual(["rehearsal", "mixed"]);
   });
 
-  it("draws the margin note once, whatever the number of positions", async () => {
-    const { view } = await mountSection(answering([aave(), aave({ markets: ["LINKUSDT"] }), aave({ markets: ["SUIUSDT"] })]));
+  it("draws one (i), beside the heading, whatever the number of positions", async () => {
+    await mountSection(
+      answering([aave({ origin: "rehearsal" }), aave({ origin: "rehearsal", markets: ["LINKUSDT"] }), aave({ markets: ["SUIUSDT"] })]),
+    );
 
-    expect(notesOnScreen(view.container)).toEqual(["margin"]);
+    expect(screen.getAllByRole("button", { name: "About these positions" })).toHaveLength(1);
+    const heading = screen.getByRole("heading", { level: 2, name: "Open positions" });
+    expect(heading.parentElement).toContainElement(notesButton());
   });
 
-  it("draws no note when the strategy holds no position", async () => {
+  it("draws no (i) and no note when the strategy holds no position", async () => {
     const { view } = await mountSection(answering([]));
 
+    expect(notesButton()).toBeNull();
     expect(notesOnScreen(view.container)).toEqual([]);
     expect(screen.queryByText("No open position.")).toBeInTheDocument();
   });
@@ -575,15 +601,13 @@ describe("the notes and the unmatched sentence (T10; spec 'Drawn Only When True'
     expect(screen.queryByText("No open position.")).not.toBeInTheDocument();
   });
 
-  it("says it above the notes, under the table, when the strategy holds a position of its own", async () => {
+  it("says it under the table when the strategy holds a position of its own", async () => {
     const { view } = await mountSection(answering([aave(), unowned(), unowned({ markets: ["ABCBTC"] })]));
 
     expect(screen.queryByText(MATCHED_TWO)).toBeInTheDocument();
     const sentence = screen.getByText(MATCHED_TWO);
     const table = theTable();
-    const margin = screen.getByText(NOTE.margin);
     expect(table.compareDocumentPosition(sentence) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(sentence.compareDocumentPosition(margin) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(view.container.textContent).not.toContain("No open position.");
   });
 
@@ -677,13 +701,27 @@ describe("in Spanish (T10 and T11; owner decision Q9, 2026-10-13)", () => {
   it("writes the fixed Spanish of section I, letter for letter", async () => {
     const view = await spanishSection();
 
+    // The columns are icons: their names are the icons' accessible names, and the margin's note is its tip.
+    const table = theTable();
+    expect(within(table).getAllByRole("columnheader").map((head) => within(head).getByRole("img").getAttribute("aria-label"))).toEqual([
+      "Apertura (UTC)",
+      "Par",
+      "Sentido",
+      "Tamaño",
+      "Entrada",
+      "Comisiones USDT",
+      "Margen otorgado USDT",
+      "Apalancamiento",
+    ]);
+    fireEvent.mouseEnter(within(table).getByRole("img", { name: "Margen otorgado USDT" }));
+    expect(screen.getByRole("tooltip").textContent).toBe(
+      "Margen otorgado USDT. El margen otorgado es lo que la participación tomó del pool al abrir la posición. No es lo que el exchange retiene ahora.",
+    );
+    // The dry-run note and the note of both origins wait behind the (i) beside the heading.
+    fireEvent.click(screen.getByRole("button", { name: "Sobre estas posiciones" }));
     const text = view.container.textContent ?? "";
     for (const spanish of [
       "Posiciones abiertas",
-      "Apertura (UTC)",
-      "Margen otorgado USDT",
-      "Apalancamiento",
-      "Comisiones USDT",
       "de 0.5 abiertas",
       "promedio de 3 ejecuciones",
       "no registrado",
@@ -698,7 +736,6 @@ describe("in Spanish (T10 and T11; owner decision Q9, 2026-10-13)", () => {
       "Su reserva figura como EXPIRED, no FILLED.",
       "Una posición de simulación fue ejecutada por el exchange simulado, a 1x. No está en el exchange real y no entra en ningún total.",
       "Esta posición tiene ejecuciones de simulación y en vivo. Ningún modo puede cerrarla con seguridad: verifíquela a mano contra el exchange.",
-      "El margen otorgado es lo que la participación tomó del pool al abrir la posición. No es lo que el exchange retiene ahora.",
       MATCHED_ONE_ES,
     ]) {
       expect(text, spanish).toContain(spanish);
@@ -878,16 +915,19 @@ describe("on a phone the positions are cards (T10; N2: the prototype's example 2
     expect(parts[4]).toHaveTextContent("Its reservation reads EXPIRED, not FILLED.");
   });
 
-  it("draws the orders, the unmatched sentence and the notes under the cards", async () => {
+  it("draws the orders and the unmatched sentence under the cards, and the notes behind the (i) above them", async () => {
     setViewport("narrow");
     await mountSection(answering([aave({ origin: "rehearsal" }), unowned()], [openOrder({ strategy_id: ALPHA })]));
 
+    fireEvent.click(screen.getByRole("button", { name: "About these positions" }));
     const card = (cards(1)[0] as HTMLElement).textContent ?? "";
     const page = document.body.textContent ?? "";
     const afterCard = page.indexOf(card) + card.length;
-    for (const text of ["SOLUSDT · order in flight", MATCHED_ONE, NOTE.rehearsal, NOTE.margin]) {
+    for (const text of ["SOLUSDT · order in flight", MATCHED_ONE]) {
       expect(page.indexOf(text), text).toBeGreaterThanOrEqual(afterCard);
     }
+    expect(page.indexOf(NOTE.rehearsal)).toBeLessThan(page.indexOf(card));
+    expect(page).not.toContain(NOTE.margin);
   });
 });
 
@@ -1072,13 +1112,12 @@ describe("the states and the orders (T10; spec 'An Order In Flight Is A Dashed L
     expect(screen.queryByRole("list")).toHaveTextContent("sent 10/11/2026 21:12 UTC");
   });
 
-  it("draws the orders above the notes and the sentence of the unmatched", async () => {
+  it("draws the orders above the sentence of the unmatched", async () => {
     await mountSection(answering([aave(), unowned()], [openOrder({ strategy_id: ALPHA })]));
 
     const list = screen.queryByRole("list") as HTMLElement;
     expect(list).toBeInTheDocument();
     expect(list.compareDocumentPosition(screen.getByText(MATCHED_ONE)) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(list.compareDocumentPosition(screen.getByText(NOTE.margin)) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("does not wait for the exchange scope: it draws while the pools are still loading", async () => {

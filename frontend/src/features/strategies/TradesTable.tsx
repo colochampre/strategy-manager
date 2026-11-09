@@ -1,3 +1,17 @@
+import {
+  ArrowLeftRight,
+  ArrowUpDown,
+  CalendarCheck,
+  CalendarPlus,
+  Coins,
+  FileText,
+  LogIn,
+  LogOut,
+  Receipt,
+  Ruler,
+  TrendingUp,
+  Wallet,
+} from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -8,6 +22,8 @@ import { amountText, parseDecimal, percentText, toneClass } from "@/shared/lib/a
 import { cn } from "@/shared/lib/cn";
 import { dateTimeText, figureText, tableFigureText } from "@/shared/lib/figure-text";
 import { Absent } from "@/shared/ui/Absent";
+import { ColumnHead } from "@/shared/ui/ColumnHead";
+import { InfoButton, InfoText, useInfoDisclosure } from "@/shared/ui/InfoDisclosure";
 import { Instant } from "@/shared/ui/Instant";
 import { ReportSection } from "@/shared/ui/ReportSection";
 
@@ -170,7 +186,11 @@ function TradesTableView({ strategyId, currency }: TradesTableProps) {
     if (open === null) opener.current?.focus();
   }, [open]);
 
+  const info = useInfoDisclosure();
+
   let body;
+  // The keys of the dry-run sentences true of the page on screen; none while there is no page to read.
+  let noteKeys: string[] = [];
   if (trades.data === undefined && trades.status === "error") {
     body = (
       <div className="flex flex-wrap items-center gap-3">
@@ -212,13 +232,13 @@ function TradesTableView({ strategyId, currency }: TradesTableProps) {
       const header = "border-b border-rule py-2 pr-3 font-medium";
       // Each sentence is true of a row of the page on screen: `rows` is that one page, never the
       // pages visited before, so a sentence goes when the page that made it true is left.
-      const notes = [
+      noteKeys = [
         rows.some((row) => row.rehearsal) && "rehearsalNote",
         rows.some((row) => row.rehearsal && row.rehearsal_fill_price === "FIXED_ONE") && "rehearsalFixedNote",
         rows.some((row) => row.rehearsal && row.rehearsal_fill_price === "ALERT") && "rehearsalAlertNote",
-        // The asterisk of an incomplete-fee row is explained here, after the dry-run sentences, for the page on screen.
-        rows.some((row) => !row.fees_complete) && "feesIncompleteNote",
       ].filter((key): key is string => key !== false);
+      // The asterisk of an incomplete-fee row is explained by the PnL column's tip, for the page on screen.
+      const pnlHint = rows.some((row) => !row.fees_complete) ? t("strategies.performance.trades.feesIncompleteHint") : undefined;
       body = (
         <>
           <div className="overflow-x-auto">
@@ -226,40 +246,40 @@ function TradesTableView({ strategyId, currency }: TradesTableProps) {
               <thead>
                 <tr className="text-right text-[10px] uppercase tracking-[0.09em] text-ink-3">
                   <th scope="col" className={cn(header, "text-left", FROM_WIDE)}>
-                    {t("strategies.performance.trades.opened")}
+                    <ColumnHead icon={CalendarPlus} label={t("strategies.performance.trades.opened")} align="start" />
                   </th>
                   <th scope="col" className={cn(header, "text-left")}>
-                    {t("strategies.performance.trades.closed")}
+                    <ColumnHead icon={CalendarCheck} label={t("strategies.performance.trades.closed")} align="start" />
                   </th>
                   <th scope="col" className={cn(header, "text-left")}>
-                    {t("strategies.performance.trades.pair")}
+                    <ColumnHead icon={ArrowLeftRight} label={t("strategies.performance.trades.pair")} align="start" />
                   </th>
                   <th scope="col" className={cn(header, "text-left")}>
-                    {t("strategies.performance.trades.side")}
+                    <ColumnHead icon={ArrowUpDown} label={t("strategies.performance.trades.side")} align="start" />
                   </th>
                   <th scope="col" className={cn(header, FROM_MD)}>
-                    {t("strategies.performance.trades.entry")}
+                    <ColumnHead icon={LogIn} label={t("strategies.performance.trades.entry")} />
                   </th>
                   <th scope="col" className={cn(header, FROM_MD)}>
-                    {t("strategies.performance.trades.exit")}
+                    <ColumnHead icon={LogOut} label={t("strategies.performance.trades.exit")} />
                   </th>
                   <th scope="col" className={cn(header, FROM_XL)}>
-                    {t("strategies.performance.trades.size")}
+                    <ColumnHead icon={Ruler} label={t("strategies.performance.trades.size")} />
                   </th>
                   <th scope="col" className={cn(header, FROM_XL)}>
-                    {t("strategies.performance.trades.fees", { currency })}
+                    <ColumnHead icon={Receipt} label={t("strategies.performance.trades.fees", { currency })} />
                   </th>
                   <th scope="col" className={header}>
-                    {t("strategies.performance.trades.pnl", { currency })}
+                    <ColumnHead icon={Coins} label={t("strategies.performance.trades.pnl", { currency })} hint={pnlHint} />
                   </th>
                   <th scope="col" className={header}>
-                    {t("strategies.performance.trades.return")}
+                    <ColumnHead icon={TrendingUp} label={t("strategies.performance.trades.return")} />
                   </th>
                   <th scope="col" className={cn(header, FROM_XL)}>
-                    {t("strategies.performance.trades.capital")}
+                    <ColumnHead icon={Wallet} label={t("strategies.performance.trades.capital")} />
                   </th>
                   <th scope="col" className="border-b border-rule py-2 font-medium">
-                    {t("strategies.performance.trades.details")}
+                    <ColumnHead icon={FileText} label={t("strategies.performance.trades.details")} />
                   </th>
                 </tr>
               </thead>
@@ -302,12 +322,6 @@ function TradesTableView({ strategyId, currency }: TradesTableProps) {
               {t(trades.isFetchingNextPage ? "strategies.performance.trades.loadingMore" : "strategies.performance.trades.next")}
             </button>
           </nav>
-          {/* The notes sit below the table and its paging controls (owner decision 46), so the controls do not move when a page has none. */}
-          {notes.map((key) => (
-            <p key={key} className="text-sm text-ink-2">
-              {t(`strategies.performance.trades.${key}`)}
-            </p>
-          ))}
         </>
       );
     }
@@ -316,9 +330,22 @@ function TradesTableView({ strategyId, currency }: TradesTableProps) {
   return (
     <ReportSection>
       <section aria-labelledby={headingId} className="flex flex-col gap-2">
-        <h2 id={headingId} className="font-display text-base font-semibold text-ink">
-          {t("strategies.performance.trades.title")}
-        </h2>
+        {/* The dry-run sentences wait behind one (i) beside the title, drawn only when a row of the page makes one true. */}
+        <div className="flex items-center gap-1">
+          <h2 id={headingId} className="font-display text-base font-semibold text-ink">
+            {t("strategies.performance.trades.title")}
+          </h2>
+          {noteKeys.length > 0 && <InfoButton disclosure={info} label={t("strategies.performance.trades.notesInfo")} />}
+        </div>
+        {noteKeys.length > 0 && (
+          <InfoText disclosure={info}>
+            {noteKeys.map((key) => (
+              <p key={key} className="text-sm text-ink-2">
+                {t(`strategies.performance.trades.${key}`)}
+              </p>
+            ))}
+          </InfoText>
+        )}
         {body}
         {open !== null && (
           <TradeDetailDialog

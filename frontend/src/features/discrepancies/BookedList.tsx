@@ -212,7 +212,7 @@ function ExchangeCards({ exchange, children }: ExchangeCardsProps) {
   return (
     <section aria-label={exchange} className="flex min-w-0 flex-col gap-2">
       <h3 className="font-mono text-sm font-medium text-ink-2">{exchange}</h3>
-      <div className="flex flex-col gap-3">{children}</div>
+      <div className="flex flex-col gap-4">{children}</div>
     </section>
   );
 }

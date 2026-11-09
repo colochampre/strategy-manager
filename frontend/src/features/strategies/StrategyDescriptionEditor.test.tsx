@@ -29,6 +29,7 @@ function strategy(overrides: Partial<Strategy> = {}): Strategy {
     description: "Runs at 3x",
     subscribers: 1,
     live_subscribers: 0,
+    created_at: null,
     capital: null,
     ...overrides,
   };
@@ -299,5 +300,37 @@ describe("StrategyDescriptionEditor", () => {
     ).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "Acerca de la descripción" }));
     expect(screen.getByText(/Es un buen lugar para indicar qué apalancamiento recomienda/)).toBeVisible();
+  });
+});
+
+describe("StrategyDescriptionEditor layout (L.7)", () => {
+  it("puts the counter on the heading's row, beside the label and its information button", async () => {
+    setupProp(strategy());
+    await ready();
+
+    const label = screen.getByText("Description", { selector: "label" });
+    const counter = screen.getByText(/^\d+ \/ 2000$/);
+    expect(counter.parentElement).toBe(label.parentElement);
+    expect(counter).toHaveClass("ml-auto");
+    expect(screen.getByRole("button", { name: "About the description" }).parentElement).toBe(label.parentElement);
+  });
+
+  it("puts Save on the right, under the field", async () => {
+    setupProp(strategy());
+    await ready();
+
+    const row = saveButton().closest("div.flex") as HTMLElement;
+    expect(row).toHaveClass("justify-end");
+    expect(field().compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("draws Save as an icon with a tooltip, and keeps its name", async () => {
+    setupProp(strategy());
+    await ready();
+
+    const button = saveButton();
+    expect(button).toHaveTextContent("");
+    fireEvent.mouseEnter(button.parentElement as HTMLElement);
+    expect(screen.getByRole("tooltip")).toHaveTextContent("Save");
   });
 });

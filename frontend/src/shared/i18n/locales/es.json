@@ -1,6 +1,7 @@
 {
   "app": {
-    "name": "Strategy Manager"
+    "name": "Strategy Manager",
+    "language": "Idioma: español. Cambiar a inglés"
   },
   "nav": {
     "sections": "Secciones",
@@ -41,7 +42,8 @@
     "unknown": "Modo desconocido"
   },
   "mode": {
-    "forcedHint": "El freno está activo: todos operan en simulación hasta que se libere.",
+    "brakeLabel": "Sobre el freno",
+    "brakeInfo": "El freno del servidor está activo: nadie opera en vivo, así que no se muestra capital.",
     "change": "Modo: {{mode}}. Cambiarlo",
     "menu": "Modos",
     "toLive": {
@@ -161,10 +163,12 @@
       "unreadable": "No se pudo leer la curva de rendimiento."
     },
     "ledger": {
-      "available": "{{currency}} disponibles",
-      "pnl": "PnL {{range}}",
-      "return": "rendimiento {{range}}",
-      "deepest": "caída máxima",
+      "available": "Saldo disponible",
+      "pnl": "PnL",
+      "pnlRange": "PnL, {{range}}",
+      "return": "Rendimiento",
+      "returnRange": "Rendimiento, {{range}}",
+      "deepest": "Caída máxima",
       "unreadable": "No se pudieron leer las cifras."
     },
     "range": {
@@ -174,6 +178,12 @@
       "90D": "90D",
       "1Y": "1A",
       "All": "Todo"
+    },
+    "rangeLong": {
+      "7D": "últimos 7 días",
+      "30D": "últimos 30 días",
+      "90D": "últimos 90 días",
+      "1Y": "último año"
     },
     "monthlyGrid": {
       "title": "Mes a mes",
@@ -205,7 +215,8 @@
       "loading": "Cargando el rendimiento de este pool…",
       "error": "No se pudo cargar el rendimiento de este pool.",
       "noReport": "Este pool todavía no tiene informe de rendimiento.",
-      "stale": "El saldo está desactualizado: última sincronización {{time}}."
+      "stale": "El saldo está desactualizado: última sincronización {{time}}.",
+      "staleInfo": "Saldo desactualizado"
     }
   },
   "strategies": {
@@ -231,11 +242,8 @@
       "yours": "Su estrategia",
       "by": "de {{name}}",
       "noAuthorName": "autor todavía sin nombre",
-      "age": "tiempo suscrito",
-      "share": "parte de su pool por operación",
-      "shareValue": "{{share}} %",
+      "shareValue": "{{share}}%",
       "leaving": "Saliendo: ya no abre nada más y termina cuando se cierre su posición abierta.",
-      "leverage": "apalancamiento",
       "leverageValue": "x{{leverage}}",
       "figuresError": "No se pudieron cargar las cifras públicas, así que solo se muestran las suyas.",
       "leave": "Salir"
@@ -272,8 +280,35 @@
     "explore": {
       "loading": "Cargando las estrategias públicas…",
       "error": "No se pudieron cargar las estrategias públicas.",
-      "empty": "Todavía no hay ninguna estrategia pública.",
-      "brake": "El freno del servidor está activo: nadie opera en vivo, así que no se muestra capital."
+      "empty": "Todavía no hay ninguna estrategia pública."
+    },
+    "card": {
+      "age": "Antigüedad",
+      "subscribed": "Tiempo suscrito",
+      "uptime": "Días activa",
+      "uptimeAtLeast": "Días activa, como mínimo",
+      "neverEnabled": "Nunca activada",
+      "trades": "Operaciones cerradas",
+      "return": "Rendimiento",
+      "deepest": "Caída máxima",
+      "winRate": "Tasa de aciertos",
+      "subscribers": "Suscriptores en vivo",
+      "capital": "Capital",
+      "pnl": "PnL",
+      "yourPnl": "Su PnL",
+      "share": "Parte del pool",
+      "leverage": "Apalancamiento"
+    },
+    "sort": {
+      "label": "Ordenar por",
+      "age": "Antigüedad",
+      "trades": "Operaciones cerradas",
+      "return": "Rendimiento",
+      "subscribers": "Suscriptores",
+      "capital": "Capital",
+      "descending": "descendente",
+      "ascending": "ascendente",
+      "active": "{{key}}, {{direction}}"
     },
     "public": {
       "back": "Todas las estrategias públicas",
@@ -281,13 +316,7 @@
       "notFound": "Esta estrategia no está en la lista pública.",
       "error": "No se pudo cargar la estrategia.",
       "by": "de {{name}}",
-      "age": "antigüedad",
-      "trades": "operaciones cerradas",
-      "return": "rendimiento, sin apalancamiento y antes de comisiones",
-      "live": "personas operándola en vivo",
-      "capital": "capital con el que opera la estrategia",
       "returnInfo": "Cómo se calcula este rendimiento",
-      "noRealTrade": "aún no",
       "returnHint": "Se calcula con las ejecuciones de las operaciones que su autor hizo con dinero real y cerró; no cuentan las operaciones simuladas ni las de los suscriptores. Las operaciones abiertas al mismo tiempo se suman y cada una de las demás se compone sobre las anteriores, y cada operación se toma como si todo el capital estuviera en ella. No cuenta apalancamiento ni comisiones, así que el resultado real de nadie coincide exactamente.",
       "capitalInfo": "Qué es este capital",
       "capitalHint": "El capital que asignan todos los que la operan en vivo, incluido su autor: la cuota de cada uno sobre el último saldo de su pool. Es capital asignado, no capital en uso, y el mismo dinero puede respaldar varias estrategias."
@@ -296,6 +325,7 @@
       "haveCode": "Tengo un código",
       "codeLabel": "Código de invitación",
       "open": "Abrir",
+      "cancel": "Cancelar",
       "codeHint": "Escriba el código que le envió el autor. Abre la página de la estrategia y solo se usa cuando usted se suscribe.",
       "codeOpensNothing": "Ninguna estrategia se abre con ese código. Revíselo e inténtelo de nuevo.",
       "linkOpensNothing": "Este enlace ya no abre la estrategia. Pídale a su autor el enlace actual.",
@@ -314,7 +344,8 @@
       "record": "Historial de la estrategia",
       "mine": "Mis resultados",
       "recordChartTitle": "Historial de la estrategia",
-      "recordReturn": "rendimiento {{range}}",
+      "recordReturn": "Rendimiento",
+      "recordReturnRange": "Rendimiento, {{range}}",
       "joined": "Usted se suscribió el {{date}}",
       "recordLoading": "Cargando el historial de la estrategia…",
       "recordError": "No se pudo cargar el historial de la estrategia.",
@@ -345,19 +376,11 @@
     "row": {
       "subscribers_one": "{{count}} suscriptor, {{live}} en vivo",
       "subscribers_other": "{{count}} suscriptores, {{live}} en vivo",
-      "subscribersShort": "{{count}} · {{live}} en vivo",
       "capital": "Capital: {{amount}} {{currency}}",
       "archived": "Archivada",
       "enable": "Activar {{name}}",
       "neverEnabled": "nunca activada",
-      "active_one": "activa {{count}} día",
-      "active_other": "activa {{count}} días",
-      "activeAtLeast_one": "activa al menos {{count}} día",
-      "activeAtLeast_other": "activa al menos {{count}} días",
       "daysAtLeast": "≥{{count}}",
-      "trades": "operaciones",
-      "pnl": "PnL total",
-      "return": "rendimiento total",
       "toggleError": "El cambio no se guardó. Inténtelo de nuevo.",
       "performanceError": "No se pudieron cargar las cifras de esta estrategia."
     },
@@ -506,6 +529,7 @@
       "pairs": {
         "title": "Pares permitidos",
         "hint": "Quitar un par detiene las nuevas entradas en él. Una posición abierta se sigue cerrando.",
+        "info": "Acerca de los pares permitidos",
         "save": "Guardar",
         "saving": "Guardando…",
         "lastPair": "Una estrategia necesita al menos un par permitido.",
@@ -558,7 +582,8 @@
       "retry": "Reintentar",
       "noReport": "Esta estrategia todavía no tiene informe de rendimiento.",
       "chartTitle": "Aporte al pool, compuesto",
-      "contribution": "aporte al pool {{range}}",
+      "contribution": "Aporte al pool",
+      "contributionRange": "Aporte al pool, {{range}}",
       "byPair": {
         "title": "Por par",
         "pair": "Par",
@@ -566,7 +591,6 @@
         "winRate": "% acierto",
         "pnl": "PnL {{currency}}",
         "return": "Rendimiento",
-        "empty": "Ningún par tiene todavía una operación cerrada.",
         "unreadable": "No se pudieron leer las cifras por par.",
         "noReturn": "No hay capital registrado al abrir las operaciones de este par, por lo que no tiene rendimiento."
       },
@@ -590,6 +614,7 @@
         "rehearsalNote": "Las operaciones marcadas \"Simulación\" fueron ejecutadas por el exchange simulado, no en el exchange real. No se cuentan en ninguna cifra de esta página.",
         "rehearsalFixedNote": "Una fila marcada \"precio fijo\" se abrió a un precio fijo de 1, cualquiera fuera el precio de mercado. Sus precios y su PnL no son un resultado.",
         "rehearsalAlertNote": "Una fila marcada \"precio de la alerta\" se abrió al precio que traía su alerta. Se dimensionó a 1x y su comisión es simulada a la tasa taker, así que su PnL no es el que habría dado en real.",
+        "notesInfo": "Sobre estas operaciones",
         "details": "Detalle",
         "detailsOf": "Detalle de {{pair}} {{side}}, cierre {{closed}}",
         "detail": {
@@ -628,7 +653,6 @@
         "capital": "Pool al abrir",
         "feesIncomplete": "comisiones incompletas",
         "feesIncompleteHint": "Una comisión pagada en una tercera moneda no está en este PnL.",
-        "feesIncompleteNote": "* Una comisión pagada en una tercera moneda no está en este PnL.",
         "noValue": "No hay capital registrado al abrir esta operación, por lo que no tiene rendimiento.",
         "cellUnreadable": "ilegible",
         "loading": "Cargando las operaciones cerradas…",
@@ -650,6 +674,8 @@
       "urlLabel": "URL del webhook",
       "messageLabel": "Mensaje de la alerta",
       "maskHint": "Solo se conservan los últimos cuatro caracteres del secreto, para que pueda reconocer cuál usa una alerta. El resto no puede volver a leerse.",
+      "maskInfo": "Sobre los últimos cuatro caracteres",
+      "hintInfo": "Sobre estas alertas",
       "regenerate": "Regenerar el secreto",
       "regenerateTitle": "¿Regenerar el secreto?",
       "regenerateBody": "El secreto actual deja de funcionar en cuanto usted confirma. Toda alerta que todavía lo use será rechazada hasta que actualice su URL.",
@@ -671,7 +697,7 @@
       "title": "Archivar estrategia",
       "description": "Archivar es permanente: la estrategia se detiene para siempre y su historial se conserva.",
       "button": "Archivar",
-      "disabledHint": "Se puede archivar cuando la estrategia está desactivada y no tiene ninguna posición abierta.",
+      "disabledHint": "Primero desactívela y cierre sus posiciones",
       "confirmTitle": "¿Archivar {{name}}?",
       "confirmBody": "{{name}} dejará de recibir señales y después no se podrá activar ni restaurar. Su historial se conserva.",
       "confirm": "Archivar definitivamente",
@@ -724,14 +750,6 @@
   },
   "positions": {
     "state": {
-      "figures": {
-        "open": "Abiertas",
-        "orders": "Órdenes en curso",
-        "lastRead": "Última lectura",
-        "time": "{{time}} UTC"
-      },
-      "notShown": "Fuera de esta lista: {{items}}.",
-      "archived": "archivada",
       "unreadable": "cifras no legibles",
       "refresh": "Leer de nuevo",
       "loading": "Leyendo posiciones abiertas…",
@@ -794,7 +812,8 @@
       "margin": "El margen otorgado es lo que la participación tomó del pool al abrir la posición. No es lo que el exchange retiene ahora.",
       "rehearsal": "Una posición de simulación fue ejecutada por el exchange simulado, a 1x. No está en el exchange real y no entra en ningún total.",
       "mixed": "Esta posición tiene ejecuciones de simulación y en vivo. Ningún modo puede cerrarla con seguridad: verifíquela a mano contra el exchange.",
-      "reservation": "Su reserva figura como {{status}}, no FILLED."
+      "reservation": "Su reserva figura como {{status}}, no FILLED.",
+      "info": "Sobre estas posiciones"
     }
   },
   "exchanges": {

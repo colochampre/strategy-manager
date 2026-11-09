@@ -33,6 +33,7 @@ function strategy(overrides: Partial<Strategy> = {}): Strategy {
     description: null,
     subscribers: 1,
     live_subscribers: 0,
+    created_at: null,
     capital: null,
     ...overrides,
   };
@@ -85,16 +86,18 @@ describe("DeleteStrategyControl", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("draws an aria-hidden Trash left of the button's text and leaves its name as it was", () => {
+  it("says its words beside an aria-hidden Trash, in the danger colour: the one button that keeps its text (L.10)", () => {
     renderControl();
 
     const button = screen.getByRole("button", { name: i18n.t("strategies.delete.button") });
     const svg = button.querySelector("svg");
-    expect(svg).toHaveClass("lucide-trash", "size-4", "shrink-0");
+    expect(svg).toHaveClass("lucide-trash", "size-4");
     expect(svg).toHaveAttribute("aria-hidden", "true");
-    expect(button.firstElementChild).toBe(svg);
-    expect(button).toHaveClass("inline-flex", "items-center", "gap-1.5");
-    expect(button).toHaveAccessibleName(i18n.t("strategies.delete.button"));
+    expect(button).toHaveTextContent(i18n.t("strategies.delete.button"));
+    expect(button).toHaveClass("border-loss", "text-loss");
+    expect(button).not.toHaveClass("size-11");
+    fireEvent.mouseEnter(button);
+    expect(screen.queryByRole("tooltip")).toBeNull();
   });
 
   it("disables the button with a hint while the strategy is enabled", () => {

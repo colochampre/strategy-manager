@@ -92,6 +92,9 @@ const bodyRows = () => {
 const next = () => screen.getByRole("button", { name: i18n.t("strategies.performance.trades.next") });
 const previous = () => screen.getByRole("button", { name: i18n.t("strategies.performance.trades.previous") });
 const pageLabel = (page: number) => i18n.t("strategies.performance.trades.page", { page });
+/** The columns' names in order; each is the accessible name of the icon that stands for it. */
+const headerNames = () =>
+  screen.getAllByRole("columnheader").map((header) => within(header).getByRole("img").getAttribute("aria-label"));
 const pnls = () => bodyRows().map((row) => within(row).getAllByRole("cell")[8]?.textContent);
 
 beforeEach(unlock);
@@ -328,7 +331,7 @@ describe("TradesTable", () => {
 
     await screen.findByRole("table");
 
-    expect(screen.getAllByRole("columnheader").map((header) => header.textContent)).toEqual([
+    expect(headerNames()).toEqual([
       "Opened (UTC)",
       "Closed (UTC)",
       "Pair",
@@ -395,7 +398,7 @@ describe("TradesTable", () => {
 
     await screen.findByRole("table");
 
-    const headers = screen.getAllByRole("columnheader").map((header) => header.textContent);
+    const headers = headerNames();
     expect(headers).toContain(heading);
     expect(headers).not.toContain("Return");
     expect(headers).not.toContain("Rendimiento");
@@ -609,7 +612,7 @@ describe("TradesTable", () => {
     await screen.findByRole("table");
 
     expect(screen.getByRole("heading", { name: "Operaciones cerradas" })).toBeInTheDocument();
-    expect(screen.getAllByRole("columnheader").map((header) => header.textContent)).toEqual([
+    expect(headerNames()).toEqual([
       "Apertura (UTC)",
       "Cierre (UTC)",
       "Par",
@@ -776,7 +779,12 @@ const NOTE = {
 describe("TradesTable sentences below the table", () => {
   const rehearsal = (n: number, fillPrice: string) =>
     trade(n, { rehearsal: true, rehearsal_fill_price: fillPrice });
-  const shown = (language: "en" | "es" = "en") => NOTE[language].map((sentence) => screen.queryByText(sentence) !== null);
+  // The sentences wait behind the (i) beside the title: open it, when it is drawn, before looking for them.
+  const shown = (language: "en" | "es" = "en") => {
+    const button = screen.queryByRole("button", { name: language === "en" ? "About these trades" : "Sobre estas operaciones" });
+    if (button?.getAttribute("aria-expanded") === "false") fireEvent.click(button);
+    return NOTE[language].map((sentence) => screen.queryByText(sentence) !== null);
+  };
 
   it.each([
     ["no rehearsal row", [trade(1)], [false, false, false]],
@@ -1059,6 +1067,9 @@ describe("TradesTable opening an operation", () => {
     renderTable();
     await screen.findByRole("table");
 
+    // The column icons take a stop each (their tips open on focus) before the first Details control.
+    const headerStops = screen.getAllByRole("columnheader").length;
+    for (let stop = 0; stop < headerStops; stop += 1) pressTab();
     const first = pressTab();
     const second = pressTab();
 
@@ -1170,104 +1181,66 @@ describe("TradesTable localization", () => {
   });
 });
 
-// Where the notes sit (task 9p.5.32, owner decision 46): after the table and after its paging
-// controls, so those controls do not move when a page has no note; nothing but the table follows the
-// section's title. Which notes show is pinned by the two describes around this one.
-describe("TradesTable notes sit below the table", () => {
-  const rows = [trade(1, { rehearsal: true, rehearsal_fill_price: "ALERT", fees_complete: false }), trade(2)];
-
-  it("renders the notes after the table and after the paging controls, in their order", async () => {
-    serve(rows, 1);
-    renderTable();
-    await screen.findByRole("table");
-
-    const table = screen.getByRole("table");
-    const pager = screen.queryByRole("navigation", { name: "Pages of closed trades" });
-    const notes = [NOTE.en[0], NOTE.en[2], "* A fee paid in a third currency is not in this PnL."].map((text) =>
-      screen.queryByText(text),
-    );
-    const follows = (earlier: Element | null, later: Element | null) =>
-      earlier !== null && later !== null && (earlier.compareDocumentPosition(later) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
-
-    expect(pager).toBeInTheDocument();
-    expect(notes.map((note) => note !== null)).toEqual([true, true, true]);
-    // The first note comes after the table and after the paging controls, and the notes keep their order.
-    expect(follows(table, notes[0] ?? null)).toBe(true);
-    expect(follows(pager, notes[0] ?? null)).toBe(true);
-    expect(follows(notes[0] ?? null, notes[1] ?? null)).toBe(true);
-    expect(follows(notes[1] ?? null, notes[2] ?? null)).toBe(true);
-  });
-
-  it("leaves nothing but the table between the title and the table", async () => {
-    serve(rows, 1);
-    renderTable();
-    await screen.findByRole("table");
-
-    const section = screen.getByRole("heading", { name: "Closed trades" }).closest("section") as HTMLElement;
-    const afterTitle = Array.from(section.children).slice(1);
-
-    expect(afterTitle[0]?.contains(screen.getByRole("table"))).toBe(true);
-    expect(afterTitle.filter((child) => child.tagName === "P").length).toBeGreaterThan(0);
-    expect(afterTitle.findIndex((child) => child.tagName === "P")).toBeGreaterThan(0);
-  });
-});
-
-// The incomplete-fees note (task 9p.5.27, owner decision 46): one sentence under the dry-run sentences,
-// true of a row of the page on screen, never of a page visited before.
-describe("TradesTable incomplete-fees note", () => {
-  const NOTE_EN = "* A fee paid in a third currency is not in this PnL.";
-  const NOTE_ES = "* Una comisión pagada en una tercera moneda no está en este PnL.";
-  const noteShown = (text = NOTE_EN) => screen.queryByText(text) !== null;
+// The incomplete-fees sentence (task 9p.5.27) is the PnL column's tip now (owner ask, 2026-11-09): told
+// when a row of the page on screen makes it true, never for a page visited before. The tip starts with
+// the column's name; the dry-run sentences are pinned by "TradesTable sentences below the table".
+describe("TradesTable incomplete-fees tip", () => {
+  const TIP_EN = "PnL USDT. A fee paid in a third currency is not in this PnL.";
+  const TIP_ES = "PnL USDT. Una comisión pagada en una tercera moneda no está en este PnL.";
+  const pnlTip = () => {
+    fireEvent.mouseEnter(within(screen.getByRole("table")).getByRole("img", { name: "PnL USDT" }));
+    const tip = screen.getByRole("tooltip").textContent;
+    fireEvent.mouseLeave(within(screen.getByRole("table")).getByRole("img", { name: "PnL USDT" }));
+    return tip;
+  };
 
   it.each([
-    ["no row with incomplete fees", [trade(1), trade(2)], false],
-    ["a row with incomplete fees", [trade(1), trade(2, { fees_complete: false })], true],
-  ])("shows the note only when a row of the page makes it true: %s", async (_name, rows, expected) => {
+    ["no row with incomplete fees", [trade(1), trade(2)], "PnL USDT"],
+    ["a row with incomplete fees", [trade(1), trade(2, { fees_complete: false })], TIP_EN],
+  ])("tells it only when a row of the page makes it true: %s", async (_name, rows, expected) => {
     serve(rows, 5);
     renderTable();
 
     await screen.findByRole("table");
 
-    expect(noteShown()).toBe(expected);
+    expect(pnlTip()).toBe(expected);
   });
 
   it("follows the page on screen and never the pages visited before", async () => {
     serve([trade(1, { fees_complete: false }), trade(2), trade(3)], 1);
     renderTable();
     await screen.findByRole("table");
-    expect(noteShown()).toBe(true);
+    expect(pnlTip()).toBe(TIP_EN);
 
     fireEvent.click(next());
     await screen.findByText(pageLabel(2));
 
-    expect(noteShown()).toBe(false);
+    expect(pnlTip()).toBe("PnL USDT");
 
     fireEvent.click(previous());
 
-    expect(noteShown()).toBe(true);
+    expect(pnlTip()).toBe(TIP_EN);
   });
 
-  it("sits after the dry-run sentences", async () => {
+  it("is a paragraph nowhere, with the dry-run sentences or without them", async () => {
     serve([trade(1, { rehearsal: true, rehearsal_fill_price: "ALERT", fees_complete: false })], 5);
     renderTable();
 
     await screen.findByRole("table");
+    fireEvent.click(screen.getByRole("button", { name: "About these trades" }));
 
-    const dryRun = screen.queryByText(NOTE.en[2]);
-    const note = screen.queryByText(NOTE_EN);
-    expect(dryRun).toBeInTheDocument();
-    expect(note).toBeInTheDocument();
-    expect((dryRun as HTMLElement).compareDocumentPosition(note as HTMLElement) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.queryByText(/A fee paid in a third currency/, { selector: "p" })).toBeNull();
+    expect(screen.queryByText(NOTE.en[2])).toBeInTheDocument();
   });
 
-  it("writes the note in Spanish", async () => {
+  it("is written in Spanish", async () => {
     await i18n.changeLanguage("es");
     serve([trade(1, { fees_complete: false })], 5);
     renderTable();
 
     await screen.findByRole("table");
 
-    expect(noteShown(NOTE_ES)).toBe(true);
+    expect(pnlTip()).toBe(TIP_ES);
   });
 });
 
@@ -1342,5 +1315,82 @@ describe("TradesTable shorter figures", () => {
     const cells = await figureCells(trade(1, { other_fees: [{ currency: "BNB", amount: "0.000120000000000000" }] }));
 
     expect(cells[7] ? within(cells[7]).queryByText("+ 0.00012 BNB") : null).toBeInTheDocument();
+  });
+});
+
+// The columns are icons and the notes wait behind one (i) beside the title (owner ask, 2026-11-09).
+describe("TradesTable icons and the (i) beside the title", () => {
+  const BUTTON = "About these trades";
+  const FEES_HINT = "A fee paid in a third currency is not in this PnL.";
+
+  it("draws each column's name as an icon whose accessible name is the name", async () => {
+    serve([trade(1)], 5);
+    renderTable();
+    await screen.findByRole("table");
+
+    const headers = screen.getAllByRole("columnheader");
+    expect(headers.map((header) => header.textContent)).toEqual(Array(12).fill(""));
+    expect(headers.map((header) => within(header).getByRole("img").getAttribute("aria-label"))).toEqual([
+      "Opened (UTC)",
+      "Closed (UTC)",
+      "Pair",
+      "Side",
+      "Entry",
+      "Exit",
+      "Size",
+      "Fees USDT",
+      "PnL USDT",
+      "PnL %",
+      "Pool at open",
+      "Details",
+    ]);
+  });
+
+  it("keeps the dry-run sentences closed behind the (i) beside the title, in their order, until it is clicked", async () => {
+    serve([trade(1, { rehearsal: true, rehearsal_fill_price: "ALERT" })], 5);
+    renderTable();
+    await screen.findByRole("table");
+
+    const button = screen.getByRole("button", { name: BUTTON });
+    const title = screen.getByRole("heading", { name: "Closed trades" });
+    expect(title.parentElement).toContainElement(button);
+    expect(button).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText(NOTE.en[0])).toBeNull();
+
+    fireEvent.click(button);
+
+    const first = screen.getByText(NOTE.en[0]);
+    const third = screen.getByText(NOTE.en[2]);
+    expect(button).toHaveAttribute("aria-expanded", "true");
+    expect(first.compareDocumentPosition(third) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByRole("table").compareDocumentPosition(first) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
+  });
+
+  it("draws no (i) when no row of the page is a dry run", async () => {
+    serve([trade(1), trade(2)], 5);
+    renderTable();
+    await screen.findByRole("table");
+
+    expect(screen.queryByRole("button", { name: BUTTON })).toBeNull();
+  });
+
+  it("says the incomplete fees in the PnL column's tip when a row makes it true, and in no paragraph", async () => {
+    serve([trade(1, { fees_complete: false })], 5);
+    renderTable();
+    await screen.findByRole("table");
+
+    expect(screen.queryByText(`* ${FEES_HINT}`)).toBeNull();
+    expect(screen.queryByRole("button", { name: BUTTON })).toBeNull();
+    fireEvent.mouseEnter(within(screen.getByRole("table")).getByRole("img", { name: "PnL USDT" }));
+    expect(screen.getByRole("tooltip").textContent).toBe(`PnL USDT. ${FEES_HINT}`);
+  });
+
+  it("gives the PnL column no note in its tip when every row has complete fees", async () => {
+    serve([trade(1), trade(2)], 5);
+    renderTable();
+    await screen.findByRole("table");
+
+    fireEvent.mouseEnter(within(screen.getByRole("table")).getByRole("img", { name: "PnL USDT" }));
+    expect(screen.getByRole("tooltip").textContent).toBe("PnL USDT");
   });
 });

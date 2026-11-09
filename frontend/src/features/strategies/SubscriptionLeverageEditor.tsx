@@ -103,7 +103,9 @@ export function SubscriptionLeverageEditor({ strategy, draft }: SubscriptionLeve
               onClick={handleSave}
               disabled={readOnly || busy || !changed || saved}
               icon={Save}
-              className="min-h-11 rounded-md bg-gain px-3 text-sm font-medium text-ground hover:opacity-90 disabled:opacity-50"
+              iconOnly
+              busy={busy}
+              look="primary"
             />
           </div>
         }

@@ -102,8 +102,14 @@ class RecordReport:
 
 @dataclass(frozen=True, slots=True)
 class PublicRecord:
+    """What a listing shows of a record. ``max_drawdown`` is the deepest fall of the
+    compounded curve from a previous top, 0 or below; ``win_rate`` is the share of
+    closed trades whose return is above zero, None with no closed trade."""
+
     closed_trade_count: int
     total_return: Decimal
+    max_drawdown: Decimal
+    win_rate: Decimal | None
     unresolved_allocation_ids: tuple[UUID, ...]
 
 
@@ -214,14 +220,16 @@ def build_record_report(groups: Iterable[FillGroup], now: datetime) -> RecordRep
 
 
 def build_public_record(groups: Iterable[FillGroup]) -> PublicRecord:
-    """The closed trades of one strategy and their compounded return, zero when
-    none has closed."""
+    """The closed trades of one strategy, their compounded return and deepest
+    fall, zero when none has closed, and their win rate, None then. A win is what
+    ``_pairs`` counts as one."""
     trades, derived = _derived(groups)
-    points = compound(
-        combine_by_day((trade.opened_at, trade.closed_at, trade.value) for trade in trades)
-    )
+    points = _compounded(trades)
+    wins = sum(1 for trade in trades if trade.value > _ZERO)
     return PublicRecord(
         closed_trade_count=len(trades),
         total_return=points[-1].index - _ONE if points else _ZERO,
+        max_drawdown=min(drawdowns(points), default=_ZERO),
+        win_rate=Decimal(wins) / Decimal(len(trades)) if trades else None,
         unresolved_allocation_ids=derived.unresolved_allocation_ids,
     )

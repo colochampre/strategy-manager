@@ -414,3 +414,38 @@ describe("PairSelector", () => {
     }
   });
 });
+
+describe("PairSelector layout (L.7)", () => {
+  it("puts the name, the information button and the chips of the added pairs in one wrapping row", () => {
+    selector({ value: ["STXUSDT", "SFPUSDT"], info: { label: "About the pairs", text: "Removing stops entries." } });
+
+    const name = screen.getByText(LABEL);
+    const row = name.parentElement as HTMLElement;
+    expect(row).toHaveClass("flex", "flex-wrap");
+    expect(row).toContainElement(screen.getByRole("button", { name: "About the pairs" }));
+    expect(row).toContainElement(screen.getByRole("list", { name: copy("selected") }));
+    expect(screen.getByRole("group", { name: LABEL })).toBeInTheDocument();
+  });
+
+  it("keeps the explanation behind the information button", () => {
+    selector({ info: { label: "About the pairs", text: "Removing stops entries." } });
+
+    expect(screen.queryByText("Removing stops entries.")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "About the pairs" }));
+    expect(screen.getByText("Removing stops entries.")).toBeInTheDocument();
+  });
+
+  it("puts the search field and the action on one row, the field taking the width that is left", () => {
+    selector({ action: <button type="button">Go</button> });
+
+    const row = search().parentElement as HTMLElement;
+    expect(row).toContainElement(screen.getByRole("button", { name: "Go" }));
+    expect(search()).toHaveClass("min-w-0", "flex-1");
+  });
+
+  it("shows no information button when none is given", () => {
+    selector();
+
+    expect(screen.queryByRole("button", { name: /about/i })).toBeNull();
+  });
+});

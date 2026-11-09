@@ -1,3 +1,14 @@
+import {
+  ArrowLeftRight,
+  ArrowUpDown,
+  CalendarPlus,
+  ChartCandlestick,
+  Gauge,
+  LogIn,
+  PiggyBank,
+  Receipt,
+  Ruler,
+} from "lucide-react";
 import { Fragment } from "react";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
@@ -11,6 +22,7 @@ import { cn } from "@/shared/lib/cn";
 import { clockText, compactDateText, figureText, tableFigureText } from "@/shared/lib/figure-text";
 import { useIsWide } from "@/shared/layout/useIsWide";
 import { Absent } from "@/shared/ui/Absent";
+import { ColumnHead } from "@/shared/ui/ColumnHead";
 import { Instant } from "@/shared/ui/Instant";
 
 interface PositionsTableProps {
@@ -204,34 +216,34 @@ function DesktopTable({ positions, asOf, currency, labelledBy, variant }: TableP
           <tr className="text-right text-[10px] uppercase tracking-[0.09em] text-ink-3">
             {pool && (
               <th scope="col" className={cn(HEADER, left)}>
-                {t("overview.open.strategy")}
+                <ColumnHead icon={ChartCandlestick} label={t("overview.open.strategy")} align="start" />
               </th>
             )}
             <th scope="col" className={cn(HEADER, left)}>
-              {t("strategies.performance.trades.opened")}
+              <ColumnHead icon={CalendarPlus} label={t("strategies.performance.trades.opened")} align="start" />
             </th>
             <th scope="col" className={cn(HEADER, left)}>
-              {t("strategies.performance.trades.pair")}
+              <ColumnHead icon={ArrowLeftRight} label={t("strategies.performance.trades.pair")} align="start" />
             </th>
             <th scope="col" className={cn(HEADER, left)}>
-              {t("strategies.performance.trades.side")}
+              <ColumnHead icon={ArrowUpDown} label={t("strategies.performance.trades.side")} align="start" />
             </th>
             <th scope="col" className={HEADER}>
-              {t("strategies.performance.trades.size")}
+              <ColumnHead icon={Ruler} label={t("strategies.performance.trades.size")} />
             </th>
             <th scope="col" className={HEADER}>
-              {t("strategies.performance.trades.entry")}
+              <ColumnHead icon={LogIn} label={t("strategies.performance.trades.entry")} />
             </th>
             {!pool && (
               <th scope="col" className={HEADER}>
-                {t("strategies.performance.trades.fees", { currency })}
+                <ColumnHead icon={Receipt} label={t("strategies.performance.trades.fees", { currency })} />
               </th>
             )}
             <th scope="col" className={HEADER}>
-              {t("positions.table.margin", { currency })}
+              <ColumnHead icon={PiggyBank} label={t("positions.table.margin", { currency })} hint={t("positions.note.margin")} />
             </th>
             <th scope="col" className="border-b border-rule py-2 align-bottom font-medium">
-              {t("positions.table.leverage")}
+              <ColumnHead icon={Gauge} label={t("positions.table.leverage")} />
             </th>
           </tr>
         </thead>
@@ -345,7 +357,7 @@ export function PositionsTable(props: PositionsTableProps) {
   if (table) return <DesktopTable {...props} />;
   const locale = i18n.resolvedLanguage ?? "en";
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-4">
       {props.positions.map((position) => (
         <PositionCard
           key={position.allocation_id}

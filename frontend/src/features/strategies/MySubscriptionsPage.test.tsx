@@ -1,11 +1,15 @@
-import { screen, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AppRoutes } from "@/app/router";
 import i18n from "@/shared/i18n";
 import {
+  emptyPerformance,
   heldSubscription,
   jsonResponse,
+  openOrder,
+  openPosition,
+  openState,
   publicStrategy,
   renderAt,
   resetExchangeScope,
@@ -20,19 +24,52 @@ const STRATEGY_ID = "11111111-1111-4111-8111-111111111111";
 interface Serve {
   held: () => Promise<Response>;
   publics?: () => Promise<Response>;
+  /** The reader's open positions and orders; none unless a test says so. */
+  open?: ReturnType<typeof openState>;
+  /** The reader's own report in the strategy. */
+  mine?: () => Promise<Response>;
 }
 
-function serve({ held, publics }: Serve) {
-  return stubApi({ kind: "ok", body: {} }, [], { kind: "ok", body: [] }, {}, (url) => {
-    if (url.endsWith("/api/subscriptions/held")) return held();
-    if (url.endsWith("/api/public/strategies")) {
-      return publics?.() ?? Promise.resolve(jsonResponse([publicStrategy({ id: STRATEGY_ID })]));
-    }
-    if (url.includes(`/strategies/${STRATEGY_ID}/share-preview`)) {
-      return Promise.resolve(jsonResponse(unsyncedSharePreview(STRATEGY_ID)));
-    }
-    return undefined;
-  });
+/** The reader's own report in a strategy: 41.25 USDT made over all time. */
+function myReport() {
+  return {
+    ...emptyPerformance("bybit", "usdt-m", "USDT"),
+    strategy_id: STRATEGY_ID,
+    by_pair: [],
+    trade_count: 2,
+    total_pnl: "41.25",
+    ranges: ["7D", "30D", "90D", "1Y", "All"].map((range) => ({
+      range,
+      pnl: range === "All" ? "41.25" : "1.00",
+      return: "0.02",
+      trade_count: 2,
+    })),
+  };
+}
+
+function serve({ held, publics, open, mine }: Serve) {
+  return stubApi(
+    { kind: "ok", body: {} },
+    [],
+    { kind: "ok", body: [] },
+    {},
+    (url) => {
+      if (url.endsWith("/api/subscriptions/held")) return held();
+      if (url.endsWith("/api/public/strategies")) {
+        return publics?.() ?? Promise.resolve(jsonResponse([publicStrategy({ id: STRATEGY_ID })]));
+      }
+      if (url.endsWith(`/performance/strategies/${STRATEGY_ID}`)) {
+        return mine?.() ?? Promise.resolve(jsonResponse(myReport()));
+      }
+      if (url.includes(`/strategies/${STRATEGY_ID}/share-preview`)) {
+        return Promise.resolve(jsonResponse(unsyncedSharePreview(STRATEGY_ID)));
+      }
+      return undefined;
+    },
+    {},
+    undefined,
+    open === undefined ? undefined : { kind: "ok", body: open },
+  );
 }
 
 function open() {
@@ -120,17 +157,92 @@ describe("a card of My subscriptions shows what Explore shows", () => {
     expect(within(row).getByTestId("subscription-market")).toHaveTextContent(/^bybit · usdt-m · USDT$/);
   });
 
-  it("draws the strategy's public figures: closed trades, return, people trading it live and capital", async () => {
+  it("draws the strategy's public figures: closed trades, return, deepest, win rate, subscribers and capital", async () => {
     serve({ held: () => Promise.resolve(jsonResponse([heldSubscription()])) });
     open();
 
     const row = await screen.findByTestId("subscription-row");
-    expect(await within(row).findByTestId("public-trades")).toHaveTextContent(/^3$/);
-    expect(within(row).getByTestId("public-return")).toHaveTextContent(/^\+12\.5\s?%$/);
-    expect(within(row).getByTestId("public-live")).toHaveTextContent(/^2$/);
-    expect(within(row).getByTestId("public-capital")).toBeInTheDocument();
+    await waitFor(() => expect(within(row).getByTestId("subscription-trades")).toHaveTextContent(/^3$/));
+    expect(within(row).getByTestId("subscription-return")).toHaveTextContent(/^\+12\.5\s?%$/);
+    expect(within(row).getByTestId("subscription-deepest")).toHaveTextContent(/^[-−]5\.0\s?%$/);
+    expect(within(row).getByTestId("subscription-winrate")).toHaveTextContent(/^60\s?%$/);
+    expect(within(row).getByTestId("subscription-subscribers")).toHaveTextContent(/^2$/);
+    expect(within(row).getByTestId("subscription-capital")).toHaveTextContent(/^1,500\.00 USDT$/);
     // The strategy's own age is not drawn: the card counts the reader's time in it instead.
     expect(within(row).queryByTestId("public-age")).not.toBeInTheDocument();
+  });
+
+  it("draws the reader's own PnL in the strategy, all time, left of the return, named as theirs (L.11)", async () => {
+    serve({ held: () => Promise.resolve(jsonResponse([heldSubscription()])) });
+    open();
+
+    const row = await screen.findByTestId("subscription-row");
+    await waitFor(() => expect(within(row).getByTestId("subscription-pnl")).toHaveTextContent(/^\+41\.25 USDT$/));
+    const order = Array.from(row.querySelectorAll("dd")).map((cell) => cell.getAttribute("data-testid"));
+    expect(order.indexOf("subscription-pnl")).toBe(order.indexOf("subscription-return") - 1);
+    const term = within(row).getByTestId("subscription-pnl").previousElementSibling as HTMLElement;
+    expect(within(term).getByRole("img", { name: "Your PnL" })).toBeInTheDocument();
+  });
+
+  it("draws a dash for a PnL with no report of the reader's (L.11)", async () => {
+    serve({
+      held: () => Promise.resolve(jsonResponse([heldSubscription()])),
+      mine: () => Promise.resolve(jsonResponse({ detail: "none" }, 404)),
+    });
+    open();
+    const row = await screen.findByTestId("subscription-row");
+    await waitFor(() => expect(within(row).getByTestId("subscription-pnl")).toHaveTextContent(/^—$/));
+  });
+
+  it("shows the dash, not a wait, in every public figure once the list has been read and holds nothing of it", async () => {
+    serve({ held: () => Promise.resolve(jsonResponse([heldSubscription()])), publics: () => Promise.resolve(jsonResponse([])) });
+    open();
+
+    const row = await screen.findByTestId("subscription-row");
+    await waitFor(() => expect(within(row).getByTestId("subscription-trades")).toHaveTextContent(/^—$/));
+    for (const key of ["return", "deepest", "winrate", "subscribers", "capital"]) {
+      expect(within(row).getByTestId(`subscription-${key}`), key).toHaveTextContent(/^—$/);
+    }
+  });
+
+  it("waits with an ellipsis while the public list is on its way, and claims nothing", async () => {
+    serve({ held: () => Promise.resolve(jsonResponse([heldSubscription()])), publics: () => new Promise<Response>(() => undefined) });
+    open();
+
+    const row = await screen.findByTestId("subscription-row");
+    for (const key of ["trades", "return", "deepest", "winrate", "subscribers", "capital"]) {
+      expect(within(row).getByTestId(`subscription-${key}`), key).toHaveTextContent(/^…$/);
+    }
+  });
+
+  it("says whether the strategy runs, and for how long, from the seat itself", async () => {
+    serve({
+      held: () =>
+        Promise.resolve(
+          jsonResponse([
+            heldSubscription({
+              strategy_enabled: false,
+              strategy_uptime: { seconds: 3 * 86_400, first_enabled_at: "2026-09-29T00:00:00Z", baseline: true },
+            }),
+          ]),
+        ),
+      publics: () => Promise.resolve(jsonResponse([])),
+    });
+    open();
+
+    const row = await screen.findByTestId("subscription-row");
+    expect(within(row).getByTestId("subscription-enabled")).toHaveAccessibleName(i18n.t("strategies.detail.disabled"));
+    expect(within(row).getByTestId("subscription-uptime")).toHaveTextContent(/^≥3$/);
+  });
+
+  it("opens the strategy from anywhere on the card, through the one link", async () => {
+    serve({ held: () => Promise.resolve(jsonResponse([heldSubscription()])) });
+    open();
+
+    const row = await screen.findByTestId("subscription-row");
+    expect(row).toHaveClass("relative");
+    expect(within(row).getAllByRole("link")).toHaveLength(1);
+    expect(within(row).getByRole("link", { name: "Alpha" })).toHaveClass("after:absolute", "after:inset-0");
   });
 
   it("counts the age from the day the reader subscribed, not from the strategy's creation", async () => {
@@ -142,7 +254,7 @@ describe("a card of My subscriptions shows what Explore shows", () => {
     const age = await screen.findByTestId("subscription-age");
     expect(age).toHaveTextContent(/^10d$/);
     const figure = age.parentElement as HTMLElement;
-    expect(within(figure).getByRole("img", { name: i18n.t("strategies.subscriptions.age") })).toBeInTheDocument();
+    expect(within(figure).getByRole("img", { name: "Time subscribed" })).toBeInTheDocument();
   });
 
   it("adds the share of the pool and the leverage, each under its icon, the share in plain form", async () => {
@@ -154,13 +266,18 @@ describe("a card of My subscriptions shows what Explore shows", () => {
     const share = await screen.findByTestId("subscription-share");
     expect(share).toHaveTextContent(/^30%$/);
     expect(
-      within(share.parentElement as HTMLElement).getByRole("img", { name: i18n.t("strategies.subscriptions.share") }),
+      within(share.parentElement as HTMLElement).getByRole("img", { name: "Share" }),
     ).toBeInTheDocument();
     const leverage = screen.getByTestId("subscription-leverage");
     expect(leverage).toHaveTextContent(/^x4$/);
     expect(
-      within(leverage.parentElement as HTMLElement).getByRole("img", { name: i18n.t("strategies.subscriptions.leverage") }),
+      within(leverage.parentElement as HTMLElement).getByRole("img", { name: "Leverage" }),
     ).toBeInTheDocument();
+    // They come last, after the eight figures every card draws.
+    const order = Array.from((await screen.findByTestId("subscription-row")).querySelectorAll("dd")).map((cell) =>
+      cell.getAttribute("data-testid"),
+    );
+    expect(order.slice(-2)).toEqual(["subscription-share", "subscription-leverage"]);
   });
 
   it("offers no Leave, nor any other button: the seat is managed on the strategy's page", async () => {
@@ -168,7 +285,7 @@ describe("a card of My subscriptions shows what Explore shows", () => {
     open();
 
     const row = await screen.findByTestId("subscription-row");
-    await within(row).findByTestId("public-trades");
+    await waitFor(() => expect(within(row).getByTestId("subscription-trades")).toHaveTextContent(/^3$/));
     expect(within(row).queryByRole("button")).not.toBeInTheDocument();
     expect(within(row).queryByRole("textbox")).not.toBeInTheDocument();
     expect(within(row).queryByRole("slider")).not.toBeInTheDocument();
@@ -181,7 +298,8 @@ describe("a card of My subscriptions shows what Explore shows", () => {
 
     expect(await screen.findByTestId("subscription-share")).toBeInTheDocument();
     expect(screen.getByTestId("subscription-age")).toBeInTheDocument();
-    expect(screen.queryByTestId("public-trades")).not.toBeInTheDocument();
+    expect(screen.getByTestId("subscription-uptime")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByTestId("subscription-trades")).toHaveTextContent(/^—$/));
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
@@ -194,7 +312,7 @@ describe("a card of My subscriptions shows what Explore shows", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent(i18n.t("strategies.subscriptions.figuresError"));
     expect(screen.getByTestId("subscription-share")).toBeInTheDocument();
-    expect(screen.queryByTestId("public-trades")).not.toBeInTheDocument();
+    expect(screen.getByTestId("subscription-trades")).toHaveTextContent(/^—$/);
   });
 
   it("says an author has no name yet, instead of a blank", async () => {
@@ -230,6 +348,115 @@ describe("a card of My subscriptions shows what Explore shows", () => {
 
     await screen.findByTestId("subscription-row");
     expect(screen.queryByText(i18n.t("strategies.subscriptions.leaving"))).not.toBeInTheDocument();
+  });
+});
+
+describe("the reader's own open positions on a card (L.4)", () => {
+  it("shows the positions and orders the reader's seat holds, as My strategies shows the author's", async () => {
+    serve({
+      held: () => Promise.resolve(jsonResponse([heldSubscription()])),
+      open: openState(
+        [openPosition({ strategy_id: STRATEGY_ID, markets: ["AAVEUSDT"], side: "LONG" })],
+        [openOrder({ strategy_id: STRATEGY_ID, market: "SOLUSDT" })],
+      ),
+    });
+    open();
+
+    const row = await screen.findByTestId("subscription-row");
+    const marks = await within(row).findByRole("list", { name: i18n.t("positions.marks.name", { name: "Alpha" }) });
+    expect(within(marks).getAllByRole("listitem").map((item) => item.textContent)).toEqual([
+      "AAVEUSDT · LONG · Live",
+      expect.stringContaining("SOLUSDT"),
+    ]);
+    expect(marks.parentElement).toHaveClass("relative", "z-10");
+  });
+
+  it("shows none of a position that belongs to another strategy", async () => {
+    serve({
+      held: () => Promise.resolve(jsonResponse([heldSubscription()])),
+      open: openState([openPosition({ strategy_id: "99999999-9999-4999-8999-999999999999", markets: ["AAVEUSDT"] })]),
+    });
+    open();
+
+    const row = await screen.findByTestId("subscription-row");
+    await waitFor(() => expect(within(row).queryByText(i18n.t("positions.state.loading"))).not.toBeInTheDocument());
+    expect(within(row).queryByRole("list")).not.toBeInTheDocument();
+  });
+
+  it("shows no chip for a strategy that holds nothing of the reader's", async () => {
+    serve({ held: () => Promise.resolve(jsonResponse([heldSubscription()])), open: openState() });
+    open();
+
+    const row = await screen.findByTestId("subscription-row");
+    await waitFor(() => expect(within(row).queryByText(i18n.t("positions.state.loading"))).not.toBeInTheDocument());
+    expect(within(row).queryByRole("list")).not.toBeInTheDocument();
+  });
+});
+
+describe("the sort of My subscriptions", () => {
+  const ID_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const ID_B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+  const ID_C = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+
+  /** Alpha: subscribed latest, 5 % return; Bravo: subscribed first, 20 %; Charlie: no public record at all. */
+  function listOf() {
+    return {
+      held: () =>
+        Promise.resolve(
+          jsonResponse([
+            heldSubscription({ id: "h-a", strategy_id: ID_A, strategy_name: "Alpha", created_at: "2026-10-20T10:00:00Z" }),
+            heldSubscription({ id: "h-b", strategy_id: ID_B, strategy_name: "Bravo", created_at: "2026-09-01T10:00:00Z" }),
+            heldSubscription({ id: "h-c", strategy_id: ID_C, strategy_name: "Charlie", created_at: "2026-10-01T10:00:00Z" }),
+          ]),
+        ),
+      publics: () =>
+        Promise.resolve(
+          jsonResponse([
+            publicStrategy({ id: ID_A, name: "Alpha", unleveraged_return_before_fees: "0.05", closed_trade_count: 2, subscribers: 9, live_subscribers: 3, capital: "10" }),
+            publicStrategy({ id: ID_B, name: "Bravo", unleveraged_return_before_fees: "0.20", closed_trade_count: 8, subscribers: 4, live_subscribers: 1, capital: "999" }),
+          ]),
+        ),
+    };
+  }
+
+  const names = () =>
+    screen.getAllByTestId("subscription-row").map((row) => within(row).getAllByRole("link")[0]?.textContent);
+  const press = (name: string) => fireEvent.click(screen.getByRole("button", { name }));
+
+  async function start() {
+    serve(listOf());
+    open();
+    await screen.findAllByTestId("subscription-row");
+    await waitFor(() => expect(screen.getAllByTestId("subscription-trades")[0]).not.toHaveTextContent("…"));
+  }
+
+  it("orders by the strategy's return, largest first, a seat with no public record last", async () => {
+    await start();
+
+    expect(names()).toEqual(["Bravo", "Alpha", "Charlie"]);
+    press("Return, descending");
+    expect(names()).toEqual(["Alpha", "Bravo", "Charlie"]);
+  });
+
+  it("orders by the time subscribed, the longest first, and not by the strategy's own age", async () => {
+    await start();
+
+    press("Age");
+
+    expect(names()).toEqual(["Bravo", "Charlie", "Alpha"]);
+    press("Age, descending");
+    expect(names()).toEqual(["Alpha", "Charlie", "Bravo"]);
+  });
+
+  it("orders by closed trades, subscribers and capital the same way", async () => {
+    await start();
+
+    press("Closed trades");
+    expect(names()).toEqual(["Bravo", "Alpha", "Charlie"]);
+    press("Subscribers");
+    expect(names()).toEqual(["Alpha", "Bravo", "Charlie"]);
+    press("Capital");
+    expect(names()).toEqual(["Bravo", "Alpha", "Charlie"]);
   });
 });
 

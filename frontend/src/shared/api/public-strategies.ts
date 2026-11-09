@@ -2,6 +2,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 
 import { ApiError, apiFetch } from "@/shared/api/client";
 import { type Entry, entryKey, entryParams, entryReadOptions, NO_ENTRY, useEntry } from "@/shared/api/entry";
+import { isStrategyUptime } from "@/shared/api/subscriptions";
 import type { PublicStrategy } from "@/shared/api/types";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -30,7 +31,13 @@ function isPublicStrategy(value: unknown): value is PublicStrategy {
     typeof value.unleveraged_return_before_fees === "string" &&
     isCount(value.live_subscribers) &&
     (value.description === null || typeof value.description === "string") &&
-    (value.capital === null || typeof value.capital === "string")
+    (value.capital === null || typeof value.capital === "string") &&
+    isCount(value.subscribers) &&
+    typeof value.max_drawdown === "string" &&
+    // Null with no closed trade: an answer, so a missing one is refused.
+    (value.win_rate === null || typeof value.win_rate === "string") &&
+    typeof value.enabled === "boolean" &&
+    isStrategyUptime(value.uptime)
   );
 }
 

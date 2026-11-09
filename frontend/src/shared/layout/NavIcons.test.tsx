@@ -95,20 +95,20 @@ describe("the navigation icons", () => {
     await renderShell();
     const { bottom } = navs();
 
-    fireEvent.click(screen.getByRole("button", { name: /^(es|en)$/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^(Language|Idioma):/ }));
 
     const link = within(bottom).getByRole("link", { name: "Resumen" });
     expect(link).toHaveAttribute("title", "Resumen");
   });
 
-  it("draws the language symbol left of the switch's text, without changing its name", async () => {
+  it("draws the round flag of the language in use left of its code, and names what pressing it does (L.10, L.11)", async () => {
     await renderShell();
 
-    const button = screen.getByRole("button", { name: /^(es|en)$/i });
+    const button = screen.getByRole("button", { name: /^(Language|Idioma):/ });
     const svg = button.querySelector("svg");
-    expect(svg).toHaveClass("lucide-languages");
+    expect(svg).toHaveAttribute("data-flag", "us");
     expect(svg).toHaveAttribute("aria-hidden", "true");
     expect(button.firstElementChild).toBe(svg);
-    expect(button).toHaveAccessibleName("es");
+    expect(button).toHaveAccessibleName("Language: English. Switch to Spanish");
   });
 });

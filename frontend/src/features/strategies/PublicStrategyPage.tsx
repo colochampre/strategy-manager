@@ -3,14 +3,14 @@ import { useTranslation } from "react-i18next";
 import { Link, useParams, useSearchParams } from "react-router";
 
 import { entryRefusal } from "@/features/strategies/entry-refusal";
-import { PublicFigures, PublicOrigin } from "@/features/strategies/PublicFigures";
+import { PublicOrigin } from "@/features/strategies/PublicFigures";
+import { EnabledBadge } from "@/features/strategies/StrategyCard";
 import { StrategyReportViews } from "@/features/strategies/StrategyReportViews";
 import { SubscribePanel } from "@/features/strategies/SubscribePanel";
 import { ApiError } from "@/shared/api/client";
 import { type Entry, EntryProvider } from "@/shared/api/entry";
 import { usePublicStrategy } from "@/shared/api/public-strategies";
 import type { PublicStrategy } from "@/shared/api/types";
-import { InfoButton, InfoText, useInfoDisclosure } from "@/shared/ui/InfoDisclosure";
 import { LinkifiedText } from "@/shared/ui/LinkifiedText";
 
 function BackToExplore() {
@@ -25,16 +25,18 @@ function BackToExplore() {
 
 function PublicRecord({ strategy }: { strategy: PublicStrategy }) {
   const { t } = useTranslation();
-  const returnInfo = useInfoDisclosure();
-  const capitalInfo = useInfoDisclosure();
   // Two columns from lg up, as on an own strategy: the record on the left, Subscribe or the reader's seat in the
   // aside on the right. Stacked on a phone, the aside comes last.
   return (
     <div className="grid gap-9 lg:grid-cols-[minmax(0,1fr)_25rem]">
-      <div className="flex min-w-0 flex-col gap-6">
-        <header className="flex flex-col gap-1.5">
+      {/* Blocks 4 apart, as on every view; the title alone steps 6 to what follows (L.13). */}
+      <div className="flex min-w-0 flex-col gap-4">
+        <header className="mb-2 flex flex-col gap-1.5">
           <BackToExplore />
-          <h1 className="font-display text-2xl font-bold text-ink">{strategy.name}</h1>
+          <div className="flex flex-wrap items-center gap-x-2">
+            <h1 className="font-display text-2xl font-bold text-ink">{strategy.name}</h1>
+            <EnabledBadge enabled={strategy.enabled} testId="public-enabled" />
+          </div>
           <PublicOrigin strategy={strategy} />
         </header>
         {strategy.description !== null && (
@@ -46,19 +48,6 @@ function PublicRecord({ strategy }: { strategy: PublicStrategy }) {
             </p>
           </section>
         )}
-        <section className="flex flex-col gap-3 rounded-md border border-rule bg-panel px-4 py-3">
-          <PublicFigures
-            strategy={strategy}
-            returnInfo={<InfoButton disclosure={returnInfo} label={t("strategies.public.returnInfo")} />}
-            capitalInfo={<InfoButton disclosure={capitalInfo} label={t("strategies.public.capitalInfo")} />}
-          />
-          <InfoText disclosure={returnInfo}>
-            <p className="text-xs text-ink-3">{t("strategies.public.returnHint")}</p>
-          </InfoText>
-          <InfoText disclosure={capitalInfo}>
-            <p className="text-xs text-ink-3">{t("strategies.public.capitalHint")}</p>
-          </InfoText>
-        </section>
         <StrategyReportViews strategy={strategy} />
       </div>
       <SubscribePanel strategy={strategy} />
@@ -106,7 +95,7 @@ function PublicStrategyRead({ entry }: { entry: Entry }) {
   if (strategy.data !== undefined && !gone && refused === null) return <PublicRecord strategy={strategy.data} />;
 
   return (
-    <div className="flex flex-col items-start gap-3">
+    <div className="flex flex-col items-start gap-4">
       <BackToExplore />
       {strategy.status === "pending" && <p className="text-sm text-ink-2">{t("strategies.public.loading")}</p>}
       {gone && <p className="text-sm text-ink-2">{t("strategies.public.notFound")}</p>}

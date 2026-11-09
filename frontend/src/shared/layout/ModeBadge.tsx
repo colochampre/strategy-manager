@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 
 import { type ChangeModeResult, type Mode, useChangeMode, useMe } from "@/shared/api/me";
 import { cn } from "@/shared/lib/cn";
+import { InfoTip } from "@/shared/ui/Tooltip";
 import { ModeDialog } from "@/shared/layout/ModeDialog";
 
 const PILL = "rounded-sm border px-2 py-1 font-mono text-xs uppercase tracking-widest";
@@ -168,8 +169,12 @@ export function ModeBadge() {
     }
     if (me.data.dryRunBrake) {
       return (
-        <span role="status" title={t("mode.forcedHint")} className={cn(PILL, AMBER)}>
-          {t("status.forced")}
+        // Why the badge is forced waits behind an (i) right of it, opening below: the bar is at the top of the page.
+        <span className="inline-flex items-center gap-1">
+          <span role="status" className={cn(PILL, AMBER)}>
+            {t("status.forced")}
+          </span>
+          <InfoTip label={t("mode.brakeLabel")} text={t("mode.brakeInfo")} placement="below" />
         </span>
       );
     }

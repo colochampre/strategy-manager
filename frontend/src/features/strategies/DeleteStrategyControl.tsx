@@ -6,6 +6,7 @@ import { useNavigate } from "react-router";
 import { DeleteStrategyDialog } from "@/features/strategies/DeleteStrategyDialog";
 import { useDeleteStrategy } from "@/shared/api/strategies";
 import type { Strategy } from "@/shared/api/types";
+import { DANGER_CONTROL } from "@/shared/ui/danger-control";
 
 interface DeleteStrategyControlProps {
   strategy: Strategy;
@@ -39,14 +40,15 @@ export function DeleteStrategyControl({ strategy }: DeleteStrategyControlProps) 
       <h2 className="text-sm font-semibold text-ink">{t("strategies.delete.title")}</h2>
       <p className="text-xs text-ink-3">{t("strategies.delete.description")}</p>
       <div className="flex items-center gap-3">
+        {/* The one destructive button that keeps its words beside its icon: deleting is final, so it is said. */}
         <button
           type="button"
+          className={DANGER_CONTROL}
           disabled={strategy.enabled}
           aria-describedby={strategy.enabled ? hintId : undefined}
           onClick={() => setOpen(true)}
-          className="inline-flex items-center gap-1.5 rounded-md border border-loss px-3 py-1.5 text-sm text-loss hover:bg-panel-2 disabled:opacity-50"
         >
-          <Trash aria-hidden="true" className="size-4 shrink-0" />
+          <Trash aria-hidden="true" className="size-4" />
           {t("strategies.delete.button")}
         </button>
         {strategy.enabled && (

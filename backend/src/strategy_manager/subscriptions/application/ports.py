@@ -42,6 +42,8 @@ class HeldSubscription:
     author_name: str | None
     authored: bool
     market: Market
+    # Whether the strategy is taking signals now (tasks.md L.1).
+    strategy_enabled: bool
 
 
 @dataclass(frozen=True, slots=True)

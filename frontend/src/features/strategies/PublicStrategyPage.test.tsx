@@ -30,15 +30,16 @@ interface Serve {
   subscribe?: () => Promise<Response>;
   leave?: () => Promise<Response>;
   preview?: Record<string, unknown> | ((url: string) => Record<string, unknown>);
+  record?: () => Promise<Response>;
 }
 
-function serve({ strategy, held, pools, me, subscribe, leave, preview }: Serve = {}) {
+function serve({ strategy, held, pools, me, subscribe, leave, preview, record }: Serve = {}) {
   return stubApi({ kind: "ok", body: {} }, [], pools ?? { kind: "ok", body: [pool("bybit")] }, {}, (url, init) => {
     if (url.endsWith(`/api/public/strategies/${ID}`)) {
       return strategy?.() ?? Promise.resolve(jsonResponse(publicStrategy({ id: ID })));
     }
     if (url.endsWith(`/api/public/strategies/${ID}/record`)) {
-      return Promise.resolve(jsonResponse(publicRecord()));
+      return record?.() ?? Promise.resolve(jsonResponse(publicRecord()));
     }
     if (url.includes(`/api/performance/strategies/${ID}`)) {
       return Promise.resolve(jsonResponse({ ...emptyPerformance("bybit", "usdt-m", "USDT"), strategy_id: ID, by_pair: [] }));
@@ -104,11 +105,26 @@ describe("the public page", () => {
     expect(await screen.findByRole("heading", { level: 1, name: "Alpha" })).toBeInTheDocument();
     expect(screen.getByTestId("public-origin")).toHaveTextContent(i18n.t("strategies.public.by", { name: "Ana" }));
     expect(screen.getByTestId("public-market")).toHaveTextContent("bybit · usdt-m · USDT");
-    expect(screen.getByTestId("public-return")).toHaveTextContent("+12.5%");
+    await waitFor(() => expect(screen.getByTestId("public-return")).toHaveTextContent("+5.1%"));
     expect(screen.getByRole("link", { name: i18n.t("strategies.public.back") })).toHaveAttribute(
       "href",
       "/strategies/explore",
     );
+  });
+
+  it("shows the capital's dash, not words, where there is no return yet (owner, 2026-11-08)", async () => {
+    serve({
+      strategy: () =>
+        Promise.resolve(
+          jsonResponse(publicStrategy({ id: ID, closed_trade_count: 0, unleveraged_return_before_fees: "0" })),
+        ),
+      record: () =>
+        Promise.resolve(jsonResponse(publicRecord({ origin: null, closed_trade_count: 0, curve: [], monthly: [], by_pair: [] }))),
+    });
+    open();
+
+    await waitFor(() => expect(screen.getByTestId("public-return")).toHaveTextContent(/^—$/));
+    expect(screen.getByTestId("public-deepest")).toHaveTextContent(/^—$/);
   });
 
   it("draws the strategy's record below the figures for a reader with no seat, with no selector", async () => {
@@ -222,10 +238,51 @@ describe("the public page", () => {
     expect(section.querySelector("p")).toHaveClass("whitespace-pre-line", "break-words");
   });
 
+  it("draws the strategy's figures and its record's in one grid of the cards' icons, under Performance (L.10)", async () => {
+    serve();
+    open();
+
+    const line = await screen.findByTestId("record-line");
+    const performance = screen.getByRole("region", { name: i18n.t("strategies.report.title") });
+    expect(performance).toContainElement(line);
+    const ids = [...line.querySelectorAll("dd")].map((value) => value.getAttribute("data-testid"));
+    expect(ids).toEqual([
+      "public-age",
+      "public-uptime",
+      "public-trades",
+      "public-return",
+      "public-deepest",
+      "public-winrate",
+      "public-subscribers",
+      "public-capital",
+    ]);
+    // The return and the fall follow the chart's range, read from the record (30D by default).
+    await waitFor(() => expect(within(line).getByTestId("public-return")).toHaveTextContent("+5.1%"));
+    expect(within(line).getByTestId("public-deepest")).toHaveTextContent("-2.0%");
+    // The return and the capital each keep one (i), on that row.
+    expect(within(line).getAllByRole("button", { name: i18n.t("strategies.public.returnInfo") })).toHaveLength(1);
+    expect(within(line).getAllByRole("button", { name: i18n.t("strategies.public.capitalInfo") })).toHaveLength(1);
+    expect(screen.getAllByTestId("public-return")).toHaveLength(1);
+    // One row wherever the column holds it, each figure as wide as its own value; four a row where it does not
+    // (L.11). The column's width decides, not the screen's: the page's aside takes a share of it.
+    expect(line.parentElement).toHaveClass("@container");
+    expect(line).toHaveClass(
+      "grid-cols-4",
+      "@[32rem]:grid-flow-col",
+      "@[32rem]:grid-cols-none",
+      "@[32rem]:auto-cols-max",
+    );
+    expect(line).not.toHaveClass("lg:grid-flow-col");
+    expect(line).not.toHaveClass("lg:grid-cols-4");
+  });
+
   it("explains the return and the capital on request, closed by default", async () => {
     serve();
     open();
     await screen.findByRole("heading", { level: 1, name: "Alpha" });
+
+    // The return's explanation lives on the record line, once the record has been read.
+    await screen.findByTestId("record-line");
 
     expect(screen.queryByText(i18n.t("strategies.public.returnHint"))).not.toBeInTheDocument();
     expect(screen.queryByText(i18n.t("strategies.public.capitalHint"))).not.toBeInTheDocument();
@@ -234,6 +291,48 @@ describe("the public page", () => {
     expect(screen.queryByText(i18n.t("strategies.public.capitalHint"))).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: i18n.t("strategies.public.capitalInfo") }));
     expect(screen.getByText(i18n.t("strategies.public.capitalHint"))).toBeInTheDocument();
+  });
+
+  it("explains the return once: one (i), on the one row of figures; no second figure card (L.10)", async () => {
+    serve();
+    open();
+    const line = await screen.findByTestId("record-line");
+
+    const infos = screen.getAllByRole("button", { name: i18n.t("strategies.public.returnInfo") });
+    expect(infos).toHaveLength(1);
+    expect(line).toContainElement(infos[0] as HTMLElement);
+    expect(screen.getAllByRole("definition").every((value) => line.contains(value))).toBe(true);
+    fireEvent.click(infos[0] as HTMLElement);
+    expect(screen.getAllByText(i18n.t("strategies.public.returnHint"))).toHaveLength(1);
+  });
+
+  it("says whether the strategy runs, beside its name, as the cards do", async () => {
+    serve({ strategy: () => Promise.resolve(jsonResponse(publicStrategy({ id: ID, enabled: true }))) });
+    open();
+
+    const pill = await screen.findByTestId("public-enabled");
+    expect(pill).toHaveTextContent("Enabled");
+    expect(pill).toHaveClass("border-gain", "text-gain");
+    // The same mark as the author's own page draws beside its name (L.12).
+    expect(pill).toHaveClass("rounded", "border", "px-2", "py-1", "font-mono", "uppercase");
+    expect(pill).not.toHaveClass("rounded-full");
+    const title = screen.getByRole("heading", { level: 1, name: "Alpha" }).parentElement as HTMLElement;
+    expect(title).toContainElement(pill);
+    // The name and its mark share one centred line (L.11).
+    expect(title).toHaveClass("items-center");
+    expect(title).not.toHaveClass("items-baseline");
+    // The title steps 6 to the page's blocks, which stack 4 apart (L.13).
+    expect(title.closest("header")).toHaveClass("mb-2");
+  });
+
+  it("says disabled when the strategy does not run", async () => {
+    serve({ strategy: () => Promise.resolve(jsonResponse(publicStrategy({ id: ID, enabled: false }))) });
+    open();
+
+    const pill = await screen.findByTestId("public-enabled");
+    expect(pill).toHaveTextContent("Disabled");
+    expect(pill).toHaveClass("text-ink-3");
+    expect(pill).not.toHaveClass("text-gain");
   });
 
   it("reads a 404 as off the list, in plain words and not as a fault", async () => {
@@ -297,7 +396,11 @@ describe("whether this user can subscribe", () => {
     const leave = await screen.findByRole("button", { name: i18n.t("strategies.subscriptions.leave") });
     expect(screen.getByRole("textbox", { name: i18n.t("strategies.detail.share.label") })).toHaveValue("30");
     expect(screen.getByRole("textbox", { name: i18n.t("strategies.leverage.label") })).toHaveValue("2");
-    expect(leave.className).toBe(DANGER_CONTROL);
+    // The danger look of Disable and Archive, and the whole width of the aside like them.
+    expect(leave.className).toBe(`${DANGER_CONTROL} w-full justify-center`);
+    // The aside's sections sit closer (gap-2, was gap-5).
+    expect(leave.closest("aside")).toHaveClass("gap-2");
+    expect(leave.closest("aside")).not.toHaveClass("gap-5");
     expect(screen.queryByRole("button", { name: i18n.t("strategies.subscribe.submit") })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { level: 2, name: i18n.t("strategies.subscribe.title") })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /My subscriptions/ })).not.toBeInTheDocument();
@@ -402,7 +505,7 @@ describe("whether this user can subscribe", () => {
     serve({ pools: { kind: "ok", body: [] } });
     open();
 
-    expect(await screen.findByTestId("public-return")).toHaveTextContent("+12.5%");
+    await waitFor(() => expect(screen.getByTestId("public-return")).toHaveTextContent("+5.1%"));
     expect(await screen.findByText(i18n.t("strategies.subscribe.needsKey", { exchange: "Bybit" }))).toBeInTheDocument();
     expect(screen.getByRole("link", { name: i18n.t("strategies.subscribe.addKey") })).toHaveAttribute("href", "/settings");
     expect(screen.queryByRole("button", { name: i18n.t("strategies.subscribe.submit") })).not.toBeInTheDocument();
@@ -429,7 +532,7 @@ describe("whether this user can subscribe", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent(i18n.t("strategies.subscribe.readFailed"));
     expect(screen.queryByRole("button", { name: i18n.t("strategies.subscribe.submit") })).not.toBeInTheDocument();
-    expect(screen.getByTestId("public-return")).toHaveTextContent("+12.5%");
+    await waitFor(() => expect(screen.getByTestId("public-return")).toHaveTextContent("+5.1%"));
   });
 
   it("offers nothing to press while those reads are on their way", async () => {

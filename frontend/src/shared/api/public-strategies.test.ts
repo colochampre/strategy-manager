@@ -48,6 +48,41 @@ describe("fetchPublicStrategies", () => {
   });
 });
 
+describe("the figures the cards add to a public strategy", () => {
+  it("carries the subscribers, the deepest fall, the win rate, whether it runs and its uptime", async () => {
+    const row = publicStrategy({ win_rate: null, enabled: false });
+    stubFetch(jsonResponse([row]));
+
+    await expect(fetchPublicStrategies()).resolves.toMatchObject([
+      { subscribers: 3, max_drawdown: "-0.05", win_rate: null, enabled: false, uptime: { baseline: false } },
+    ]);
+  });
+
+  it.each([
+    ["a subscriber count that is missing", { subscribers: undefined }],
+    ["a subscriber count that is fractional", { subscribers: 1.5 }],
+    ["a deepest fall that is a number", { max_drawdown: -0.05 }],
+    ["a deepest fall that is missing", { max_drawdown: undefined }],
+    ["a win rate that is a number", { win_rate: 0.6 }],
+    ["a win rate that is missing", { win_rate: undefined }],
+    ["an enabled flag that is a string", { enabled: "yes" }],
+    ["an enabled flag that is missing", { enabled: undefined }],
+    ["an uptime that is missing", { uptime: undefined }],
+    ["an uptime with no baseline flag", { uptime: { seconds: 5, first_enabled_at: null } }],
+    ["an uptime with a numeric first date", { uptime: { seconds: 5, first_enabled_at: 7, baseline: false } }],
+  ])("refuses a list with %s", async (_name, overrides) => {
+    stubFetch(jsonResponse([publicStrategy(overrides)]));
+
+    await expect(fetchPublicStrategies()).rejects.toBeInstanceOf(ApiError);
+  });
+
+  it("refuses a single strategy with a win rate that is not a string or null", async () => {
+    stubFetch(jsonResponse(publicStrategy({ id: ID, win_rate: 1 })));
+
+    await expect(fetchPublicStrategy(ID)).rejects.toBeInstanceOf(ApiError);
+  });
+});
+
 describe("fetchPublicStrategy", () => {
   it("reads one strategy by its escaped id", async () => {
     const row = publicStrategy({ id: ID });

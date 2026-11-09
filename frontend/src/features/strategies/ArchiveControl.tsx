@@ -5,6 +5,9 @@ import { useTranslation } from "react-i18next";
 import { ArchiveDialog } from "@/features/strategies/ArchiveDialog";
 import { useArchiveStrategy } from "@/shared/api/strategies";
 import type { Strategy } from "@/shared/api/types";
+import { cn } from "@/shared/lib/cn";
+import { DANGER_CONTROL } from "@/shared/ui/danger-control";
+import { Tooltip } from "@/shared/ui/Tooltip";
 
 interface ArchiveControlProps {
   strategy: Strategy;
@@ -34,22 +37,35 @@ export function ArchiveControl({ strategy }: ArchiveControlProps) {
     archive.mutate(undefined, { onSuccess: () => setOpen(false) });
   };
 
+  const button = (
+    <button
+      type="button"
+      disabled={strategy.enabled}
+      aria-describedby={strategy.enabled ? hintId : undefined}
+      onClick={() => setOpen(true)}
+      className={cn(DANGER_CONTROL, "w-full justify-center")}
+    >
+      <Archive aria-hidden="true" className="size-4 shrink-0" />
+      {t("strategies.archive.button")}
+    </button>
+  );
+
   return (
-    <div className="flex flex-col gap-2">
-      <button
-        type="button"
-        disabled={strategy.enabled}
-        aria-describedby={strategy.enabled ? hintId : undefined}
-        onClick={() => setOpen(true)}
-        className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-md border border-rule px-3 text-sm text-ink hover:bg-panel-2 disabled:text-ink-3 disabled:opacity-50"
-      >
-        <Archive aria-hidden="true" className="size-4 shrink-0" />
-        {t("strategies.archive.button")}
-      </button>
-      {strategy.enabled && (
-        <p id={hintId} className="text-xs text-ink-3">
-          {t("strategies.archive.disabledHint")}
-        </p>
+    // Half of the row beside Disable (equal width). The reason Archive is unavailable is its tooltip: a disabled
+    // button gets no pointer events and no focus, so the tip lives on a focusable wrapper; the same text, hidden,
+    // is the button's description for assistive technology.
+    <div className="min-w-0 flex-1">
+      {strategy.enabled ? (
+        <>
+          <Tooltip text={t("strategies.archive.disabledHint")} describes={false} className="flex w-full">
+            {button}
+          </Tooltip>
+          <span id={hintId} hidden>
+            {t("strategies.archive.disabledHint")}
+          </span>
+        </>
+      ) : (
+        button
       )}
       {open && (
         <ArchiveDialog

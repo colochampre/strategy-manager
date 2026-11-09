@@ -1,3 +1,4 @@
+import { ArrowLeftRight, Coins, ListChecks, TrendingUp, Trophy } from "lucide-react";
 import { useId } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -5,6 +6,7 @@ import { amountText, parseDecimal, percentText, toneClass } from "@/shared/lib/a
 import { rateText } from "@/shared/lib/figure-text";
 import type { PairStat } from "@/shared/api/types";
 import { cn } from "@/shared/lib/cn";
+import { ColumnHead } from "@/shared/ui/ColumnHead";
 import { ReportSection } from "@/shared/ui/ReportSection";
 
 const DASH = "—";
@@ -70,6 +72,7 @@ function readRows(pairs: readonly PairRow[], locale: string, withMoney: boolean)
 /**
  * "By pair": each pair's closed-trade count, realized PnL and return, in the
  * pool's own currency. The pair is the venue's spelling (`SOLUSDT`), as served.
+ * It draws only when more than one pair has a closed trade; with one or none it is absent.
  * Figures are parsed only to be formatted; nothing is computed here.
  */
 export function PairStatsTable({ pairs, currency }: PairStatsTableProps) {
@@ -78,6 +81,9 @@ export function PairStatsTable({ pairs, currency }: PairStatsTableProps) {
   const locale = i18n.resolvedLanguage ?? "en";
   const rows = readRows(pairs, locale, currency !== undefined);
 
+  // One pair, or none, only says again what the view's header says: the section is for comparing pairs.
+  if (pairs.filter((entry) => entry.trades > 0).length < 2) return null;
+
   let body;
   if (rows === null) {
     body = (
@@ -85,8 +91,6 @@ export function PairStatsTable({ pairs, currency }: PairStatsTableProps) {
         {t("strategies.performance.byPair.unreadable")}
       </p>
     );
-  } else if (rows.length === 0) {
-    body = <p className="text-sm text-ink-3">{t("strategies.performance.byPair.empty")}</p>;
   } else {
     body = (
       <div className="overflow-x-auto">
@@ -94,21 +98,21 @@ export function PairStatsTable({ pairs, currency }: PairStatsTableProps) {
           <thead>
             <tr className="text-right text-[10px] uppercase tracking-[0.09em] text-ink-3">
               <th scope="col" className="border-b border-rule py-2 pr-3 text-left font-medium">
-                {t("strategies.performance.byPair.pair")}
+                <ColumnHead icon={ArrowLeftRight} label={t("strategies.performance.byPair.pair")} align="start" />
               </th>
               <th scope="col" className="border-b border-rule py-2 pr-3 font-medium">
-                {t("strategies.performance.byPair.trades")}
+                <ColumnHead icon={ListChecks} label={t("strategies.performance.byPair.trades")} />
               </th>
               <th scope="col" className="border-b border-rule py-2 pr-3 font-medium">
-                {t("strategies.performance.byPair.winRate")}
+                <ColumnHead icon={Trophy} label={t("strategies.performance.byPair.winRate")} />
               </th>
               {currency !== undefined && (
                 <th scope="col" className="border-b border-rule py-2 pr-3 font-medium">
-                  {t("strategies.performance.byPair.pnl", { currency })}
+                  <ColumnHead icon={Coins} label={t("strategies.performance.byPair.pnl", { currency })} />
                 </th>
               )}
               <th scope="col" className="border-b border-rule py-2 font-medium">
-                {t("strategies.performance.byPair.return")}
+                <ColumnHead icon={TrendingUp} label={t("strategies.performance.byPair.return")} />
               </th>
             </tr>
           </thead>

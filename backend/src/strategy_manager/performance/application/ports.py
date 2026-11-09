@@ -21,6 +21,7 @@ from strategy_manager.performance.domain.open_position import (
 )
 from strategy_manager.performance.domain.operation import OperationFill, PricingFacts
 from strategy_manager.performance.domain.public_capital import LiveSeat
+from strategy_manager.strategies.domain.enablement import EnablementEvent
 
 
 @dataclass(frozen=True, slots=True)
@@ -169,6 +170,11 @@ class PublicListing:
     venue: str
     settlement_currency: str
     created_at: datetime
+    # Whether the author has it taking signals now (tasks.md L.1).
+    enabled: bool
+    # Every ACTIVE seat, the author's included, live or not: the count the author's
+    # own list shows (tasks.md F.5 and L.1).
+    subscribers: int
     # The author's own words, written for anyone reading the strategy (decision 38).
     description: str | None = None
 
@@ -220,3 +226,10 @@ class PublicStrategiesSourcePort(Protocol):
     async def live_seats(
         self, strategy_ids: Sequence[UUID]
     ) -> Mapping[UUID, Sequence[LiveSeat]]: ...
+
+    async def enablement(
+        self, strategy_ids: Sequence[UUID]
+    ) -> Mapping[UUID, Sequence[EnablementEvent]]:
+        """Each strategy's enablement log, oldest first: the days active a card shows
+        beside the age (tasks.md L.1). Only when it was on and off leaves."""
+        ...

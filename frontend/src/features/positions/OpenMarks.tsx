@@ -8,14 +8,12 @@ import type { OpenPosition, OpenState } from "@/shared/api/positions";
 import type { Strategy } from "@/shared/api/types";
 
 interface OpenMarksProps {
-  strategy: Strategy;
+  /** Whose positions to draw: the author's own strategy on My strategies, the reader's seat on My subscriptions. */
+  strategy: Pick<Strategy, "id" | "name" | "exchange">;
 }
 
-/**
- * From `lg` the marks are the row's second grid row, in the first track only, so the row's figures and its
- * switch stay where they are when the chips wrap; below `lg` they are the row's last full-width line.
- */
-const LAYOUT = "flex min-w-0 basis-full flex-wrap items-center gap-1.5 lg:col-start-1 lg:row-start-2 lg:mt-2 lg:basis-auto";
+/** The marks are the card's last full-width line; the card lifts them above its stretched link. */
+const LAYOUT = "flex min-w-0 basis-full flex-wrap items-center gap-1.5";
 
 interface VenueNoteProps {
   position: OpenPosition;

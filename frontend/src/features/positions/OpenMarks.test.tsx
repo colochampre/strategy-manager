@@ -2,6 +2,7 @@ import { act, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { OpenMarks } from "@/features/positions/OpenMarks";
+import { authoredFigures } from "@/features/strategies/card-figures";
 import { StrategyRow } from "@/features/strategies/StrategyRow";
 import type { ConfirmedDiscrepancy } from "@/shared/api/discrepancies";
 import type { Strategy } from "@/shared/api/types";
@@ -45,6 +46,7 @@ function strategy(overrides: Partial<Strategy> = {}): Strategy {
     description: null,
     subscribers: 1,
     live_subscribers: 0,
+    created_at: null,
     capital: null,
     ...overrides,
   };
@@ -92,7 +94,7 @@ function rowRoutes(url: string) {
   return undefined;
 }
 
-async function mount(openPositions: OpenPositionsStub, row = strategy()) {
+async function mount(openPositions: OpenPositionsStub, row: Pick<Strategy, "id" | "name" | "exchange"> = strategy()) {
   const api = stubApi(HEALTH, [], undefined, {}, rowRoutes, {}, undefined, openPositions);
   const view = renderAt(<OpenMarks strategy={row} />);
   await settle();
@@ -183,11 +185,21 @@ describe("a row's marks", () => {
     expect(chips()).toEqual(["SOLUSDT · LONG · En vivo"]);
   });
 
-  it("takes the layout classes: its own grid row from lg, a full-width last line below it", async () => {
+  it("is a wrapping full-width line of the card it sits in, with no grid placement of its own", async () => {
     await mount(answering([openPosition({ strategy_id: ALPHA })]));
 
     await waitFor(() => expect(chips()).toHaveLength(1));
-    expect(screen.getByRole("list")).toHaveClass("basis-full", "lg:col-start-1", "lg:row-start-2");
+    const list = screen.getByRole("list");
+    expect(list).toHaveClass("flex", "flex-wrap", "basis-full");
+    expect(list).not.toHaveClass("lg:col-start-1");
+    expect(list).not.toHaveClass("lg:row-start-2");
+  });
+
+  it("needs only the id, name and exchange of a strategy, so a seat can show its own positions", async () => {
+    await mount(answering([openPosition({ strategy_id: ALPHA })]), { id: ALPHA, name: "Alpha", exchange: "bybit" });
+
+    await waitFor(() => expect(chips()).toHaveLength(1));
+    expect(screen.getByRole("list", { name: "Open positions of Alpha" })).toBeInTheDocument();
   });
 });
 
@@ -342,11 +354,14 @@ describe("while the answer loads", () => {
 });
 
 describe("in the row", () => {
-  it("is the row's fourth child, after the name, the figures and the switch", async () => {
+  it("is the card's last element, after the name, the figures and the switch", async () => {
     const api = stubApi(HEALTH, [], undefined, {}, rowRoutes, {}, undefined, answering([openPosition({ strategy_id: ALPHA })]));
     renderAt(
       <ul>
-        <StrategyRow strategy={strategy()} />
+        <StrategyRow
+          strategy={strategy()}
+          card={authoredFigures(strategy(), { status: "success", data: null })}
+        />
       </ul>,
     );
     await settle();
@@ -354,7 +369,8 @@ describe("in the row", () => {
 
     await waitFor(() => expect(screen.queryByRole("list", { name: "Open positions of Alpha" })).toBeInTheDocument());
     const row = screen.getByTestId("strategy-row");
-    expect(row.children).toHaveLength(4);
-    expect(row.children[3]).toBe(screen.getByRole("list", { name: "Open positions of Alpha" }));
+    const marks = screen.getByRole("list", { name: "Open positions of Alpha" });
+    expect(row.lastElementChild).toContainElement(marks);
+    expect(screen.getByRole("switch").compareDocumentPosition(marks) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
   });
 });

@@ -8,6 +8,7 @@ import { ofExchange, ofStrategy, unmatched, useOpenPositions } from "@/shared/ap
 import type { OpenPosition } from "@/shared/api/positions";
 import type { Strategy } from "@/shared/api/types";
 import { timeOfAnswerText } from "@/shared/lib/figure-text";
+import { InfoButton, InfoText, useInfoDisclosure } from "@/shared/ui/InfoDisclosure";
 import { ReportSection } from "@/shared/ui/ReportSection";
 
 interface OpenPositionsSectionProps {
@@ -15,15 +16,13 @@ interface OpenPositionsSectionProps {
 }
 
 /**
- * The notes, each drawn only when a row on screen makes it true, in this order: the dry-run note, the note of
- * a position of both origins, and the margin note (true of any position). No position, no note.
+ * The notes behind the section's (i), each drawn only when a row on screen makes it true, in this order: the
+ * dry-run note, then the note of a position of both origins. The margin note is the Margin column's tip.
  */
 function noteKeys(positions: OpenPosition[]): string[] {
-  if (positions.length === 0) return [];
   return [
     positions.some((position) => position.origin === "rehearsal") ? "positions.note.rehearsal" : null,
     positions.some((position) => position.origin === "mixed") ? "positions.note.mixed" : null,
-    "positions.note.margin",
   ].filter((key): key is string => key !== null);
 }
 
@@ -39,8 +38,9 @@ export function OpenPositionsSection({ strategy }: OpenPositionsSectionProps) {
   const headingId = useId();
   const open = useOpenPositions();
   const locale = i18n.resolvedLanguage ?? "en";
+  const info = useInfoDisclosure();
 
-  const heading = (
+  const title = (
     <h2 id={headingId} className="font-display text-base font-semibold text-ink">
       {t("positions.table.title")}
     </h2>
@@ -49,8 +49,8 @@ export function OpenPositionsSection({ strategy }: OpenPositionsSectionProps) {
   if (open.data === undefined) {
     return (
       <ReportSection>
-        <section aria-labelledby={headingId} className="flex flex-col gap-3">
-          {heading}
+        <section aria-labelledby={headingId} className="flex flex-col gap-4">
+          {title}
           <OpenReadState status={open.status} errorUpdateCount={open.errorUpdateCount} />
         </section>
       </ReportSection>
@@ -65,6 +65,16 @@ export function OpenPositionsSection({ strategy }: OpenPositionsSectionProps) {
     <p className="text-sm text-ink">{t("positions.table.unmatched", { count: unmatchedCount })}</p>
   );
   const lastRead = timeOfAnswerText(answer.as_of, answer.as_of, locale, true) ?? answer.as_of;
+  const notes = noteKeys(mine.positions);
+  const heading =
+    notes.length === 0 ? (
+      title
+    ) : (
+      <div className="flex items-center gap-1">
+        {title}
+        <InfoButton disclosure={info} label={t("positions.note.info")} />
+      </div>
+    );
   const orders = mine.orders.length > 0 && (
     <ul className="flex flex-col gap-1.5">
       {mine.orders.map((order) => (
@@ -77,8 +87,17 @@ export function OpenPositionsSection({ strategy }: OpenPositionsSectionProps) {
 
   return (
     <ReportSection>
-      <section aria-labelledby={headingId} className="flex flex-col gap-3">
+      <section aria-labelledby={headingId} className="flex flex-col gap-4">
         {heading}
+        {notes.length > 0 && (
+          <InfoText disclosure={info}>
+            {notes.map((key) => (
+              <p key={key} className="text-sm text-ink-2">
+                {t(key)}
+              </p>
+            ))}
+          </InfoText>
+        )}
         <div aria-live="polite" className="flex flex-col gap-1">
           {open.status === "error" && <p className="text-sm text-loss">{t("positions.state.stale", { time: lastRead })}</p>}
         </div>
@@ -100,13 +119,6 @@ export function OpenPositionsSection({ strategy }: OpenPositionsSectionProps) {
             {sentence}
           </>
         )}
-        <div className="flex flex-col gap-1.5">
-          {noteKeys(mine.positions).map((key) => (
-            <p key={key} className="text-sm text-ink-2">
-              {t(key)}
-            </p>
-          ))}
-        </div>
       </section>
     </ReportSection>
   );

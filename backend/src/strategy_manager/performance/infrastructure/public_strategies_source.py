@@ -56,7 +56,9 @@ from strategy_manager.performance.application.ports import NO_ENTRY, PageEntry, 
 from strategy_manager.performance.domain.closed_trade import FillGroup
 from strategy_manager.performance.domain.public_capital import LiveSeat
 from strategy_manager.shared.domain.mode import Mode
+from strategy_manager.strategies.domain.enablement import EnablementEvent
 from strategy_manager.strategies.domain.strategy import Visibility
+from strategy_manager.strategies.infrastructure.enablement_log import SqlAlchemyEnablementLog
 from strategy_manager.strategies.infrastructure.models import StrategyRow
 from strategy_manager.subscriptions.domain.subscription import SubscriptionStatus
 from strategy_manager.subscriptions.infrastructure.models import SubscriptionRow
@@ -102,8 +104,25 @@ def _columns() -> Select[Any]:
             StrategyRow.settlement_currency,
             StrategyRow.created_at,
             StrategyRow.description,
+            StrategyRow.enabled,
+            _active_seats().label("subscribers"),
         )
         .join(UserRow, UserRow.id == StrategyRow.author_id)
+    )
+
+
+def _active_seats() -> Any:
+    """How many hold an ``ACTIVE`` seat on the strategy of the row, the author
+    included and live or not, as the author's own list counts them
+    (``StrategySubscribersAdapter.counts``). Only the number leaves."""
+    return (
+        select(func.count())
+        .select_from(SubscriptionRow)
+        .where(
+            SubscriptionRow.strategy_id == StrategyRow.id,
+            SubscriptionRow.status == SubscriptionStatus.ACTIVE.value,
+        )
+        .scalar_subquery()
     )
 
 
@@ -116,6 +135,8 @@ def _listing(row: Row[Any]) -> PublicListing:
         venue=row.venue,
         settlement_currency=row.settlement_currency,
         created_at=row.created_at,
+        enabled=row.enabled,
+        subscribers=row.subscribers,
         description=row.description,
     )
 
@@ -218,6 +239,12 @@ class SqlAlchemyPublicStrategiesSource:
                 )
             )
         return found
+
+    async def enablement(
+        self, strategy_ids: Sequence[UUID]
+    ) -> Mapping[UUID, Sequence[EnablementEvent]]:
+        """The author's own list reads the same log the same way, in one statement."""
+        return await SqlAlchemyEnablementLog(self._session).list_for_many(strategy_ids)
 
     async def live_seats(self, strategy_ids: Sequence[UUID]) -> Mapping[UUID, Sequence[LiveSeat]]:
         rows = await self._session.execute(

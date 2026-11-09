@@ -58,7 +58,7 @@ export function StrategyDetailPage() {
   if (strategy.status === "error") {
     const missing = strategy.error instanceof ApiError && strategy.error.status === 404;
     return (
-      <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-4">
         <BackToStrategies />
         <p role={missing ? undefined : "alert"} className="text-sm text-ink-2">
           {t(missing ? "strategies.detail.notFound" : "strategies.detail.error")}
@@ -69,15 +69,15 @@ export function StrategyDetailPage() {
 
   const subject = strategy.data;
   return (
-    <div className="flex flex-col gap-8">
+    <div className="flex flex-col gap-4">
       <div className="grid gap-9 lg:grid-cols-[minmax(0,1fr)_25rem]">
-        <div className="flex min-w-0 flex-col gap-6">
+        <div className="flex min-w-0 flex-col gap-4">
           <StrategyHeader strategy={subject} />
           <StrategyPerformance key={subject.id} strategyId={subject.id} />
         </div>
         <aside
           aria-label={t("strategies.detail.settings")}
-          className="flex flex-col gap-5 self-start rounded-lg border border-rule bg-panel p-5"
+          className="flex flex-col gap-2 self-start rounded-lg border border-rule bg-panel p-5"
         >
           <div className="flex flex-wrap items-center justify-between gap-3">
             <h2 className="font-display text-base font-semibold text-ink">{t("strategies.detail.settings")}</h2>
@@ -92,9 +92,11 @@ export function StrategyDetailPage() {
           </Fragment>
           <AllowedPairsEditor strategy={subject} />
           <div className="flex flex-col gap-2 border-t border-rule pt-4">
-            <EnableToggle strategy={subject} />
+            <div className="flex gap-2">
+              <EnableToggle strategy={subject} />
+              <ArchiveControl strategy={subject} />
+            </div>
             <EnablementHistory strategyId={subject.id} />
-            <ArchiveControl strategy={subject} />
           </div>
         </aside>
       </div>

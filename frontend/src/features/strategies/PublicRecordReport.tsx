@@ -8,9 +8,6 @@ import { ReturnChart } from "@/features/overview/ReturnChart";
 import { PairStatsTable } from "@/features/strategies/PairStatsTable";
 import { usePublicRecord } from "@/shared/api/public-record";
 import type { Excluded, PublicRecord } from "@/shared/api/types";
-import { parseDecimal, percentText, toneClass } from "@/shared/lib/amount-text";
-import { cn } from "@/shared/lib/cn";
-import { InfoButton, InfoText, useInfoDisclosure } from "@/shared/ui/InfoDisclosure";
 import { ReportSection } from "@/shared/ui/ReportSection";
 
 /** A record leaves nothing out that it could count: it has no open trades, rehearsals or unconverted fees to name. */
@@ -38,37 +35,12 @@ function dayText(date: string, locale: string): string {
 function RecordView({ record, asOf, joined }: { record: PublicRecord; asOf: number; joined: string | null }) {
   const { t, i18n } = useTranslation();
   const locale = i18n.resolvedLanguage ?? "en";
-  const returnInfo = useInfoDisclosure();
   const range = useRangeStore((state) => state.range);
   const setRange = useRangeStore((state) => state.setRange);
-  const summary = record.ranges.find((entry) => entry.range === range);
-  const value = summary === undefined ? null : parseDecimal(summary.return);
-  const deepest = parseDecimal(record.max_drawdown);
 
   return (
     <>
-      <div className="flex min-w-0 flex-col gap-3">
-        {value === null || deepest === null ? (
-          <p role="alert" data-testid="record-line" className="text-sm text-loss">
-            {t("overview.ledger.unreadable")}
-          </p>
-        ) : (
-          <>
-            <p data-testid="record-line" className="font-mono text-[15px] leading-normal text-ink-2 tabular-nums">
-              {t("strategies.report.recordReturn", { range: t(`overview.range.${range}`) })}{" "}
-              <span data-testid="record-return" className={cn("font-semibold", toneClass(value))}>
-                {percentText(value, locale)}
-              </span>
-              <span aria-hidden="true"> · </span>
-              {t("overview.ledger.deepest")}{" "}
-              <span className="font-semibold text-loss">{percentText(deepest, locale)}</span>
-              <InfoButton disclosure={returnInfo} label={t("strategies.public.returnInfo")} />
-            </p>
-            <InfoText disclosure={returnInfo}>
-              <p className="text-xs text-ink-3">{t("strategies.public.returnHint")}</p>
-            </InfoText>
-          </>
-        )}
+      <div className="flex min-w-0 flex-col gap-4">
         <ReportSection>
           <ReturnChart
             curve={record.curve}
@@ -139,7 +111,7 @@ export function PublicRecordReport({ strategyId, joined }: PublicRecordReportPro
     );
   }
   return (
-    <div className="flex min-w-0 flex-col gap-6">
+    <div className="flex min-w-0 flex-col gap-4">
       <RecordView record={query.data} asOf={query.dataUpdatedAt} joined={joined} />
     </div>
   );

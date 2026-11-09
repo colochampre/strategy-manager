@@ -31,6 +31,7 @@ const STRATEGY: Strategy = {
   description: null,
   subscribers: 1,
   live_subscribers: 0,
+  created_at: null,
   capital: null,
 };
 
@@ -61,6 +62,33 @@ afterEach(async () => {
   vi.unstubAllGlobals();
   lock();
   await i18n.changeLanguage("en");
+});
+
+describe("StrategyHeader status", () => {
+  it("marks the strategy beside its name as another author's page does, in words (L.12)", () => {
+    setup({ ...STRATEGY, enabled: true });
+
+    const mark = screen.getByTestId("strategy-status");
+    expect(mark).toHaveTextContent(/^Enabled$/);
+    expect(mark).toHaveClass("rounded", "border", "px-2", "py-1", "font-mono", "uppercase", "border-gain", "text-gain");
+    expect(mark).not.toHaveClass("rounded-full");
+    expect(mark.parentElement).toHaveClass("items-center");
+    // The title steps 6 to the page's blocks, which stack 4 apart (L.13).
+    expect(mark.closest("header")).toHaveClass("mb-2");
+  });
+
+  it("says Disabled, and Archived for an archived strategy, in the quiet colour (L.12)", () => {
+    setup({ ...STRATEGY, enabled: true, archived_at: "2026-11-01T00:00:00Z" });
+    const mark = screen.getByTestId("strategy-status");
+    expect(mark).toHaveTextContent(/^Archived$/);
+    expect(mark).toHaveClass("border-rule", "text-ink-3");
+    expect(mark).not.toHaveClass("text-gain");
+  });
+
+  it("says Disabled for a strategy that does not run (L.12)", () => {
+    setup({ ...STRATEGY, enabled: false });
+    expect(screen.getByTestId("strategy-status")).toHaveTextContent(/^Disabled$/);
+  });
 });
 
 describe("StrategyHeader subscribers", () => {

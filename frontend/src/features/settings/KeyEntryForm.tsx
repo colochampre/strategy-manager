@@ -33,8 +33,6 @@ const FIELD =
   "min-h-11 w-full rounded-md border border-rule bg-ground px-3 font-mono text-sm text-ink focus-visible:outline-2 focus-visible:outline-gain";
 const LABEL = "text-[13px] text-ink-2";
 const HELP = "max-w-[78ch] text-[13px] text-ink-3";
-const SUBMIT =
-  "min-h-11 rounded-md border border-gain bg-gain px-3.5 text-sm font-medium text-ground disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gain";
 const CLOSE =
   "inline-flex min-h-11 items-center gap-1.5 rounded-md border border-rule px-3.5 text-sm text-ink-2 hover:bg-panel-2 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-gain";
 
@@ -256,7 +254,9 @@ export function KeyEntryForm({ id, exchange, name, hasKey, confirmations, onClos
             submit
             disabled={!canSubmit}
             icon={ShieldCheck}
-            className={SUBMIT}
+            iconOnly
+            busy={checking}
+            look="primary"
           />
           <button type="button" onClick={onClose} disabled={checking} className={CLOSE}>
             <X aria-hidden="true" className="size-4 shrink-0" />

@@ -63,6 +63,7 @@ VIEW_KEYS = {
     "subscribers",
     "live_subscribers",
     "capital",
+    "created_at",
 }
 
 
@@ -289,6 +290,27 @@ async def test_the_answer_says_how_many_and_nothing_of_anyone(
     assert response.json()["subscription"] is None
     assert email not in response.text
     assert name not in response.text
+
+
+async def test_the_author_reads_when_the_strategy_was_made(
+    pg_session_factory: Factory,  # noqa: F811
+    client_for: ClientFor,
+) -> None:
+    """tasks.md L.1: My strategies sorts by age, so the list says it."""
+    author, _ = await _user(pg_session_factory)
+    strategy_id = await seeds.strategy(pg_session_factory, author_id=author)
+    async with pg_session_factory() as session:
+        await session.execute(
+            text("UPDATE strategies SET created_at = '2026-09-01T12:00:00Z' WHERE id = :id"),
+            {"id": strategy_id},
+        )
+        await session.commit()
+
+    listed = await _listed(client_for(author))
+    detail = await client_for(author).get(f"/api/strategies/{strategy_id}")
+
+    assert listed[str(strategy_id)]["created_at"] == "2026-09-01T12:00:00Z"
+    assert detail.json()["created_at"] == "2026-09-01T12:00:00Z"
 
 
 async def test_a_subscriber_never_reads_the_counts_of_a_strategy_they_did_not_author(

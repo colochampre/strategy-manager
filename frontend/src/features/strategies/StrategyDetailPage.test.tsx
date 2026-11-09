@@ -45,10 +45,17 @@ function strategy(overrides: Partial<Strategy> = {}): Strategy {
     description: null,
     subscribers: 1,
     live_subscribers: 0,
+    created_at: null,
     capital: null,
     ...overrides,
   };
 }
+
+/** Two pairs that have traded: the By pair section is drawn only when more than one has. */
+const TWO_PAIRS: PairStat[] = [
+  { pair: "ETHUSDT", trades: 2, wins: 1, win_rate: "0.5000000000", pnl: "4.00", return: "0.0040000000" },
+  { pair: "SOLUSDT", trades: 1, wins: 1, win_rate: "1.0000000000", pnl: "2.00", return: "0.0020000000" },
+];
 
 interface Options {
   /** `by_pair` of the strategy's report. */
@@ -285,9 +292,7 @@ describe("StrategyDetailPage", () => {
   // decision 43 moves the closed trades out of the column (task 9p.5.21), so its trades assertions moved to
   // the full-width section test below and the webhook assertion stayed.
   it("test_left_column_runs_performance_and_by_pair_and_holds_no_webhook_block_until_it_is_opened", async () => {
-    renderPage(strategy(), {
-      byPair: [{ pair: "ETHUSDT", trades: 2, wins: 1, win_rate: "0.5000000000", pnl: "4.00", return: "0.0040000000" }],
-    });
+    renderPage(strategy(), { byPair: TWO_PAIRS });
     await heading("ETH Breakout");
 
     const titles = [
@@ -308,7 +313,7 @@ describe("StrategyDetailPage", () => {
   });
 
   it("frames the chart, Month by month, By pair, Open positions and Closed trades (owner decision 67 Q4, Q7)", async () => {
-    renderPage(strategy());
+    renderPage(strategy(), { byPair: TWO_PAIRS });
     await heading("ETH Breakout");
 
     const framed = (node: HTMLElement) => node.closest('[data-testid="report-section"]');
@@ -319,7 +324,9 @@ describe("StrategyDetailPage", () => {
     ]) {
       expect(framed(await screen.findByRole("heading", { name }))).not.toBeNull();
     }
-    expect(framed((await screen.findByRole("img", { name: /./ })).closest("figure") as HTMLElement)).not.toBeNull();
+    // The chart is the one image inside a figure; the ledger's icons are images too.
+    const chart = (await screen.findAllByRole("img", { name: /./ })).find((image) => image.closest("figure") !== null);
+    expect(framed(chart?.closest("figure") as HTMLElement)).not.toBeNull();
     expect(screen.getAllByTestId("report-section").length).toBeGreaterThanOrEqual(5);
   });
 
@@ -371,12 +378,15 @@ describe("StrategyDetailPage", () => {
     const table = await screen.findByRole("table", { name: en.strategies.performance.trades.title });
 
     expect(within(table).queryByText(en.strategies.performance.trades.rehearsal)).toBeInTheDocument();
+    // The sentence waits behind the (i) beside the title until it is clicked.
+    expect(screen.queryByText(en.strategies.performance.trades.rehearsalNote)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: en.strategies.performance.trades.notesInfo }));
     expect(screen.queryByText(en.strategies.performance.trades.rehearsalNote)).toBeInTheDocument();
     expect(screen.queryByText(en.strategies.performance.trades.empty)).toBeNull();
     expect(screen.queryByText(en.strategies.performance.trades.rehearsalFixedNote)).toBeNull();
   });
 
-  it("test_enable_history_sits_in_the_settings_column_between_the_enable_switch_and_archive", async () => {
+  it("test_enable_history_sits_in_the_settings_column_below_the_enable_and_archive_row", async () => {
     renderPage(strategy(), { events: [{ enabled: true, occurred_at: "2026-08-12T10:00:00+00:00", origin: "OBSERVED" }] });
     await heading("ETH Breakout");
 
@@ -386,7 +396,7 @@ describe("StrategyDetailPage", () => {
     const archive = within(settings).getByRole("button", { name: en.strategies.archive.button });
 
     expect(enableSwitch.compareDocumentPosition(history) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(history.compareDocumentPosition(archive) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(archive.compareDocumentPosition(history) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     // It keeps its height cap, its scroll and its keyboard focus.
     const list = within(settings).getByRole("list", { name: en.strategies.detail.history.title });
     expect(list).toHaveClass("max-h-18", "overflow-y-auto");
@@ -679,9 +689,7 @@ describe("StrategyDetailPage", () => {
     "test_the_new_texts_of_the_page_read_exactly_as_designed_in_%s",
     async (language, winRate, shareLabel, openWebhook, regenerate, copyMessage) => {
       await i18n.changeLanguage(language);
-      renderPage(strategy(), {
-        byPair: [{ pair: "ETHUSDT", trades: 2, wins: 1, win_rate: "0.5000000000", pnl: "4.00", return: "0.0040000000" }],
-      });
+      renderPage(strategy(), { byPair: TWO_PAIRS });
       await heading("ETH Breakout");
 
       const table = await screen.findByRole("table", { name: i18n.t("strategies.performance.byPair.title") });
@@ -705,5 +713,86 @@ describe("StrategyDetailPage", () => {
         ? Object.entries(node).flatMap(([key, value]) => keys(value, `${prefix}${key}.`))
         : [prefix];
     expect(keys(es.strategies).sort()).toEqual(keys(en.strategies).sort());
+  });
+});
+
+describe("StrategyDetailPage settings column (L.7)", () => {
+  const settingsColumn = () => screen.getByRole("complementary", { name: en.strategies.detail.settings });
+
+  it("puts Disable and Archive in one row at equal width, Enable history below the row", async () => {
+    renderPage(strategy({ enabled: false }), {
+      events: [{ enabled: true, occurred_at: "2026-08-12T10:00:00+00:00", origin: "OBSERVED" }],
+    });
+    await heading("ETH Breakout");
+
+    const settings = settingsColumn();
+    const enable = within(settings).getByRole("button", { name: en.strategies.detail.enable });
+    const archive = within(settings).getByRole("button", { name: en.strategies.archive.button });
+    const row = enable.parentElement?.parentElement as HTMLElement;
+    expect(row).toContainElement(archive);
+    expect(row).toHaveClass("flex");
+    expect(row).not.toHaveClass("flex-col");
+    for (const button of [enable, archive]) {
+      expect(button).toHaveClass("w-full");
+      expect(button.parentElement).toHaveClass("flex-1");
+    }
+    const history = await within(settings).findByRole("heading", { name: en.strategies.detail.history.title });
+    expect(row).not.toContainElement(history);
+    expect(row.compareDocumentPosition(history) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("draws Archive in the danger style", async () => {
+    renderPage(strategy({ enabled: false }));
+    await heading("ETH Breakout");
+
+    const archive = within(settingsColumn()).getByRole("button", { name: en.strategies.archive.button });
+    expect(archive).toHaveClass("border-loss", "text-loss");
+  });
+
+  it("drops the hint paragraph and shows its text as Archive's tooltip while Archive is unavailable", async () => {
+    renderPage(strategy({ enabled: true }));
+    await heading("ETH Breakout");
+
+    const archive = within(settingsColumn()).getByRole("button", { name: en.strategies.archive.button });
+    expect(archive).toBeDisabled();
+    expect(screen.queryByRole("tooltip")).toBeNull();
+    expect(screen.queryAllByText(en.strategies.archive.disabledHint).filter((node) => node.tagName === "P")).toEqual([]);
+    // A disabled button gets no pointer events, so the tip lives on its wrapper: hover and keyboard focus show it.
+    const wrapper = archive.parentElement as HTMLElement;
+    expect(wrapper).toHaveAttribute("tabindex", "0");
+    fireEvent.mouseEnter(wrapper);
+    expect(screen.getByRole("tooltip")).toHaveTextContent(en.strategies.archive.disabledHint);
+    fireEvent.mouseLeave(wrapper);
+    fireEvent.focus(wrapper);
+    expect(screen.getByRole("tooltip")).toHaveTextContent(en.strategies.archive.disabledHint);
+    // The reason also stays with the button for assistive technology.
+    expect(archive).toHaveAccessibleDescription(en.strategies.archive.disabledHint);
+  });
+
+  it("shows no tooltip on Archive once it is available", async () => {
+    renderPage(strategy({ enabled: false }));
+    await heading("ETH Breakout");
+
+    const archive = within(settingsColumn()).getByRole("button", { name: en.strategies.archive.button });
+    expect(archive).toBeEnabled();
+    fireEvent.mouseEnter(archive.parentElement as HTMLElement);
+    expect(screen.queryByRole("tooltip")).toBeNull();
+  });
+
+  it("lets a lone Disable take the whole row once the strategy is archived", async () => {
+    renderPage(strategy({ archived_at: "2026-09-01T00:00:00+00:00" }));
+    await heading("ETH Breakout");
+
+    const enable = within(settingsColumn()).getByRole("button", { name: en.strategies.detail.enable });
+    expect(enable).toHaveClass("w-full");
+    expect(enable.parentElement).toHaveClass("flex-1");
+  });
+
+  it("compacts the gap between the aside's sections to gap-2", async () => {
+    renderPage(strategy());
+    await heading("ETH Breakout");
+
+    expect(settingsColumn()).toHaveClass("gap-2");
+    expect(settingsColumn()).not.toHaveClass("gap-5");
   });
 });

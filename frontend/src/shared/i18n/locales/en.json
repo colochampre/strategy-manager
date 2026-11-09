@@ -1,6 +1,7 @@
 {
   "app": {
-    "name": "Strategy Manager"
+    "name": "Strategy Manager",
+    "language": "Language: English. Switch to Spanish"
   },
   "nav": {
     "sections": "Sections",
@@ -41,7 +42,8 @@
     "unknown": "Mode unknown"
   },
   "mode": {
-    "forcedHint": "The brake is on: everyone is in simulation until it is released.",
+    "brakeLabel": "About the brake",
+    "brakeInfo": "The server's brake is on: nobody trades live, so no capital is shown.",
     "change": "Mode: {{mode}}. Change it",
     "menu": "Modes",
     "toLive": {
@@ -161,10 +163,12 @@
       "unreadable": "The return curve could not be read."
     },
     "ledger": {
-      "available": "{{currency}} available",
-      "pnl": "PnL {{range}}",
-      "return": "return {{range}}",
-      "deepest": "deepest",
+      "available": "Available balance",
+      "pnl": "PnL",
+      "pnlRange": "PnL, {{range}}",
+      "return": "Return",
+      "returnRange": "Return, {{range}}",
+      "deepest": "Drawdown",
       "unreadable": "The figures could not be read."
     },
     "range": {
@@ -174,6 +178,12 @@
       "90D": "90D",
       "1Y": "1Y",
       "All": "All"
+    },
+    "rangeLong": {
+      "7D": "last 7 days",
+      "30D": "last 30 days",
+      "90D": "last 90 days",
+      "1Y": "last year"
     },
     "monthlyGrid": {
       "title": "Month by month",
@@ -205,7 +215,8 @@
       "loading": "Loading this pool's performance…",
       "error": "This pool's performance could not be loaded.",
       "noReport": "No performance report exists for this pool yet.",
-      "stale": "Balance is out of date: last synced {{time}}."
+      "stale": "Balance is out of date: last synced {{time}}.",
+      "staleInfo": "Balance out of date"
     }
   },
   "strategies": {
@@ -231,11 +242,8 @@
       "yours": "Your strategy",
       "by": "by {{name}}",
       "noAuthorName": "author with no name yet",
-      "age": "time subscribed",
-      "share": "share of your pool per trade",
       "shareValue": "{{share}}%",
       "leaving": "Leaving: it opens nothing more, and it ends when its open position closes.",
-      "leverage": "leverage",
       "leverageValue": "x{{leverage}}",
       "figuresError": "The public figures could not be loaded, so only your own are shown.",
       "leave": "Leave"
@@ -272,8 +280,35 @@
     "explore": {
       "loading": "Loading the public strategies…",
       "error": "The public strategies could not be loaded.",
-      "empty": "No strategy is public yet.",
-      "brake": "The server's brake is on: nobody trades live, so no capital is shown."
+      "empty": "No strategy is public yet."
+    },
+    "card": {
+      "age": "Age",
+      "subscribed": "Time subscribed",
+      "uptime": "Days active",
+      "uptimeAtLeast": "Days active, at least",
+      "neverEnabled": "Never enabled",
+      "trades": "Closed trades",
+      "return": "Return",
+      "deepest": "Drawdown",
+      "winRate": "Win rate",
+      "subscribers": "Live subscribers",
+      "capital": "Capital",
+      "pnl": "PnL",
+      "yourPnl": "Your PnL",
+      "share": "Share",
+      "leverage": "Leverage"
+    },
+    "sort": {
+      "label": "Sort by",
+      "age": "Age",
+      "trades": "Closed trades",
+      "return": "Return",
+      "subscribers": "Subscribers",
+      "capital": "Capital",
+      "descending": "descending",
+      "ascending": "ascending",
+      "active": "{{key}}, {{direction}}"
     },
     "public": {
       "back": "All public strategies",
@@ -281,13 +316,7 @@
       "notFound": "This strategy is not on the public list.",
       "error": "The strategy could not be loaded.",
       "by": "by {{name}}",
-      "age": "age",
-      "trades": "closed trades",
-      "return": "return, unleveraged, before fees",
-      "live": "people trading it live",
-      "capital": "capital the strategy trades with",
       "returnInfo": "How this return is read",
-      "noRealTrade": "not yet",
       "returnHint": "Read from the fills of the trades its author made with real money and closed; simulated trades and subscribers' trades do not count. Trades open at the same time are added together and every other trade compounds on the ones before it, each taken as if the whole capital were on it. No leverage and no fees are counted, so nobody's real result matches it exactly.",
       "capitalInfo": "What this capital is",
       "capitalHint": "The capital assigned by everyone trading it live, its author included: each one's share of the latest balance of their pool. It is capital assigned, not capital in use, and the same money can stand behind several strategies."
@@ -296,6 +325,7 @@
       "haveCode": "I have a code",
       "codeLabel": "Invitation code",
       "open": "Open",
+      "cancel": "Cancel",
       "codeHint": "Type the code the author sent you. It opens the strategy's page, and it is used only when you subscribe.",
       "codeOpensNothing": "No strategy opens to that code. Check it and try again.",
       "linkOpensNothing": "This link no longer opens the strategy. Ask its author for the current one.",
@@ -314,7 +344,8 @@
       "record": "Strategy record",
       "mine": "My results",
       "recordChartTitle": "Strategy record",
-      "recordReturn": "return {{range}}",
+      "recordReturn": "Return",
+      "recordReturnRange": "Return, {{range}}",
       "joined": "You joined on {{date}}",
       "recordLoading": "Loading the strategy's record…",
       "recordError": "The strategy's record could not be loaded.",
@@ -345,19 +376,11 @@
     "row": {
       "subscribers_one": "{{count}} subscriber, {{live}} live",
       "subscribers_other": "{{count}} subscribers, {{live}} live",
-      "subscribersShort": "{{count}} · {{live}} live",
       "capital": "Capital: {{amount}} {{currency}}",
       "archived": "Archived",
       "enable": "Enable {{name}}",
       "neverEnabled": "never enabled",
-      "active_one": "active {{count}} day",
-      "active_other": "active {{count}} days",
-      "activeAtLeast_one": "active at least {{count}} day",
-      "activeAtLeast_other": "active at least {{count}} days",
       "daysAtLeast": "≥{{count}}",
-      "trades": "trades",
-      "pnl": "PnL all time",
-      "return": "return all time",
       "toggleError": "The change was not saved. Try again.",
       "performanceError": "This strategy's figures could not be loaded."
     },
@@ -506,6 +529,7 @@
       "pairs": {
         "title": "Allowed pairs",
         "hint": "Removing a pair stops new entries on it. An open position still closes.",
+        "info": "About the allowed pairs",
         "save": "Save",
         "saving": "Saving…",
         "lastPair": "A strategy needs at least one allowed pair.",
@@ -558,7 +582,8 @@
       "retry": "Try again",
       "noReport": "No performance report exists for this strategy yet.",
       "chartTitle": "Contribution to the pool, compounded",
-      "contribution": "contribution to the pool {{range}}",
+      "contribution": "Contribution to the pool",
+      "contributionRange": "Contribution to the pool, {{range}}",
       "byPair": {
         "title": "By pair",
         "pair": "Pair",
@@ -566,7 +591,6 @@
         "winRate": "Win rate",
         "pnl": "PnL {{currency}}",
         "return": "Return",
-        "empty": "No pair has a closed trade yet.",
         "unreadable": "The figures by pair could not be read.",
         "noReturn": "No capital at open is recorded for this pair's trades, so it has no return."
       },
@@ -590,6 +614,7 @@
         "rehearsalNote": "Operations marked \"Dry run\" were filled by the simulated exchange, not at the venue. They are not counted in any figure on this page.",
         "rehearsalFixedNote": "A row marked \"fixed price\" was opened at a fixed price of 1, whatever the market price was. Its prices and its PnL are not a result.",
         "rehearsalAlertNote": "A row marked \"alert price\" was opened at the price its alert carried. It was sized at 1x and its fee is simulated at the taker rate, so its PnL is not what it would have made live.",
+        "notesInfo": "About these trades",
         "details": "Details",
         "detailsOf": "Details of {{pair}} {{side}}, closed {{closed}}",
         "detail": {
@@ -628,7 +653,6 @@
         "capital": "Pool at open",
         "feesIncomplete": "fees incomplete",
         "feesIncompleteHint": "A fee paid in a third currency is not in this PnL.",
-        "feesIncompleteNote": "* A fee paid in a third currency is not in this PnL.",
         "noValue": "No capital at open is recorded for this trade, so it has no return.",
         "cellUnreadable": "unreadable",
         "loading": "Loading the closed trades…",
@@ -650,6 +674,8 @@
       "urlLabel": "Webhook URL",
       "messageLabel": "Alert message",
       "maskHint": "Only the last four characters of the secret are kept, so you can tell which one an alert uses. The rest cannot be read back.",
+      "maskInfo": "About the last four characters",
+      "hintInfo": "About these alerts",
       "regenerate": "Regenerate secret",
       "regenerateTitle": "Regenerate the secret?",
       "regenerateBody": "The current secret stops working as soon as you confirm. Every alert that still uses it will be refused until you update its URL.",
@@ -671,7 +697,7 @@
       "title": "Archive strategy",
       "description": "Archiving is permanent: the strategy stops for good and its history is kept.",
       "button": "Archive",
-      "disabledHint": "Archive is available once the strategy is disabled and has no open position.",
+      "disabledHint": "Disable it and close its positions first",
       "confirmTitle": "Archive {{name}}?",
       "confirmBody": "{{name}} will stop receiving signals and cannot be enabled or restored afterwards. Its history is kept.",
       "confirm": "Archive permanently",
@@ -724,14 +750,6 @@
   },
   "positions": {
     "state": {
-      "figures": {
-        "open": "Open",
-        "orders": "Orders in flight",
-        "lastRead": "Last read",
-        "time": "{{time}} UTC"
-      },
-      "notShown": "Not on this list: {{items}}.",
-      "archived": "archived",
       "unreadable": "figures not readable",
       "refresh": "Read again",
       "loading": "Reading open positions…",
@@ -794,7 +812,8 @@
       "margin": "Margin granted is what the share took from the pool when the position opened. It is not what the exchange holds now.",
       "rehearsal": "A dry-run position was filled by the simulated exchange, at 1x. It is not at the exchange and enters no total.",
       "mixed": "This position holds dry-run and live fills. Neither mode can close it safely: check it against the exchange by hand.",
-      "reservation": "Its reservation reads {{status}}, not FILLED."
+      "reservation": "Its reservation reads {{status}}, not FILLED.",
+      "info": "About these positions"
     }
   },
   "exchanges": {

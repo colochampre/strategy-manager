@@ -258,7 +258,8 @@ describe("the form's shape (design § F)", () => {
 
     const button = submit();
     expect(button).toHaveAttribute("type", "submit");
-    expect(within(button).queryByText("Checking…")).toBeInTheDocument();
+    // Icon only (L.8): the word is the name and the tooltip, no longer text in the button.
+    expect(button).toHaveTextContent("");
     expect(screen.queryByRole("button", { name: "Checking…" })).not.toBeInTheDocument();
     const close = found(screen.queryByRole("button", { name: "Close" }), "Close");
     expect(close).toHaveAttribute("type", "button");
@@ -266,14 +267,14 @@ describe("the form's shape (design § F)", () => {
     expect(screen.queryAllByRole("button")).toHaveLength(2);
   });
 
-  it("draws ShieldCheck left of Check and save and X left of Close, aria-hidden, the names unchanged", () => {
+  it("draws ShieldCheck alone on Check and save and X left of Close, aria-hidden, the names unchanged", () => {
     renderForm();
 
     const check = submit();
     const shield = check.querySelector("svg");
-    expect(shield).toHaveClass("lucide-shield-check", "size-4", "shrink-0");
+    expect(shield).toHaveClass("lucide-shield-check", "size-4");
     expect(shield).toHaveAttribute("aria-hidden", "true");
-    expect(check.firstElementChild).toBe(shield);
+    expect(check).toHaveTextContent("");
     expect(check).toHaveAccessibleName("Check and save");
 
     const close = found(screen.queryByRole("button", { name: "Close" }), "Close");

@@ -30,6 +30,8 @@ from strategy_manager.performance.domain.public_record import (
     PublicRecord,
     build_public_record,
 )
+from strategy_manager.shared.application.ports import ClockPort
+from strategy_manager.strategies.domain.enablement import Uptime, uptime
 
 logger = logging.getLogger(__name__)
 
@@ -40,12 +42,17 @@ class PublicStrategy:
     record: PublicRecord
     live_subscribers: int
     capital: Decimal | None
+    # The days active: the enabled stretches added up, as the author's card reads them.
+    uptime: Uptime
 
 
 class ReadPublicStrategies:
-    def __init__(self, source: PublicStrategiesSourcePort, *, brake: bool) -> None:
+    def __init__(
+        self, source: PublicStrategiesSourcePort, *, brake: bool, clock: ClockPort
+    ) -> None:
         self._source = source
         self._brake = brake
+        self._clock = clock
 
     async def read_all(self) -> tuple[PublicStrategy, ...]:
         return await self._decorated(await self._source.listings())
@@ -67,11 +74,14 @@ class ReadPublicStrategies:
         seats: Mapping[UUID, Sequence[LiveSeat]] = (
             {} if self._brake else await self._source.live_seats(ids)
         )
+        events = await self._source.enablement(ids)
+        now = self._clock.now()
         return tuple(
             self._strategy(
                 listing,
                 fills.get(listing.strategy_id, ()),
                 seats.get(listing.strategy_id, ()),
+                uptime(events.get(listing.strategy_id, ()), now),
             )
             for listing in listings
         )
@@ -81,6 +91,7 @@ class ReadPublicStrategies:
         listing: PublicListing,
         fills: Sequence[FillGroup],
         seats: Sequence[LiveSeat],
+        active: Uptime,
     ) -> PublicStrategy:
         record = build_public_record(fills)
         if record.unresolved_allocation_ids:
@@ -96,4 +107,5 @@ class ReadPublicStrategies:
             record=record,
             live_subscribers=len(seats),
             capital=None if self._brake else public_capital(seats),
+            uptime=active,
         )

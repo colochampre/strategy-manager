@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { PublicRecordReport } from "@/features/strategies/PublicRecordReport";
+import { RecordFigures } from "@/features/strategies/RecordFigures";
 import { StrategyPerformance } from "@/features/strategies/StrategyPerformance";
 import { useOwnSeat } from "@/features/strategies/SubscribePanel";
 import { useStrategyPerformance } from "@/shared/api/performance";
@@ -25,7 +26,8 @@ function MyResults({ strategyId }: { strategyId: string }) {
       </p>
     );
   }
-  return <StrategyPerformance strategyId={strategyId} />;
+  // Its PnL, return and drawdown are in the figure row above, so the report draws no second line of them.
+  return <StrategyPerformance strategyId={strategyId} ledger={false} />;
 }
 
 /**
@@ -41,20 +43,22 @@ export function StrategyReportViews({ strategy }: { strategy: PublicStrategy }) 
   const [chosen, setChosen] = useState<View | null>(null);
   const view: View = seat === undefined ? "record" : (chosen ?? "mine");
 
-  // Whether the reader holds a seat decides the view they open on, so nothing is drawn until both reads are
+  // Whether the reader holds a seat decides the view they open on, so no view is drawn until both reads are
   // settled: otherwise a subscriber would see the record for a moment and then be moved to their own results.
-  if (me.isPending || held.isPending) {
-    return (
-      <p role="status" className="text-sm text-ink-3">
-        {t("strategies.report.recordLoading")}
-      </p>
-    );
-  }
+  const settled = !me.isPending && !held.isPending;
 
   return (
     <section aria-label={t("strategies.report.title")} className="flex min-w-0 flex-col gap-4">
       <h2 className="font-display text-base font-semibold text-ink">{t("strategies.report.title")}</h2>
-      {seat !== undefined && (
+      {/* The strategy's figures first, the ones its card shows; under My results the return and the drawdown are
+          the reader's own, with their PnL. Until the view is known they wait, so they never switch under the eye. */}
+      <RecordFigures strategy={strategy} view={settled ? view : null} />
+      {!settled && (
+        <p role="status" className="text-sm text-ink-3">
+          {t("strategies.report.recordLoading")}
+        </p>
+      )}
+      {settled && seat !== undefined && (
         <div role="group" aria-label={t("strategies.report.views")} className="flex flex-wrap gap-2">
           {VIEWS.map((name) => (
             <button
@@ -72,11 +76,12 @@ export function StrategyReportViews({ strategy }: { strategy: PublicStrategy }) 
           ))}
         </div>
       )}
-      {view === "mine" ? (
-        <MyResults strategyId={strategy.id} />
-      ) : (
-        <PublicRecordReport strategyId={strategy.id} joined={seat?.created_at?.slice(0, 10) ?? null} />
-      )}
+      {settled &&
+        (view === "mine" ? (
+          <MyResults strategyId={strategy.id} />
+        ) : (
+          <PublicRecordReport strategyId={strategy.id} joined={seat?.created_at?.slice(0, 10) ?? null} />
+        ))}
     </section>
   );
 }

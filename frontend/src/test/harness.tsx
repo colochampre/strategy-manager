@@ -319,6 +319,11 @@ export function publicStrategy(overrides: Record<string, unknown> = {}) {
     live_subscribers: 2,
     capital: "1500",
     description: null,
+    subscribers: 3,
+    max_drawdown: "-0.05",
+    win_rate: "0.6",
+    enabled: true,
+    uptime: { seconds: 12 * 86_400 + 3600, first_enabled_at: "2026-09-18T10:00:00Z", baseline: false },
     ...overrides,
   };
 }
@@ -382,6 +387,8 @@ export function heldSubscription(overrides: Record<string, unknown> = {}) {
     exchange: "bybit",
     venue: "usdt-m",
     settlement_currency: "USDT",
+    strategy_enabled: true,
+    strategy_uptime: { seconds: 12 * 86_400 + 3600, first_enabled_at: "2026-09-18T10:00:00Z", baseline: false },
     ...overrides,
   };
 }
@@ -416,6 +423,7 @@ export function strategyRoute(id: string, name: string, overrides: Record<string
     archived_at: null,
     allowed_pairs: ["ETHUSDT"],
     uptime: { seconds: 0, first_enabled_at: null, baseline: false },
+    created_at: "2026-10-01T10:00:00Z",
     visibility: "PRIVATE",
     share_token: null,
     secret_last4: "x4F2",

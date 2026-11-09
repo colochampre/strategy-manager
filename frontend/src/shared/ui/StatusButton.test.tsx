@@ -141,4 +141,60 @@ describe("StatusButton", () => {
     fireEvent.click(button);
     expect(onSubmit).toHaveBeenCalledTimes(1);
   });
+
+  describe("icon only", () => {
+    const props = { texts: ["Save", "Saving…", "Saved"], message: null, icon: Copy, iconOnly: true, className: "button" };
+
+    it("shows no text: the shown text is the accessible name and the tooltip", () => {
+      render(<StatusButton {...props} shown="Save" />);
+
+      const button = screen.getByRole("button", { name: "Save" });
+      expect(button).toHaveTextContent("");
+      expect(button.querySelector("svg")).toHaveClass("lucide-copy");
+      expect(classesOf(button)).toContain("size-11");
+      fireEvent.mouseEnter(button.parentElement as HTMLElement);
+      expect(screen.getByRole("tooltip")).toHaveTextContent("Save");
+    });
+
+    it("spins a loader while busy, and names the button by the busy text", () => {
+      render(<StatusButton {...props} shown="Saving…" busy />);
+
+      const button = screen.getByRole("button", { name: "Saving…" });
+      expect(button.querySelector("svg")).toHaveClass("lucide-loader-circle", "animate-spin");
+    });
+
+    it("shows a check once done, with the done text as its name", () => {
+      render(<StatusButton {...props} shown="Saved" />);
+
+      const button = screen.getByRole("button", { name: "Saved" });
+      expect(button.querySelector("svg")).toHaveClass("lucide-check");
+    });
+
+    it("keeps the same button across the states, and the status region after it", () => {
+      const { rerender } = render(<StatusButton {...props} shown="Save" />);
+      const before = screen.getByRole("button");
+
+      rerender(<StatusButton {...props} shown="Saved" message="Saved" />);
+
+      expect(screen.getByRole("button", { name: "Saved" })).toBe(before);
+      expect(screen.getByRole("status")).toHaveTextContent("Saved");
+    });
+
+    it("submits its form, honours disabled and calls onClick", () => {
+      const onClick = vi.fn();
+      render(<StatusButton {...props} shown="Save" submit disabled onClick={onClick} />);
+
+      const button = screen.getByRole("button", { name: "Save" });
+      expect(button).toHaveAttribute("type", "submit");
+      expect(button).toBeDisabled();
+    });
+
+    it("takes the tone of the caller: primary for a save, danger for a delete", () => {
+      const { rerender } = render(<StatusButton {...props} shown="Save" look="primary" />);
+      expect(classesOf(screen.getByRole("button"))).toContain("bg-gain");
+
+      rerender(<StatusButton {...props} shown="Save" look="danger" />);
+      expect(classesOf(screen.getByRole("button"))).toContain("border-loss");
+    });
+  });
 });

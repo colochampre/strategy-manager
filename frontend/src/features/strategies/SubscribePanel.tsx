@@ -28,7 +28,7 @@ const STARTING_SHARE = "0";
 const STARTING_LEVERAGE = 1;
 const LINK = "text-sm text-gain hover:text-gain-bright";
 /** The frame of the page's settings column, the same as Strategy settings on an own strategy. */
-const ASIDE = "flex flex-col gap-5 self-start rounded-lg border border-rule bg-panel p-5";
+const ASIDE = "flex flex-col gap-2 self-start rounded-lg border border-rule bg-panel p-5";
 
 /**
  * The text of a refused subscribe: the status and the code decide, never the server's wording. A dead code and too
@@ -233,7 +233,7 @@ function SeatPanel({ strategy, seat }: { strategy: PublicStrategy; seat: HeldSub
       {!active && <p className="text-sm text-ink-2">{t("strategies.subscriptions.leaving")}</p>}
       {active && (
         <div>
-          <button type="button" onClick={openDialog} className={DANGER_CONTROL}>
+          <button type="button" onClick={openDialog} className={`${DANGER_CONTROL} w-full justify-center`}>
             <LogOut aria-hidden="true" className="size-4 shrink-0" />
             {t("strategies.subscriptions.leave")}
           </button>
