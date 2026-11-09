@@ -32,7 +32,7 @@ function PublicRecord({ strategy }: { strategy: PublicStrategy }) {
       <div className="flex min-w-0 flex-col gap-6">
         <header className="flex flex-col gap-1.5">
           <BackToExplore />
-          <div className="flex flex-wrap items-baseline gap-x-2">
+          <div className="flex flex-wrap items-center gap-x-2">
             <h1 className="font-display text-2xl font-bold text-ink">{strategy.name}</h1>
             <EnabledBadge enabled={strategy.enabled} testId="public-enabled" />
           </div>

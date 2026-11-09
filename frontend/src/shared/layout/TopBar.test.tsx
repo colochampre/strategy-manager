@@ -110,19 +110,21 @@ describe("the language switch", () => {
     await act(() => i18n.changeLanguage("en"));
   });
 
-  it("shows the round flag of the language it switches to: Argentina's for ES, the United States' for EN (L.10)", async () => {
+  it("shows the language in use, its round flag and its code: the United States' for EN, Argentina's for ES (L.11)", async () => {
     stubApi(HEALTH, []);
     renderAt(<TopBar />, "/settings");
 
-    const toSpanish = await screen.findByRole("button", { name: "es" });
-    const flag = toSpanish.querySelector("svg");
-    expect(flag).toHaveAttribute("data-flag", "ar");
+    const english = await screen.findByRole("button", { name: "Language: English. Switch to Spanish" });
+    const flag = english.querySelector("svg");
+    expect(flag).toHaveAttribute("data-flag", "us");
     expect(flag).toHaveAttribute("aria-hidden", "true");
     expect(flag).toHaveClass("rounded-full");
-    expect(toSpanish.querySelector(".lucide-languages")).toBeNull();
+    expect(english).toHaveTextContent(/^en$/);
+    expect(english.querySelector(".lucide-languages")).toBeNull();
 
-    fireEvent.click(toSpanish);
-    const toEnglish = await screen.findByRole("button", { name: "en" });
-    expect(toEnglish.querySelector("svg")).toHaveAttribute("data-flag", "us");
+    fireEvent.click(english);
+    const spanish = await screen.findByRole("button", { name: "Idioma: español. Cambiar a inglés" });
+    expect(spanish.querySelector("svg")).toHaveAttribute("data-flag", "ar");
+    expect(spanish).toHaveTextContent(/^es$/);
   });
 });

@@ -40,7 +40,8 @@ describe("authoredFigures", () => {
     expect(card.figures.deepest).toBeCloseTo(-0.08);
     // Wins over closed trades across every pair: 5 of 10.
     expect(card.figures.winRate).toBeCloseTo(0.5);
-    expect(card.figures.subscribers).toEqual({ count: 3, live: 2 });
+    // Only those trading it live: one number on the card (L.11).
+    expect(card.figures.subscribers).toBe(2);
     expect(card.figures.capital).toEqual({ amount: 300, currency: "USDT" });
   });
 

@@ -26,7 +26,8 @@ function MyResults({ strategyId }: { strategyId: string }) {
       </p>
     );
   }
-  return <StrategyPerformance strategyId={strategyId} />;
+  // Its PnL, return and drawdown are in the figure row above, so the report draws no second line of them.
+  return <StrategyPerformance strategyId={strategyId} ledger={false} />;
 }
 
 /**
@@ -49,8 +50,9 @@ export function StrategyReportViews({ strategy }: { strategy: PublicStrategy }) 
   return (
     <section aria-label={t("strategies.report.title")} className="flex min-w-0 flex-col gap-4">
       <h2 className="font-display text-base font-semibold text-ink">{t("strategies.report.title")}</h2>
-      {/* The strategy's figures first, the ones its card shows, whichever view is open below. */}
-      <RecordFigures strategy={strategy} />
+      {/* The strategy's figures first, the ones its card shows; under My results the return and the drawdown are
+          the reader's own, with their PnL. Until the view is known they wait, so they never switch under the eye. */}
+      <RecordFigures strategy={strategy} view={settled ? view : null} />
       {!settled && (
         <p role="status" className="text-sm text-ink-3">
           {t("strategies.report.recordLoading")}

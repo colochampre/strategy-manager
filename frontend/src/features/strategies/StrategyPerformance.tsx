@@ -13,15 +13,18 @@ import { ReportSection } from "@/shared/ui/ReportSection";
 
 interface StrategyPerformanceProps {
   strategyId: string;
+  /** Whether to draw the ledger line over the chart; off where the page draws those figures in its own row. */
+  ledger?: boolean;
 }
 
 interface ReportViewProps {
   report: StrategyReport;
   /** When the report was read (ms): the "now" the chart's range windows end on. */
   asOf: number;
+  ledger: boolean;
 }
 
-function ReportView({ report, asOf }: ReportViewProps) {
+function ReportView({ report, asOf, ledger }: ReportViewProps) {
   const { t } = useTranslation();
   const range = useRangeStore((state) => state.range);
   const setRange = useRangeStore((state) => state.setRange);
@@ -30,7 +33,7 @@ function ReportView({ report, asOf }: ReportViewProps) {
   return (
     <>
       <div className="flex min-w-0 flex-col gap-3">
-        {summary === undefined ? (
+        {!ledger ? null : summary === undefined ? (
           <p role="alert" data-testid="ledger-line" className="text-sm text-loss">
             {t("overview.ledger.unreadable")}
           </p>
@@ -75,7 +78,7 @@ function ReportView({ report, asOf }: ReportViewProps) {
  * the strategy's. It fetches once, so every part of it loads, fails and
  * refreshes together.
  */
-export function StrategyPerformance({ strategyId }: StrategyPerformanceProps) {
+export function StrategyPerformance({ strategyId, ledger = true }: StrategyPerformanceProps) {
   const { t } = useTranslation();
   const performance = useStrategyPerformance(strategyId);
 
@@ -111,7 +114,7 @@ export function StrategyPerformance({ strategyId }: StrategyPerformanceProps) {
   }
   return (
     <div className="flex min-w-0 flex-col gap-6">
-      <ReportView report={performance.data} asOf={performance.dataUpdatedAt} />
+      <ReportView report={performance.data} asOf={performance.dataUpdatedAt} ledger={ledger} />
     </div>
   );
 }

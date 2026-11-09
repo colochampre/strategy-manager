@@ -1,4 +1,4 @@
-import { Calendar, Clock, ListChecks, Target, TrendingDown, TrendingUp, Users, Wallet } from "lucide-react";
+import { Calendar, Clock, Coins, ListChecks, TrendingDown, TrendingUp, Trophy, Users, Wallet } from "lucide-react";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
@@ -17,11 +17,21 @@ const LOADING = "…";
 
 /**
  * The grid every card draws its figures in: four a row on a phone, with the items centred, and every figure of the
- * card on one row of equal columns from `lg`, however many the list adds (share and leverage, PnL). One grid for the
+ * card on one row from `lg`, however many the list adds (share and leverage, PnL): equal columns, except that none is
+ * narrower than its own value, so a long PnL widens its column instead of running into the next. The phone's four
+ * columns are dropped there: kept, the first four would stay `minmax(0, 1fr)` and never widen. One grid for the
  * three lists.
  */
 const CARD_GRID =
-  "grid grid-cols-4 place-items-center gap-x-4 gap-y-3 sm:place-items-start lg:grid-flow-col lg:auto-cols-fr lg:gap-x-6";
+  "grid grid-cols-4 place-items-center gap-x-4 gap-y-3 sm:place-items-start lg:grid-flow-col lg:grid-cols-none lg:auto-cols-[minmax(max-content,1fr)] lg:gap-x-6";
+
+/**
+ * The same figures on a strategy's page, whose column is narrower than a card and shares the screen with an aside:
+ * one row wherever the column itself holds eight figures (a container query, 32rem), each as wide as its own value
+ * and the gaps shared out between them; four a row where it does not.
+ */
+const PAGE_GRID =
+  "grid grid-cols-4 place-items-center gap-x-4 gap-y-3 sm:place-items-start @[32rem]:grid-flow-col @[32rem]:grid-cols-none @[32rem]:auto-cols-max @[32rem]:justify-between";
 
 /**
  * What a card shows of a strategy's record. `undefined` is a figure still being read ("…"); `null` is a figure
@@ -32,7 +42,8 @@ export interface CardFigures {
   ret: number | null | undefined;
   deepest: number | null | undefined;
   winRate: number | null | undefined;
-  subscribers: { count: number; live: number } | null | undefined;
+  /** Those trading it live: one number, the tooltip says live. */
+  subscribers: number | null | undefined;
   capital: { amount: number; currency: string } | null | undefined;
 }
 
@@ -55,6 +66,8 @@ export interface StrategyCardProps {
   figures: CardFigures;
   /** Said once, in place of the figures read from the author's report, when that report failed. */
   figuresError?: string | null;
+  /** A PnL, drawn left of the return, where the card has one: the author's, or the reader's own in a seat. */
+  pnl?: CardPnl;
   /** Figures that vary by list, drawn after the capital in the same grid. */
   trailing?: ReactNode;
   /** The card's one control (the switch), drawn last and lifted above the stretched link. */
@@ -110,6 +123,16 @@ export function EnabledBadge({ enabled, testId }: { enabled: boolean; testId: st
   );
 }
 
+/** A PnL a card or a page draws: money in its currency, `undefined` while read, `null` where there is none. */
+export interface CardPnl {
+  value: number | null | undefined;
+  currency: string;
+  /** The tooltip, where "PnL" alone would not say whose or over what range. */
+  label?: string;
+  /** Added to the figure's classes: where it is drawn, by the width it has. */
+  className?: string;
+}
+
 interface CardFigureGridProps {
   /** The prefix of every figure's test id. */
   prefix: string;
@@ -118,6 +141,7 @@ interface CardFigureGridProps {
   uptime: StrategyUptime;
   figures: CardFigures;
   figuresError?: string | null | undefined;
+  pnl?: CardPnl | undefined;
   trailing?: ReactNode;
   /** The grid's own test id, where a page names the row. */
   testId?: string;
@@ -127,12 +151,14 @@ interface CardFigureGridProps {
   returnInfo?: ReactNode;
   /** An information button beside the capital's icon. */
   capitalInfo?: ReactNode;
+  /** A card's grid, or a page's (one row where its column holds it). */
+  layout?: "card" | "page";
   className?: string;
 }
 
 /**
- * A strategy's figures as the cards draw them: age, days active, closed trades, return, deepest fall, win rate,
- * subscribers and capital, each an icon over its value. A card draws it, and so does another author's page, under
+ * A strategy's figures as the cards draw them: age, days active, closed trades, a PnL where there is one, return,
+ * deepest fall, win rate, live subscribers and capital, each an icon over its value. A card draws it, and so does another author's page, under
  * Performance, where the return and the fall follow the chart's range.
  */
 export function CardFigureGrid({
@@ -142,11 +168,13 @@ export function CardFigureGrid({
   uptime,
   figures,
   figuresError,
+  pnl,
   trailing,
   testId,
   returnLabel,
   returnInfo,
   capitalInfo,
+  layout = "card",
   className,
 }: CardFigureGridProps) {
   const { t, i18n } = useTranslation();
@@ -158,7 +186,7 @@ export function CardFigureGrid({
     value === undefined ? LOADING : value === null ? NO_FIGURE : String(value);
 
   return (
-    <dl data-testid={testId} className={cn(CARD_GRID, "tabular", className)}>
+    <dl data-testid={testId} className={cn(layout === "page" ? PAGE_GRID : CARD_GRID, "tabular", className)}>
       <Figure
         icon={Calendar}
         label={t(sinceKind === "age" ? "strategies.card.age" : "strategies.card.subscribed")}
@@ -183,6 +211,22 @@ export function CardFigureGrid({
             testId={`${prefix}-trades`}
             value={count(figures.trades)}
           />
+          {pnl !== undefined && (
+            <Figure
+              icon={Coins}
+              label={pnl.label ?? t("strategies.card.pnl")}
+              testId={`${prefix}-pnl`}
+              value={
+                pnl.value === undefined
+                  ? LOADING
+                  : pnl.value === null
+                    ? NO_FIGURE
+                    : `${amountText(pnl.value, pnl.currency, locale, true)} ${pnl.currency}`
+              }
+              tone={pnl.value === undefined || pnl.value === null ? undefined : toneClass(pnl.value)}
+              className={pnl.className}
+            />
+          )}
           <Figure
             icon={TrendingUp}
             label={returnLabel ?? t("strategies.card.return")}
@@ -199,7 +243,7 @@ export function CardFigureGrid({
             tone={deepest.tone}
           />
           <Figure
-            icon={Target}
+            icon={Trophy}
             label={t("strategies.card.winRate")}
             testId={`${prefix}-winrate`}
             value={winRateText(figures.winRate, locale)}
@@ -210,16 +254,7 @@ export function CardFigureGrid({
         icon={Users}
         label={t("strategies.card.subscribers")}
         testId={`${prefix}-subscribers`}
-        value={
-          figures.subscribers === undefined
-            ? LOADING
-            : figures.subscribers === null
-              ? NO_FIGURE
-              : t("strategies.row.subscribersShort", {
-                  count: figures.subscribers.count,
-                  live: figures.subscribers.live,
-                })
-        }
+        value={count(figures.subscribers)}
       />
       <Figure
         icon={Wallet}
@@ -285,6 +320,7 @@ export function StrategyCard(props: StrategyCardProps) {
           uptime={uptime}
           figures={figures}
           figuresError={props.figuresError}
+          pnl={props.pnl}
           trailing={props.trailing}
           className="min-w-0 grow"
         />

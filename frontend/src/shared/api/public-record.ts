@@ -97,12 +97,14 @@ export async function fetchPublicRecord(strategyId: string, entry: Entry = NO_EN
 /** One read serves a page's figure row and its record below it, which mount at different moments. */
 export const RECORD_STALE_MS = 60_000;
 
-export function usePublicRecord(strategyId: string) {
+export function usePublicRecord(strategyId: string, enabled = true) {
   const entry = useEntry();
   return useQuery({
     queryKey: ["public-strategies", strategyId, "record", ...entryKey(entry)],
     queryFn: () => fetchPublicRecord(strategyId, entry),
     staleTime: RECORD_STALE_MS,
+    // Off where the page does not yet know it will draw the record: a reader with a seat opens on their own results.
+    enabled,
     ...entryReadOptions(entry),
   });
 }

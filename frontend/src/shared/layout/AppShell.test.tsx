@@ -89,10 +89,10 @@ describe("navigation", () => {
   it("keeps the language toggle", () => {
     renderShell();
 
-    fireEvent.click(screen.getByRole("button", { name: /^(es|en)$/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^(Language|Idioma):/ }));
     expect(screen.getAllByRole("link", { name: "Resumen" })).toHaveLength(2);
 
-    fireEvent.click(screen.getByRole("button", { name: /^(es|en)$/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^(Language|Idioma):/ }));
     expect(screen.getAllByRole("link", { name: "Overview" })).toHaveLength(2);
   });
 });
@@ -297,7 +297,7 @@ describe("the Discrepancies item and its badge", () => {
     renderShell();
     await screen.findAllByRole("link", { name: named("Discrepancies, 12 discrepancies need you") });
 
-    fireEvent.click(screen.getByRole("button", { name: /^(es|en)$/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^(Language|Idioma):/ }));
 
     expect(
       await screen.findAllByRole("link", { name: named("Discrepancias, 12 discrepancias requieren su atención") }),

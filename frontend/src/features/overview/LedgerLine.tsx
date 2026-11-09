@@ -81,7 +81,7 @@ export function LedgerLine({
 
   return (
     <>
-      <dl data-testid="ledger-line" className="tabular flex flex-wrap items-end gap-x-6 gap-y-3">
+      <dl data-testid="ledger-line" className="tabular flex flex-wrap items-center gap-x-6 gap-y-3">
         {hasBalance && (
           // The balance is larger than the figures beside it, so its wallet sits left of it, not above.
           <Figure

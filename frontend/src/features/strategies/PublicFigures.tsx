@@ -24,6 +24,8 @@ interface FigureProps {
   inline?: boolean;
   /** Drawn right of the value, inside it: an information button about the figure. */
   after?: ReactNode;
+  /** Added to the figure's own classes: where it is drawn, by the width it has. */
+  className?: string | undefined;
 }
 
 /** One figure: its label, or its icon, centred over its value. */
@@ -37,6 +39,7 @@ export function Figure({
   valueClassName,
   inline = false,
   after,
+  className,
 }: FigureProps) {
   return (
     // The label takes the room left, so a label that wraps never lowers its figure below the others in the row.
@@ -44,6 +47,7 @@ export function Figure({
       className={cn(
         "flex w-fit",
         inline ? "flex-row items-center gap-2" : "flex-col items-center justify-between gap-0.5",
+        className,
       )}
     >
       {/* Lifted above a card's stretched link, so the icon still answers the pointer with its tooltip. */}

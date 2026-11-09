@@ -1,4 +1,4 @@
-import { ArrowLeftRight, Coins, ListChecks, Target, TrendingUp } from "lucide-react";
+import { ArrowLeftRight, Coins, ListChecks, TrendingUp, Trophy } from "lucide-react";
 import { useId } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -104,7 +104,7 @@ export function PairStatsTable({ pairs, currency }: PairStatsTableProps) {
                 <ColumnHead icon={ListChecks} label={t("strategies.performance.byPair.trades")} />
               </th>
               <th scope="col" className="border-b border-rule py-2 pr-3 font-medium">
-                <ColumnHead icon={Target} label={t("strategies.performance.byPair.winRate")} />
+                <ColumnHead icon={Trophy} label={t("strategies.performance.byPair.winRate")} />
               </th>
               {currency !== undefined && (
                 <th scope="col" className="border-b border-rule py-2 pr-3 font-medium">

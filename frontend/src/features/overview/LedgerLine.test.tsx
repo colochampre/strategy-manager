@@ -37,6 +37,9 @@ describe("LedgerLine", () => {
     for (const id of ["ledger-pnl", "ledger-return", "ledger-deepest"]) {
       expect(screen.getByTestId(id).parentElement).toHaveClass("flex-col");
     }
+    // The large balance and the smaller figures share one middle line (L.11).
+    expect(screen.getByTestId("ledger-line")).toHaveClass("items-center");
+    expect(screen.getByTestId("ledger-line")).not.toHaveClass("items-end");
   });
 
   it("opens the balance's note behind an (i) right of the balance, only when there is one (L.10)", () => {

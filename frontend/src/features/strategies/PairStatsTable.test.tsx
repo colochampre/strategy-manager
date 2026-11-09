@@ -230,7 +230,9 @@ describe("PairStatsTable win rate column", () => {
 
   it("the heading is Win rate in English and % acierto in Spanish", async () => {
     const { unmount } = render(<PairStatsTable currency="USDT" pairs={[stat()]} />);
-    expect(screen.getByRole("columnheader", { name: "Win rate" })).toBeInTheDocument();
+    const winRate = screen.getByRole("columnheader", { name: "Win rate" });
+    // A trophy, the owner's choice (L.11).
+    expect(winRate.querySelector("svg.lucide-trophy")).not.toBeNull();
     unmount();
 
     await i18n.changeLanguage("es");

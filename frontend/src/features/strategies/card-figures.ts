@@ -25,7 +25,7 @@ export function publicFigures(strategy: PublicStrategy): CardFigures {
     ret: traded ? parseDecimal(strategy.unleveraged_return_before_fees) : null,
     deepest: traded ? parseDecimal(strategy.max_drawdown) : null,
     winRate: strategy.win_rate === null ? null : parseDecimal(strategy.win_rate),
-    subscribers: { count: strategy.subscribers, live: strategy.live_subscribers },
+    subscribers: strategy.live_subscribers,
     capital: capital === null ? null : { amount: capital, currency: strategy.settlement_currency },
   };
 }
@@ -53,7 +53,7 @@ export function sortFigure(figures: CardFigures, age: number | null, key: SortKe
     case "return":
       return figures.ret ?? null;
     case "subscribers":
-      return figures.subscribers?.count ?? null;
+      return figures.subscribers ?? null;
     case "capital":
       return figures.capital?.amount ?? null;
   }
@@ -63,6 +63,17 @@ export function sortFigure(figures: CardFigures, age: number | null, key: SortKe
 export interface ReportRead {
   status: "pending" | "error" | "success";
   data: StrategyPerformance | null | undefined;
+}
+
+/**
+ * The all-time PnL of a report the reader reads of their own: `undefined` while it is read, `null` where there is
+ * none (no report, a failed read, a figure nobody can read).
+ */
+export function allTimePnl(read: ReportRead): number | null | undefined {
+  if (read.status === "pending" || (read.status === "success" && read.data === undefined)) return undefined;
+  if (read.status === "error" || read.data === null || read.data === undefined) return null;
+  const all = read.data.ranges.find((entry) => entry.range === "All");
+  return all === undefined ? null : parseDecimal(all.pnl);
 }
 
 /** The author's strategy as a card draws it, with its PnL (the one figure only this card has). */
@@ -80,7 +91,7 @@ export interface AuthoredCard {
  * every pair's closed trades, and none before a trade has closed.
  */
 export function authoredFigures(strategy: Strategy, read: ReportRead): AuthoredCard {
-  const subscribers = { count: strategy.subscribers, live: strategy.live_subscribers };
+  const subscribers = strategy.live_subscribers;
   const capital = strategy.capital === null ? null : parseDecimal(strategy.capital);
   const shared = {
     subscribers,

@@ -1,6 +1,7 @@
 {
   "app": {
-    "name": "Strategy Manager"
+    "name": "Strategy Manager",
+    "language": "Idioma: español. Cambiar a inglés"
   },
   "nav": {
     "sections": "Secciones",
@@ -291,9 +292,10 @@
       "return": "Rendimiento",
       "deepest": "Caída máxima",
       "winRate": "Tasa de aciertos",
-      "subscribers": "Suscriptores",
+      "subscribers": "Suscriptores en vivo",
       "capital": "Capital",
       "pnl": "PnL",
+      "yourPnl": "Su PnL",
       "share": "Parte del pool",
       "leverage": "Apalancamiento"
     },
@@ -374,7 +376,6 @@
     "row": {
       "subscribers_one": "{{count}} suscriptor, {{live}} en vivo",
       "subscribers_other": "{{count}} suscriptores, {{live}} en vivo",
-      "subscribersShort": "{{count}} · {{live}} en vivo",
       "capital": "Capital: {{amount}} {{currency}}",
       "archived": "Archivada",
       "enable": "Activar {{name}}",

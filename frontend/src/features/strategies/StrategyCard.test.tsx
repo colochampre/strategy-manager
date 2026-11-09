@@ -14,7 +14,7 @@ const FIGURES: CardFigures = {
   ret: 0.125,
   deepest: -0.05,
   winRate: 0.6,
-  subscribers: { count: 3, live: 2 },
+  subscribers: 2,
   capital: { amount: 1500, currency: "USDT" },
 };
 
@@ -152,7 +152,7 @@ describe("the figures", () => {
       trades: "list-checks",
       return: "trending-up",
       deepest: "trending-down",
-      winrate: "target",
+      winrate: "trophy",
       subscribers: "users",
       capital: "wallet",
     };
@@ -173,7 +173,7 @@ describe("the figures", () => {
       ["return", "Return"],
       ["deepest", "Drawdown"],
       ["winrate", "Win rate"],
-      ["subscribers", "Subscribers"],
+      ["subscribers", "Live subscribers"],
       ["capital", "Capital"],
     ] as const) {
       const term = within(row).getByTestId(`card-${key}`).previousElementSibling as HTMLElement;
@@ -190,7 +190,7 @@ describe("the figures", () => {
     expect(within(row).getByTestId("card-return")).toHaveTextContent(/^\+12\.5\s?%$/);
     expect(within(row).getByTestId("card-deepest")).toHaveTextContent(/^[-−]5\.0\s?%$/);
     expect(within(row).getByTestId("card-winrate")).toHaveTextContent(/^60\s?%$/);
-    expect(within(row).getByTestId("card-subscribers")).toHaveTextContent(/^3 · 2 live$/);
+    expect(within(row).getByTestId("card-subscribers")).toHaveTextContent(/^2$/);
     expect(within(row).getByTestId("card-capital")).toHaveTextContent(/^1,500\.00 USDT$/);
   });
 
@@ -294,7 +294,11 @@ describe("the grid", () => {
     const row = draw();
 
     const grid = row.querySelector("dl") as HTMLElement;
-    expect(grid).toHaveClass("grid", "grid-cols-4", "place-items-center", "sm:place-items-start", "lg:grid-flow-col", "lg:auto-cols-fr");
+    expect(grid).toHaveClass("grid", "grid-cols-4", "place-items-center", "sm:place-items-start", "lg:grid-flow-col", "lg:auto-cols-[minmax(max-content,1fr)]");
+    // Equal columns, none narrower than its value: a PnL such as +2058.38 USDT ran into the return beside it (L.11).
+    expect(grid).not.toHaveClass("lg:auto-cols-fr");
+    // The phone's four columns are explicit and would hold the first four at minmax(0, 1fr) on lg.
+    expect(grid).toHaveClass("lg:grid-cols-none");
     // From lg every figure stays whole on one line in its column; a phone may wrap it rather than widen the page.
     for (const value of grid.querySelectorAll("dd")) expect(value).toHaveClass("lg:whitespace-nowrap");
   });
@@ -309,6 +313,36 @@ describe("the grid", () => {
 });
 
 describe("what varies between the lists", () => {
+  it("draws a PnL left of the return, a figure like the rest, signed and in its currency (L.11)", () => {
+    const row = draw({ pnl: { value: 12.5, currency: "USDT" } });
+
+    const order = Array.from(row.querySelectorAll("dd")).map((cell) => cell.getAttribute("data-testid"));
+    expect(order.slice(2, 5)).toEqual(["card-trades", "card-pnl", "card-return"]);
+    const pnl = within(row).getByTestId("card-pnl");
+    expect(pnl).toHaveTextContent(/^\+12\.50 USDT$/);
+    expect(pnl).toHaveClass("text-gain");
+    expect(pnl.parentElement).toHaveClass("w-fit", "items-center");
+    const term = pnl.previousElementSibling as HTMLElement;
+    expect(within(term).getByRole("img", { name: "PnL" })).toBeInTheDocument();
+    expect(term).toHaveClass("relative", "z-10");
+  });
+
+  it("names a PnL by the label it is given, and reads one still on its way as an ellipsis (L.11)", () => {
+    const row = draw({ pnl: { value: undefined, currency: "USDT", label: "Your PnL" } });
+
+    expect(within(row).getByTestId("card-pnl")).toHaveTextContent(/^…$/);
+    const term = within(row).getByTestId("card-pnl").previousElementSibling as HTMLElement;
+    expect(within(term).getByRole("img", { name: "Your PnL" })).toBeInTheDocument();
+  });
+
+  it("counts only the live subscribers, and says so in the tooltip (L.11)", () => {
+    const row = draw({ figures: { ...FIGURES, subscribers: 0 } });
+
+    expect(within(row).getByTestId("card-subscribers")).toHaveTextContent(/^0$/);
+    fireEvent.mouseEnter(within(row).getByRole("img", { name: "Live subscribers" }).parentElement as HTMLElement);
+    expect(within(row).getByRole("tooltip")).toHaveTextContent(/^Live subscribers$/);
+  });
+
   it("draws the trailing figures after the capital, and the action last", () => {
     const row = draw({
       trailing: <Figure label="Share" testId="card-share" value="30%" />,

@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AppRoutes } from "@/app/router";
 import i18n from "@/shared/i18n";
 import {
+  emptyPerformance,
   heldSubscription,
   jsonResponse,
   openOrder,
@@ -25,9 +26,28 @@ interface Serve {
   publics?: () => Promise<Response>;
   /** The reader's open positions and orders; none unless a test says so. */
   open?: ReturnType<typeof openState>;
+  /** The reader's own report in the strategy. */
+  mine?: () => Promise<Response>;
 }
 
-function serve({ held, publics, open }: Serve) {
+/** The reader's own report in a strategy: 41.25 USDT made over all time. */
+function myReport() {
+  return {
+    ...emptyPerformance("bybit", "usdt-m", "USDT"),
+    strategy_id: STRATEGY_ID,
+    by_pair: [],
+    trade_count: 2,
+    total_pnl: "41.25",
+    ranges: ["7D", "30D", "90D", "1Y", "All"].map((range) => ({
+      range,
+      pnl: range === "All" ? "41.25" : "1.00",
+      return: "0.02",
+      trade_count: 2,
+    })),
+  };
+}
+
+function serve({ held, publics, open, mine }: Serve) {
   return stubApi(
     { kind: "ok", body: {} },
     [],
@@ -37,6 +57,9 @@ function serve({ held, publics, open }: Serve) {
       if (url.endsWith("/api/subscriptions/held")) return held();
       if (url.endsWith("/api/public/strategies")) {
         return publics?.() ?? Promise.resolve(jsonResponse([publicStrategy({ id: STRATEGY_ID })]));
+      }
+      if (url.endsWith(`/performance/strategies/${STRATEGY_ID}`)) {
+        return mine?.() ?? Promise.resolve(jsonResponse(myReport()));
       }
       if (url.includes(`/strategies/${STRATEGY_ID}/share-preview`)) {
         return Promise.resolve(jsonResponse(unsyncedSharePreview(STRATEGY_ID)));
@@ -143,10 +166,32 @@ describe("a card of My subscriptions shows what Explore shows", () => {
     expect(within(row).getByTestId("subscription-return")).toHaveTextContent(/^\+12\.5\s?%$/);
     expect(within(row).getByTestId("subscription-deepest")).toHaveTextContent(/^[-−]5\.0\s?%$/);
     expect(within(row).getByTestId("subscription-winrate")).toHaveTextContent(/^60\s?%$/);
-    expect(within(row).getByTestId("subscription-subscribers")).toHaveTextContent(/^3 · 2 live$/);
+    expect(within(row).getByTestId("subscription-subscribers")).toHaveTextContent(/^2$/);
     expect(within(row).getByTestId("subscription-capital")).toHaveTextContent(/^1,500\.00 USDT$/);
     // The strategy's own age is not drawn: the card counts the reader's time in it instead.
     expect(within(row).queryByTestId("public-age")).not.toBeInTheDocument();
+  });
+
+  it("draws the reader's own PnL in the strategy, all time, left of the return, named as theirs (L.11)", async () => {
+    serve({ held: () => Promise.resolve(jsonResponse([heldSubscription()])) });
+    open();
+
+    const row = await screen.findByTestId("subscription-row");
+    await waitFor(() => expect(within(row).getByTestId("subscription-pnl")).toHaveTextContent(/^\+41\.25 USDT$/));
+    const order = Array.from(row.querySelectorAll("dd")).map((cell) => cell.getAttribute("data-testid"));
+    expect(order.indexOf("subscription-pnl")).toBe(order.indexOf("subscription-return") - 1);
+    const term = within(row).getByTestId("subscription-pnl").previousElementSibling as HTMLElement;
+    expect(within(term).getByRole("img", { name: "Your PnL" })).toBeInTheDocument();
+  });
+
+  it("draws a dash for a PnL with no report of the reader's (L.11)", async () => {
+    serve({
+      held: () => Promise.resolve(jsonResponse([heldSubscription()])),
+      mine: () => Promise.resolve(jsonResponse({ detail: "none" }, 404)),
+    });
+    open();
+    const row = await screen.findByTestId("subscription-row");
+    await waitFor(() => expect(within(row).getByTestId("subscription-pnl")).toHaveTextContent(/^—$/));
   });
 
   it("shows the dash, not a wait, in every public figure once the list has been read and holds nothing of it", async () => {
@@ -367,8 +412,8 @@ describe("the sort of My subscriptions", () => {
       publics: () =>
         Promise.resolve(
           jsonResponse([
-            publicStrategy({ id: ID_A, name: "Alpha", unleveraged_return_before_fees: "0.05", closed_trade_count: 2, subscribers: 9, capital: "10" }),
-            publicStrategy({ id: ID_B, name: "Bravo", unleveraged_return_before_fees: "0.20", closed_trade_count: 8, subscribers: 4, capital: "999" }),
+            publicStrategy({ id: ID_A, name: "Alpha", unleveraged_return_before_fees: "0.05", closed_trade_count: 2, subscribers: 9, live_subscribers: 3, capital: "10" }),
+            publicStrategy({ id: ID_B, name: "Bravo", unleveraged_return_before_fees: "0.20", closed_trade_count: 8, subscribers: 4, live_subscribers: 1, capital: "999" }),
           ]),
         ),
     };

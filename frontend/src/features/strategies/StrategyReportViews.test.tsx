@@ -183,15 +183,41 @@ describe("StrategyReportViews", () => {
     expect(screen.queryByRole("row", { name: /^SOLUSDT\b/ })).toBeNull();
   });
 
-  it("reads the record once while My results is the view: for the strategy's figures, never for a second chart (L.10)", async () => {
+  it("reads no record while My results is the view: its figures are the reader's own (L.11)", async () => {
     const requests = serve({ held: seat() });
     renderAt(<StrategyReportViews strategy={STRATEGY} />);
     await screen.findByRole("row", { name: /^XRPUSDT\b/ });
     await tick();
 
-    expect(requests.filter((url) => url.endsWith("/record"))).toHaveLength(1);
+    expect(requests.filter((url) => url.endsWith("/record"))).toHaveLength(0);
     expect(screen.getAllByTestId("return-curve")).toHaveLength(1);
     expect(screen.queryByRole("row", { name: /^SOLUSDT\b/ })).toBeNull();
+  });
+
+  it("draws the reader's own PnL, return and drawdown in the one figure row under My results, and no second row (L.11)", async () => {
+    serve({ held: seat() });
+    renderAt(<StrategyReportViews strategy={STRATEGY} />);
+    await screen.findByRole("row", { name: /^XRPUSDT\b/ });
+
+    const line = screen.getByTestId("record-line");
+    const ids = [...line.querySelectorAll("dd")].map((value) => value.getAttribute("data-testid"));
+    expect(ids.slice(2, 6)).toEqual(["public-trades", "public-pnl", "public-return", "public-deepest"]);
+    expect(within(line).getByTestId("public-pnl")).toHaveTextContent(/^\+41\.25 USDT$/);
+    // Where the column holds one row of eight but not of nine, the PnL goes and the row stays one (owner, L.11).
+    expect(within(line).getByTestId("public-pnl").parentElement).toHaveClass("@[32rem]:hidden", "@[40rem]:flex");
+    expect(within(line).getByTestId("public-return")).toHaveTextContent("+2.0%");
+    expect(within(line).getByTestId("public-deepest")).toHaveTextContent("-1.0%");
+    // Their return is their contribution to their pool, as their report names it; the record's (i) is not theirs.
+    const returnTerm = within(line).getByTestId("public-return").previousElementSibling as HTMLElement;
+    expect(within(returnTerm).getByRole("img").getAttribute("aria-label")).toBe("Contribution to the pool, last 30 days");
+    expect(within(line).queryByRole("button", { name: i18n.t("strategies.public.returnInfo") })).toBeNull();
+    expect(screen.queryByTestId("ledger-line")).toBeNull();
+
+    // The record's view puts the record's figures back, without a PnL.
+    fireEvent.click(await recordButton());
+    await waitFor(() => expect(screen.getByTestId("public-return")).toHaveTextContent("+5.1%"));
+    expect(screen.getByTestId("public-deepest")).toHaveTextContent("-2.0%");
+    expect(screen.queryByTestId("public-pnl")).toBeNull();
   });
 
   it("switches to the record and never draws both in one chart", async () => {

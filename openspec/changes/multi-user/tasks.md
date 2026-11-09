@@ -1997,4 +1997,27 @@ Sent after reading the running panel.
   - Done (`b558c6c`): the drawdown area fades from the waterline to its deepest fall in the loss colour; Delete strategy keeps its words beside its icon (`DANGER_CONTROL`), the one destructive button that does; the Overview's wallet sits left of the balance (`Figure inline`) and a stale balance says so behind an (i) right of it, the eyebrow row alone; a strategy's PnL is the size of the figures beside it; "Deepest drawdown" reads "Drawdown" (ES keeps "Caída máxima"); a range is said in words in tooltips ("PnL, last 30 days"; "1A" was the 1Y range in Spanish); a card's name and its enabled mark share one centred line; a share reads "20%" in both languages (the space was in ES, not EN). 13 of 13 hand mutations killed.
   - Done (`7acc919`): another author's page draws its card's figures in one row at the top of Performance (`CardFigureGrid`, shared with the cards; `RecordFigures`), the return and the fall following the chart's range from the record, one read (`RECORD_STALE_MS` 60 s) for the row and the record below; the old figure card and five dead keys go; the webhook's two hints behind (i)s beside its heading and its URL's label; round flags (US for EN, AR for ES, theme tokens `flag-*`) on the language switch; the brake's text moves from Explore to an (i) beside "Simulation forced" (`InfoTip`, opening below), shown only under the brake. 13 of 13 hand mutations killed.
   - Done (`65e0486`, Sonnet writer, reviewed and mutated by the parent): column names as icons with their names in tooltips (`ColumnHead`) in By pair, Open positions and Closed trades; the margin note and the incomplete-fees note become their column's tooltip; the dry-run notes go behind one (i) beside each section's heading. Supersedes decision 46 (notes below the table). The PnL tip reuses `feesIncompleteHint` (no leading asterisk); `feesIncompleteNote` is gone. Each icon header is a tab stop, as every figure icon is. 12 of 12 hand mutations killed (one survivor, the tip's placement, closed by `ColumnHead.test.tsx`); 3787 frontend tests, lint green.
-  - Win rate's icon: awaiting the owner's choice (the owner asked for a proposal).
+  - Win rate's icon: a trophy (`Trophy`), the owner's choice in the third round (L.11).
+
+### The owner's third round (2026-11-09), verbatim
+
+Sent after reading the second round.
+
+> El selector de idioma muestra la opción a la que cambiar, en lugar de la opción activa. Si tengo seleccionado ES, mostrar ES. Si tengo seleccionado EN, mostrar EN
+>
+> En overview:
+> - aplicar align ítems center al contenedor del saldo PnL return y drawdown, que encabezan el chart.
+>
+> En las tarjetas de estrategia:
+> - en el valor de Subscribers, mostrar solo los que esten en vivo para que sea un solo valor. Aclarar que son en vivo en su tooltip.
+> - mover el icono de PnL (el que muestra +x USDT) a la izquierda de Return. Este icono solo se muestra en My strategies, y se podría mostrar también en My subscriptions. Darle el mismo formato que el resto de iconos.
+>
+> En la vista de una estrategia:
+> - aplicar align ítems center al contenedor del h1 y el tag de enabled.
+> - mostrar los iconos en una sola fila. Actualmente en desktop se dividen en dos filas.
+> - en estrategia ajena, los iconos de Record no se terminaron de unificar con Performance. En My results siguen estando los iconos de PnL Return y Drawdown, de los cuales estos dos ultimos, se repiten en Performance. Que se muestren solo en la sección Performance, y si está seleccionado My results los valores de return y drawdown sean los propios y se agregue el PnL. Mostrarlos en una sola fila. Habiendo simplificado Suscriptores a un solo valor, debería haber más espacio. Si aún asi, no lo hubiera, omitir PnL.
+>
+> Para el icono de Win rate, vamos con el trophy.
+
+- [ ] L.11 The third round, inline:
+  - Built, awaiting its commit and the owner's read: the language switch shows the language in use (its flag and code) and its name says what pressing it does (`app.language`); the Overview's balance and the figures beside it share one middle line; a card's subscribers are the live count alone ("Live subscribers" in the tooltip; sorting by subscribers follows it); a PnL is a figure of the card's grid, left of the return (`CardFigureGrid pnl`): the author's on My strategies, the reader's own all-time PnL on My subscriptions ("Your PnL", from their report in the strategy); another author's page centres its name and its mark, and draws its figures in one row wherever its column holds eight (a container query, 32rem; four a row below it); under My results that row carries the reader's own PnL, contribution and drawdown over the chart's range, and the report below draws no ledger line of its own (`StrategyPerformance ledger={false}`); the PnL, a ninth figure, goes where the column holds one row of eight but not of nine (32rem to 40rem, the owner's word); the record is not read until its view is known; win rate's icon is a trophy. Found while rendering: a card's first four columns stayed the phone's explicit `minmax(0, 1fr)` on lg, so a long PnL (+2058.38 USDT) ran into the return; the card's grid drops them on lg (`lg:grid-cols-none`) and no column is narrower than its value (`minmax(max-content, 1fr)`). 31 of 31 hand mutations killed; 3793 frontend tests, lint green.

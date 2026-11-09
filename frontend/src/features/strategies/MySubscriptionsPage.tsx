@@ -4,13 +4,14 @@ import { useTranslation } from "react-i18next";
 import { Link } from "react-router";
 
 import { OpenMarks } from "@/features/positions/OpenMarks";
-import { ageOrder, NO_PUBLIC_FIGURES, publicFigures, sortFigure } from "@/features/strategies/card-figures";
+import { ageOrder, allTimePnl, NO_PUBLIC_FIGURES, publicFigures, sortFigure } from "@/features/strategies/card-figures";
 import { DEFAULT_SORT, nextSort, sortCards } from "@/features/strategies/card-sort";
 import { Figure } from "@/features/strategies/PublicFigures";
 import { readStored } from "@/features/strategies/share-value";
 import { SortControl } from "@/features/strategies/SortControl";
 import { StrategyCard } from "@/features/strategies/StrategyCard";
 import type { CardFigures } from "@/features/strategies/StrategyCard";
+import { useStrategyPerformance } from "@/shared/api/performance";
 import { usePublicStrategies } from "@/shared/api/public-strategies";
 import { useHeldSubscriptions } from "@/shared/api/subscriptions";
 import type { HeldSubscription, PublicStrategy } from "@/shared/api/types";
@@ -32,11 +33,14 @@ interface SubscriptionCardProps {
 
 /**
  * One seat, as Explore draws its strategy: the same card, with the reader's time in it in place of the strategy's
- * age, then the share of the pool and the leverage, and the reader's own open positions under it. It is a summary:
+ * age, the reader's own PnL left of the strategy's return, then the share of the pool and the leverage, and the
+ * reader's own open positions under it. It is a summary:
  * the seat is changed and left on the strategy's own page, which the whole card opens.
  */
 function SubscriptionCard({ held, figures }: SubscriptionCardProps) {
   const { t } = useTranslation();
+  // The reader's own trades in the strategy, all time: the one figure on the card that is theirs, not the strategy's.
+  const own = useStrategyPerformance(held.strategy_id);
   const author = held.authored
     ? t("strategies.subscriptions.yours")
     : held.author_name === null
@@ -56,6 +60,11 @@ function SubscriptionCard({ held, figures }: SubscriptionCardProps) {
       sinceKind="subscribed"
       uptime={held.strategy_uptime}
       figures={figures}
+      pnl={{
+        value: allTimePnl({ status: own.status, data: own.data }),
+        currency: held.settlement_currency,
+        label: t("strategies.card.yourPnl"),
+      }}
       trailing={
         <>
           <Figure

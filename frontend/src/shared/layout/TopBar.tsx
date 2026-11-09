@@ -38,11 +38,12 @@ export function TopBar() {
           <button
             type="button"
             onClick={toggleLanguage}
+            aria-label={t("app.language")}
             className="inline-flex min-h-11 items-center gap-1.5 rounded-md px-2 text-xs uppercase text-ink-3 hover:text-ink"
           >
-            {/* The flag of the language the button switches to, beside its code. */}
-            <Flag country={i18n.resolvedLanguage === "es" ? "us" : "ar"} />
-            {i18n.resolvedLanguage === "es" ? "en" : "es"}
+            {/* The language in use, its flag beside its code; the button's name says what pressing it does. */}
+            <Flag country={i18n.resolvedLanguage === "es" ? "ar" : "us"} />
+            {i18n.resolvedLanguage === "es" ? "es" : "en"}
           </button>
         </div>
       </div>

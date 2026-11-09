@@ -54,7 +54,7 @@ describe("Explore", () => {
     expect(within(row).getByTestId("public-market")).toHaveTextContent("bybit · usdt-m · USDT");
     expect(within(row).getByTestId("public-trades")).toHaveTextContent("3");
     expect(within(row).getByTestId("public-return")).toHaveTextContent("+12.5%");
-    expect(within(row).getByTestId("public-subscribers")).toHaveTextContent("3 · 2 live");
+    expect(within(row).getByTestId("public-subscribers")).toHaveTextContent(/^2$/);
     expect(within(row).getByTestId("public-capital")).toHaveTextContent("1,500.00 USDT");
   });
 
@@ -287,6 +287,7 @@ describe("Explore's sort", () => {
     closed_trade_count: 3,
     unleveraged_return_before_fees: "0.125",
     subscribers: 3,
+    live_subscribers: 2,
     capital: "1500",
   });
   const B = publicStrategy({
@@ -296,6 +297,7 @@ describe("Explore's sort", () => {
     closed_trade_count: 10,
     unleveraged_return_before_fees: "0.30",
     subscribers: 1,
+    live_subscribers: 0,
     capital: "200",
   });
   const C = publicStrategy({
@@ -305,6 +307,7 @@ describe("Explore's sort", () => {
     closed_trade_count: 0,
     unleveraged_return_before_fees: "0",
     subscribers: 7,
+    live_subscribers: 5,
     capital: null,
   });
 

@@ -1,6 +1,7 @@
 {
   "app": {
-    "name": "Strategy Manager"
+    "name": "Strategy Manager",
+    "language": "Language: English. Switch to Spanish"
   },
   "nav": {
     "sections": "Sections",
@@ -291,9 +292,10 @@
       "return": "Return",
       "deepest": "Drawdown",
       "winRate": "Win rate",
-      "subscribers": "Subscribers",
+      "subscribers": "Live subscribers",
       "capital": "Capital",
       "pnl": "PnL",
+      "yourPnl": "Your PnL",
       "share": "Share",
       "leverage": "Leverage"
     },
@@ -374,7 +376,6 @@
     "row": {
       "subscribers_one": "{{count}} subscriber, {{live}} live",
       "subscribers_other": "{{count}} subscribers, {{live}} live",
-      "subscribersShort": "{{count}} · {{live}} live",
       "capital": "Capital: {{amount}} {{currency}}",
       "archived": "Archived",
       "enable": "Enable {{name}}",

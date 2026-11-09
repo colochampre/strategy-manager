@@ -112,9 +112,9 @@ afterEach(() => {
 
 describe("the strategies list", () => {
   it.each([
-    [3, 2, "Subscribers", "3 · 2 live"],
-    [1, 0, "Subscribers", "1 · 0 live"],
-  ])("tells its author who holds it: %i and %i live read as %s", async (subscribers, live, text, visible) => {
+    [3, 2, "Live subscribers", "2"],
+    [1, 0, "Live subscribers", "0"],
+  ])("tells its author how many trade it live: %i subscribers and %i live read as %s (L.11)", async (subscribers, live, text, visible) => {
     const api = strategiesApi([strategy({ subscribers, live_subscribers: live })]);
     stubApi(HEALTH, [], POOLS, {}, api.route);
     renderAt(<AppRoutes />, "/strategies/authored");
@@ -219,6 +219,9 @@ describe("the strategies list", () => {
     }
     expect(within(row).getByTestId("strategy-pnl")).toHaveTextContent("+41.20 USDT");
     expect(within(row).getByTestId("strategy-return")).toHaveTextContent("+3.4%");
+    // The PnL sits left of the return (L.11).
+    const order = Array.from(row.querySelectorAll("dd")).map((cell) => cell.getAttribute("data-testid"));
+    expect(order.indexOf("strategy-pnl")).toBe(order.indexOf("strategy-return") - 1);
   });
 
   it("test_the_strategies_list_shows_no_rows_share", async () => {
@@ -468,7 +471,7 @@ describe("the author's card", () => {
     expect(within(row).getByTestId("strategy-deepest")).toHaveTextContent("-8.2%");
     // Wins over closed trades across the pairs: 4 of 7.
     expect(within(row).getByTestId("strategy-winrate")).toHaveTextContent("57.1%");
-    expect(within(row).getByTestId("strategy-subscribers").textContent).toBe("3 · 2 live");
+    expect(within(row).getByTestId("strategy-subscribers").textContent).toBe("2");
     expect(within(row).getByTestId("strategy-capital")).toHaveTextContent("300.00 USDT");
     expect(within(row).getByTestId("strategy-pnl")).toHaveTextContent("+41.20 USDT");
   });
@@ -523,7 +526,7 @@ describe("the author's card", () => {
   it("draws its figures in the grid every card shares: four a row on a phone, centred", async () => {
     const row = await oneCard();
     const grid = within(row).getByTestId("strategy-return").closest("dl") as HTMLElement;
-    expect(classesOf(grid)).toEqual(expect.arrayContaining(["grid", "grid-cols-4", "place-items-center", "lg:grid-flow-col", "lg:auto-cols-fr"]));
+    expect(classesOf(grid)).toEqual(expect.arrayContaining(["grid", "grid-cols-4", "place-items-center", "lg:grid-flow-col", "lg:auto-cols-[minmax(max-content,1fr)]"]));
   });
 
   it("says once that its figures could not be read, and draws no PnL", async () => {
@@ -549,9 +552,9 @@ describe("the author's list is sorted by the figure the cards show", () => {
   const B = "b1b1b1b1-b1b1-41b1-81b1-b1b1b1b1b1b1";
   const C = "c1c1c1c1-c1c1-41c1-81c1-c1c1c1c1c1c1";
   const rows = [
-    strategy({ id: A, name: "Aaa", created_at: "2026-09-10T00:00:00Z", subscribers: 1, capital: "100" }),
-    strategy({ id: B, name: "Bbb", created_at: "2026-08-10T00:00:00Z", subscribers: 5, capital: "50" }),
-    strategy({ id: C, name: "Ccc", created_at: "2026-09-20T00:00:00Z", subscribers: 3, capital: "900" }),
+    strategy({ id: A, name: "Aaa", created_at: "2026-09-10T00:00:00Z", subscribers: 9, live_subscribers: 1, capital: "100" }),
+    strategy({ id: B, name: "Bbb", created_at: "2026-08-10T00:00:00Z", subscribers: 6, live_subscribers: 5, capital: "50" }),
+    strategy({ id: C, name: "Ccc", created_at: "2026-09-20T00:00:00Z", subscribers: 7, live_subscribers: 3, capital: "900" }),
   ];
   const figures: Record<string, { ret: string; trades: number }> = {
     [A]: { ret: "0.10", trades: 2 },
@@ -598,6 +601,7 @@ describe("the author's list is sorted by the figure the cards show", () => {
 
   it.each([
     ["Closed trades", ["Bbb", "Ccc", "Aaa"]],
+    // By the live count the card shows, not by every seat: by seats it would be Aaa, Ccc, Bbb (L.11).
     ["Subscribers", ["Bbb", "Ccc", "Aaa"]],
     ["Capital", ["Ccc", "Aaa", "Bbb"]],
     ["Age", ["Bbb", "Aaa", "Ccc"]],

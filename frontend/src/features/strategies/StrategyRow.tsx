@@ -1,13 +1,10 @@
-import { Coins } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { OpenMarks } from "@/features/positions/OpenMarks";
 import type { AuthoredCard } from "@/features/strategies/card-figures";
 import { useEnableQuestion } from "@/features/strategies/EnableDialog";
-import { Figure } from "@/features/strategies/PublicFigures";
 import { StrategyCard } from "@/features/strategies/StrategyCard";
 import type { Strategy } from "@/shared/api/types";
-import { amountText, toneClass } from "@/shared/lib/amount-text";
 import { cn } from "@/shared/lib/cn";
 
 interface StrategyRowProps {
@@ -23,11 +20,9 @@ interface StrategyRowProps {
  * silently snapping back.
  */
 export function StrategyRow({ strategy, card }: StrategyRowProps) {
-  const { t, i18n } = useTranslation();
-  const locale = i18n.resolvedLanguage ?? "en";
+  const { t } = useTranslation();
   const question = useEnableQuestion(strategy);
   const archived = strategy.archived_at !== null;
-  const pnl = card.pnl;
 
   return (
     <StrategyCard
@@ -42,23 +37,7 @@ export function StrategyRow({ strategy, card }: StrategyRowProps) {
       uptime={strategy.uptime}
       figures={card.figures}
       figuresError={card.failed ? t("strategies.row.performanceError") : null}
-      trailing={
-        card.failed ? undefined : (
-          <Figure
-            icon={Coins}
-            label={t("strategies.card.pnl")}
-            testId="strategy-pnl"
-            value={
-              pnl === undefined
-                ? "…"
-                : pnl === null
-                  ? "—"
-                  : `${amountText(pnl, strategy.settlement_currency, locale, true)} ${strategy.settlement_currency}`
-            }
-            tone={pnl === undefined || pnl === null ? undefined : toneClass(pnl)}
-          />
-        )
-      }
+      pnl={{ value: card.pnl, currency: strategy.settlement_currency }}
       action={
         <div className="flex flex-col items-end gap-1">
           <button

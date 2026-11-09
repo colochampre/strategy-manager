@@ -263,9 +263,17 @@ describe("the public page", () => {
     expect(within(line).getAllByRole("button", { name: i18n.t("strategies.public.returnInfo") })).toHaveLength(1);
     expect(within(line).getAllByRole("button", { name: i18n.t("strategies.public.capitalInfo") })).toHaveLength(1);
     expect(screen.getAllByTestId("public-return")).toHaveLength(1);
-    // The page's column is narrower than a card: four a row there too, two rows, never eight squeezed into one.
-    expect(line).toHaveClass("lg:grid-cols-4");
+    // One row wherever the column holds it, each figure as wide as its own value; four a row where it does not
+    // (L.11). The column's width decides, not the screen's: the page's aside takes a share of it.
+    expect(line.parentElement).toHaveClass("@container");
+    expect(line).toHaveClass(
+      "grid-cols-4",
+      "@[32rem]:grid-flow-col",
+      "@[32rem]:grid-cols-none",
+      "@[32rem]:auto-cols-max",
+    );
     expect(line).not.toHaveClass("lg:grid-flow-col");
+    expect(line).not.toHaveClass("lg:grid-cols-4");
   });
 
   it("explains the return and the capital on request, closed by default", async () => {
@@ -305,7 +313,11 @@ describe("the public page", () => {
     const pill = await screen.findByTestId("public-enabled");
     expect(pill).toHaveTextContent("Enabled");
     expect(pill).toHaveClass("border-gain", "text-gain");
-    expect(screen.getByRole("heading", { level: 1, name: "Alpha" }).parentElement).toContainElement(pill);
+    const title = screen.getByRole("heading", { level: 1, name: "Alpha" }).parentElement as HTMLElement;
+    expect(title).toContainElement(pill);
+    // The name and its mark share one centred line (L.11).
+    expect(title).toHaveClass("items-center");
+    expect(title).not.toHaveClass("items-baseline");
   });
 
   it("says disabled when the strategy does not run", async () => {
