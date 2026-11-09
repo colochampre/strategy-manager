@@ -117,7 +117,9 @@ export function StrategyTitle({ strategy }: StrategyTitleProps) {
           submit
           disabled={trimmed === "" || rename.isPending}
           icon={Save}
-          className="min-h-11 rounded-md bg-gain px-3 text-sm font-medium text-ground hover:opacity-90 disabled:opacity-50"
+          iconOnly
+          busy={rename.isPending}
+          look="primary"
         />
         <button
           type="button"

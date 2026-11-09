@@ -31,6 +31,9 @@ export function DescriptionField({ value, onChange, disabled = false }: Descript
           {t("strategies.description.label")}
         </label>
         <InfoButton disclosure={info} label={t("strategies.description.info")} />
+        <p className={`ml-auto font-mono text-xs leading-5 ${tooLong ? "text-loss" : "text-ink-3"}`}>
+          {t("strategies.description.counter", { length, max: DESCRIPTION_MAX })}
+        </p>
       </div>
       <InfoText disclosure={info}>
         <p className="text-xs text-ink-3">{t("strategies.description.hint")}</p>
@@ -45,9 +48,6 @@ export function DescriptionField({ value, onChange, disabled = false }: Descript
         aria-describedby={tooLong ? ids.problem : undefined}
         className="rounded-md border border-rule bg-ground px-3 py-2 text-sm text-ink disabled:opacity-50"
       />
-      <p className={`self-end font-mono text-xs ${tooLong ? "text-loss" : "text-ink-3"}`}>
-        {t("strategies.description.counter", { length, max: DESCRIPTION_MAX })}
-      </p>
       {tooLong && (
         <p id={ids.problem} className="text-xs text-loss">
           {t("strategies.description.tooLong")}

@@ -10,7 +10,7 @@ import type { InviteCode, IssuedInviteCode, Strategy } from "@/shared/api/types"
 import { copyText } from "@/shared/lib/clipboard";
 import { dateTimeText } from "@/shared/lib/figure-text";
 import { InfoButton, InfoText, useInfoDisclosure } from "@/shared/ui/InfoDisclosure";
-import { Tooltip } from "@/shared/ui/Tooltip";
+import { IconButton } from "@/shared/ui/IconButton";
 
 interface StrategySharingProps {
   strategy: Strategy;
@@ -96,20 +96,7 @@ function ShareLink({ strategyId, token }: { strategyId: string; token: string })
 function CopyIcon({ label, result, onCopy }: { label: string; result: CopyResult; onCopy: () => void }) {
   const { t } = useTranslation();
   const name = result === "copied" ? t("strategies.webhook.copied") : label;
-  const Icon = result === "copied" ? Check : Copy;
-  return (
-    // The tip repeats the button's name, so it does not also describe it.
-    <Tooltip text={name} describes={false} tabbable={false}>
-      <button
-        type="button"
-        aria-label={name}
-        onClick={onCopy}
-        className="inline-flex size-11 shrink-0 items-center justify-center rounded-md border border-rule text-ink-2 hover:bg-panel-2"
-      >
-        <Icon aria-hidden="true" className="size-4" />
-      </button>
-    </Tooltip>
-  );
+  return <IconButton label={name} icon={result === "copied" ? Check : Copy} onClick={onCopy} />;
 }
 
 /** The text of a refused or failed creation: the status and the code decide, never the server's wording. */

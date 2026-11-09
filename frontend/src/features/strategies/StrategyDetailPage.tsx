@@ -77,7 +77,7 @@ export function StrategyDetailPage() {
         </div>
         <aside
           aria-label={t("strategies.detail.settings")}
-          className="flex flex-col gap-5 self-start rounded-lg border border-rule bg-panel p-5"
+          className="flex flex-col gap-2 self-start rounded-lg border border-rule bg-panel p-5"
         >
           <div className="flex flex-wrap items-center justify-between gap-3">
             <h2 className="font-display text-base font-semibold text-ink">{t("strategies.detail.settings")}</h2>
@@ -92,9 +92,11 @@ export function StrategyDetailPage() {
           </Fragment>
           <AllowedPairsEditor strategy={subject} />
           <div className="flex flex-col gap-2 border-t border-rule pt-4">
-            <EnableToggle strategy={subject} />
+            <div className="flex gap-2">
+              <EnableToggle strategy={subject} />
+              <ArchiveControl strategy={subject} />
+            </div>
             <EnablementHistory strategyId={subject.id} />
-            <ArchiveControl strategy={subject} />
           </div>
         </aside>
       </div>

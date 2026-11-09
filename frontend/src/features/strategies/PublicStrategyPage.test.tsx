@@ -297,7 +297,11 @@ describe("whether this user can subscribe", () => {
     const leave = await screen.findByRole("button", { name: i18n.t("strategies.subscriptions.leave") });
     expect(screen.getByRole("textbox", { name: i18n.t("strategies.detail.share.label") })).toHaveValue("30");
     expect(screen.getByRole("textbox", { name: i18n.t("strategies.leverage.label") })).toHaveValue("2");
-    expect(leave.className).toBe(DANGER_CONTROL);
+    // The danger look of Disable and Archive, and the whole width of the aside like them.
+    expect(leave.className).toBe(`${DANGER_CONTROL} w-full justify-center`);
+    // The aside's sections sit closer (gap-2, was gap-5).
+    expect(leave.closest("aside")).toHaveClass("gap-2");
+    expect(leave.closest("aside")).not.toHaveClass("gap-5");
     expect(screen.queryByRole("button", { name: i18n.t("strategies.subscribe.submit") })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { level: 2, name: i18n.t("strategies.subscribe.title") })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /My subscriptions/ })).not.toBeInTheDocument();

@@ -85,16 +85,17 @@ describe("DeleteStrategyControl", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("draws an aria-hidden Trash left of the button's text and leaves its name as it was", () => {
+  it("draws an aria-hidden Trash alone, in the danger colour, and leaves its name as it was (L.8)", () => {
     renderControl();
 
     const button = screen.getByRole("button", { name: i18n.t("strategies.delete.button") });
     const svg = button.querySelector("svg");
-    expect(svg).toHaveClass("lucide-trash", "size-4", "shrink-0");
+    expect(svg).toHaveClass("lucide-trash", "size-4");
     expect(svg).toHaveAttribute("aria-hidden", "true");
-    expect(button.firstElementChild).toBe(svg);
-    expect(button).toHaveClass("inline-flex", "items-center", "gap-1.5");
-    expect(button).toHaveAccessibleName(i18n.t("strategies.delete.button"));
+    expect(button).toHaveTextContent("");
+    expect(button).toHaveClass("size-11", "border-loss", "text-loss");
+    fireEvent.mouseEnter(button.parentElement as HTMLElement);
+    expect(screen.getByRole("tooltip")).toHaveTextContent(i18n.t("strategies.delete.button"));
   });
 
   it("disables the button with a hint while the strategy is enabled", () => {

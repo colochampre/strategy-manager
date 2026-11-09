@@ -100,31 +100,32 @@ describe("StrategyHeader rename: the pencil (p21.2)", () => {
     expect(cancelButton()).toBeEnabled();
   });
 
-  it("draws an aria-hidden Save icon on Save and an X on Cancel, each left of its text, the names unchanged (p21.5)", () => {
+  it("draws Save as an icon alone and Cancel as an X left of its text, the names unchanged (p21.5, L.8)", () => {
     setup();
     fireEvent.click(pencil());
 
-    for (const [host, icon, name] of [
-      [saveButton(), "lucide-save", "Save name"],
-      [cancelButton(), "lucide-x", "Cancel"],
-    ] as const) {
-      const svg = host.querySelector("svg");
-      expect(svg).toHaveClass(icon, "size-4", "shrink-0");
-      expect(svg).toHaveAttribute("aria-hidden", "true");
-      expect(host.firstElementChild).toBe(svg);
-      expect(host).toHaveClass("inline-flex", "items-center", "gap-1.5");
-      expect(host).toHaveAccessibleName(name);
-    }
+    const save = saveButton();
+    expect(save.querySelector("svg")).toHaveClass("lucide-save", "size-4");
+    expect(save.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
+    expect(save).toHaveTextContent("");
+    expect(save).toHaveAccessibleName("Save name");
+
+    const cancel = cancelButton();
+    const svg = cancel.querySelector("svg");
+    expect(svg).toHaveClass("lucide-x", "size-4", "shrink-0");
+    expect(svg).toHaveAttribute("aria-hidden", "true");
+    expect(cancel.firstElementChild).toBe(svg);
+    expect(cancel).toHaveClass("inline-flex", "items-center", "gap-1.5");
+    expect(cancel).toHaveAccessibleName("Cancel");
   });
 
-  it("keeps Save as wide as its longest text: both texts share one cell, the hidden one out of sight and of the name (p21.5)", () => {
+  it("explains Save in a tooltip on hover (L.8)", () => {
     setup();
     fireEvent.click(pencil());
 
-    const cells = Array.from(saveButton().querySelectorAll("span > span"));
-    expect(cells.map((cell) => cell.textContent)).toEqual(["Save name", "Saving…"]);
-    expect(cells[1]).toHaveClass("invisible");
-    expect(cells[1]).toHaveAttribute("aria-hidden", "true");
+    fireEvent.mouseEnter(saveButton().parentElement as HTMLElement);
+
+    expect(screen.getByRole("tooltip")).toHaveTextContent("Save name");
   });
 
   it("shows no pencil for an archived strategy", () => {

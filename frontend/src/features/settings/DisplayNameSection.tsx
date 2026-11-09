@@ -9,8 +9,6 @@ import { StatusButton } from "@/shared/ui/StatusButton";
 
 const FIELD =
   "min-h-11 min-w-0 flex-1 rounded-md border border-rule bg-ground px-3 text-sm text-ink focus-visible:outline-2 focus-visible:outline-gain";
-const SAVE =
-  "min-h-11 shrink-0 rounded-md bg-gain px-3 text-sm font-medium text-ground hover:opacity-90 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gain";
 
 function refusalKey(result: ChooseDisplayNameResult | undefined): string | null {
   switch (result?.kind) {
@@ -103,7 +101,9 @@ export function DisplayNameSection() {
                 submit
                 disabled={!canSave}
                 icon={Save}
-                className={SAVE}
+                iconOnly
+                busy={choose.isPending}
+                look="primary"
               />
             </div>
           </form>

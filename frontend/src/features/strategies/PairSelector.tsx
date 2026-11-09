@@ -1,5 +1,8 @@
-import { useState } from "react";
+import { useId, useState } from "react";
+import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
+
+import { InfoButton, InfoText, useInfoDisclosure } from "@/shared/ui/InfoDisclosure";
 
 export type PairSelectorStatus = "idle" | "loading" | "error" | "ready";
 
@@ -17,6 +20,10 @@ export interface PairSelectorProps {
   onRetry: () => void;
   describedBy?: string;
   disabled?: boolean;
+  /** An explanation behind an information button beside the name: the button's name and the text it opens. */
+  info?: { label: string; text: string };
+  /** Beside the search field, on its row (the editor's Save). */
+  action?: ReactNode;
 }
 
 /** How many matches are rendered; the count line says how many there are. */
@@ -61,8 +68,12 @@ export function PairSelector({
   onRetry,
   describedBy,
   disabled,
+  info,
+  action,
 }: PairSelectorProps) {
   const { t } = useTranslation();
+  const nameId = useId();
+  const disclosure = useInfoDisclosure();
   const [typed, setTyped] = useState("");
   const searchId = `${id}-search`;
   const ready = status === "ready" && options !== undefined;
@@ -80,49 +91,67 @@ export function PairSelector({
   };
 
   return (
-    <fieldset id={id} disabled={disabled} aria-describedby={describedBy} className="flex min-w-0 flex-col gap-2">
-      <legend className="text-xs font-semibold text-ink-2">{label}</legend>
-
-      {value.length > 0 && (
-        <ul aria-label={t("strategies.pairs.selected")} className="flex flex-wrap gap-1">
-          {value.map((pair) => (
-            <li
-              key={pair}
-              className="inline-flex items-center gap-1 rounded-full border border-rule bg-panel-2 py-0.5 pl-3 pr-1 text-xs text-ink"
-            >
-              <span className="font-mono">{pair}</span>
-              {ready && !listed.has(pair) && <span className="text-ink-3">{t("strategies.pairs.notListed")}</span>}
-              <button
-                type="button"
-                aria-label={t("strategies.pairs.remove", { symbol: pair })}
-                onClick={() => onChange(value.filter((chosen) => chosen !== pair))}
-                className="rounded-full px-2 text-ink-3 hover:text-ink"
+    <fieldset
+      id={id}
+      disabled={disabled}
+      aria-labelledby={nameId}
+      aria-describedby={describedBy ?? (info === undefined ? undefined : disclosure.textId)}
+      className="flex min-w-0 flex-col gap-2"
+    >
+      {/* One wrapping row: the name, its information button and the chips of the added pairs, to take less height. */}
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+        <span id={nameId} className="text-xs font-semibold text-ink-2">
+          {label}
+        </span>
+        {info !== undefined && <InfoButton disclosure={disclosure} label={info.label} />}
+        {value.length > 0 && (
+          <ul aria-label={t("strategies.pairs.selected")} className="flex flex-wrap gap-1">
+            {value.map((pair) => (
+              <li
+                key={pair}
+                className="inline-flex items-center gap-1 rounded-full border border-rule bg-panel-2 py-0.5 pl-3 pr-1 text-xs text-ink"
               >
-                <span aria-hidden="true">×</span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
+                <span className="font-mono">{pair}</span>
+                {ready && !listed.has(pair) && <span className="text-ink-3">{t("strategies.pairs.notListed")}</span>}
+                <button
+                  type="button"
+                  aria-label={t("strategies.pairs.remove", { symbol: pair })}
+                  onClick={() => onChange(value.filter((chosen) => chosen !== pair))}
+                  className="rounded-full px-2 text-ink-3 hover:text-ink"
+                >
+                  <span aria-hidden="true">×</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+      <InfoText disclosure={disclosure}>
+        {info !== undefined && <p className="text-xs text-ink-3">{info.text}</p>}
+      </InfoText>
 
-      <label htmlFor={searchId} className="text-xs text-ink-2">
-        {t("strategies.pairs.search")}
-      </label>
-      <input
-        id={searchId}
-        type="search"
-        value={typed}
-        onChange={(event) => setTyped(event.target.value)}
-        // Enter in a search field would submit an enclosing form (the new-strategy dialog).
-        onKeyDown={(event) => {
-          if (event.key === "Enter") event.preventDefault();
-        }}
-        disabled={!ready}
-        placeholder={t("strategies.pairs.searchPlaceholder")}
-        autoComplete="off"
-        spellCheck={false}
-        className="rounded-md border border-rule bg-ground px-3 py-2 font-mono text-sm text-ink disabled:opacity-50"
-      />
+      {/* One row: the search field takes the width that is left, the action keeps its own beside it. */}
+      <div className="flex items-start gap-2">
+        <label htmlFor={searchId} className="sr-only">
+          {t("strategies.pairs.search")}
+        </label>
+        <input
+          id={searchId}
+          type="search"
+          value={typed}
+          onChange={(event) => setTyped(event.target.value)}
+          // Enter in a search field would submit an enclosing form (the new-strategy dialog).
+          onKeyDown={(event) => {
+            if (event.key === "Enter") event.preventDefault();
+          }}
+          disabled={!ready}
+          placeholder={t("strategies.pairs.searchPlaceholder")}
+          autoComplete="off"
+          spellCheck={false}
+          className="min-h-11 min-w-0 flex-1 rounded-md border border-rule bg-ground px-3 py-2 font-mono text-sm text-ink disabled:opacity-50"
+        />
+        {action}
+      </div>
 
       {status === "idle" && <p className="text-sm text-ink-3">{t("strategies.pairs.choosePool")}</p>}
 

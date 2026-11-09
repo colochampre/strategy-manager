@@ -107,3 +107,23 @@ describe("IconTip", () => {
     expect(trigger).not.toHaveAttribute("aria-describedby");
   });
 });
+
+describe("Tooltip layout class", () => {
+  it("is an inline flex box by default and takes the class it is given instead (L.7)", () => {
+    const { rerender } = render(
+      <Tooltip text="Explained">
+        <span>Hover me</span>
+      </Tooltip>,
+    );
+    expect(trigger()).toHaveClass("relative", "inline-flex");
+
+    rerender(
+      <Tooltip text="Explained" className="flex w-full">
+        <span>Hover me</span>
+      </Tooltip>,
+    );
+
+    expect(trigger()).toHaveClass("relative", "flex", "w-full");
+    expect(trigger()).not.toHaveClass("inline-flex");
+  });
+});

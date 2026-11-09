@@ -1,5 +1,8 @@
+import { Check, LoaderCircle } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
+import { IconButton } from "@/shared/ui/IconButton";
+import type { IconButtonTone } from "@/shared/ui/IconButton";
 import { InlineStatus } from "@/shared/ui/InlineStatus";
 import type { InlineStatusTone } from "@/shared/ui/InlineStatus";
 import { cn } from "@/shared/lib/cn";
@@ -16,9 +19,19 @@ interface StatusButtonProps {
   /** The button submits its form (so Enter in a field presses it) instead of being a plain button. */
   submit?: boolean;
   disabled?: boolean;
-  className: string;
+  className?: string;
   /** Drawn left of the texts, outside their grid cell, so it stays while the text changes. */
   icon?: LucideIcon;
+  /**
+   * Only the icon is drawn. The shown text becomes the accessible name and the tooltip, so a screen reader hears
+   * what the text said; the icon follows the state: `icon` at rest, a spinner while `busy`, a check once the
+   * shown text is no longer the first of `texts`. `className` is not used: `look` picks the style.
+   */
+  iconOnly?: boolean;
+  /** A request is in flight (icon only: the spinner). */
+  busy?: boolean;
+  /** The look of an icon-only button. */
+  look?: IconButtonTone;
 }
 
 /**
@@ -37,7 +50,27 @@ export function StatusButton({
   disabled,
   className,
   icon: Icon,
+  iconOnly = false,
+  busy = false,
+  look = "neutral",
 }: StatusButtonProps) {
+  if (iconOnly && Icon !== undefined) {
+    const done = !busy && shown !== texts[0];
+    return (
+      <>
+        <IconButton
+          label={shown}
+          icon={busy ? LoaderCircle : done ? Check : Icon}
+          spin={busy}
+          onClick={onClick}
+          submit={submit}
+          disabled={disabled}
+          tone={look}
+        />
+        <InlineStatus message={message} tone={tone} />
+      </>
+    );
+  }
   return (
     <>
       <button

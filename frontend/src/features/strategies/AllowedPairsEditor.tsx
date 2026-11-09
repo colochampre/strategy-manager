@@ -69,7 +69,7 @@ function saveError(error: unknown): { key: string; values?: Record<string, strin
  */
 export function AllowedPairsEditor({ strategy }: AllowedPairsEditorProps) {
   const { t } = useTranslation();
-  const ids = { pairs: useId(), hint: useId() };
+  const ids = { pairs: useId() };
   const [draft, setDraft] = useState<Draft | null>(null);
   // The list the last successful save answered. "Saved" shows only while the stored list is that one: if
   // the re-read after a 200 failed, the stored list is still the old one and nothing is said (the safe
@@ -118,27 +118,26 @@ export function AllowedPairsEditor({ strategy }: AllowedPairsEditorProps) {
         options={catalogue.data?.pairs}
         status={status}
         onRetry={() => void catalogue.refetch()}
-        describedBy={ids.hint}
+        info={{ label: t("strategies.detail.pairs.info"), text: t("strategies.detail.pairs.hint") }}
+        // Save sits on the search field's row, which takes the width that is left.
+        action={
+          <div className="flex shrink-0 items-start">
+            <StatusButton
+              texts={[saveText, savingText, savedText]}
+              shown={save.isPending ? savingText : saved ? savedText : saveText}
+              message={saved ? savedText : null}
+              onClick={handleSave}
+              // A button that reads "Saved" has nothing to save: the list on screen is the stored one.
+              disabled={archived || !changed || empty || save.isPending}
+              icon={Save}
+              iconOnly
+              busy={save.isPending}
+              look="primary"
+            />
+          </div>
+        }
         disabled={archived}
       />
-      {/* One row: the note takes the room that is left and wraps, Save keeps its size beside it, both from the top. */}
-      <div className="flex items-start gap-x-3">
-        <p id={ids.hint} className="min-w-0 flex-1 text-xs text-ink-3">
-          {t("strategies.detail.pairs.hint")}
-        </p>
-        <div className="flex shrink-0 items-start gap-x-3">
-          <StatusButton
-            texts={[saveText, savingText, savedText]}
-            shown={save.isPending ? savingText : saved ? savedText : saveText}
-            message={saved ? savedText : null}
-            onClick={handleSave}
-            // A button that reads "Saved" has nothing to save: the list on screen is the stored one.
-            disabled={archived || !changed || empty || save.isPending}
-            icon={Save}
-            className="min-h-11 rounded-md bg-gain px-3 text-sm font-medium text-ground hover:opacity-90 disabled:opacity-50"
-          />
-        </div>
-      </div>
       {empty && !archived && <p className="text-xs text-loss">{t("strategies.detail.pairs.lastPair")}</p>}
       {message !== null && (
         <p role="alert" className="text-sm text-loss">

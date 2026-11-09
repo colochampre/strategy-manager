@@ -292,3 +292,20 @@ describe("the display name, in Settings", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(text);
   });
 });
+
+describe("DisplayNameSection Save icon (L.8)", () => {
+  it("is an icon with a tooltip, named Save, and a check once saved", async () => {
+    setup(null);
+    const input = await field();
+
+    const button = await saveButton();
+    expect(button).toHaveTextContent("");
+    expect(button.querySelector("svg")).toHaveClass("lucide-save");
+    fireEvent.mouseEnter(button.parentElement as HTMLElement);
+    expect(screen.getByRole("tooltip")).toHaveTextContent("Save");
+
+    fireEvent.change(input, { target: { value: "Ana" } });
+    fireEvent.click(await saveButton());
+    expect((await savedButton()).querySelector("svg")).toHaveClass("lucide-check");
+  });
+});

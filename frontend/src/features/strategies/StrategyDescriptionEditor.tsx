@@ -63,7 +63,7 @@ export function StrategyDescriptionEditor({ strategy }: StrategyDescriptionEdito
         }}
         disabled={readOnly || busy}
       />
-      <div className="flex items-start">
+      <div className="flex items-start justify-end">
         <StatusButton
           texts={[saveText, savingText, savedText]}
           shown={busy ? savingText : saved ? savedText : saveText}
@@ -71,7 +71,9 @@ export function StrategyDescriptionEditor({ strategy }: StrategyDescriptionEdito
           onClick={handleSave}
           disabled={readOnly || busy || tooLong || !changed || saved}
           icon={Save}
-          className="min-h-11 rounded-md bg-gain px-3 text-sm font-medium text-ground hover:opacity-90 disabled:opacity-50"
+          iconOnly
+          busy={busy}
+          look="primary"
         />
       </div>
       {save.status === "error" && (

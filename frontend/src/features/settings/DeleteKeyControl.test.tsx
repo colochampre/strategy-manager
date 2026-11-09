@@ -158,33 +158,32 @@ describe("where Delete key is drawn (spec: operable by keyboard and named for as
     expect(screen.queryAllByRole("button", { name: /^Delete key/ })).toHaveLength(1);
   });
 
-  it("is outlined in loss, 44 px, named with its exchange, and enabled when shown", async () => {
+  it("is outlined in loss, a 44 px icon, named with its exchange, and enabled when shown (L.8)", async () => {
     deletePage();
     await cardsDrawn();
 
     const button = present(deleteButton());
     expect(button).toHaveAccessibleName("Delete key Bybit");
-    expect(button).toHaveTextContent("Delete key");
-    expect(button).toHaveClass("min-h-11", "border-loss", "text-loss");
-    expect(button.className).toBe(DANGER_CONTROL);
+    expect(button).toHaveTextContent("");
+    expect(button).toHaveClass("size-11", "border-loss", "text-loss");
+    expect(button).toBeEnabled();
+    // The shared danger look of the buttons that carry a word is untouched.
     expect(DANGER_CONTROL).toBe(
       "inline-flex min-h-11 items-center gap-1.5 rounded-md border border-loss px-3.5 text-sm text-loss hover:bg-panel-2 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gain",
     );
-    expect(button.className).not.toMatch(/\bbg-loss\b/);
-    expect(button).toBeEnabled();
   });
 
-  it("draws an aria-hidden Trash left of the text and keeps its explicit name", async () => {
+  it("draws an aria-hidden Trash alone, keeps its explicit name, and says Delete key in a tooltip", async () => {
     deletePage();
     await cardsDrawn();
 
     const button = present(deleteButton());
     const svg = button.querySelector("svg");
-    expect(svg).toHaveClass("lucide-trash", "size-4", "shrink-0");
+    expect(svg).toHaveClass("lucide-trash", "size-4");
     expect(svg).toHaveAttribute("aria-hidden", "true");
-    expect(button.firstElementChild).toBe(svg);
-    expect(button).toHaveClass("inline-flex", "items-center", "gap-1.5");
     expect(button).toHaveAccessibleName("Delete key Bybit");
+    fireEvent.mouseEnter(button.parentElement as HTMLElement);
+    expect(screen.getByRole("tooltip")).toHaveTextContent(/^Delete key$/);
   });
 
   it("is disabled while that card's form is open, and only that card's", async () => {

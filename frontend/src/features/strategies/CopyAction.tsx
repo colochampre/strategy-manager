@@ -53,7 +53,7 @@ export function CopyAction({
       onClick={onCopy}
       disabled={disabled}
       icon={Copy}
-      className="min-h-11 rounded-md border border-rule px-3.5 text-sm text-ink hover:bg-panel-2 disabled:text-ink-3 disabled:opacity-50"
+      iconOnly
     />
   );
 }

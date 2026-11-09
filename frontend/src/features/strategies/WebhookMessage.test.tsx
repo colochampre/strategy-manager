@@ -105,7 +105,8 @@ const copyIssued = () => {
   const buttons = within(row).getAllByRole("button");
   return buttons[buttons.length - 1] as HTMLElement;
 };
-const statusBeside = (button: HTMLElement) => within(button.parentElement as HTMLElement).getByRole("status");
+// The icon button sits in its tooltip wrapper; the status region follows the wrapper.
+const statusBeside = (button: HTMLElement) => within(button.parentElement?.parentElement as HTMLElement).getByRole("status");
 const press = (button: HTMLElement) =>
   act(async () => {
     fireEvent.click(button);
@@ -210,14 +211,16 @@ describe("WebhookMessage", () => {
     expect(JSON.parse(messageText() ?? "")).toMatchObject({ signal_type: ID, symbol: "{{ticker}}" });
   });
 
-  it("draws an aria-hidden Copy left of the text of Copy message, its name unchanged", () => {
+  it("draws an aria-hidden Copy icon alone, its name unchanged, and says Copy message in a tooltip (L.8)", () => {
     setup();
 
     const button = copyMessage();
     const svg = button.querySelector("svg");
-    expect(svg).toHaveClass("lucide-copy", "size-4", "shrink-0");
+    expect(svg).toHaveClass("lucide-copy", "size-4");
     expect(svg).toHaveAttribute("aria-hidden", "true");
-    expect(button.firstElementChild).toBe(svg);
+    expect(button).toHaveTextContent("");
+    fireEvent.mouseEnter(button.parentElement as HTMLElement);
+    expect(screen.getByRole("tooltip")).toHaveTextContent("Copy message");
     expect(button).toHaveAccessibleName("Copy message");
   });
 

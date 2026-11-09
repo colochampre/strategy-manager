@@ -506,6 +506,7 @@
       "pairs": {
         "title": "Allowed pairs",
         "hint": "Removing a pair stops new entries on it. An open position still closes.",
+        "info": "About the allowed pairs",
         "save": "Save",
         "saving": "Saving…",
         "lastPair": "A strategy needs at least one allowed pair.",
