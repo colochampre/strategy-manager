@@ -27,6 +27,8 @@ def _listing(strategy_id: UUID | None = None) -> PublicListing:
         venue="usdt-m",
         settlement_currency="USDT",
         created_at=T0,
+        enabled=True,
+        subscribers=0,
     )
 
 

@@ -64,6 +64,10 @@ BODY_KEYS = {
     "unleveraged_return_before_fees",
     "live_subscribers",
     "capital",
+    "subscribers",
+    "max_drawdown",
+    "win_rate",
+    "enabled",
 }
 
 Factory = async_sessionmaker[AsyncSession]
@@ -380,6 +384,75 @@ async def test_a_strategy_with_no_real_trade_answers_zero_trades_and_zero_return
     assert Decimal(listed["unleveraged_return_before_fees"]) == 0
 
 
+
+async def test_the_list_counts_every_active_seat_and_says_whether_the_strategy_runs(
+    pg_session_factory: Factory, api: _Api, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """tasks.md L.1: a seat counts whether or not it trades live, as the author's own
+    list counts it; one on its way out does not. The brake changes the live count,
+    never this one."""
+    author = await _new_user(pg_session_factory)
+    simulated = await _new_user(pg_session_factory)
+    leaving = await _new_user(pg_session_factory)
+    strategy_id = await _strategy(pg_session_factory, author)
+    await _subscribe(pg_session_factory, author, strategy_id, share="10", total="1000")
+    await _subscribe(pg_session_factory, simulated, strategy_id, share="10", total="100", key=False)
+    await _subscribe(
+        pg_session_factory, leaving, strategy_id, share="10", total="100", status="LEAVING"
+    )
+
+    [listed] = await api.listed()
+
+    assert (listed["subscribers"], listed["live_subscribers"]) == (2, 1)
+    assert listed["enabled"] is True
+    async with pg_session_factory() as session:
+        await session.execute(
+            text("UPDATE strategies SET enabled = false WHERE id = :id"), {"id": strategy_id}
+        )
+        await session.commit()
+    monkeypatch.setattr(get_settings(), "dry_run", True)
+    page = await api.page(strategy_id)
+    assert (page["subscribers"], page["live_subscribers"]) == (2, 0)
+    assert page["enabled"] is False
+
+
+async def test_the_record_names_its_deepest_drop_and_its_win_rate(
+    pg_session_factory: Factory, api: _Api
+) -> None:
+    """tasks.md L.1: from the same real trades as the return. +10%, -10%, +10% and 0%
+    on four days fall 10% from the top once; two wins in four closed trades, since a
+    trade that returns nothing is no win."""
+    author = await _new_user(pg_session_factory)
+    strategy_id = await _strategy(pg_session_factory, author)
+    for day, sold in enumerate(("110", "90", "110", "100")):
+        await _trade(
+            pg_session_factory,
+            author,
+            strategy_id,
+            bought="100",
+            sold=sold,
+            at=T0 + timedelta(days=day),
+        )
+
+    listed = await api.page(strategy_id)
+
+    assert Decimal(listed["max_drawdown"]) == Decimal("-0.1")
+    assert Decimal(listed["win_rate"]) == Decimal("0.5")
+
+
+async def test_with_no_closed_trade_there_is_no_win_rate_and_no_drop(
+    pg_session_factory: Factory, api: _Api
+) -> None:
+    author = await _new_user(pg_session_factory)
+    strategy_id = await _strategy(pg_session_factory, author)
+    await _trade(pg_session_factory, author, strategy_id, sold=None)
+
+    listed = await api.page(strategy_id)
+
+    assert listed["win_rate"] is None
+    assert Decimal(listed["max_drawdown"]) == 0
+
+
 # --- the record -----------------------------------------------------------------------
 
 
@@ -649,7 +722,8 @@ async def test_no_body_carries_an_id_an_email_a_secret_hint_or_a_subscriber_row(
             "allocation_percent",
             "author_id",
             "user_id",
-            "enabled",
+            # "enabled" leaves since tasks.md L.1: the owner asked that a reader see
+            # whether another author's strategy runs.
         ):
             assert private not in response.text, private
 

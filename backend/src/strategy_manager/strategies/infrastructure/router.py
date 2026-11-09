@@ -255,6 +255,8 @@ class StrategyView(BaseModel):
     subscribers: int
     live_subscribers: int
     capital: Money | None
+    # When the strategy was registered, for My strategies' sort by age (tasks.md L.1).
+    created_at: datetime | None
 
     @classmethod
     def of(
@@ -285,6 +287,7 @@ class StrategyView(BaseModel):
             subscribers=counts.subscribers,
             live_subscribers=counts.live,
             capital=capital,
+            created_at=strategy.created_at,
         )
 
 

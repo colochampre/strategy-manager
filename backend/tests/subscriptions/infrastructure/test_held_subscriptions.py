@@ -51,6 +51,7 @@ BODY_KEYS = {
     "exchange",
     "venue",
     "settlement_currency",
+    "strategy_enabled",
 }
 
 
@@ -144,6 +145,26 @@ async def test_a_subscription_comes_with_what_names_its_strategy(
     assert held["author_name"] == author_name
     assert held["authored"] is False
     assert (held["exchange"], held["venue"], held["settlement_currency"]) == seeds.MARKET
+    assert held["strategy_enabled"] is True
+
+
+async def test_a_seat_says_whether_its_strategy_runs(
+    pg_session_factory: Factory,  # noqa: F811
+    client_for: ClientFor,
+) -> None:
+    """tasks.md L.1: a seat on another author's strategy shows whether it is taking
+    signals, as the author's own card does."""
+    author, _ = await seeds.user(pg_session_factory)
+    subscriber, pool = await seeds.user(pg_session_factory)
+    strategy_id = await seeds.strategy(pg_session_factory, author_id=author)
+    await seeds.subscription(pg_session_factory, subscriber, strategy_id, pool or 0)
+    await _set(
+        pg_session_factory, "UPDATE strategies SET enabled = false WHERE id = :id", id=strategy_id
+    )
+
+    held = await _only(client_for(subscriber))
+
+    assert held["strategy_enabled"] is False
 
 
 async def test_an_author_with_no_name_yet_reads_as_null(

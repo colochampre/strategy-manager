@@ -141,6 +141,7 @@ class HeldSubscriptionView(SubscriptionView):
     exchange: str
     venue: str
     settlement_currency: str
+    strategy_enabled: bool
 
     @classmethod
     def of_held(cls, held: HeldSubscription) -> "HeldSubscriptionView":
@@ -153,6 +154,7 @@ class HeldSubscriptionView(SubscriptionView):
             exchange=exchange,
             venue=venue,
             settlement_currency=settlement_currency,
+            strategy_enabled=held.strategy_enabled,
         )
 
 

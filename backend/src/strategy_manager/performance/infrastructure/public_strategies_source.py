@@ -102,8 +102,25 @@ def _columns() -> Select[Any]:
             StrategyRow.settlement_currency,
             StrategyRow.created_at,
             StrategyRow.description,
+            StrategyRow.enabled,
+            _active_seats().label("subscribers"),
         )
         .join(UserRow, UserRow.id == StrategyRow.author_id)
+    )
+
+
+def _active_seats() -> Any:
+    """How many hold an ``ACTIVE`` seat on the strategy of the row, the author
+    included and live or not, as the author's own list counts them
+    (``StrategySubscribersAdapter.counts``). Only the number leaves."""
+    return (
+        select(func.count())
+        .select_from(SubscriptionRow)
+        .where(
+            SubscriptionRow.strategy_id == StrategyRow.id,
+            SubscriptionRow.status == SubscriptionStatus.ACTIVE.value,
+        )
+        .scalar_subquery()
     )
 
 
@@ -116,6 +133,8 @@ def _listing(row: Row[Any]) -> PublicListing:
         venue=row.venue,
         settlement_currency=row.settlement_currency,
         created_at=row.created_at,
+        enabled=row.enabled,
+        subscribers=row.subscribers,
         description=row.description,
     )
 

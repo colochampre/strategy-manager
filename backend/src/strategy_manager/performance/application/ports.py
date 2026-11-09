@@ -169,6 +169,11 @@ class PublicListing:
     venue: str
     settlement_currency: str
     created_at: datetime
+    # Whether the author has it taking signals now (tasks.md L.1).
+    enabled: bool
+    # Every ACTIVE seat, the author's included, live or not: the count the author's
+    # own list shows (tasks.md F.5 and L.1).
+    subscribers: int
     # The author's own words, written for anyone reading the strategy (decision 38).
     description: str | None = None
 

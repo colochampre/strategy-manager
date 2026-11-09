@@ -122,6 +122,12 @@ class PublicStrategyBody(BaseModel):
     unleveraged_return_before_fees: Ratio
     live_subscribers: int
     capital: Money | None
+    # tasks.md L.1: every ACTIVE seat, live or not; the record's deepest fall and
+    # win rate (None with no closed trade); whether the author has it running.
+    subscribers: int
+    max_drawdown: Ratio
+    win_rate: Ratio | None
+    enabled: bool
 
 
 def _body(strategy: PublicStrategy) -> PublicStrategyBody:
@@ -139,6 +145,10 @@ def _body(strategy: PublicStrategy) -> PublicStrategyBody:
         unleveraged_return_before_fees=strategy.record.total_return,
         live_subscribers=strategy.live_subscribers,
         capital=strategy.capital,
+        subscribers=listing.subscribers,
+        max_drawdown=strategy.record.max_drawdown,
+        win_rate=strategy.record.win_rate,
+        enabled=listing.enabled,
     )
 
 
