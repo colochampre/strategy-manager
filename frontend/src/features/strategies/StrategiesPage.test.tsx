@@ -112,8 +112,8 @@ afterEach(() => {
 
 describe("the strategies list", () => {
   it.each([
-    [3, 2, "3 subscribers, 2 live", "3 · 2 live"],
-    [1, 0, "1 subscriber, 0 live", "1 · 0 live"],
+    [3, 2, "Subscribers", "3 · 2 live"],
+    [1, 0, "Subscribers", "1 · 0 live"],
   ])("tells its author who holds it: %i and %i live read as %s", async (subscribers, live, text, visible) => {
     const api = strategiesApi([strategy({ subscribers, live_subscribers: live })]);
     stubApi(HEALTH, [], POOLS, {}, api.route);
@@ -201,7 +201,7 @@ describe("the strategies list", () => {
     expect(within(row).getByRole("switch", { name: "Enable Alpha" })).toHaveAttribute("aria-checked", "true");
     const uptime = within(row).getByTestId("strategy-uptime");
     expect(
-      within(uptime.previousElementSibling as HTMLElement).getByRole("img", { name: "active 12 days" }),
+      within(uptime.previousElementSibling as HTMLElement).getByRole("img", { name: "Days active" }),
     ).toBeInTheDocument();
     expect(uptime.textContent).toBe("12");
     await waitFor(() => expect(within(row).getByTestId("strategy-trades")).toHaveTextContent("7"));
@@ -254,7 +254,7 @@ describe("the strategies list", () => {
     const row = await screen.findByTestId("strategy-row");
     expect(within(row).getByRole("switch")).toHaveAttribute("aria-checked", "false");
     const uptime = within(row).getByTestId("strategy-uptime");
-    expect(within(uptime.previousElementSibling as HTMLElement).getByRole("img", { name: en.strategies.row.neverEnabled })).toBeInTheDocument();
+    expect(within(uptime.previousElementSibling as HTMLElement).getByRole("img", { name: en.strategies.card.neverEnabled })).toBeInTheDocument();
     expect(uptime.textContent).toBe("—");
   });
 
@@ -265,7 +265,7 @@ describe("the strategies list", () => {
 
     const uptime = await screen.findByTestId("strategy-uptime");
     expect(
-      within(uptime.previousElementSibling as HTMLElement).getByRole("img", { name: "active at least 3 days" }),
+      within(uptime.previousElementSibling as HTMLElement).getByRole("img", { name: "Days active, at least" }),
     ).toBeInTheDocument();
     // A lower bound must not read as an exact count.
     expect(uptime.textContent).toBe("≥3");
@@ -755,8 +755,9 @@ describe("copy", () => {
       expect(locale.strategies.row.neverEnabled).toBeTruthy();
       expect(locale.strategies.row.toggleError).toBeTruthy();
       expect(locale.strategies.row.performanceError).toBeTruthy();
-      expect(locale.strategies.row.active_other).toContain("{{count}}");
-      expect(locale.strategies.row.activeAtLeast_other).toContain("{{count}}");
+      expect(locale.strategies.card.uptime).toBeTruthy();
+      expect(locale.strategies.card.uptimeAtLeast).toBeTruthy();
+      expect(locale.strategies.card.neverEnabled).toBeTruthy();
     }
   });
 });

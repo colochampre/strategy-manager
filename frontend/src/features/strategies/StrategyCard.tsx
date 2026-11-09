@@ -64,13 +64,13 @@ export interface StrategyCardProps {
 }
 
 /**
- * "Active X days" with the first activation behind it (decision 9). A baseline first activation was written by
- * the migration, so the true date is unknown and the text says "at least". A strategy never enabled makes no claim.
+ * What the clock names: "Days active", the count being the value's. A baseline first activation was written by
+ * the migration, so the true date is unknown and the text says "at least" (decision 9). A strategy never enabled
+ * makes no claim.
  */
 function uptimeText(uptime: StrategyUptime, t: TFunction): string {
-  if (uptime.first_enabled_at === null) return t("strategies.row.neverEnabled");
-  const count = Math.floor(uptime.seconds / DAY_SECONDS);
-  return t(uptime.baseline ? "strategies.row.activeAtLeast" : "strategies.row.active", { count });
+  if (uptime.first_enabled_at === null) return t("strategies.card.neverEnabled");
+  return t(uptime.baseline ? "strategies.card.uptimeAtLeast" : "strategies.card.uptime");
 }
 
 function uptimeValue(uptime: StrategyUptime, t: TFunction): string {
@@ -91,6 +91,22 @@ function winRateText(rate: number | null | undefined, locale: string): string {
   if (rate === undefined) return LOADING;
   if (rate === null) return NO_FIGURE;
   return new Intl.NumberFormat(locale, { style: "percent", maximumFractionDigits: 1 }).format(rate);
+}
+
+/** The word that says whether a strategy runs, beside its name: on a card and on another author's page. */
+export function EnabledBadge({ enabled, testId }: { enabled: boolean; testId: string }) {
+  const { t } = useTranslation();
+  return (
+    <span
+      data-testid={testId}
+      className={cn(
+        "rounded-full border px-2 text-[11px] uppercase tracking-wide",
+        enabled ? "border-gain text-gain" : "border-rule text-ink-3",
+      )}
+    >
+      {t(enabled ? "strategies.detail.enabled" : "strategies.detail.disabled")}
+    </span>
+  );
 }
 
 /**
@@ -125,15 +141,7 @@ export function StrategyCard(props: StrategyCardProps) {
             <span className="text-xs uppercase tracking-wide text-ink-3">{t("strategies.row.archived")}</span>
           )}
           {props.enabled !== undefined && props.enabled !== null && (
-            <span
-              data-testid={`${prefix}-enabled`}
-              className={cn(
-                "rounded-full border px-2 text-[11px] uppercase tracking-wide",
-                props.enabled ? "border-gain text-gain" : "border-rule text-ink-3",
-              )}
-            >
-              {t(props.enabled ? "strategies.detail.enabled" : "strategies.detail.disabled")}
-            </span>
+            <EnabledBadge enabled={props.enabled} testId={`${prefix}-enabled`} />
           )}
         </div>
         {props.byline !== undefined && props.byline !== null && (
@@ -153,7 +161,12 @@ export function StrategyCard(props: StrategyCardProps) {
             testId={`${prefix}-age`}
             value={age}
           />
-          <Figure icon={Clock} label={uptimeText(uptime, t)} testId={`${prefix}-uptime`} value={uptimeValue(uptime, t)} />
+          <Figure
+            icon={Clock}
+            label={uptimeText(uptime, t)}
+            testId={`${prefix}-uptime`}
+            value={uptimeValue(uptime, t)}
+          />
           {props.figuresError !== undefined && props.figuresError !== null ? (
             <p role="alert" className="col-span-2 text-xs text-loss">
               {props.figuresError}
@@ -190,11 +203,7 @@ export function StrategyCard(props: StrategyCardProps) {
           )}
           <Figure
             icon={Users}
-            label={
-              figures.subscribers == null
-                ? t("strategies.card.subscribers")
-                : t("strategies.row.subscribers", { count: figures.subscribers.count, live: figures.subscribers.live })
-            }
+            label={t("strategies.card.subscribers")}
             testId={`${prefix}-subscribers`}
             value={
               figures.subscribers === undefined

@@ -1,9 +1,20 @@
 import { render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { PairStatsTable } from "@/features/strategies/PairStatsTable";
+import { PairStatsTable as BareTable } from "@/features/strategies/PairStatsTable";
 import type { PairStat } from "@/shared/api/types";
 import i18n from "@/shared/i18n";
+
+type TableProps = Parameters<typeof BareTable>[0];
+
+/**
+ * The table, with a second pair added to a list of one: the section shows only with more than one pair that
+ * has traded, and most of these tests are about a row, not about that rule (which has its own describe below).
+ */
+function PairStatsTable(props: TableProps) {
+  const pairs = props.pairs.length === 1 ? [...props.pairs, stat({ pair: "FILLERUSDT" })] : props.pairs;
+  return <BareTable {...props} pairs={pairs} />;
+}
 
 function stat(overrides: Partial<PairStat> = {}): PairStat {
   return {
@@ -104,11 +115,50 @@ describe("PairStatsTable", () => {
     expect(screen.queryByText("71.10")).toBeNull();
   });
 
-  it("says no pair has closed a trade when the list is empty", () => {
-    render(<PairStatsTable currency="USDT" pairs={[]} />);
+  describe("shows only with more than one pair that has traded", () => {
+    const heading = () => screen.queryByRole("heading", { name: "By pair" });
 
-    expect(screen.getByText(i18n.t("strategies.performance.byPair.empty"))).toBeInTheDocument();
-    expect(screen.queryByRole("table")).toBeNull();
+    it("is absent with no pair, and says nothing in its place", () => {
+      const { container } = render(<BareTable currency="USDT" pairs={[]} />);
+
+      expect(heading()).toBeNull();
+      expect(screen.queryByRole("table")).toBeNull();
+      expect(container).toBeEmptyDOMElement();
+    });
+
+    it("is absent with one pair, which the view's header already says", () => {
+      const { container } = render(<BareTable currency="USDT" pairs={[stat()]} />);
+
+      expect(heading()).toBeNull();
+      expect(screen.queryByRole("table")).toBeNull();
+      expect(container).toBeEmptyDOMElement();
+    });
+
+    it("is absent with two pairs when only one of them has a trade", () => {
+      render(<BareTable currency="USDT" pairs={[stat(), stat({ pair: "ETHUSDT", trades: 0, wins: 0, win_rate: "0.0000000000" })]} />);
+
+      expect(heading()).toBeNull();
+    });
+
+    it("is drawn with two pairs that have traded", () => {
+      render(<BareTable currency="USDT" pairs={[stat(), stat({ pair: "ETHUSDT" })]} />);
+
+      expect(heading()).toBeInTheDocument();
+      expect(screen.getByRole("table", { name: "By pair" })).toBeInTheDocument();
+    });
+
+    it("is drawn, as an alert, when there are two pairs and a figure cannot be read", () => {
+      render(<BareTable currency="USDT" pairs={[stat({ pnl: "1e3" }), stat({ pair: "ETHUSDT" })]} />);
+
+      expect(screen.getByRole("alert")).toBeInTheDocument();
+    });
+
+    it("is absent for a record of one pair, which has no money column", () => {
+      const { pnl: _pnl, ...record } = stat();
+      const { container } = render(<BareTable pairs={[record]} />);
+
+      expect(container).toBeEmptyDOMElement();
+    });
   });
 
   it("is titled and labelled in Spanish", async () => {

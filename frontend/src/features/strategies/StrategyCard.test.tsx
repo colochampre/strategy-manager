@@ -167,6 +167,7 @@ describe("the figures", () => {
       ["return", "Return"],
       ["deepest", "Deepest drawdown"],
       ["winrate", "Win rate"],
+      ["subscribers", "Subscribers"],
       ["capital", "Capital"],
     ] as const) {
       const term = within(row).getByTestId(`card-${key}`).previousElementSibling as HTMLElement;
@@ -261,7 +262,8 @@ describe("the days active", () => {
 
     expect(within(row).getByTestId("card-uptime")).toHaveTextContent(/^12$/);
     const term = within(row).getByTestId("card-uptime").previousElementSibling as HTMLElement;
-    expect(within(term).getByRole("img", { name: "active 12 days" })).toBeInTheDocument();
+    // The tooltip names the figure; the count is the value's.
+    expect(within(term).getByRole("img", { name: "Days active" })).toBeInTheDocument();
   });
 
   it("read as at least when the first activation is only a baseline", () => {
@@ -269,7 +271,7 @@ describe("the days active", () => {
 
     expect(within(row).getByTestId("card-uptime")).toHaveTextContent(/^≥3$/);
     const term = within(row).getByTestId("card-uptime").previousElementSibling as HTMLElement;
-    expect(within(term).getByRole("img", { name: "active at least 3 days" })).toBeInTheDocument();
+    expect(within(term).getByRole("img", { name: "Days active, at least" })).toBeInTheDocument();
   });
 
   it("make no claim for a strategy never enabled: a dash, and the tooltip says so", () => {
@@ -277,7 +279,7 @@ describe("the days active", () => {
 
     expect(within(row).getByTestId("card-uptime")).toHaveTextContent(/^—$/);
     const term = within(row).getByTestId("card-uptime").previousElementSibling as HTMLElement;
-    expect(within(term).getByRole("img", { name: i18n.t("strategies.row.neverEnabled") })).toBeInTheDocument();
+    expect(within(term).getByRole("img", { name: "Never enabled" })).toBeInTheDocument();
   });
 });
 

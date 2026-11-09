@@ -239,6 +239,9 @@ describe("the public page", () => {
     open();
     await screen.findByRole("heading", { level: 1, name: "Alpha" });
 
+    // The return's explanation lives on the record line, once the record has been read.
+    await screen.findByTestId("record-line");
+
     expect(screen.queryByText(i18n.t("strategies.public.returnHint"))).not.toBeInTheDocument();
     expect(screen.queryByText(i18n.t("strategies.public.capitalHint"))).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: i18n.t("strategies.public.returnInfo") }));
@@ -246,6 +249,40 @@ describe("the public page", () => {
     expect(screen.queryByText(i18n.t("strategies.public.capitalHint"))).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: i18n.t("strategies.public.capitalInfo") }));
     expect(screen.getByText(i18n.t("strategies.public.capitalHint"))).toBeInTheDocument();
+  });
+
+  it("explains the return once: the record line keeps the only (i), the figure card has none", async () => {
+    serve();
+    open();
+    const line = await screen.findByTestId("record-line");
+
+    const infos = screen.getAllByRole("button", { name: i18n.t("strategies.public.returnInfo") });
+    expect(infos).toHaveLength(1);
+    expect(line).toContainElement(infos[0] as HTMLElement);
+    const card = screen.getByTestId("public-return").parentElement as HTMLElement;
+    expect(within(card).queryByRole("button")).toBeNull();
+    fireEvent.click(infos[0] as HTMLElement);
+    expect(screen.getAllByText(i18n.t("strategies.public.returnHint"))).toHaveLength(1);
+  });
+
+  it("says whether the strategy runs, beside its name, as the cards do", async () => {
+    serve({ strategy: () => Promise.resolve(jsonResponse(publicStrategy({ id: ID, enabled: true }))) });
+    open();
+
+    const pill = await screen.findByTestId("public-enabled");
+    expect(pill).toHaveTextContent("Enabled");
+    expect(pill).toHaveClass("border-gain", "text-gain");
+    expect(screen.getByRole("heading", { level: 1, name: "Alpha" }).parentElement).toContainElement(pill);
+  });
+
+  it("says disabled when the strategy does not run", async () => {
+    serve({ strategy: () => Promise.resolve(jsonResponse(publicStrategy({ id: ID, enabled: false }))) });
+    open();
+
+    const pill = await screen.findByTestId("public-enabled");
+    expect(pill).toHaveTextContent("Disabled");
+    expect(pill).toHaveClass("text-ink-3");
+    expect(pill).not.toHaveClass("text-gain");
   });
 
   it("reads a 404 as off the list, in plain words and not as a fault", async () => {

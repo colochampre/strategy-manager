@@ -51,6 +51,12 @@ function strategy(overrides: Partial<Strategy> = {}): Strategy {
   };
 }
 
+/** Two pairs that have traded: the By pair section is drawn only when more than one has. */
+const TWO_PAIRS: PairStat[] = [
+  { pair: "ETHUSDT", trades: 2, wins: 1, win_rate: "0.5000000000", pnl: "4.00", return: "0.0040000000" },
+  { pair: "SOLUSDT", trades: 1, wins: 1, win_rate: "1.0000000000", pnl: "2.00", return: "0.0020000000" },
+];
+
 interface Options {
   /** `by_pair` of the strategy's report. */
   byPair?: PairStat[];
@@ -286,9 +292,7 @@ describe("StrategyDetailPage", () => {
   // decision 43 moves the closed trades out of the column (task 9p.5.21), so its trades assertions moved to
   // the full-width section test below and the webhook assertion stayed.
   it("test_left_column_runs_performance_and_by_pair_and_holds_no_webhook_block_until_it_is_opened", async () => {
-    renderPage(strategy(), {
-      byPair: [{ pair: "ETHUSDT", trades: 2, wins: 1, win_rate: "0.5000000000", pnl: "4.00", return: "0.0040000000" }],
-    });
+    renderPage(strategy(), { byPair: TWO_PAIRS });
     await heading("ETH Breakout");
 
     const titles = [
@@ -309,7 +313,7 @@ describe("StrategyDetailPage", () => {
   });
 
   it("frames the chart, Month by month, By pair, Open positions and Closed trades (owner decision 67 Q4, Q7)", async () => {
-    renderPage(strategy());
+    renderPage(strategy(), { byPair: TWO_PAIRS });
     await heading("ETH Breakout");
 
     const framed = (node: HTMLElement) => node.closest('[data-testid="report-section"]');
@@ -320,7 +324,9 @@ describe("StrategyDetailPage", () => {
     ]) {
       expect(framed(await screen.findByRole("heading", { name }))).not.toBeNull();
     }
-    expect(framed((await screen.findByRole("img", { name: /./ })).closest("figure") as HTMLElement)).not.toBeNull();
+    // The chart is the one image inside a figure; the ledger's icons are images too.
+    const chart = (await screen.findAllByRole("img", { name: /./ })).find((image) => image.closest("figure") !== null);
+    expect(framed(chart?.closest("figure") as HTMLElement)).not.toBeNull();
     expect(screen.getAllByTestId("report-section").length).toBeGreaterThanOrEqual(5);
   });
 
@@ -680,9 +686,7 @@ describe("StrategyDetailPage", () => {
     "test_the_new_texts_of_the_page_read_exactly_as_designed_in_%s",
     async (language, winRate, shareLabel, openWebhook, regenerate, copyMessage) => {
       await i18n.changeLanguage(language);
-      renderPage(strategy(), {
-        byPair: [{ pair: "ETHUSDT", trades: 2, wins: 1, win_rate: "0.5000000000", pnl: "4.00", return: "0.0040000000" }],
-      });
+      renderPage(strategy(), { byPair: TWO_PAIRS });
       await heading("ETH Breakout");
 
       const table = await screen.findByRole("table", { name: i18n.t("strategies.performance.byPair.title") });

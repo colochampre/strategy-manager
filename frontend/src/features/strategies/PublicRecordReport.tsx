@@ -1,15 +1,17 @@
+import { TrendingDown, TrendingUp } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
+import { rangeLabel } from "@/features/overview/LedgerLine";
 import { MonthlyGrid } from "@/features/overview/MonthlyGrid";
 import { MonthlySummary } from "@/features/overview/MonthlySummary";
 import { RangeSelector } from "@/features/overview/RangeSelector";
 import { useRangeStore } from "@/features/overview/range-store";
 import { ReturnChart } from "@/features/overview/ReturnChart";
 import { PairStatsTable } from "@/features/strategies/PairStatsTable";
+import { Figure } from "@/features/strategies/PublicFigures";
 import { usePublicRecord } from "@/shared/api/public-record";
 import type { Excluded, PublicRecord } from "@/shared/api/types";
 import { parseDecimal, percentText, toneClass } from "@/shared/lib/amount-text";
-import { cn } from "@/shared/lib/cn";
 import { InfoButton, InfoText, useInfoDisclosure } from "@/shared/ui/InfoDisclosure";
 import { ReportSection } from "@/shared/ui/ReportSection";
 
@@ -54,16 +56,25 @@ function RecordView({ record, asOf, joined }: { record: PublicRecord; asOf: numb
           </p>
         ) : (
           <>
-            <p data-testid="record-line" className="font-mono text-[15px] leading-normal text-ink-2 tabular-nums">
-              {t("strategies.report.recordReturn", { range: t(`overview.range.${range}`) })}{" "}
-              <span data-testid="record-return" className={cn("font-semibold", toneClass(value))}>
-                {percentText(value, locale)}
-              </span>
-              <span aria-hidden="true"> · </span>
-              {t("overview.ledger.deepest")}{" "}
-              <span className="font-semibold text-loss">{percentText(deepest, locale)}</span>
-              <InfoButton disclosure={returnInfo} label={t("strategies.public.returnInfo")} />
-            </p>
+            <dl data-testid="record-line" className="tabular flex flex-wrap items-end gap-x-6 gap-y-3">
+              <Figure
+                icon={TrendingUp}
+                label={rangeLabel(t, "strategies.report.recordReturn", range)}
+                testId="record-return"
+                value={percentText(value, locale)}
+                tone={toneClass(value)}
+                info={<InfoButton disclosure={returnInfo} label={t("strategies.public.returnInfo")} />}
+                valueClassName="font-semibold"
+              />
+              <Figure
+                icon={TrendingDown}
+                label={t("overview.ledger.deepest")}
+                testId="record-deepest"
+                value={percentText(deepest, locale)}
+                tone="text-loss"
+                valueClassName="font-semibold"
+              />
+            </dl>
             <InfoText disclosure={returnInfo}>
               <p className="text-xs text-ink-3">{t("strategies.public.returnHint")}</p>
             </InfoText>

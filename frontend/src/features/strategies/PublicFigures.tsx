@@ -17,8 +17,6 @@ export const FIGURES_GRID = "grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-3 lg:
 
 interface PublicFiguresProps {
   strategy: PublicStrategy;
-  /** An explanation's button, drawn beside the return's label. */
-  returnInfo?: ReactNode;
   /** An explanation's button, drawn beside the capital's label. */
   capitalInfo?: ReactNode;
 }
@@ -31,10 +29,12 @@ interface FigureProps {
   info?: ReactNode;
   /** Drawn in place of the label, which then names it and explains it on hover. */
   icon?: LucideIcon;
+  /** Added to the value's classes, last, for a lead figure that is larger or must not break. */
+  valueClassName?: string;
 }
 
 /** One figure: its label, or its icon, centred over its value. */
-export function Figure({ label, testId, value, tone = "text-ink", info, icon }: FigureProps) {
+export function Figure({ label, testId, value, tone = "text-ink", info, icon, valueClassName }: FigureProps) {
   return (
     // The label takes the room left, so a label that wraps never lowers its figure below the others in the row.
     <div className="flex w-fit flex-col items-center justify-between gap-0.5">
@@ -43,7 +43,7 @@ export function Figure({ label, testId, value, tone = "text-ink", info, icon }: 
         {icon === undefined ? label : <IconTip icon={icon} label={label} />}
         {info}
       </dt>
-      <dd data-testid={testId} className={cn("font-mono text-sm", tone)}>
+      <dd data-testid={testId} className={cn("font-mono text-sm", tone, valueClassName)}>
         {value}
       </dd>
     </div>
@@ -78,7 +78,7 @@ export function PublicOrigin({ strategy }: Pick<PublicFiguresProps, "strategy">)
  * closed, and until then the figure says so in words. A capital that is absent, under the server's brake, is told
  * apart from a capital of zero. Drawn inside a `dl`.
  */
-export function StrategyFigures({ strategy, returnInfo, capitalInfo }: PublicFiguresProps) {
+export function StrategyFigures({ strategy, capitalInfo }: PublicFiguresProps) {
   const { t, i18n } = useTranslation();
   const ratio = strategy.closed_trade_count === 0 ? null : parseDecimal(strategy.unleveraged_return_before_fees);
   const capital = strategy.capital === null ? null : parseDecimal(strategy.capital);
@@ -97,7 +97,6 @@ export function StrategyFigures({ strategy, returnInfo, capitalInfo }: PublicFig
         testId="public-return"
         value={ratio === null ? NO_FIGURE : percentText(ratio, i18n.language)}
         tone={ratio === null ? undefined : toneClass(ratio)}
-        info={returnInfo}
       />
       <Figure icon={Users} label={t("strategies.public.live")} testId="public-live" value={String(strategy.live_subscribers)} />
       <Figure
@@ -116,13 +115,13 @@ export function StrategyFigures({ strategy, returnInfo, capitalInfo }: PublicFig
 }
 
 /** The public record: the strategy's age since it was created, then what it has done. */
-export function PublicFigures({ strategy, returnInfo, capitalInfo }: PublicFiguresProps) {
+export function PublicFigures({ strategy, capitalInfo }: PublicFiguresProps) {
   const { t } = useTranslation();
   const age = useAgeSince(strategy.created_at);
   return (
     <dl className={FIGURES_GRID}>
       <Figure icon={Calendar} label={t("strategies.public.age")} testId="public-age" value={age} />
-      <StrategyFigures strategy={strategy} returnInfo={returnInfo} capitalInfo={capitalInfo} />
+      <StrategyFigures strategy={strategy} capitalInfo={capitalInfo} />
     </dl>
   );
 }

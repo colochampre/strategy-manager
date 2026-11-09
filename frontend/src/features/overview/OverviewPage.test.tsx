@@ -8,6 +8,8 @@ import es from "@/shared/i18n/locales/es.json";
 import { emptyPerformance, lock, pool, renderAt, resetExchangeScope, setViewport, stubApi, unlock } from "@/test/harness";
 
 const HEALTH = { kind: "ok", body: { status: "ok", dry_run: true } } as const;
+/** The return chart's name: the ledger's icons are images too, so a bare `img` query meets several. */
+const CHART_NAME = en.overview.returnChart.ariaLabel;
 const TWO_EXCHANGES = { kind: "ok", body: [pool("bybit", "linear"), pool("binance")] } as const;
 
 beforeEach(() => {
@@ -55,7 +57,7 @@ describe("the Overview has no decision rail (spec: no rail, on any width; protot
 
       const panel = await screen.findByTestId("pool-panel");
       const grid = await within(panel).findByTestId("month-2026-9");
-      const figure = within(panel).getByRole("img").closest("figure") as HTMLElement;
+      const figure = within(panel).getByRole("img", { name: CHART_NAME }).closest("figure") as HTMLElement;
       // The chart's framed section is the last thing of the top block; the month grid's own framed section follows it.
       const chartSection = figure.closest('[data-testid="report-section"]') as HTMLElement;
       const top = chartSection.parentElement as HTMLElement;
@@ -74,7 +76,7 @@ describe("the Overview has no decision rail (spec: no rail, on any width; protot
     const panel = await screen.findByTestId("pool-panel");
     const grid = await within(panel).findByTestId("month-2026-9");
     const framed = (node: HTMLElement) => node.closest('[data-testid="report-section"]');
-    expect(framed(within(panel).getByRole("img").closest("figure") as HTMLElement)).not.toBeNull();
+    expect(framed(within(panel).getByRole("img", { name: CHART_NAME }).closest("figure") as HTMLElement)).not.toBeNull();
     expect(framed(grid)).not.toBeNull();
     expect(framed(within(panel).getByRole("heading", { name: "Open positions" }))).not.toBeNull();
     expect(framed(within(panel).getByTestId("ledger-line"))).toBeNull();
@@ -223,8 +225,8 @@ describe("one panel per pool of the exchange", () => {
 
     await waitFor(() => expect(within(usdt).getByTestId("ledger-lead")).toHaveTextContent("1,284.52"));
     await waitFor(() => expect(within(btc).getByTestId("ledger-lead")).toHaveTextContent("0.12500000"));
-    expect(within(usdt).getByTestId("ledger-line")).toHaveTextContent("USDT available");
-    expect(within(btc).getByTestId("ledger-line")).toHaveTextContent("BTC available");
+    expect(within(usdt).getByTestId("ledger-lead")).toHaveTextContent("USDT");
+    expect(within(btc).getByTestId("ledger-lead")).toHaveTextContent("BTC");
     expect(screen.getAllByTestId("ledger-line")).toHaveLength(2);
     expect(screen.queryByText(/777/)).not.toBeInTheDocument();
 
@@ -563,7 +565,7 @@ describe("the overview sizing (decisions 35 and 36)", () => {
 
   it("draws the chart at a fixed height that does not depend on the panel's width", async () => {
     const panel = await renderOne();
-    const svg = within(panel).getByRole("img");
+    const svg = within(panel).getByRole("img", { name: CHART_NAME });
     expect(svg).toHaveAttribute("height", "280");
     expect(svg.getAttribute("viewBox")).toMatch(/^0 0 \d+ 280$/);
     expect(svg.getAttribute("class") ?? "").not.toMatch(/h-auto|aspect-/);
@@ -580,7 +582,7 @@ describe("the overview sizing (decisions 35 and 36)", () => {
     const ledger = within(panel).getByTestId("ledger-line");
     expect(ledger).not.toContainElement(group);
     expect(ledger.nextElementSibling).toBe(header?.closest('[data-testid="report-section"]'));
-    expect(header?.closest("figure")).toContainElement(within(panel).getByRole("img"));
+    expect(header?.closest("figure")).toContainElement(within(panel).getByRole("img", { name: CHART_NAME }));
   });
 
   it("keeps the range selector whole: its header and its group wrap and never shrink", async () => {
@@ -619,14 +621,11 @@ describe("the overview sizing (decisions 35 and 36)", () => {
     expect(note).toHaveTextContent("Balance is out of date: last synced");
   });
 
-  it("keeps the ledger line to its own row: four pairs, each held together from lg up", async () => {
+  it("keeps the ledger line to its own row: four figures, each value held on one line", async () => {
     const panel = await renderOne();
-    const pairs = within(panel).queryAllByTestId("ledger-pair");
-    expect(pairs).toHaveLength(4);
-    for (const pair of pairs) {
-      expect(pair).toHaveClass("lg:whitespace-nowrap");
-      expect(pair).not.toHaveClass("whitespace-nowrap");
-    }
+    const values = within(panel).getByTestId("ledger-line").querySelectorAll("dd");
+    expect(values).toHaveLength(4);
+    for (const value of values) expect(value).toHaveClass("whitespace-nowrap");
     expect(within(panel).getByTestId("ledger-line").className).not.toMatch(/whitespace-nowrap/);
   });
 

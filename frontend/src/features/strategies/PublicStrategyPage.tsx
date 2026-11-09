@@ -4,6 +4,7 @@ import { Link, useParams, useSearchParams } from "react-router";
 
 import { entryRefusal } from "@/features/strategies/entry-refusal";
 import { PublicFigures, PublicOrigin } from "@/features/strategies/PublicFigures";
+import { EnabledBadge } from "@/features/strategies/StrategyCard";
 import { StrategyReportViews } from "@/features/strategies/StrategyReportViews";
 import { SubscribePanel } from "@/features/strategies/SubscribePanel";
 import { ApiError } from "@/shared/api/client";
@@ -25,7 +26,6 @@ function BackToExplore() {
 
 function PublicRecord({ strategy }: { strategy: PublicStrategy }) {
   const { t } = useTranslation();
-  const returnInfo = useInfoDisclosure();
   const capitalInfo = useInfoDisclosure();
   // Two columns from lg up, as on an own strategy: the record on the left, Subscribe or the reader's seat in the
   // aside on the right. Stacked on a phone, the aside comes last.
@@ -34,7 +34,10 @@ function PublicRecord({ strategy }: { strategy: PublicStrategy }) {
       <div className="flex min-w-0 flex-col gap-6">
         <header className="flex flex-col gap-1.5">
           <BackToExplore />
-          <h1 className="font-display text-2xl font-bold text-ink">{strategy.name}</h1>
+          <div className="flex flex-wrap items-baseline gap-x-2">
+            <h1 className="font-display text-2xl font-bold text-ink">{strategy.name}</h1>
+            <EnabledBadge enabled={strategy.enabled} testId="public-enabled" />
+          </div>
           <PublicOrigin strategy={strategy} />
         </header>
         {strategy.description !== null && (
@@ -49,12 +52,8 @@ function PublicRecord({ strategy }: { strategy: PublicStrategy }) {
         <section className="flex flex-col gap-3 rounded-md border border-rule bg-panel px-4 py-3">
           <PublicFigures
             strategy={strategy}
-            returnInfo={<InfoButton disclosure={returnInfo} label={t("strategies.public.returnInfo")} />}
             capitalInfo={<InfoButton disclosure={capitalInfo} label={t("strategies.public.capitalInfo")} />}
           />
-          <InfoText disclosure={returnInfo}>
-            <p className="text-xs text-ink-3">{t("strategies.public.returnHint")}</p>
-          </InfoText>
           <InfoText disclosure={capitalInfo}>
             <p className="text-xs text-ink-3">{t("strategies.public.capitalHint")}</p>
           </InfoText>

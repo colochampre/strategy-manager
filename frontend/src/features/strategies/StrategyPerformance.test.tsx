@@ -47,7 +47,14 @@ function serve(answer: () => Promise<Response>) {
   return requests;
 }
 
-const ledger = () => (screen.getByTestId("ledger-line").textContent ?? "").replace(/\s+/g, " ").trim();
+/** Each figure as its icon's name (its tooltip) and its value: "PnL 30D +70.00 · Return 30D +6.0% · …". */
+const ledger = () =>
+  Array.from(screen.getByTestId("ledger-line").querySelectorAll("dd"))
+    .map((value) => {
+      const name = value.previousElementSibling?.querySelector("[role='img']")?.getAttribute("aria-label") ?? "";
+      return `${name} ${(value.textContent ?? "").trim()}`;
+    })
+    .join(" · ");
 
 beforeEach(unlock);
 afterEach(async () => {
@@ -63,7 +70,7 @@ describe("StrategyPerformance", () => {
 
     await screen.findByTestId("ledger-line");
 
-    expect(ledger()).toBe("PnL 30D +70.00 · contribution to the pool 30D +6.0% · deepest -2.4%");
+    expect(ledger()).toBe("PnL 30D +70.00 · Contribution to the pool 30D +6.0% · Deepest drawdown -2.4%");
     expect(screen.queryByTestId("ledger-lead")).toBeNull();
     expect(screen.queryByText(/available/)).toBeNull();
   });
@@ -75,7 +82,7 @@ describe("StrategyPerformance", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "7D" }));
 
-    expect(ledger()).toBe("PnL 7D +30.00 · contribution to the pool 7D +2.5% · deepest -2.4%");
+    expect(ledger()).toBe("PnL 7D +30.00 · Contribution to the pool 7D +2.5% · Deepest drawdown -2.4%");
     expect(screen.getByRole("button", { name: "7D" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByTestId("return-curve")).toBeInTheDocument();
   });
@@ -98,7 +105,11 @@ describe("StrategyPerformance", () => {
     await screen.findByTestId("ledger-line");
 
     expect(screen.getByRole("button", { name: "1Y" })).toHaveAttribute("aria-pressed", "true");
-    expect(ledger()).toBe("PnL 1Y +118.40 · contribution to the pool 1Y +9.6% · deepest -2.4%");
+    expect(ledger()).toBe("PnL 1Y +118.40 · Contribution to the pool 1Y +9.6% · Deepest drawdown -2.4%");
+
+    // All is the whole history: no tooltip names it.
+    fireEvent.click(screen.getByRole("button", { name: "All" }));
+    expect(ledger()).toBe("PnL +118.40 · Contribution to the pool +9.6% · Deepest drawdown -2.4%");
 
     fireEvent.click(screen.getByRole("button", { name: "90D" }));
     second.unmount();
@@ -157,6 +168,17 @@ describe("StrategyPerformance", () => {
     expect(requests).toHaveLength(1);
   });
 
+  it("draws no By pair section when only one pair has traded", async () => {
+    const one = report().by_pair.slice(0, 1);
+    serve(() => Promise.resolve(jsonResponse(report({ by_pair: one }))));
+    renderAt(<StrategyPerformance strategyId={ID} />);
+
+    await screen.findByTestId("ledger-line");
+
+    expect(screen.queryByRole("heading", { name: "By pair" })).toBeNull();
+    expect(screen.queryByRole("table", { name: "By pair" })).toBeNull();
+  });
+
   it("says what the curve leaves out: open trades and trades without capital at open", async () => {
     const base = report();
     serve(() =>
@@ -178,8 +200,9 @@ describe("StrategyPerformance", () => {
     renderAt(<StrategyPerformance strategyId={ID} />);
 
     expect(await screen.findByText("No closed trades yet")).toBeInTheDocument();
-    expect(screen.getByText(i18n.t("strategies.performance.byPair.empty"))).toBeInTheDocument();
-    expect(ledger()).toBe("PnL 30D 0.00 · contribution to the pool 30D 0.0% · deepest 0.0%");
+    // A strategy with no pair that has traded draws no By pair section at all, empty state included.
+    expect(screen.queryByRole("heading", { name: "By pair" })).toBeNull();
+    expect(ledger()).toBe("PnL 30D 0.00 · Contribution to the pool 30D 0.0% · Deepest drawdown 0.0%");
   });
 
   it("says the figures cannot be read when the chosen range is missing from the report", async () => {
@@ -260,7 +283,7 @@ describe("StrategyPerformance", () => {
 
     await screen.findByTestId("ledger-line");
 
-    expect(ledger()).toContain("aporte al pool 30D");
+    expect(ledger()).toContain("Aporte al pool 30D");
     expect(screen.getByRole("heading", { name: "Aporte al pool, compuesto" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Por par" })).toBeInTheDocument();
   });

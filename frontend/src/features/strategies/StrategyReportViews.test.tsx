@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { StrategyReportViews } from "@/features/strategies/StrategyReportViews";
@@ -48,7 +48,11 @@ function myReport(overrides: Record<string, unknown> = {}) {
     ranges: ["7D", "30D", "90D", "1Y", "All"].map((range) => ({ range, pnl: "41.25", return: "0.0200000000", trade_count: 2 })),
     curve: [{ date: daysAgo(5), daily_return: "0.02", index: "0.02", drawdown: "0" }],
     monthly: [{ year: 2026, month: 11, return: "0.0200000000" }],
-    by_pair: [{ pair: "XRPUSDT", trades: 2, wins: 2, win_rate: "1", pnl: "41.25", return: "0.0200000000" }],
+    // Two pairs: the By pair section is drawn only when more than one has traded.
+    by_pair: [
+      { pair: "XRPUSDT", trades: 2, wins: 2, win_rate: "1", pnl: "41.25", return: "0.0200000000" },
+      { pair: "LTCUSDT", trades: 1, wins: 0, win_rate: "0", pnl: "-3.00", return: "-0.0010000000" },
+    ],
     ...overrides,
   };
 }
@@ -128,6 +132,39 @@ describe("StrategyReportViews", () => {
     fireEvent.click(screen.getByRole("button", { name: "7D" }));
 
     expect(screen.getByTestId("record-return")).toHaveTextContent("+1.0%");
+    fireEvent.click(screen.getByRole("button", { name: "30D" }));
+  });
+
+  it("draws the record line as the cards' icons over their values, and keeps the (i) on the return", async () => {
+    serve();
+    renderAt(<StrategyReportViews strategy={STRATEGY} />);
+    const line = await screen.findByTestId("record-line");
+
+    const returnTerm = screen.getByTestId("record-return").previousElementSibling as HTMLElement;
+    expect(returnTerm.querySelector("svg.lucide-trending-up")).not.toBeNull();
+    expect(returnTerm.textContent).toBe("");
+    const deepest = within(line).getByTestId("record-deepest");
+    const deepestTerm = deepest.previousElementSibling as HTMLElement;
+    expect(deepestTerm.querySelector("svg.lucide-trending-down")).not.toBeNull();
+    expect(deepest).toHaveClass("text-loss");
+    expect(within(deepestTerm).getByRole("img", { name: "Deepest drawdown" })).toBeInTheDocument();
+    // The unleveraged, before-fees disclosure stays with the return.
+    expect(within(returnTerm).getByRole("button", { name: i18n.t("strategies.public.returnInfo") })).toBeInTheDocument();
+    expect(line.textContent).not.toMatch(/return|deepest/i);
+  });
+
+  it("names the range in the record's return tooltip only when it is not All", async () => {
+    serve();
+    renderAt(<StrategyReportViews strategy={STRATEGY} />);
+    await screen.findByTestId("record-line");
+    const name = () =>
+      within(screen.getByTestId("record-return").previousElementSibling as HTMLElement).getByRole("img").getAttribute("aria-label");
+
+    fireEvent.click(screen.getByRole("button", { name: "7D" }));
+    expect(name()).toBe("Return 7D");
+    fireEvent.click(screen.getByRole("button", { name: "All" }));
+    expect(name()).toBe("Return");
+    // The range is one choice for the whole panel: put it back where the other tests expect it.
     fireEvent.click(screen.getByRole("button", { name: "30D" }));
   });
 

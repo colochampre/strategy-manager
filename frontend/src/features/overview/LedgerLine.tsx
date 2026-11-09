@@ -1,16 +1,25 @@
-import type { ReactNode } from "react";
+import { Coins, TrendingDown, TrendingUp, Wallet } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 
+import { Figure } from "@/features/strategies/PublicFigures";
 import { amountText, parseDecimal, percentText, toneClass } from "@/shared/lib/amount-text";
 import type { RangeName } from "@/features/overview/RangeSelector";
-import { cn } from "@/shared/lib/cn";
 
 const DASH = "—";
+
+/**
+ * A label that names the range only when the range narrows the figure: `base` for All, `${base}Range` (which
+ * carries `{{range}}`) for 7D, 30D and the others. All is the whole history, so saying it adds nothing.
+ */
+export function rangeLabel(t: TFunction, base: string, range: RangeName): string {
+  return range === "All" ? t(base) : t(`${base}Range`, { range: t(`overview.range.${range}`) });
+}
 
 interface LedgerLineProps {
   /** The pool's settlement currency; every figure is in it. */
   currency: string;
-  /** `balance.available` from `GET /pools`; null while nothing has synced. Left out, the line has no balance pair. */
+  /** `balance.available` from `GET /pools`; null while nothing has synced. Left out, the line has no balance figure. */
   available?: string | null;
   /** Which range summary `pnl` and `ret` belong to. */
   range: RangeName;
@@ -20,40 +29,18 @@ interface LedgerLineProps {
   ret: string | null;
   /** The pool's all-time `max_drawdown`, a ratio at most zero. */
   maxDrawdown: string;
-  /** Replaces the return's label (already translated, range included), for a figure that is not the pool's own return. */
+  /** Replaces the return's tooltip (already translated, range included), for a figure that is not the pool's own return. */
   returnLabel?: string;
 }
 
-interface PairProps {
-  children: ReactNode;
-  /** A separator follows the pair; it stays inside it, so it never starts a line. */
-  separator?: boolean;
-}
+/** A value keeps to one line: a currency stranded from its number reads as another figure, worst with eight-decimal BTC. */
+const VALUE = "whitespace-nowrap font-semibold";
+const LEAD = "text-[26px] leading-none";
 
 /**
- * One label with its value. From `lg` up the pair never breaks inside (a value
- * stranded from its label reads as another figure, worst with eight-decimal
- * BTC); the line wraps only BETWEEN pairs. Below `lg` a pair may break like any
- * text: one that cannot is wider than a small screen and overflows it sideways.
- */
-function Pair({ children, separator = false }: PairProps) {
-  return (
-    <span data-testid="ledger-pair" className="lg:whitespace-nowrap">
-      {children}
-      {separator && (
-        <span aria-hidden="true" className="text-rule">
-          {" · "}
-        </span>
-      )}
-    </span>
-  );
-}
-
-/**
- * One pool's headline: the available balance as the lead figure, then the
- * range's PnL and return and the deepest drawdown, as four label and value pairs
- * that, from `lg` up, wrap only between one another. Figures are parsed only to be
- * formatted; nothing is computed (CLAUDE.md, rule 7).
+ * One pool's headline: the available balance as the lead figure, then the range's PnL and return and the
+ * deepest drawdown, each as the icon the strategy cards use over its value, with the words in the icon's tooltip.
+ * Figures are parsed only to be formatted; nothing is computed (CLAUDE.md, rule 7).
  */
 export function LedgerLine({ currency, available, range, pnl, ret, maxDrawdown, returnLabel }: LedgerLineProps) {
   const { t, i18n } = useTranslation();
@@ -79,45 +66,41 @@ export function LedgerLine({ currency, available, range, pnl, ret, maxDrawdown, 
     );
   }
 
-  const rangeLabel = t(`overview.range.${range}`);
-
   return (
-    <p
-      data-testid="ledger-line"
-      className="font-mono text-[15px] leading-normal text-ink-2 tabular-nums"
-    >
+    <dl data-testid="ledger-line" className="tabular flex flex-wrap items-end gap-x-6 gap-y-3">
       {hasBalance && (
-        <Pair separator>
-          <span data-testid="ledger-lead" className="text-[26px] font-semibold leading-none text-ink">
-            {availableValue === null ? DASH : amountText(availableValue, currency, locale)}
-          </span>{" "}
-          {t("overview.ledger.available", { currency })}
-        </Pair>
+        <Figure
+          icon={Wallet}
+          label={t("overview.ledger.available")}
+          testId="ledger-lead"
+          value={availableValue === null ? DASH : `${amountText(availableValue, currency, locale)} ${currency}`}
+          valueClassName={`${VALUE} ${LEAD}`}
+        />
       )}
-      <Pair separator>
-        {t("overview.ledger.pnl", { range: rangeLabel })}{" "}
-        <span
-          data-testid="ledger-pnl"
-          className={cn("font-semibold", toneClass(pnlValue), !hasBalance && "text-[26px] leading-none")}
-        >
-          {amountText(pnlValue, currency, locale, true)}
-        </span>
-      </Pair>
-      <Pair separator>
-        {returnLabel ?? t("overview.ledger.return", { range: rangeLabel })}{" "}
-        <span
-          data-testid="ledger-return"
-          className={cn("font-semibold", returnValue !== null && toneClass(returnValue))}
-        >
-          {returnValue === null ? DASH : percentText(returnValue, locale)}
-        </span>
-      </Pair>
-      <Pair>
-        {t("overview.ledger.deepest")}{" "}
-        <span data-testid="ledger-deepest" className="font-semibold text-loss">
-          {percentText(drawdownValue, locale)}
-        </span>
-      </Pair>
-    </p>
+      <Figure
+        icon={Coins}
+        label={rangeLabel(t, "overview.ledger.pnl", range)}
+        testId="ledger-pnl"
+        value={amountText(pnlValue, currency, locale, true)}
+        tone={toneClass(pnlValue)}
+        valueClassName={hasBalance ? VALUE : `${VALUE} ${LEAD}`}
+      />
+      <Figure
+        icon={TrendingUp}
+        label={returnLabel ?? rangeLabel(t, "overview.ledger.return", range)}
+        testId="ledger-return"
+        value={returnValue === null ? DASH : percentText(returnValue, locale)}
+        {...(returnValue === null ? {} : { tone: toneClass(returnValue) })}
+        valueClassName={VALUE}
+      />
+      <Figure
+        icon={TrendingDown}
+        label={t("overview.ledger.deepest")}
+        testId="ledger-deepest"
+        value={percentText(drawdownValue, locale)}
+        tone="text-loss"
+        valueClassName={VALUE}
+      />
+    </dl>
   );
 }

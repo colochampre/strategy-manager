@@ -70,6 +70,7 @@ function readRows(pairs: readonly PairRow[], locale: string, withMoney: boolean)
 /**
  * "By pair": each pair's closed-trade count, realized PnL and return, in the
  * pool's own currency. The pair is the venue's spelling (`SOLUSDT`), as served.
+ * It draws only when more than one pair has a closed trade; with one or none it is absent.
  * Figures are parsed only to be formatted; nothing is computed here.
  */
 export function PairStatsTable({ pairs, currency }: PairStatsTableProps) {
@@ -78,6 +79,9 @@ export function PairStatsTable({ pairs, currency }: PairStatsTableProps) {
   const locale = i18n.resolvedLanguage ?? "en";
   const rows = readRows(pairs, locale, currency !== undefined);
 
+  // One pair, or none, only says again what the view's header says: the section is for comparing pairs.
+  if (pairs.filter((entry) => entry.trades > 0).length < 2) return null;
+
   let body;
   if (rows === null) {
     body = (
@@ -85,8 +89,6 @@ export function PairStatsTable({ pairs, currency }: PairStatsTableProps) {
         {t("strategies.performance.byPair.unreadable")}
       </p>
     );
-  } else if (rows.length === 0) {
-    body = <p className="text-sm text-ink-3">{t("strategies.performance.byPair.empty")}</p>;
   } else {
     body = (
       <div className="overflow-x-auto">
