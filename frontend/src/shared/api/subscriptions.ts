@@ -15,6 +15,16 @@ function isInstant(value: unknown): boolean {
   return value === null || typeof value === "string";
 }
 
+/** An `UptimeView`: seconds enabled, the first enable (null when never) and whether that first date is a baseline. */
+export function isStrategyUptime(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    typeof value.seconds === "number" &&
+    (value.first_enabled_at === null || typeof value.first_enabled_at === "string") &&
+    typeof value.baseline === "boolean"
+  );
+}
+
 /** A `SubscriptionView`, field by field: the share is a decimal string, never a number. */
 export function isSubscription(value: unknown): value is Subscription {
   if (!isRecord(value)) return false;
@@ -109,7 +119,9 @@ function isHeldSubscription(value: unknown): value is HeldSubscription {
     typeof row.authored === "boolean" &&
     typeof row.exchange === "string" &&
     typeof row.venue === "string" &&
-    typeof row.settlement_currency === "string"
+    typeof row.settlement_currency === "string" &&
+    typeof row.strategy_enabled === "boolean" &&
+    isStrategyUptime(row.strategy_uptime)
   );
 }
 

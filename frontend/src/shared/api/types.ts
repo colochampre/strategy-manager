@@ -54,6 +54,15 @@ export interface PublicStrategy {
   capital: string | null;
   /** The author's plain text about the strategy, shown as text and never as markup; null when there is none. */
   description: string | null;
+  /** Every ACTIVE seat, the author's included, live or not. */
+  subscribers: number;
+  /** The deepest fall of the record's curve, a ratio string at or below zero. */
+  max_drawdown: string;
+  /** Wins over closed trades as a ratio string; null with no closed trade. */
+  win_rate: string | null;
+  /** Whether the strategy takes openings now: its subscribers' business to know (tasks.md L.1). */
+  enabled: boolean;
+  uptime: StrategyUptime;
 }
 
 /** The three values that name one capital pool (`PoolRef` on the server). */
@@ -181,6 +190,8 @@ export interface Strategy {
   archived_at: string | null;
   allowed_pairs: string[];
   uptime: StrategyUptime;
+  /** When the strategy was made (ISO); null for a row older than the column. */
+  created_at: string | null;
   visibility: Visibility;
   /** The token a LINK strategy opens to, sent to its author only; null otherwise. */
   share_token: string | null;
@@ -204,6 +215,9 @@ export interface HeldSubscription extends Subscription {
   exchange: string;
   venue: string;
   settlement_currency: string;
+  /** Whether the strategy takes openings now; every holder may know it. */
+  strategy_enabled: boolean;
+  strategy_uptime: StrategyUptime;
 }
 
 /**

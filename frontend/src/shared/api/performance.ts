@@ -1,4 +1,4 @@
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQueries, useQuery } from "@tanstack/react-query";
 
 import { ApiError, apiFetch } from "@/shared/api/client";
 import type {
@@ -248,6 +248,20 @@ export function useStrategyPerformance(strategyId: string) {
     queryKey: ["performance", "strategy", strategyId],
     queryFn: () => fetchStrategyPerformance(strategyId),
     staleTime: PERFORMANCE_STALE_MS,
+  });
+}
+
+/**
+ * The reports of several strategies at once, one query each under the very key `useStrategyPerformance` uses, so
+ * a list that orders its cards by a figure and the cards that draw it read one cache, in the ids' order.
+ */
+export function useStrategiesPerformance(strategyIds: readonly string[]) {
+  return useQueries({
+    queries: strategyIds.map((strategyId) => ({
+      queryKey: ["performance", "strategy", strategyId],
+      queryFn: () => fetchStrategyPerformance(strategyId),
+      staleTime: PERFORMANCE_STALE_MS,
+    })),
   });
 }
 

@@ -111,6 +111,18 @@ describe("the public page", () => {
     );
   });
 
+  it("shows the capital's dash, not words, where there is no return yet (owner, 2026-11-08)", async () => {
+    serve({
+      strategy: () =>
+        Promise.resolve(
+          jsonResponse(publicStrategy({ id: ID, closed_trade_count: 0, unleveraged_return_before_fees: "0" })),
+        ),
+    });
+    open();
+
+    expect(await screen.findByTestId("public-return")).toHaveTextContent(/^—$/);
+  });
+
   it("draws the strategy's record below the figures for a reader with no seat, with no selector", async () => {
     serve();
     open();

@@ -44,6 +44,7 @@ function strategy(overrides: Record<string, unknown> = {}) {
     description: null,
     subscribers: 1,
     live_subscribers: 0,
+    created_at: "2026-09-01T10:00:00Z",
     capital: null,
     ...overrides,
   };
@@ -120,7 +121,7 @@ describe("the strategies list", () => {
 
     const row = await screen.findByTestId("strategy-row");
     const held = within(row).getByTestId("strategy-subscribers");
-    expect(within(held).getByRole("img", { name: text })).toBeInTheDocument();
+    expect(within(held.previousElementSibling as HTMLElement).getByRole("img", { name: text })).toBeInTheDocument();
     // The live count is a figure, not a label: it stays in sight beside the icon.
     expect(held.textContent).toBe(visible);
   });
@@ -131,7 +132,7 @@ describe("the strategies list", () => {
     renderAt(<AppRoutes />, "/strategies/authored");
 
     const row = await screen.findByTestId("strategy-row");
-    expect(within(row).getByTestId("strategy-capital")).toHaveTextContent("Capital: 300.00 USDT");
+    expect(within(row).getByTestId("strategy-capital")).toHaveTextContent("300.00 USDT");
   });
 
   it("claims no capital under the server's brake", async () => {
@@ -140,7 +141,8 @@ describe("the strategies list", () => {
     renderAt(<AppRoutes />, "/strategies/authored");
 
     const row = await screen.findByTestId("strategy-row");
-    expect(within(row).queryByTestId("strategy-capital")).not.toBeInTheDocument();
+    // The card keeps the figure's place and shows the dash the other cards show (owner, 2026-11-08).
+    expect(within(row).getByTestId("strategy-capital").textContent).toBe("—");
   });
 
   it("draws an aria-hidden Plus left of New strategy and leaves its name as it was", async () => {
@@ -192,23 +194,23 @@ describe("the strategies list", () => {
     );
     // Decision 39: the venue and the allowed pairs, in the API's order. The exchange
     // (the operator is on its tab) and the settlement currency (shown by the PnL) are not repeated.
-    const subLine = within(row).getByTestId("strategy-pool");
+    const subLine = within(row).getByTestId("strategy-market");
     expect(subLine.textContent).toBe("usdt-m · ETHUSDT, BTCUSDT");
     expect(subLine).not.toHaveTextContent("bybit");
     expect(subLine.textContent).not.toMatch(/\bUSDT\b/);
     expect(within(row).getByRole("switch", { name: "Enable Alpha" })).toHaveAttribute("aria-checked", "true");
     const uptime = within(row).getByTestId("strategy-uptime");
-    expect(within(uptime).getByRole("img", { name: "active 12 days" })).toBeInTheDocument();
+    expect(
+      within(uptime.previousElementSibling as HTMLElement).getByRole("img", { name: "active 12 days" }),
+    ).toBeInTheDocument();
     expect(uptime.textContent).toBe("12");
     await waitFor(() => expect(within(row).getByTestId("strategy-trades")).toHaveTextContent("7"));
-    const tradesTerm = within(row).getByTestId("strategy-trades").previousElementSibling as HTMLElement;
-    expect(within(tradesTerm).getByRole("img", { name: en.strategies.row.trades })).toBeInTheDocument();
     // Each icon is centred over the figure it heads; the PnL and the return are icons too (owner, 2026-11-06),
-    // so the three figures share one height and line up.
+    // so the figures share one height and line up.
     for (const [testId, name] of [
-      ["strategy-trades", en.strategies.row.trades],
-      ["strategy-pnl", en.strategies.row.pnl],
-      ["strategy-return", en.strategies.row.return],
+      ["strategy-trades", en.strategies.card.trades],
+      ["strategy-pnl", en.strategies.card.pnl],
+      ["strategy-return", en.strategies.card.return],
     ] as const) {
       const term = within(row).getByTestId(testId).previousElementSibling as HTMLElement;
       expect(within(term).getByRole("img", { name })).toBeInTheDocument();
@@ -238,7 +240,7 @@ describe("the strategies list", () => {
     renderAt(<AppRoutes />, "/strategies/authored");
 
     const row = await screen.findByTestId("strategy-row");
-    expect(within(row).getByTestId("strategy-pool").textContent).toBe("usdt-m");
+    expect(within(row).getByTestId("strategy-market").textContent).toBe("usdt-m");
   });
 
   it("shows a never-enabled strategy as off, with no activation claim", async () => {
@@ -251,7 +253,9 @@ describe("the strategies list", () => {
 
     const row = await screen.findByTestId("strategy-row");
     expect(within(row).getByRole("switch")).toHaveAttribute("aria-checked", "false");
-    expect(within(row).getByTestId("strategy-uptime")).toHaveTextContent(en.strategies.row.neverEnabled);
+    const uptime = within(row).getByTestId("strategy-uptime");
+    expect(within(uptime.previousElementSibling as HTMLElement).getByRole("img", { name: en.strategies.row.neverEnabled })).toBeInTheDocument();
+    expect(uptime.textContent).toBe("—");
   });
 
   it("says 'at least' when the first activation is only a baseline", async () => {
@@ -260,7 +264,9 @@ describe("the strategies list", () => {
     renderAt(<AppRoutes />, "/strategies/authored");
 
     const uptime = await screen.findByTestId("strategy-uptime");
-    expect(within(uptime).getByRole("img", { name: "active at least 3 days" })).toBeInTheDocument();
+    expect(
+      within(uptime.previousElementSibling as HTMLElement).getByRole("img", { name: "active at least 3 days" }),
+    ).toBeInTheDocument();
     // A lower bound must not read as an exact count.
     expect(uptime.textContent).toBe("≥3");
   });
@@ -427,140 +433,190 @@ describe("the enable switch asks first (owner, 2026-11-06)", () => {
 /** The class tokens of an element, so a test names a class and not a substring of the whole attribute. */
 const classesOf = (element: Element) => element.className.split(/\s+/);
 
-describe("the list's figures line up from row to row (12f.10.30b)", () => {
-  const WIDE = strategy({ id: "44444444-4444-4444-8444-444444444444", name: "Wide" });
-  const NARROW = strategy({ id: "55555555-5555-4555-8555-555555555555", name: "Narrow" });
+describe("the author's card", () => {
+  const ID = "11111111-1111-4111-8111-111111111111";
 
-  /** Two rows whose PnL differs in width: `+1235.25` against `+988.80`, the case the owner saw. */
-  async function twoRows() {
-    const api = strategiesApi([WIDE, NARROW], (url) => {
-      const id = /\/performance\/strategies\/([^/]+)$/.exec(url)?.[1] ?? "";
-      const report = strategyReport(id);
-      const pnl = id === WIDE.id ? "1235.25" : "988.80";
-      const all = { range: "All", pnl, return: "0.0340000000", trade_count: 7 };
-      return Promise.resolve(
-        jsonResponse({ ...report, ranges: [...report.ranges.filter((entry) => entry.range !== "All"), all] }),
-      );
-    });
-    stubApi(HEALTH, [], POOLS, {}, api.route);
-    renderAt(<AppRoutes />, "/strategies/authored");
-    const rows = await screen.findAllByTestId("strategy-row");
-    await waitFor(() => expect(within(rows[0] as HTMLElement).getByTestId("strategy-pnl")).toHaveTextContent("+1,235.25"));
-    await waitFor(() => expect(within(rows[1] as HTMLElement).getByTestId("strategy-pnl")).toHaveTextContent("+988.80"));
-    return rows;
+  /** A report with a deepest fall and a win count, so the card's four reported figures all have a value. */
+  function reportWithPairs(id: string) {
+    return {
+      ...strategyReport(id),
+      max_drawdown: "-0.0820000000",
+      by_pair: [
+        { pair: "SOLUSDT", trades: 4, wins: 3, win_rate: "0.75", pnl: "30.00", return: "0.02" },
+        { pair: "ETHUSDT", trades: 3, wins: 1, win_rate: "0.3333", pnl: "11.20", return: "0.01" },
+      ],
+    };
   }
 
-  it("the list is ONE grid of five tracks that the rows share", async () => {
-    const rows = await twoRows();
-    const list = (rows[0] as HTMLElement).parentElement as HTMLElement;
-
-    expect(classesOf(list)).toEqual(
-      expect.arrayContaining(["lg:grid", "lg:grid-cols-[minmax(0,1fr)_auto_auto_auto_auto]"]),
+  async function oneCard(overrides: Record<string, unknown> = {}, perf?: ExtraRoute) {
+    const api = strategiesApi(
+      [strategy(overrides)],
+      perf ?? ((url) => Promise.resolve(jsonResponse(reportWithPairs(/([^/]+)$/.exec(url)?.[1] ?? "")))),
     );
-  });
-
-  it("every row takes the shared tracks on a subgrid and declares no tracks of its own", async () => {
-    const rows = await twoRows();
-
-    expect(rows).toHaveLength(2);
-    for (const row of rows) {
-      expect(classesOf(row)).toEqual(expect.arrayContaining(["lg:grid", "lg:grid-cols-subgrid", "lg:col-span-5"]));
-      expect(classesOf(row).filter((name) => /grid-cols-\[/.test(name))).toEqual([]);
-    }
-  });
-
-  it("the three figures sit on the three middle tracks of that subgrid, in every row", async () => {
-    const rows = await twoRows();
-
-    for (const row of rows) {
-      const figures = within(row).getByTestId("strategy-trades").closest("dl") as HTMLElement;
-      expect(classesOf(figures)).toEqual(
-        expect.arrayContaining(["lg:grid", "lg:grid-cols-subgrid", "lg:col-span-3"]),
-      );
-      expect(classesOf(figures).filter((name) => /grid-cols-\[/.test(name))).toEqual([]);
-      expect(within(figures).getAllByRole("term")).toHaveLength(3);
-    }
-  });
-
-  it("a row whose report failed keeps the same three tracks for its message", async () => {
-    const api = strategiesApi([strategy()], () => Promise.resolve(jsonResponse({ detail: "boom" }, 500)));
     stubApi(HEALTH, [], POOLS, {}, api.route);
     renderAt(<AppRoutes />, "/strategies/authored");
+    return await screen.findByTestId("strategy-row");
+  }
 
-    const row = await screen.findByTestId("strategy-row");
-    const message = await within(row).findByText(en.strategies.row.performanceError);
+  it("draws the same figures as Explore, from the author's own report", async () => {
+    const row = await oneCard({ subscribers: 3, live_subscribers: 2, capital: "300" });
+    await waitFor(() => expect(within(row).getByTestId("strategy-trades")).toHaveTextContent("7"));
 
-    expect(classesOf(message)).toContain("lg:col-span-3");
+    expect(within(row).getByTestId("strategy-age")).not.toBeEmptyDOMElement();
+    expect(within(row).getByTestId("strategy-uptime").textContent).toBe("12");
+    expect(within(row).getByTestId("strategy-return")).toHaveTextContent("+3.4%");
+    expect(within(row).getByTestId("strategy-deepest")).toHaveTextContent("-8.2%");
+    // Wins over closed trades across the pairs: 4 of 7.
+    expect(within(row).getByTestId("strategy-winrate")).toHaveTextContent("57.1%");
+    expect(within(row).getByTestId("strategy-subscribers").textContent).toBe("3 · 2 live");
+    expect(within(row).getByTestId("strategy-capital")).toHaveTextContent("300.00 USDT");
+    expect(within(row).getByTestId("strategy-pnl")).toHaveTextContent("+41.20 USDT");
   });
 
-  it("a row whose all-time figures cannot be read keeps the same three tracks for its message", async () => {
-    // A report that parses, whose all-time PnL is not a number: the row's second message path.
-    const unreadable = () => {
-      const report = strategyReport("11111111-1111-4111-8111-111111111111");
-      const all = { range: "All", pnl: "not-a-number", return: "0.0340000000", trade_count: 7 };
-      return Promise.resolve(
-        jsonResponse({ ...report, ranges: [...report.ranges.filter((entry) => entry.range !== "All"), all] }),
-      );
-    };
-    stubApi(HEALTH, [], POOLS, {}, strategiesApi([strategy()], unreadable).route);
-    renderAt(<AppRoutes />, "/strategies/authored");
-
-    const row = await screen.findByTestId("strategy-row");
-    const message = await within(row).findByText(en.strategies.row.performanceError);
-
-    expect(classesOf(message)).toContain("lg:col-span-3");
-  });
-
-  it("the reading order of a row is still name, figures, switch", async () => {
-    const rows = await twoRows();
-
-    for (const row of rows) {
-      const link = within(row).getByRole("link");
-      const figures = within(row).getByTestId("strategy-trades").closest("dl") as HTMLElement;
-      const toggle = within(row).getByRole("switch");
-      expect(link.compareDocumentPosition(figures) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
-      expect(figures.compareDocumentPosition(toggle) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+  it("names every figure by a tooltip on its icon", async () => {
+    const row = await oneCard({ capital: "300" });
+    await waitFor(() => expect(within(row).getByTestId("strategy-trades")).toHaveTextContent("7"));
+    for (const [testId, name] of [
+      ["strategy-age", en.strategies.card.age],
+      ["strategy-trades", en.strategies.card.trades],
+      ["strategy-return", en.strategies.card.return],
+      ["strategy-deepest", en.strategies.card.deepest],
+      ["strategy-winrate", en.strategies.card.winRate],
+      ["strategy-capital", en.strategies.card.capital],
+      ["strategy-pnl", en.strategies.card.pnl],
+    ] as const) {
+      const term = within(row).getByTestId(testId).previousElementSibling as HTMLElement;
+      expect(within(term).getByRole("img", { name })).toBeInTheDocument();
     }
+  });
+
+  it("shows a dash where there is no figure yet", async () => {
+    const row = await oneCard({ capital: null }, () => Promise.resolve(jsonResponse(null, 404)));
+    await waitFor(() => expect(within(row).getByTestId("strategy-trades")).toHaveTextContent("—"));
+    for (const id of ["strategy-return", "strategy-deepest", "strategy-winrate", "strategy-capital", "strategy-pnl"]) {
+      expect(within(row).getByTestId(id).textContent).toBe("—");
+    }
+  });
+
+  it("keeps the venue and the pairs on the market line", async () => {
+    const row = await oneCard({ allowed_pairs: ["ETHUSDT", "BTCUSDT"] });
+    expect(within(row).getByTestId("strategy-market").textContent).toBe("usdt-m · ETHUSDT, BTCUSDT");
+  });
+
+  it("carries a switch instead of an enabled word", async () => {
+    const row = await oneCard();
+    expect(within(row).queryByTestId("strategy-enabled")).toBeNull();
+    expect(within(row).getByRole("switch", { name: "Enable Alpha" })).toBeInTheDocument();
+  });
+
+  it("opens the strategy from the whole card, the title being its one link", async () => {
+    const row = await oneCard();
+    const links = within(row).getAllByRole("link");
+    expect(links).toHaveLength(1);
+    expect(links[0]).toHaveAttribute("href", `/strategies/${ID}`);
+    expect(classesOf(row)).toContain("relative");
+    expect(classesOf(links[0] as HTMLElement)).toEqual(expect.arrayContaining(["after:absolute", "after:inset-0"]));
+    // The switch stays above the stretched link, so pressing it does not open the strategy.
+    expect(within(row).getByRole("switch").closest(".z-10")).not.toBeNull();
+  });
+
+  it("draws its figures in the grid every card shares: four a row on a phone, centred", async () => {
+    const row = await oneCard();
+    const grid = within(row).getByTestId("strategy-return").closest("dl") as HTMLElement;
+    expect(classesOf(grid)).toEqual(expect.arrayContaining(["grid", "grid-cols-4", "place-items-center", "lg:grid-cols-8"]));
+  });
+
+  it("says once that its figures could not be read, and draws no PnL", async () => {
+    const row = await oneCard({}, () => Promise.resolve(jsonResponse({ detail: "boom" }, 500)));
+    expect(await within(row).findByText(en.strategies.row.performanceError)).toBeInTheDocument();
+    expect(within(row).queryByTestId("strategy-pnl")).toBeNull();
+  });
+
+  it("no longer shows the open-state line above the list", async () => {
+    const row = await oneCard();
+    expect(row).toBeInTheDocument();
+    // Let the positions read finish: the line drew its figures only once it had an answer.
+    await waitFor(() => expect(screen.queryByText(en.positions.state.loading)).not.toBeInTheDocument());
+    // The line read "Open: … Orders in flight: … Last read: … Read again".
+    expect(screen.queryByText("Open:")).not.toBeInTheDocument();
+    expect(screen.queryByText("Orders in flight:")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Read again" })).not.toBeInTheDocument();
   });
 });
 
-describe("the open-state figures on the page", () => {
-  const positionsCalls = (api: ReturnType<typeof stubApi>) =>
-    api.mock.calls.filter(([url]) => String(url).endsWith("/positions/open")).length;
+describe("the author's list is sorted by the figure the cards show", () => {
+  const A = "a1a1a1a1-a1a1-41a1-81a1-a1a1a1a1a1a1";
+  const B = "b1b1b1b1-b1b1-41b1-81b1-b1b1b1b1b1b1";
+  const C = "c1c1c1c1-c1c1-41c1-81c1-c1c1c1c1c1c1";
+  const rows = [
+    strategy({ id: A, name: "Aaa", created_at: "2026-09-10T00:00:00Z", subscribers: 1, capital: "100" }),
+    strategy({ id: B, name: "Bbb", created_at: "2026-08-10T00:00:00Z", subscribers: 5, capital: "50" }),
+    strategy({ id: C, name: "Ccc", created_at: "2026-09-20T00:00:00Z", subscribers: 3, capital: "900" }),
+  ];
+  const figures: Record<string, { ret: string; trades: number }> = {
+    [A]: { ret: "0.10", trades: 2 },
+    [B]: { ret: "0.30", trades: 9 },
+    [C]: { ret: "0.20", trades: 5 },
+  };
+  const failing = { c: false };
 
-  it("sits between the title row and the list", async () => {
-    const api = strategiesApi([strategy()]);
-    stubApi(HEALTH, [], POOLS, {}, api.route);
-    renderAt(<AppRoutes />, "/strategies/authored");
+  function perf(url: string) {
+    const id = /([^/]+)$/.exec(url)?.[1] ?? "";
+    if (id === C && failing.c) return Promise.resolve(jsonResponse({ detail: "boom" }, 500));
+    const report = strategyReport(id);
+    const entry = figures[id] ?? { ret: "0", trades: 0 };
+    const all = { range: "All", pnl: "1.00", return: entry.ret, trade_count: entry.trades };
+    return Promise.resolve(
+      jsonResponse({
+        ...report,
+        trade_count: entry.trades,
+        ranges: [...report.ranges.filter((range) => range.range !== "All"), all],
+      }),
+    );
+  }
 
-    await screen.findByTestId("strategy-row");
-    await waitFor(() => expect(screen.queryByText(en.positions.state.figures.open + ":")).toBeInTheDocument());
-    const figures = screen.getByText(en.positions.state.figures.open + ":").closest("dl") as HTMLElement;
-    const title = screen.getByRole("heading", { level: 1 });
-    const list = screen.getByTestId("strategy-row").closest("ul") as HTMLElement;
-    expect(title.compareDocumentPosition(figures) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
-    expect(figures.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+  beforeEach(() => {
+    failing.c = false;
   });
 
-  it("is not drawn, and asks for nothing, before the exchange scope is known", async () => {
-    const api = strategiesApi([strategy()]);
-    const fetchMock = stubApi(HEALTH, [], { kind: "pending" }, {}, api.route);
-    renderAt(<AppRoutes />, "/strategies/authored");
+  const names = () =>
+    screen.getAllByTestId("strategy-row").map((row) => within(row).getAllByRole("link")[0]?.textContent);
 
-    expect(await screen.findByText(en.strategies.scopeLoading)).toBeInTheDocument();
-    expect(screen.queryByText(en.positions.state.figures.open + ":")).not.toBeInTheDocument();
-    expect(screen.queryByText(en.positions.state.loading)).not.toBeInTheDocument();
-    expect(positionsCalls(fetchMock)).toBe(0);
+  async function mount() {
+    stubApi(HEALTH, [], POOLS, {}, strategiesApi(rows, perf).route);
+    renderAt(<AppRoutes />, "/strategies/authored");
+    await screen.findAllByTestId("strategy-row");
+    await waitFor(() => expect(screen.getAllByTestId("strategy-trades").map((node) => node.textContent)).not.toContain("…"));
+  }
+  const press = (name: string) => fireEvent.click(screen.getByRole("button", { name: new RegExp(`^${name}`) }));
+
+  it("starts on return, largest first, the contribution to the pool", async () => {
+    await mount();
+    expect(names()).toEqual(["Bbb", "Ccc", "Aaa"]);
+    expect(screen.getByRole("button", { name: /^Return/ })).toHaveAttribute("aria-pressed", "true");
   });
 
-  it("is not drawn, and asks for nothing, when no exchange exists", async () => {
-    const api = strategiesApi([]);
-    const fetchMock = stubApi(HEALTH, [], { kind: "ok", body: [] }, {}, api.route);
-    renderAt(<AppRoutes />, "/strategies/authored");
+  it.each([
+    ["Closed trades", ["Bbb", "Ccc", "Aaa"]],
+    ["Subscribers", ["Bbb", "Ccc", "Aaa"]],
+    ["Capital", ["Ccc", "Aaa", "Bbb"]],
+    ["Age", ["Bbb", "Aaa", "Ccc"]],
+  ])("%s sorts descending first, then ascending on a second press", async (key, descending) => {
+    await mount();
+    press(key);
+    expect(names()).toEqual(descending);
+    press(key);
+    expect(names()).toEqual([...descending].reverse());
+    press(key);
+    expect(names()).toEqual(descending);
+  });
 
-    expect(await screen.findByText(en.strategies.noExchanges)).toBeInTheDocument();
-    expect(screen.queryByText(en.positions.state.figures.open + ":")).not.toBeInTheDocument();
-    expect(positionsCalls(fetchMock)).toBe(0);
+  it("a card whose figures failed sorts last both ways", async () => {
+    failing.c = true;
+    await mount();
+    expect(names()).toEqual(["Bbb", "Aaa", "Ccc"]);
+    press("Return");
+    expect(names()).toEqual(["Aaa", "Bbb", "Ccc"]);
   });
 });
 
@@ -612,9 +668,6 @@ describe("the Strategies page shows nothing of another exchange", () => {
 
   const BYBIT_ONLY = ["TWOUSDT", "THREEUSDT", "FOURUSDT", "FIVEUSDT", "SIXUSDT", "Hidden Archived", "Unmatched Name", "Order Strat", "Bybit Strat"];
 
-  const figure = (label: string) =>
-    (screen.getByText(`${label}:`).parentElement as HTMLElement).querySelector("dd")?.textContent;
-
   async function mountPage(body: unknown) {
     const api = strategiesApi([binanceStrategy, bybitStrategy]);
     const fetchMock = stubApi(HEALTH, [], POOLS, {}, api.route, {}, undefined, { kind: "ok", body });
@@ -632,26 +685,23 @@ describe("the Strategies page shows nothing of another exchange", () => {
   it("counts and draws only binance's elements on the binance tab, then only bybit's with no new request", async () => {
     const fetchMock = await mountPage(ANSWER);
 
-    await waitFor(() => expect(screen.queryByText("Open:")).toBeInTheDocument());
-    expect(figure("Open")).toBe("1");
-    expect(figure("Orders in flight")).toBe("0");
     const row = screen.getByTestId("strategy-row");
     expect(within(row).getByRole("link", { name: "Binance Strat" })).toBeInTheDocument();
-    expect(within(row).queryAllByRole("listitem").map((item) => item.textContent)).toEqual(["ONEUSDT · LONG · Live"]);
-    expect(screen.queryByText(/Not on this list/)).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(within(row).queryAllByRole("listitem").map((item) => item.textContent)).toEqual(["ONEUSDT · LONG · Live"]),
+    );
     for (const text of BYBIT_ONLY) expect(document.body.textContent ?? "", text).not.toContain(text);
 
     const before = positionsCalls(fetchMock);
     fireEvent.click(screen.getAllByRole("button", { name: "Bybit" })[0] as HTMLElement);
     await screen.findByText("Bybit Strat");
 
-    expect(figure("Open")).toBe("4");
-    expect(figure("Orders in flight")).toBe("1");
     const bybitRow = screen.getByTestId("strategy-row");
-    expect(within(bybitRow).queryAllByRole("listitem").map((item) => item.textContent)).toEqual(["TWOUSDT · LONG · Live"]);
-    expect(screen.getByText(/^Not on this list:/)).toHaveTextContent(
-      "Not on this list: Hidden Archived · archived · THREEUSDT · Dry run; Unmatched Name · FOURUSDT · Live · figures not readable; Binance Strat · SIXUSDT · Live; Order Strat · archived · FIVEUSDT · order in flight · Live.",
+    await waitFor(() =>
+      expect(within(bybitRow).queryAllByRole("listitem").map((item) => item.textContent)).toEqual(["TWOUSDT · LONG · Live"]),
     );
+    // The open-state line is gone (owner, 2026-11-08): nothing on the page lists what the chips do not.
+    expect(screen.queryByText(/Not on this list/)).not.toBeInTheDocument();
     expect(document.body.textContent ?? "").not.toContain("ONEUSDT");
     expect(positionsCalls(fetchMock)).toBe(before);
   });
@@ -679,12 +729,11 @@ describe("the Strategies page shows nothing of another exchange", () => {
     );
     await mountPage(orphans);
 
-    await waitFor(() => expect(screen.queryByText("Open:")).toBeInTheDocument());
     for (const tab of ["Binance", "Bybit"]) {
       fireEvent.click(screen.getAllByRole("button", { name: tab })[0] as HTMLElement);
       await screen.findByText(tab === "Binance" ? "Binance Strat" : "Bybit Strat");
-      expect(figure("Open")).toBe("0");
-      expect(figure("Orders in flight")).toBe("0");
+      await waitFor(() => expect(screen.queryByText(en.positions.state.loading)).not.toBeInTheDocument());
+      expect(within(screen.getByTestId("strategy-row")).queryAllByRole("listitem")).toHaveLength(0);
       const text = document.body.textContent ?? "";
       for (const hidden of ["Nowhere Name", "NOWHEREUSDT", "Orphan Order", "ORPHANUSDT", "kraken"]) expect(text).not.toContain(hidden);
       expect(screen.queryByText(/Not on this list/)).not.toBeInTheDocument();

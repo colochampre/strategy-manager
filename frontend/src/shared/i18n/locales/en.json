@@ -275,6 +275,31 @@
       "empty": "No strategy is public yet.",
       "brake": "The server's brake is on: nobody trades live, so no capital is shown."
     },
+    "card": {
+      "age": "Age",
+      "subscribed": "Time subscribed",
+      "uptime": "Days active",
+      "trades": "Closed trades",
+      "return": "Return",
+      "deepest": "Deepest drawdown",
+      "winRate": "Win rate",
+      "subscribers": "Subscribers",
+      "capital": "Capital",
+      "pnl": "PnL",
+      "share": "Share",
+      "leverage": "Leverage"
+    },
+    "sort": {
+      "label": "Sort by",
+      "age": "Age",
+      "trades": "Closed trades",
+      "return": "Return",
+      "subscribers": "Subscribers",
+      "capital": "Capital",
+      "descending": "descending",
+      "ascending": "ascending",
+      "active": "{{key}}, {{direction}}"
+    },
     "public": {
       "back": "All public strategies",
       "loading": "Loading the strategy…",
@@ -287,7 +312,6 @@
       "live": "people trading it live",
       "capital": "capital the strategy trades with",
       "returnInfo": "How this return is read",
-      "noRealTrade": "not yet",
       "returnHint": "Read from the fills of the trades its author made with real money and closed; simulated trades and subscribers' trades do not count. Trades open at the same time are added together and every other trade compounds on the ones before it, each taken as if the whole capital were on it. No leverage and no fees are counted, so nobody's real result matches it exactly.",
       "capitalInfo": "What this capital is",
       "capitalHint": "The capital assigned by everyone trading it live, its author included: each one's share of the latest balance of their pool. It is capital assigned, not capital in use, and the same money can stand behind several strategies."
@@ -296,6 +320,7 @@
       "haveCode": "I have a code",
       "codeLabel": "Invitation code",
       "open": "Open",
+      "cancel": "Cancel",
       "codeHint": "Type the code the author sent you. It opens the strategy's page, and it is used only when you subscribe.",
       "codeOpensNothing": "No strategy opens to that code. Check it and try again.",
       "linkOpensNothing": "This link no longer opens the strategy. Ask its author for the current one.",
@@ -355,9 +380,6 @@
       "activeAtLeast_one": "active at least {{count}} day",
       "activeAtLeast_other": "active at least {{count}} days",
       "daysAtLeast": "≥{{count}}",
-      "trades": "trades",
-      "pnl": "PnL all time",
-      "return": "return all time",
       "toggleError": "The change was not saved. Try again.",
       "performanceError": "This strategy's figures could not be loaded."
     },

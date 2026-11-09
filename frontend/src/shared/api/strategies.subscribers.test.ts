@@ -23,6 +23,7 @@ function strategy(overrides: Record<string, unknown> = {}) {
     description: null,
     subscribers: 3,
     live_subscribers: 2,
+    created_at: null,
     capital: "300",
     ...overrides,
   };

@@ -39,6 +39,7 @@ function strategy({ allocation_percent = "30", ...overrides }: Partial<Strategy>
     description: null,
     subscribers: 1,
     live_subscribers: 0,
+    created_at: null,
     capital: null,
     ...overrides,
   };

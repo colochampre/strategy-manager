@@ -1,178 +1,90 @@
-import { Clock, Coins, ListChecks, TrendingUp, Users } from "lucide-react";
+import { Coins } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { Link } from "react-router";
 
 import { OpenMarks } from "@/features/positions/OpenMarks";
-import { AuthorCapital } from "@/features/strategies/AuthorCapital";
+import type { AuthoredCard } from "@/features/strategies/card-figures";
 import { useEnableQuestion } from "@/features/strategies/EnableDialog";
-import { amountText, parseDecimal, percentText, toneClass } from "@/shared/lib/amount-text";
-import { useStrategyPerformance } from "@/shared/api/performance";
-import type { Strategy, StrategyPerformance } from "@/shared/api/types";
+import { Figure } from "@/features/strategies/PublicFigures";
+import { StrategyCard } from "@/features/strategies/StrategyCard";
+import type { Strategy } from "@/shared/api/types";
+import { amountText, toneClass } from "@/shared/lib/amount-text";
 import { cn } from "@/shared/lib/cn";
-import { IconTip } from "@/shared/ui/Tooltip";
-
-const DAY_SECONDS = 86_400;
-const DASH = "—";
 
 interface StrategyRowProps {
   strategy: Strategy;
+  /** The card's figures, read by the list so it can order its cards by them. */
+  card: AuthoredCard;
 }
 
 /**
- * "Active X days" with the first activation behind it (decision 9). A baseline
- * first activation was written by the migration, so the true date is unknown
- * and the text says "at least". A strategy never enabled makes no such claim.
+ * One of the author's strategies, as the same card Explore and My subscriptions draw. It adds the PnL, the one
+ * figure only the author has, the author's open positions, and the enable switch last: the switch is the only
+ * control, it asks before it changes anything, and a refused or failed change says so in that question instead of
+ * silently snapping back.
  */
-function uptimeText(strategy: Strategy, t: ReturnType<typeof useTranslation>["t"]): string {
-  const { seconds, first_enabled_at: firstEnabledAt, baseline } = strategy.uptime;
-  if (firstEnabledAt === null) return t("strategies.row.neverEnabled");
-  const count = Math.floor(seconds / DAY_SECONDS);
-  return t(baseline ? "strategies.row.activeAtLeast" : "strategies.row.active", { count });
-}
-
-interface FiguresProps {
-  strategy: Strategy;
-}
-
-/**
- * Trades, all-time PnL and return, in the strategy's own pool currency; never
- * summed across strategies (rule 7). One strategy's failing report blanks only
- * its own figures and says so.
- */
-function Figures({ strategy }: FiguresProps) {
+export function StrategyRow({ strategy, card }: StrategyRowProps) {
   const { t, i18n } = useTranslation();
   const locale = i18n.resolvedLanguage ?? "en";
-  const performance = useStrategyPerformance(strategy.id);
-
-  if (performance.status === "error") {
-    return (
-      <p role="alert" className="text-xs text-loss lg:col-span-3">
-        {t("strategies.row.performanceError")}
-      </p>
-    );
-  }
-
-  const report: StrategyPerformance | null = performance.status === "success" ? performance.data : null;
-  const all = report?.ranges.find((entry) => entry.range === "All");
-  const pnl = all === undefined ? null : parseDecimal(all.pnl);
-  const ret = all === undefined ? null : parseDecimal(all.return);
-  const pending = performance.status === "pending";
-
-  if (report !== null && all !== undefined && (pnl === null || ret === null)) {
-    return (
-      <p role="alert" className="text-xs text-loss lg:col-span-3">
-        {t("strategies.row.performanceError")}
-      </p>
-    );
-  }
-
-  const empty = pending ? "…" : DASH;
-  return (
-    <dl className="tabular flex gap-x-5 font-mono text-xs text-ink-2 lg:col-span-3 lg:grid lg:grid-cols-subgrid lg:gap-x-6">
-      {/* Each icon is centred over the figure it heads, so the three line up at one height. */}
-      <div className="flex w-fit flex-col items-center">
-        <dt className="text-ink-3">
-          <IconTip icon={ListChecks} label={t("strategies.row.trades")} />
-        </dt>
-        <dd data-testid="strategy-trades">{report === null ? empty : report.trade_count}</dd>
-      </div>
-      <div className="flex w-fit flex-col items-center">
-        <dt className="text-ink-3">
-          <IconTip icon={Coins} label={t("strategies.row.pnl")} />
-        </dt>
-        <dd data-testid="strategy-pnl" className={cn(pnl !== null && toneClass(pnl))}>
-          {pnl === null ? empty : `${amountText(pnl, strategy.settlement_currency, locale, true)} ${strategy.settlement_currency}`}
-        </dd>
-      </div>
-      <div className="flex w-fit flex-col items-center">
-        <dt className="text-ink-3">
-          <IconTip icon={TrendingUp} label={t("strategies.row.return")} />
-        </dt>
-        <dd data-testid="strategy-return" className={cn(ret !== null && toneClass(ret))}>
-          {ret === null ? empty : percentText(ret, locale)}
-        </dd>
-      </div>
-    </dl>
-  );
-}
-
-/**
- * One strategy: its name (a link to its detail), its pool, the enable switch,
- * its uptime and its figures. The switch is the only control: it asks before it
- * changes anything, and a refused or failed change says so in that question
- * instead of silently snapping back.
- */
-export function StrategyRow({ strategy }: StrategyRowProps) {
-  const { t } = useTranslation();
   const question = useEnableQuestion(strategy);
   const archived = strategy.archived_at !== null;
+  const pnl = card.pnl;
 
   return (
-    <li
-      data-testid="strategy-row"
-      className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 rounded-md border border-rule bg-panel px-4 py-3 lg:col-span-5 lg:grid lg:grid-cols-subgrid"
-    >
-      <div className="flex min-w-0 flex-col gap-0.5">
-        <div className="flex flex-wrap items-baseline gap-x-2">
-          <Link
-            to={`/strategies/${strategy.id}`}
-            className="font-display text-base font-semibold text-gain hover:text-gain-bright"
-          >
-            {strategy.name}
-          </Link>
-          {archived && (
-            <span className="text-xs uppercase tracking-wide text-ink-3">{t("strategies.row.archived")}</span>
-          )}
-        </div>
-        <p data-testid="strategy-pool" className="font-mono text-[11px] uppercase tracking-[0.14em] text-ink-3">
-          {[strategy.venue, strategy.allowed_pairs.join(", ")].filter((part) => part !== "").join(" · ")}
-        </p>
-        <p data-testid="strategy-uptime" className="flex items-center gap-1.5 text-xs text-ink-2">
-          {strategy.uptime.first_enabled_at === null ? (
-            uptimeText(strategy, t)
-          ) : (
-            <>
-              <IconTip icon={Clock} label={uptimeText(strategy, t)} />
-              {strategy.uptime.baseline
-                ? t("strategies.row.daysAtLeast", { count: Math.floor(strategy.uptime.seconds / DAY_SECONDS) })
-                : Math.floor(strategy.uptime.seconds / DAY_SECONDS)}
-            </>
-          )}
-        </p>
-        <p data-testid="strategy-subscribers" className="flex items-center gap-1.5 text-xs text-ink-2">
-          <IconTip
-            icon={Users}
-            label={t("strategies.row.subscribers", { count: strategy.subscribers, live: strategy.live_subscribers })}
+    <StrategyCard
+      prefix="strategy"
+      rowTestId="strategy-row"
+      to={`/strategies/${strategy.id}`}
+      name={strategy.name}
+      archived={archived}
+      market={[strategy.venue, strategy.allowed_pairs.join(", ")].filter((part) => part !== "").join(" · ")}
+      since={strategy.created_at}
+      sinceKind="age"
+      uptime={strategy.uptime}
+      figures={card.figures}
+      figuresError={card.failed ? t("strategies.row.performanceError") : null}
+      trailing={
+        card.failed ? undefined : (
+          <Figure
+            icon={Coins}
+            label={t("strategies.card.pnl")}
+            testId="strategy-pnl"
+            value={
+              pnl === undefined
+                ? "…"
+                : pnl === null
+                  ? "—"
+                  : `${amountText(pnl, strategy.settlement_currency, locale, true)} ${strategy.settlement_currency}`
+            }
+            tone={pnl === undefined || pnl === null ? undefined : toneClass(pnl)}
           />
-          {t("strategies.row.subscribersShort", { count: strategy.subscribers, live: strategy.live_subscribers })}
-        </p>
-        <AuthorCapital strategy={strategy} className="text-xs text-ink-2" />
-      </div>
-      <Figures strategy={strategy} />
-      <div className="flex flex-col items-end gap-1">
-        <button
-          type="button"
-          role="switch"
-          aria-checked={strategy.enabled}
-          aria-label={t("strategies.row.enable", { name: strategy.name })}
-          disabled={archived || question.busy}
-          onClick={question.ask}
-          className={cn(
-            "relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border border-rule transition-colors disabled:opacity-50",
-            strategy.enabled ? "bg-gain" : "bg-panel-2",
-          )}
-        >
-          <span
-            aria-hidden="true"
+        )
+      }
+      action={
+        <div className="flex flex-col items-end gap-1">
+          <button
+            type="button"
+            role="switch"
+            aria-checked={strategy.enabled}
+            aria-label={t("strategies.row.enable", { name: strategy.name })}
+            disabled={archived || question.busy}
+            onClick={question.ask}
             className={cn(
-              "inline-block size-4 rounded-full bg-ink transition-transform",
-              strategy.enabled ? "translate-x-6" : "translate-x-1",
+              "relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border border-rule transition-colors disabled:opacity-50",
+              strategy.enabled ? "bg-gain" : "bg-panel-2",
             )}
-          />
-        </button>
-        {question.dialog}
-      </div>
-      <OpenMarks strategy={strategy} />
-    </li>
+          >
+            <span
+              aria-hidden="true"
+              className={cn(
+                "inline-block size-4 rounded-full bg-ink transition-transform",
+                strategy.enabled ? "translate-x-6" : "translate-x-1",
+              )}
+            />
+          </button>
+          {question.dialog}
+        </div>
+      }
+      marks={<OpenMarks strategy={strategy} />}
+    />
   );
 }

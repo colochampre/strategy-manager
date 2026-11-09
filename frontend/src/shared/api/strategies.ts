@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { ApiError, apiFetch, retryTransient } from "@/shared/api/client";
-import { isSubscription } from "@/shared/api/subscriptions";
+import { isStrategyUptime, isSubscription } from "@/shared/api/subscriptions";
 import type {
   EnablementEvent,
   InviteCode,
@@ -16,15 +16,6 @@ const SECRET_LAST4_LENGTH = 4;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isUptime(value: unknown): boolean {
-  return (
-    isRecord(value) &&
-    typeof value.seconds === "number" &&
-    (value.first_enabled_at === null || typeof value.first_enabled_at === "string") &&
-    typeof value.baseline === "boolean"
-  );
 }
 
 function isCount(value: unknown): boolean {
@@ -45,7 +36,9 @@ function isStrategy(value: unknown): value is Strategy {
     typeof value.enabled === "boolean" &&
     (value.archived_at === null || typeof value.archived_at === "string") &&
     Array.isArray(value.allowed_pairs) &&
-    isUptime(value.uptime) &&
+    isStrategyUptime(value.uptime) &&
+    // When the strategy was made; null for a row older than the column. Never absent.
+    (value.created_at === null || typeof value.created_at === "string") &&
     (value.visibility === "PUBLIC" || value.visibility === "LINK" || value.visibility === "PRIVATE") &&
     // Sent to the author while the strategy is LINK; null otherwise. Never absent.
     (value.share_token === null || typeof value.share_token === "string") &&

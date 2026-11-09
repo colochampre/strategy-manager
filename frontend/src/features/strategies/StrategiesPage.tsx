@@ -3,13 +3,47 @@ import type { ReactNode } from "react";
 import { Plus } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { OpenStateLine } from "@/features/positions/OpenStateLine";
 import { ArchivedToggle } from "@/features/strategies/ArchivedToggle";
+import { ageOrder, authoredFigures, sortFigure } from "@/features/strategies/card-figures";
+import { DEFAULT_SORT, nextSort, sortCards } from "@/features/strategies/card-sort";
 import { NewStrategyDialog } from "@/features/strategies/NewStrategyDialog";
+import { SortControl } from "@/features/strategies/SortControl";
 import { StrategyRow } from "@/features/strategies/StrategyRow";
+import { useStrategiesPerformance } from "@/shared/api/performance";
 import { usePools } from "@/shared/api/pools";
 import { useStrategies } from "@/shared/api/strategies";
+import type { Strategy } from "@/shared/api/types";
 import { useExchangeScope } from "@/shared/scope/exchange-store";
+
+/**
+ * The author's strategies as cards, ordered by the figure the cards show. Return is the strategy's contribution
+ * to the pool, read from the very reports the cards read (one cache), so the order and the figures agree.
+ */
+function StrategyList({ strategies }: { strategies: readonly Strategy[] }) {
+  const [sort, setSort] = useState(DEFAULT_SORT);
+  const reports = useStrategiesPerformance(strategies.map((strategy) => strategy.id));
+  const cards = strategies.map((strategy, index) => ({
+    strategy,
+    card: authoredFigures(strategy, {
+      status: reports[index]?.status ?? "pending",
+      data: reports[index]?.data,
+    }),
+  }));
+  const ordered = sortCards(cards, sort, ({ strategy, card }, key) =>
+    sortFigure(card.figures, ageOrder(strategy.created_at), key),
+  );
+
+  return (
+    <>
+      <SortControl sort={sort} onChange={(key) => setSort((current) => nextSort(current, key))} />
+      <ul className="flex flex-col gap-3">
+        {ordered.map(({ strategy, card }) => (
+          <StrategyRow key={strategy.id} strategy={strategy} card={card} />
+        ))}
+      </ul>
+    </>
+  );
+}
 
 /**
  * The Strategies container: the selected exchange's strategies, archived ones
@@ -33,16 +67,6 @@ export function StrategiesPage() {
     exchange === null || pools.data === undefined
       ? []
       : pools.data.filter((pool) => pool.exchange === exchange && pool.enabled);
-
-  // The ids of the rows on screen: null while the list loads, so the line under the figures is withheld; empty
-  // when it failed, so every element of the exchange is named; and otherwise the rows of the selected exchange.
-  let visibleStrategyIds: ReadonlySet<string> | null = null;
-  if (strategies.status === "error") visibleStrategyIds = new Set();
-  else if (strategies.status === "success" && exchange !== null) {
-    visibleStrategyIds = new Set(
-      strategies.data.filter((strategy) => strategy.exchange === exchange).map((strategy) => strategy.id),
-    );
-  }
 
   let body: ReactNode;
   if (scope.status === "loading") {
@@ -77,14 +101,7 @@ export function StrategiesPage() {
       rows.length === 0 ? (
         <p className="text-sm text-ink-3">{t("strategies.empty")}</p>
       ) : (
-        // From lg the list is ONE grid and every row sits on it as a subgrid, so the name, the three figures
-        // and the switch have the same tracks in every row: a track is as wide as the widest value in ANY row,
-        // never as wide as its own row's. Below lg the rows stay the wrapping flex rows they were.
-        <ul className="flex flex-col gap-3 lg:grid lg:grid-cols-[minmax(0,1fr)_auto_auto_auto_auto] lg:gap-x-6">
-          {rows.map((strategy) => (
-            <StrategyRow key={strategy.id} strategy={strategy} />
-          ))}
-        </ul>
+        <StrategyList strategies={rows} />
       );
   }
 
@@ -102,7 +119,6 @@ export function StrategiesPage() {
           {t("strategies.new.open")}
         </button>
       </div>
-      {exchange !== null && <OpenStateLine exchange={exchange} visibleStrategyIds={visibleStrategyIds} />}
       {body}
       {creating && exchange !== null && (
         <NewStrategyDialog exchange={exchange} pools={registrable} onClose={() => setCreating(false)} />

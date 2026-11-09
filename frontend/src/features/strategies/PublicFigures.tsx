@@ -38,7 +38,8 @@ export function Figure({ label, testId, value, tone = "text-ink", info, icon }: 
   return (
     // The label takes the room left, so a label that wraps never lowers its figure below the others in the row.
     <div className="flex w-fit flex-col items-center justify-between gap-0.5">
-      <dt className="flex items-start text-xs text-ink-3">
+      {/* Lifted above a card's stretched link, so the icon still answers the pointer with its tooltip. */}
+      <dt className="relative z-10 flex items-start text-xs text-ink-3">
         {icon === undefined ? label : <IconTip icon={icon} label={label} />}
         {info}
       </dt>
@@ -94,13 +95,7 @@ export function StrategyFigures({ strategy, returnInfo, capitalInfo }: PublicFig
         icon={TrendingUp}
         label={t("strategies.public.return")}
         testId="public-return"
-        value={
-          strategy.closed_trade_count === 0
-            ? t("strategies.public.noRealTrade")
-            : ratio === null
-              ? NO_FIGURE
-              : percentText(ratio, i18n.language)
-        }
+        value={ratio === null ? NO_FIGURE : percentText(ratio, i18n.language)}
         tone={ratio === null ? undefined : toneClass(ratio)}
         info={returnInfo}
       />

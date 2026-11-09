@@ -275,6 +275,31 @@
       "empty": "Todavía no hay ninguna estrategia pública.",
       "brake": "El freno del servidor está activo: nadie opera en vivo, así que no se muestra capital."
     },
+    "card": {
+      "age": "Antigüedad",
+      "subscribed": "Tiempo suscrito",
+      "uptime": "Días activa",
+      "trades": "Operaciones cerradas",
+      "return": "Rendimiento",
+      "deepest": "Caída máxima",
+      "winRate": "Tasa de aciertos",
+      "subscribers": "Suscriptores",
+      "capital": "Capital",
+      "pnl": "PnL",
+      "share": "Parte del pool",
+      "leverage": "Apalancamiento"
+    },
+    "sort": {
+      "label": "Ordenar por",
+      "age": "Antigüedad",
+      "trades": "Operaciones cerradas",
+      "return": "Rendimiento",
+      "subscribers": "Suscriptores",
+      "capital": "Capital",
+      "descending": "descendente",
+      "ascending": "ascendente",
+      "active": "{{key}}, {{direction}}"
+    },
     "public": {
       "back": "Todas las estrategias públicas",
       "loading": "Cargando la estrategia…",
@@ -287,7 +312,6 @@
       "live": "personas operándola en vivo",
       "capital": "capital con el que opera la estrategia",
       "returnInfo": "Cómo se calcula este rendimiento",
-      "noRealTrade": "aún no",
       "returnHint": "Se calcula con las ejecuciones de las operaciones que su autor hizo con dinero real y cerró; no cuentan las operaciones simuladas ni las de los suscriptores. Las operaciones abiertas al mismo tiempo se suman y cada una de las demás se compone sobre las anteriores, y cada operación se toma como si todo el capital estuviera en ella. No cuenta apalancamiento ni comisiones, así que el resultado real de nadie coincide exactamente.",
       "capitalInfo": "Qué es este capital",
       "capitalHint": "El capital que asignan todos los que la operan en vivo, incluido su autor: la cuota de cada uno sobre el último saldo de su pool. Es capital asignado, no capital en uso, y el mismo dinero puede respaldar varias estrategias."
@@ -296,6 +320,7 @@
       "haveCode": "Tengo un código",
       "codeLabel": "Código de invitación",
       "open": "Abrir",
+      "cancel": "Cancelar",
       "codeHint": "Escriba el código que le envió el autor. Abre la página de la estrategia y solo se usa cuando usted se suscribe.",
       "codeOpensNothing": "Ninguna estrategia se abre con ese código. Revíselo e inténtelo de nuevo.",
       "linkOpensNothing": "Este enlace ya no abre la estrategia. Pídale a su autor el enlace actual.",
@@ -355,9 +380,6 @@
       "activeAtLeast_one": "activa al menos {{count}} día",
       "activeAtLeast_other": "activa al menos {{count}} días",
       "daysAtLeast": "≥{{count}}",
-      "trades": "operaciones",
-      "pnl": "PnL total",
-      "return": "rendimiento total",
       "toggleError": "El cambio no se guardó. Inténtelo de nuevo.",
       "performanceError": "No se pudieron cargar las cifras de esta estrategia."
     },

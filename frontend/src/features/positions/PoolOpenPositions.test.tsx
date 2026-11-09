@@ -64,6 +64,7 @@ function strategy(): Strategy {
     description: null,
     subscribers: 1,
     live_subscribers: 0,
+    created_at: null,
     capital: null,
   };
 }

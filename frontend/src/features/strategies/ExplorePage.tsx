@@ -1,26 +1,31 @@
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Link } from "react-router";
 
+import { ageOrder, publicFigures, sortFigure } from "@/features/strategies/card-figures";
+import { DEFAULT_SORT, nextSort, sortCards } from "@/features/strategies/card-sort";
 import { CodeEntry } from "@/features/strategies/CodeEntry";
-import { PublicFigures, PublicOrigin } from "@/features/strategies/PublicFigures";
+import { SortControl } from "@/features/strategies/SortControl";
+import { StrategyCard } from "@/features/strategies/StrategyCard";
 import { useMe } from "@/shared/api/me";
 import { usePublicStrategies } from "@/shared/api/public-strategies";
 import type { PublicStrategy } from "@/shared/api/types";
 
-function PublicStrategyRow({ strategy }: { strategy: PublicStrategy }) {
+function PublicStrategyCard({ strategy }: { strategy: PublicStrategy }) {
+  const { t } = useTranslation();
   return (
-    <li data-testid="public-strategy-row" className="flex flex-col gap-3 rounded-md border border-rule bg-panel px-4 py-3">
-      <div className="flex min-w-0 flex-col gap-0.5">
-        <Link
-          to={`/strategies/explore/${strategy.id}`}
-          className="font-display text-base font-semibold text-gain hover:text-gain-bright"
-        >
-          {strategy.name}
-        </Link>
-        <PublicOrigin strategy={strategy} />
-      </div>
-      <PublicFigures strategy={strategy} />
-    </li>
+    <StrategyCard
+      prefix="public"
+      rowTestId="public-strategy-row"
+      to={`/strategies/explore/${strategy.id}`}
+      name={strategy.name}
+      byline={t("strategies.public.by", { name: strategy.author_name })}
+      enabled={strategy.enabled}
+      market={`${strategy.exchange} · ${strategy.venue} · ${strategy.settlement_currency}`}
+      since={strategy.created_at}
+      sinceKind="age"
+      uptime={strategy.uptime}
+      figures={publicFigures(strategy)}
+    />
   );
 }
 
@@ -42,6 +47,7 @@ function PublicList() {
   const { t } = useTranslation();
   const strategies = usePublicStrategies();
   const me = useMe();
+  const [sort, setSort] = useState(DEFAULT_SORT);
 
   if (strategies.status === "pending") return <p className="text-sm text-ink-2">{t("strategies.explore.loading")}</p>;
   if (strategies.status === "error") {
@@ -53,12 +59,17 @@ function PublicList() {
   }
   if (strategies.data.length === 0) return <p className="text-sm text-ink-2">{t("strategies.explore.empty")}</p>;
 
+  const ordered = sortCards(strategies.data, sort, (strategy, key) =>
+    sortFigure(publicFigures(strategy), ageOrder(strategy.created_at), key),
+  );
+
   return (
     <>
       {me.data?.dryRunBrake === true && <p className="text-sm text-ink-2">{t("strategies.explore.brake")}</p>}
+      <SortControl sort={sort} onChange={(key) => setSort((current) => nextSort(current, key))} />
       <ul className="flex flex-col gap-3">
-        {strategies.data.map((strategy) => (
-          <PublicStrategyRow key={strategy.id} strategy={strategy} />
+        {ordered.map((strategy) => (
+          <PublicStrategyCard key={strategy.id} strategy={strategy} />
         ))}
       </ul>
     </>

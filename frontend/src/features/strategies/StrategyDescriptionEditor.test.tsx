@@ -29,6 +29,7 @@ function strategy(overrides: Partial<Strategy> = {}): Strategy {
     description: "Runs at 3x",
     subscribers: 1,
     live_subscribers: 0,
+    created_at: null,
     capital: null,
     ...overrides,
   };
