@@ -6,7 +6,6 @@ import { DEFAULT_SORT, nextSort, sortCards } from "@/features/strategies/card-so
 import { CodeEntry } from "@/features/strategies/CodeEntry";
 import { SortControl } from "@/features/strategies/SortControl";
 import { StrategyCard } from "@/features/strategies/StrategyCard";
-import { useMe } from "@/shared/api/me";
 import { usePublicStrategies } from "@/shared/api/public-strategies";
 import type { PublicStrategy } from "@/shared/api/types";
 
@@ -31,7 +30,7 @@ function PublicStrategyCard({ strategy }: { strategy: PublicStrategy }) {
 
 /**
  * Every public strategy, for anyone signed in: a user with no key browses it the same (decision 13). Under the
- * server's brake nobody trades live, so the figures carry no capital, and the page says why. "I have a code" sits
+ * server's brake nobody trades live, so the figures carry no capital; the header's (i) says why. "I have a code" sits
  * above the list whatever its state, since a strategy shared by a code is on no list.
  */
 export function ExplorePage() {
@@ -46,7 +45,6 @@ export function ExplorePage() {
 function PublicList() {
   const { t } = useTranslation();
   const strategies = usePublicStrategies();
-  const me = useMe();
   const [sort, setSort] = useState(DEFAULT_SORT);
 
   if (strategies.status === "pending") return <p className="text-sm text-ink-2">{t("strategies.explore.loading")}</p>;
@@ -65,7 +63,6 @@ function PublicList() {
 
   return (
     <>
-      {me.data?.dryRunBrake === true && <p className="text-sm text-ink-2">{t("strategies.explore.brake")}</p>}
       <SortControl sort={sort} onChange={(key) => setSort((current) => nextSort(current, key))} />
       <ul className="flex flex-col gap-3">
         {ordered.map((strategy) => (

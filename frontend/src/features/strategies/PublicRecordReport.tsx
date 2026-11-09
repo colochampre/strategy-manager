@@ -1,18 +1,13 @@
-import { TrendingDown, TrendingUp } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { rangeLabel } from "@/features/overview/LedgerLine";
 import { MonthlyGrid } from "@/features/overview/MonthlyGrid";
 import { MonthlySummary } from "@/features/overview/MonthlySummary";
 import { RangeSelector } from "@/features/overview/RangeSelector";
 import { useRangeStore } from "@/features/overview/range-store";
 import { ReturnChart } from "@/features/overview/ReturnChart";
 import { PairStatsTable } from "@/features/strategies/PairStatsTable";
-import { Figure } from "@/features/strategies/PublicFigures";
 import { usePublicRecord } from "@/shared/api/public-record";
 import type { Excluded, PublicRecord } from "@/shared/api/types";
-import { parseDecimal, percentText, toneClass } from "@/shared/lib/amount-text";
-import { InfoButton, InfoText, useInfoDisclosure } from "@/shared/ui/InfoDisclosure";
 import { ReportSection } from "@/shared/ui/ReportSection";
 
 /** A record leaves nothing out that it could count: it has no open trades, rehearsals or unconverted fees to name. */
@@ -40,46 +35,12 @@ function dayText(date: string, locale: string): string {
 function RecordView({ record, asOf, joined }: { record: PublicRecord; asOf: number; joined: string | null }) {
   const { t, i18n } = useTranslation();
   const locale = i18n.resolvedLanguage ?? "en";
-  const returnInfo = useInfoDisclosure();
   const range = useRangeStore((state) => state.range);
   const setRange = useRangeStore((state) => state.setRange);
-  const summary = record.ranges.find((entry) => entry.range === range);
-  const value = summary === undefined ? null : parseDecimal(summary.return);
-  const deepest = parseDecimal(record.max_drawdown);
 
   return (
     <>
       <div className="flex min-w-0 flex-col gap-3">
-        {value === null || deepest === null ? (
-          <p role="alert" data-testid="record-line" className="text-sm text-loss">
-            {t("overview.ledger.unreadable")}
-          </p>
-        ) : (
-          <>
-            <dl data-testid="record-line" className="tabular flex flex-wrap items-end gap-x-6 gap-y-3">
-              <Figure
-                icon={TrendingUp}
-                label={rangeLabel(t, "strategies.report.recordReturn", range)}
-                testId="record-return"
-                value={percentText(value, locale)}
-                tone={toneClass(value)}
-                info={<InfoButton disclosure={returnInfo} label={t("strategies.public.returnInfo")} />}
-                valueClassName="font-semibold"
-              />
-              <Figure
-                icon={TrendingDown}
-                label={t("overview.ledger.deepest")}
-                testId="record-deepest"
-                value={percentText(deepest, locale)}
-                tone="text-loss"
-                valueClassName="font-semibold"
-              />
-            </dl>
-            <InfoText disclosure={returnInfo}>
-              <p className="text-xs text-ink-3">{t("strategies.public.returnHint")}</p>
-            </InfoText>
-          </>
-        )}
         <ReportSection>
           <ReturnChart
             curve={record.curve}

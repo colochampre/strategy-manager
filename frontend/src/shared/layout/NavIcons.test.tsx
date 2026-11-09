@@ -101,12 +101,12 @@ describe("the navigation icons", () => {
     expect(link).toHaveAttribute("title", "Resumen");
   });
 
-  it("draws the language symbol left of the switch's text, without changing its name", async () => {
+  it("draws the round flag left of the switch's text, without changing its name (L.10)", async () => {
     await renderShell();
 
     const button = screen.getByRole("button", { name: /^(es|en)$/i });
     const svg = button.querySelector("svg");
-    expect(svg).toHaveClass("lucide-languages");
+    expect(svg).toHaveAttribute("data-flag", "ar");
     expect(svg).toHaveAttribute("aria-hidden", "true");
     expect(button.firstElementChild).toBe(svg);
     expect(button).toHaveAccessibleName("es");

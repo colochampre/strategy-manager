@@ -107,10 +107,12 @@ describe("StrategyReportViews", () => {
     expect(await screen.findByTestId("return-curve")).toBeInTheDocument();
     expect(screen.getByRole("table", { name: "Month by month" })).toBeInTheDocument();
     expect(screen.getByRole("row", { name: /^SOLUSDT\b/ })).toBeInTheDocument();
-    expect(screen.getByTestId("record-return")).toHaveTextContent("+5.1%");
-    // No money anywhere: no PnL column, no amount, no currency.
+    expect(screen.getByTestId("public-return")).toHaveTextContent("+5.1%");
+    // No money in the record: no PnL column, no amount, no currency (the capital above is the strategy's).
     expect(screen.queryByRole("columnheader", { name: /PnL/ })).toBeNull();
-    expect(screen.queryByText(/\bUSDT\b/)).toBeNull();
+    expect(
+      screen.queryAllByText(/\bUSDT\b/).filter((element) => !screen.getByTestId("record-line").contains(element)),
+    ).toEqual([]);
     expect(screen.queryByRole("button", { name: "My results" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Strategy record" })).toBeNull();
   });
@@ -131,7 +133,7 @@ describe("StrategyReportViews", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "7D" }));
 
-    expect(screen.getByTestId("record-return")).toHaveTextContent("+1.0%");
+    expect(screen.getByTestId("public-return")).toHaveTextContent("+1.0%");
     fireEvent.click(screen.getByRole("button", { name: "30D" }));
   });
 
@@ -139,11 +141,12 @@ describe("StrategyReportViews", () => {
     serve();
     renderAt(<StrategyReportViews strategy={STRATEGY} />);
     const line = await screen.findByTestId("record-line");
+    await waitFor(() => expect(screen.getByTestId("public-return")).toHaveTextContent("+5.1%"));
 
-    const returnTerm = screen.getByTestId("record-return").previousElementSibling as HTMLElement;
+    const returnTerm = screen.getByTestId("public-return").previousElementSibling as HTMLElement;
     expect(returnTerm.querySelector("svg.lucide-trending-up")).not.toBeNull();
     expect(returnTerm.textContent).toBe("");
-    const deepest = within(line).getByTestId("record-deepest");
+    const deepest = within(line).getByTestId("public-deepest");
     const deepestTerm = deepest.previousElementSibling as HTMLElement;
     expect(deepestTerm.querySelector("svg.lucide-trending-down")).not.toBeNull();
     expect(deepest).toHaveClass("text-loss");
@@ -156,9 +159,9 @@ describe("StrategyReportViews", () => {
   it("names the range in the record's return tooltip only when it is not All", async () => {
     serve();
     renderAt(<StrategyReportViews strategy={STRATEGY} />);
-    await screen.findByTestId("record-line");
+    await screen.findByTestId("return-curve");
     const name = () =>
-      within(screen.getByTestId("record-return").previousElementSibling as HTMLElement).getByRole("img").getAttribute("aria-label");
+      within(screen.getByTestId("public-return").previousElementSibling as HTMLElement).getByRole("img").getAttribute("aria-label");
 
     fireEvent.click(screen.getByRole("button", { name: "7D" }));
     expect(name()).toBe("Return, last 7 days");
@@ -180,13 +183,15 @@ describe("StrategyReportViews", () => {
     expect(screen.queryByRole("row", { name: /^SOLUSDT\b/ })).toBeNull();
   });
 
-  it("does not ask for the record while My results is the view", async () => {
+  it("reads the record once while My results is the view: for the strategy's figures, never for a second chart (L.10)", async () => {
     const requests = serve({ held: seat() });
     renderAt(<StrategyReportViews strategy={STRATEGY} />);
     await screen.findByRole("row", { name: /^XRPUSDT\b/ });
     await tick();
 
-    expect(requests.some((url) => url.endsWith("/record"))).toBe(false);
+    expect(requests.filter((url) => url.endsWith("/record"))).toHaveLength(1);
+    expect(screen.getAllByTestId("return-curve")).toHaveLength(1);
+    expect(screen.queryByRole("row", { name: /^SOLUSDT\b/ })).toBeNull();
   });
 
   it("switches to the record and never draws both in one chart", async () => {
@@ -202,7 +207,9 @@ describe("StrategyReportViews", () => {
     expect(screen.queryByRole("row", { name: /^XRPUSDT\b/ })).toBeNull();
     expect(screen.getByRole("button", { name: "Strategy record" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("button", { name: "My results" })).toHaveAttribute("aria-pressed", "false");
-    expect(screen.queryByText(/\bUSDT\b/)).toBeNull();
+    expect(
+      screen.queryAllByText(/\bUSDT\b/).filter((element) => !screen.getByTestId("record-line").contains(element)),
+    ).toEqual([]);
 
     fireEvent.click(screen.getByRole("button", { name: "My results" }));
     expect(await screen.findByRole("row", { name: /^XRPUSDT\b/ })).toBeInTheDocument();
@@ -251,7 +258,7 @@ describe("StrategyReportViews", () => {
 
     expect(await screen.findByText(/no closed real trade yet/)).toBeInTheDocument();
     expect(screen.queryByTestId("return-curve")).toBeNull();
-    expect(screen.queryByRole("img")).toBeNull();
+    expect(document.querySelector("figure svg")).toBeNull();
   });
 
   it("says in words that My results has no trade yet", async () => {
@@ -259,7 +266,7 @@ describe("StrategyReportViews", () => {
     renderAt(<StrategyReportViews strategy={STRATEGY} />);
 
     expect(await screen.findByText("You have no closed trade in this strategy yet.")).toBeInTheDocument();
-    expect(screen.queryByRole("img")).toBeNull();
+    expect(document.querySelector("figure svg")).toBeNull();
   });
 
   it("answers a record that is gone calmly, not with a crash", async () => {

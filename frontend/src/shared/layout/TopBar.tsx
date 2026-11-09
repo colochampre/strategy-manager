@@ -1,9 +1,9 @@
-import { Languages } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useLocation } from "react-router";
 
 import { useMe } from "@/shared/api/me";
 import { ExchangeTabs } from "@/shared/layout/ExchangeTabs";
+import { Flag } from "@/shared/layout/Flag";
 import { ModeBadge } from "@/shared/layout/ModeBadge";
 import { isExchangeScoped } from "@/shared/scope/exchange-store";
 
@@ -40,7 +40,8 @@ export function TopBar() {
             onClick={toggleLanguage}
             className="inline-flex min-h-11 items-center gap-1.5 rounded-md px-2 text-xs uppercase text-ink-3 hover:text-ink"
           >
-            <Languages aria-hidden="true" className="size-4 shrink-0" />
+            {/* The flag of the language the button switches to, beside its code. */}
+            <Flag country={i18n.resolvedLanguage === "es" ? "us" : "ar"} />
             {i18n.resolvedLanguage === "es" ? "en" : "es"}
           </button>
         </div>

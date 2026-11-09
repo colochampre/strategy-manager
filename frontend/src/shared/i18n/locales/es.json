@@ -41,7 +41,8 @@
     "unknown": "Modo desconocido"
   },
   "mode": {
-    "forcedHint": "El freno está activo: todos operan en simulación hasta que se libere.",
+    "brakeLabel": "Sobre el freno",
+    "brakeInfo": "El freno del servidor está activo: nadie opera en vivo, así que no se muestra capital.",
     "change": "Modo: {{mode}}. Cambiarlo",
     "menu": "Modos",
     "toLive": {
@@ -278,8 +279,7 @@
     "explore": {
       "loading": "Cargando las estrategias públicas…",
       "error": "No se pudieron cargar las estrategias públicas.",
-      "empty": "Todavía no hay ninguna estrategia pública.",
-      "brake": "El freno del servidor está activo: nadie opera en vivo, así que no se muestra capital."
+      "empty": "Todavía no hay ninguna estrategia pública."
     },
     "card": {
       "age": "Antigüedad",
@@ -314,11 +314,6 @@
       "notFound": "Esta estrategia no está en la lista pública.",
       "error": "No se pudo cargar la estrategia.",
       "by": "de {{name}}",
-      "age": "Antigüedad",
-      "trades": "Operaciones cerradas",
-      "return": "Rendimiento sin apalancamiento y antes de comisiones",
-      "live": "Suscriptores operando en vivo",
-      "capital": "Capital con el que opera",
       "returnInfo": "Cómo se calcula este rendimiento",
       "returnHint": "Se calcula con las ejecuciones de las operaciones que su autor hizo con dinero real y cerró; no cuentan las operaciones simuladas ni las de los suscriptores. Las operaciones abiertas al mismo tiempo se suman y cada una de las demás se compone sobre las anteriores, y cada operación se toma como si todo el capital estuviera en ella. No cuenta apalancamiento ni comisiones, así que el resultado real de nadie coincide exactamente.",
       "capitalInfo": "Qué es este capital",
@@ -678,6 +673,8 @@
       "urlLabel": "URL del webhook",
       "messageLabel": "Mensaje de la alerta",
       "maskHint": "Solo se conservan los últimos cuatro caracteres del secreto, para que pueda reconocer cuál usa una alerta. El resto no puede volver a leerse.",
+      "maskInfo": "Sobre los últimos cuatro caracteres",
+      "hintInfo": "Sobre estas alertas",
       "regenerate": "Regenerar el secreto",
       "regenerateTitle": "¿Regenerar el secreto?",
       "regenerateBody": "El secreto actual deja de funcionar en cuanto usted confirma. Toda alerta que todavía lo use será rechazada hasta que actualice su URL.",

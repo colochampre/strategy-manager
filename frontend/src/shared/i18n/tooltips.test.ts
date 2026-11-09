@@ -34,11 +34,6 @@ const TOOLTIP_KEYS = [
   "strategies.card.pnl",
   "strategies.card.share",
   "strategies.card.leverage",
-  "strategies.public.age",
-  "strategies.public.trades",
-  "strategies.public.return",
-  "strategies.public.live",
-  "strategies.public.capital",
   // Archive's reason, and the icon buttons' names.
   "strategies.archive.disabledHint",
   "settings.name.save",
@@ -97,12 +92,5 @@ describe("the tooltips", () => {
   it("writes Archive's reason as an instruction, in the polite form in Spanish", () => {
     expect(lookup(en, "strategies.archive.disabledHint")).toBe("Disable it and close its positions first");
     expect(lookup(es, "strategies.archive.disabledHint")).toBe("Primero desactívela y cierre sus posiciones");
-  });
-
-  it("names the public figures with a capital, as the cards' icons do", () => {
-    expect(lookup(en, "strategies.public.return")).toBe("Return, unleveraged, before fees");
-    expect(lookup(en, "strategies.public.live")).toBe("Subscribers trading live");
-    expect(lookup(en, "strategies.public.capital")).toBe("Capital it trades with");
-    expect(lookup(es, "strategies.public.capital")).toBe("Capital con el que opera");
   });
 });

@@ -87,11 +87,27 @@ describe("what the badge says", () => {
 
       const badge = await screen.findByText("Simulation forced");
       expect(badge).toHaveClass("text-decision");
-      expect(badge).toHaveAttribute("title", "The brake is on: everyone is in simulation until it is released.");
+      // Why, behind an (i) right of the badge, shown on hover and focus, below it (L.10).
+      expect(badge).not.toHaveAttribute("title");
+      const info = screen.getByRole("img", { name: "About the brake" });
+      expect(badge.nextElementSibling).toContainElement(info);
+      expect(screen.queryByRole("tooltip")).toBeNull();
+      fireEvent.mouseEnter(info.parentElement as HTMLElement);
+      const tip = screen.getByRole("tooltip");
+      expect(tip).toHaveTextContent("The server's brake is on: nobody trades live, so no capital is shown.");
+      expect(tip).toHaveClass("top-full");
       expect(screen.queryByRole("button")).not.toBeInTheDocument();
       expect(screen.queryByText("Live")).not.toBeInTheDocument();
     },
   );
+
+  it("draws no (i) while the brake is off (L.10)", async () => {
+    serve({ mode: "LIVE", brake: false });
+    renderAt(<ModeBadge />);
+
+    await screen.findByRole("button");
+    expect(screen.queryByRole("img", { name: "About the brake" })).toBeNull();
+  });
 
   it("stays neutral while it is asked, never Live", () => {
     stubApi(HEALTH, [], undefined, {}, (url) =>

@@ -30,15 +30,16 @@ interface Serve {
   subscribe?: () => Promise<Response>;
   leave?: () => Promise<Response>;
   preview?: Record<string, unknown> | ((url: string) => Record<string, unknown>);
+  record?: () => Promise<Response>;
 }
 
-function serve({ strategy, held, pools, me, subscribe, leave, preview }: Serve = {}) {
+function serve({ strategy, held, pools, me, subscribe, leave, preview, record }: Serve = {}) {
   return stubApi({ kind: "ok", body: {} }, [], pools ?? { kind: "ok", body: [pool("bybit")] }, {}, (url, init) => {
     if (url.endsWith(`/api/public/strategies/${ID}`)) {
       return strategy?.() ?? Promise.resolve(jsonResponse(publicStrategy({ id: ID })));
     }
     if (url.endsWith(`/api/public/strategies/${ID}/record`)) {
-      return Promise.resolve(jsonResponse(publicRecord()));
+      return record?.() ?? Promise.resolve(jsonResponse(publicRecord()));
     }
     if (url.includes(`/api/performance/strategies/${ID}`)) {
       return Promise.resolve(jsonResponse({ ...emptyPerformance("bybit", "usdt-m", "USDT"), strategy_id: ID, by_pair: [] }));
@@ -104,7 +105,7 @@ describe("the public page", () => {
     expect(await screen.findByRole("heading", { level: 1, name: "Alpha" })).toBeInTheDocument();
     expect(screen.getByTestId("public-origin")).toHaveTextContent(i18n.t("strategies.public.by", { name: "Ana" }));
     expect(screen.getByTestId("public-market")).toHaveTextContent("bybit · usdt-m · USDT");
-    expect(screen.getByTestId("public-return")).toHaveTextContent("+12.5%");
+    await waitFor(() => expect(screen.getByTestId("public-return")).toHaveTextContent("+5.1%"));
     expect(screen.getByRole("link", { name: i18n.t("strategies.public.back") })).toHaveAttribute(
       "href",
       "/strategies/explore",
@@ -117,10 +118,13 @@ describe("the public page", () => {
         Promise.resolve(
           jsonResponse(publicStrategy({ id: ID, closed_trade_count: 0, unleveraged_return_before_fees: "0" })),
         ),
+      record: () =>
+        Promise.resolve(jsonResponse(publicRecord({ origin: null, closed_trade_count: 0, curve: [], monthly: [], by_pair: [] }))),
     });
     open();
 
-    expect(await screen.findByTestId("public-return")).toHaveTextContent(/^—$/);
+    await waitFor(() => expect(screen.getByTestId("public-return")).toHaveTextContent(/^—$/));
+    expect(screen.getByTestId("public-deepest")).toHaveTextContent(/^—$/);
   });
 
   it("draws the strategy's record below the figures for a reader with no seat, with no selector", async () => {
@@ -234,6 +238,33 @@ describe("the public page", () => {
     expect(section.querySelector("p")).toHaveClass("whitespace-pre-line", "break-words");
   });
 
+  it("draws the strategy's figures and its record's in one row of the cards' icons, under Performance (L.10)", async () => {
+    serve();
+    open();
+
+    const line = await screen.findByTestId("record-line");
+    const performance = screen.getByRole("region", { name: i18n.t("strategies.report.title") });
+    expect(performance).toContainElement(line);
+    const ids = [...line.querySelectorAll("dd")].map((value) => value.getAttribute("data-testid"));
+    expect(ids).toEqual([
+      "public-age",
+      "public-uptime",
+      "public-trades",
+      "public-return",
+      "public-deepest",
+      "public-winrate",
+      "public-subscribers",
+      "public-capital",
+    ]);
+    // The return and the fall follow the chart's range, read from the record (30D by default).
+    await waitFor(() => expect(within(line).getByTestId("public-return")).toHaveTextContent("+5.1%"));
+    expect(within(line).getByTestId("public-deepest")).toHaveTextContent("-2.0%");
+    // The return and the capital each keep one (i), on that row.
+    expect(within(line).getAllByRole("button", { name: i18n.t("strategies.public.returnInfo") })).toHaveLength(1);
+    expect(within(line).getAllByRole("button", { name: i18n.t("strategies.public.capitalInfo") })).toHaveLength(1);
+    expect(screen.getAllByTestId("public-return")).toHaveLength(1);
+  });
+
   it("explains the return and the capital on request, closed by default", async () => {
     serve();
     open();
@@ -251,7 +282,7 @@ describe("the public page", () => {
     expect(screen.getByText(i18n.t("strategies.public.capitalHint"))).toBeInTheDocument();
   });
 
-  it("explains the return once: the record line keeps the only (i), the figure card has none", async () => {
+  it("explains the return once: one (i), on the one row of figures; no second figure card (L.10)", async () => {
     serve();
     open();
     const line = await screen.findByTestId("record-line");
@@ -259,8 +290,7 @@ describe("the public page", () => {
     const infos = screen.getAllByRole("button", { name: i18n.t("strategies.public.returnInfo") });
     expect(infos).toHaveLength(1);
     expect(line).toContainElement(infos[0] as HTMLElement);
-    const card = screen.getByTestId("public-return").parentElement as HTMLElement;
-    expect(within(card).queryByRole("button")).toBeNull();
+    expect(screen.getAllByRole("definition").every((value) => line.contains(value))).toBe(true);
     fireEvent.click(infos[0] as HTMLElement);
     expect(screen.getAllByText(i18n.t("strategies.public.returnHint"))).toHaveLength(1);
   });
@@ -455,7 +485,7 @@ describe("whether this user can subscribe", () => {
     serve({ pools: { kind: "ok", body: [] } });
     open();
 
-    expect(await screen.findByTestId("public-return")).toHaveTextContent("+12.5%");
+    await waitFor(() => expect(screen.getByTestId("public-return")).toHaveTextContent("+5.1%"));
     expect(await screen.findByText(i18n.t("strategies.subscribe.needsKey", { exchange: "Bybit" }))).toBeInTheDocument();
     expect(screen.getByRole("link", { name: i18n.t("strategies.subscribe.addKey") })).toHaveAttribute("href", "/settings");
     expect(screen.queryByRole("button", { name: i18n.t("strategies.subscribe.submit") })).not.toBeInTheDocument();
@@ -482,7 +512,7 @@ describe("whether this user can subscribe", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent(i18n.t("strategies.subscribe.readFailed"));
     expect(screen.queryByRole("button", { name: i18n.t("strategies.subscribe.submit") })).not.toBeInTheDocument();
-    expect(screen.getByTestId("public-return")).toHaveTextContent("+12.5%");
+    await waitFor(() => expect(screen.getByTestId("public-return")).toHaveTextContent("+5.1%"));
   });
 
   it("offers nothing to press while those reads are on their way", async () => {

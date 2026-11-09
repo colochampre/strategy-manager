@@ -94,11 +94,15 @@ export async function fetchPublicRecord(strategyId: string, entry: Entry = NO_EN
 }
 
 /** Under `['public-strategies', id, 'record']`, so every subscribe and leave that refreshes the list refreshes it too. */
+/** One read serves a page's figure row and its record below it, which mount at different moments. */
+export const RECORD_STALE_MS = 60_000;
+
 export function usePublicRecord(strategyId: string) {
   const entry = useEntry();
   return useQuery({
     queryKey: ["public-strategies", strategyId, "record", ...entryKey(entry)],
     queryFn: () => fetchPublicRecord(strategyId, entry),
+    staleTime: RECORD_STALE_MS,
     ...entryReadOptions(entry),
   });
 }

@@ -239,22 +239,14 @@ describe("Explore", () => {
     }
   });
 
-  it("under the brake shows no capital and says why", async () => {
+  it("under the brake shows no capital, and leaves the why to the header's (i) (L.10)", async () => {
     serve(() => Promise.resolve(jsonResponse([publicStrategy({ live_subscribers: 0, capital: null })])), {
       dry_run_brake: true,
     });
     open();
 
     expect(await screen.findByTestId("public-capital")).toHaveTextContent("—");
-    expect(await screen.findByText(i18n.t("strategies.explore.brake"))).toBeInTheDocument();
-  });
-
-  it("says nothing of the brake when it is off", async () => {
-    serve(() => Promise.resolve(jsonResponse([publicStrategy()])));
-    open();
-
-    await screen.findByTestId("public-strategy-row");
-    expect(screen.queryByText(i18n.t("strategies.explore.brake"))).not.toBeInTheDocument();
+    expect(screen.queryByText(i18n.t("mode.brakeInfo"))).not.toBeInTheDocument();
   });
 
   it("writes a capital of zero as zero, not as an absence", async () => {

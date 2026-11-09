@@ -1,6 +1,7 @@
-import { screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import i18n from "@/shared/i18n";
 import { TopBar } from "@/shared/layout/TopBar";
 import { jsonResponse, lock, renderAt, resetExchangeScope, stubApi, unlock } from "@/test/harness";
 
@@ -101,5 +102,27 @@ describe("the exchange tabs in the top bar", () => {
 
     await screen.findAllByRole("navigation", { name: "Exchanges" });
     await waitFor(() => expect(poolsRequests(fetchMock).length).toBeGreaterThan(0));
+  });
+});
+
+describe("the language switch", () => {
+  afterEach(async () => {
+    await act(() => i18n.changeLanguage("en"));
+  });
+
+  it("shows the round flag of the language it switches to: Argentina's for ES, the United States' for EN (L.10)", async () => {
+    stubApi(HEALTH, []);
+    renderAt(<TopBar />, "/settings");
+
+    const toSpanish = await screen.findByRole("button", { name: "es" });
+    const flag = toSpanish.querySelector("svg");
+    expect(flag).toHaveAttribute("data-flag", "ar");
+    expect(flag).toHaveAttribute("aria-hidden", "true");
+    expect(flag).toHaveClass("rounded-full");
+    expect(toSpanish.querySelector(".lucide-languages")).toBeNull();
+
+    fireEvent.click(toSpanish);
+    const toEnglish = await screen.findByRole("button", { name: "en" });
+    expect(toEnglish.querySelector("svg")).toHaveAttribute("data-flag", "us");
   });
 });

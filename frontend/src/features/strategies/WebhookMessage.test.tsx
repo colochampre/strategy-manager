@@ -191,10 +191,27 @@ describe("WebhookMessage", () => {
     expect(four).toHaveClass("tracking-wider", "text-ink");
   });
 
-  it("says what the four characters are for", async () => {
+  it("says what the four characters are for behind an (i) beside the URL's label, closed until asked (L.10)", async () => {
     setup();
+    await waitFor(() => expect(urlText()).toBe(`${HOST}${MASKED_URL}`));
+    expect(screen.queryByText(MASK_HINT_EN)).toBeNull();
 
-    expect(await screen.findByText(MASK_HINT_EN)).toBeInTheDocument();
+    const button = screen.getByRole("button", { name: "About the last four characters" });
+    expect(button.parentElement).toContainElement(screen.getByText("Webhook URL"));
+    fireEvent.click(button);
+    expect(screen.getByText(MASK_HINT_EN)).toBeInTheDocument();
+  });
+
+  it("says one URL and one message serve every pair behind an (i) beside the heading (L.10)", async () => {
+    setup();
+    const hint = i18n.t("strategies.webhook.hint");
+    expect(screen.queryByText(hint)).toBeNull();
+
+    const heading = screen.getByRole("heading", { name: i18n.t("strategies.webhook.title") });
+    const button = screen.getByRole("button", { name: "About these alerts" });
+    expect(button.parentElement).toContainElement(heading);
+    fireEvent.click(button);
+    expect(screen.getByText(hint)).toBeInTheDocument();
   });
 
   it("leaves the alert message free of the secret and of its mask", async () => {
@@ -474,6 +491,7 @@ describe("WebhookMessage", () => {
       copyUrl: "Copy URL",
       masked: MASKED_URL,
       maskHint: MASK_HINT_EN,
+      maskInfo: "About the last four characters",
     },
     {
       language: "es",
@@ -487,6 +505,7 @@ describe("WebhookMessage", () => {
       copyUrl: "Copiar URL",
       masked: MASKED_URL,
       maskHint: MASK_HINT_ES,
+      maskInfo: "Sobre los últimos cuatro caracteres",
     },
   ])("the texts in $language", (T) => {
     beforeEach(async () => {
@@ -496,6 +515,7 @@ describe("WebhookMessage", () => {
     it("renders the mask and what it is for, the regenerate flow, the warning and the shared buttons", async () => {
       setup();
       await waitFor(() => expect(screen.getByLabelText(T.urlLabel).textContent).toBe(`${HOST}${T.masked}`));
+      fireEvent.click(screen.getByRole("button", { name: T.maskInfo }));
       expect(screen.getByText(T.maskHint)).toBeInTheDocument();
 
       fireEvent.click(screen.getByRole("button", { name: T.regenerate }));

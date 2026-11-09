@@ -110,6 +110,135 @@ export function EnabledBadge({ enabled, testId }: { enabled: boolean; testId: st
   );
 }
 
+interface CardFigureGridProps {
+  /** The prefix of every figure's test id. */
+  prefix: string;
+  since: string | null;
+  sinceKind: "age" | "subscribed";
+  uptime: StrategyUptime;
+  figures: CardFigures;
+  figuresError?: string | null | undefined;
+  trailing?: ReactNode;
+  /** The grid's own test id, where a page names the row. */
+  testId?: string;
+  /** Replaces the return's tooltip, for a return that follows a range. */
+  returnLabel?: string;
+  /** An information button beside the return's icon. */
+  returnInfo?: ReactNode;
+  /** An information button beside the capital's icon. */
+  capitalInfo?: ReactNode;
+  className?: string;
+}
+
+/**
+ * A strategy's figures as the cards draw them: age, days active, closed trades, return, deepest fall, win rate,
+ * subscribers and capital, each an icon over its value. A card draws it, and so does another author's page, under
+ * Performance, where the return and the fall follow the chart's range.
+ */
+export function CardFigureGrid({
+  prefix,
+  since,
+  sinceKind,
+  uptime,
+  figures,
+  figuresError,
+  trailing,
+  testId,
+  returnLabel,
+  returnInfo,
+  capitalInfo,
+  className,
+}: CardFigureGridProps) {
+  const { t, i18n } = useTranslation();
+  const locale = i18n.language;
+  const age = useAgeSince(since);
+  const ret = signed(figures.ret, locale);
+  const deepest = signed(figures.deepest, locale);
+  const count = (value: number | null | undefined) =>
+    value === undefined ? LOADING : value === null ? NO_FIGURE : String(value);
+
+  return (
+    <dl data-testid={testId} className={cn(CARD_GRID, "tabular", className)}>
+      <Figure
+        icon={Calendar}
+        label={t(sinceKind === "age" ? "strategies.card.age" : "strategies.card.subscribed")}
+        testId={`${prefix}-age`}
+        value={age}
+      />
+      <Figure
+        icon={Clock}
+        label={uptimeText(uptime, t)}
+        testId={`${prefix}-uptime`}
+        value={uptimeValue(uptime, t)}
+      />
+      {figuresError !== undefined && figuresError !== null ? (
+        <p role="alert" className="col-span-2 text-xs text-loss">
+          {figuresError}
+        </p>
+      ) : (
+        <>
+          <Figure
+            icon={ListChecks}
+            label={t("strategies.card.trades")}
+            testId={`${prefix}-trades`}
+            value={count(figures.trades)}
+          />
+          <Figure
+            icon={TrendingUp}
+            label={returnLabel ?? t("strategies.card.return")}
+            testId={`${prefix}-return`}
+            value={ret.text}
+            tone={ret.tone}
+            info={returnInfo}
+          />
+          <Figure
+            icon={TrendingDown}
+            label={t("strategies.card.deepest")}
+            testId={`${prefix}-deepest`}
+            value={deepest.text}
+            tone={deepest.tone}
+          />
+          <Figure
+            icon={Target}
+            label={t("strategies.card.winRate")}
+            testId={`${prefix}-winrate`}
+            value={winRateText(figures.winRate, locale)}
+          />
+        </>
+      )}
+      <Figure
+        icon={Users}
+        label={t("strategies.card.subscribers")}
+        testId={`${prefix}-subscribers`}
+        value={
+          figures.subscribers === undefined
+            ? LOADING
+            : figures.subscribers === null
+              ? NO_FIGURE
+              : t("strategies.row.subscribersShort", {
+                  count: figures.subscribers.count,
+                  live: figures.subscribers.live,
+                })
+        }
+      />
+      <Figure
+        icon={Wallet}
+        label={t("strategies.card.capital")}
+        testId={`${prefix}-capital`}
+        info={capitalInfo}
+        value={
+          figures.capital === undefined
+            ? LOADING
+            : figures.capital === null
+              ? NO_FIGURE
+              : `${amountText(figures.capital.amount, figures.capital.currency, locale)} ${figures.capital.currency}`
+        }
+      />
+      {trailing}
+    </dl>
+  );
+}
+
 /**
  * One strategy as a card, the same on Explore, on My subscriptions and on My strategies. The title link is
  * stretched over the whole card, so the card opens the strategy; the switch, the open positions and each figure's
@@ -117,13 +246,7 @@ export function EnabledBadge({ enabled, testId }: { enabled: boolean; testId: st
  */
 export function StrategyCard(props: StrategyCardProps) {
   const { prefix, figures, uptime } = props;
-  const { t, i18n } = useTranslation();
-  const locale = i18n.language;
-  const age = useAgeSince(props.since);
-  const ret = signed(figures.ret, locale);
-  const deepest = signed(figures.deepest, locale);
-  const count = (value: number | null | undefined) =>
-    value === undefined ? LOADING : value === null ? NO_FIGURE : String(value);
+  const { t } = useTranslation();
 
   return (
     <li
@@ -155,82 +278,16 @@ export function StrategyCard(props: StrategyCardProps) {
         </p>
       </div>
       <div className="flex items-center justify-between gap-4">
-        <dl className={cn(CARD_GRID, "tabular min-w-0 grow")}>
-          <Figure
-            icon={Calendar}
-            label={t(props.sinceKind === "age" ? "strategies.card.age" : "strategies.card.subscribed")}
-            testId={`${prefix}-age`}
-            value={age}
-          />
-          <Figure
-            icon={Clock}
-            label={uptimeText(uptime, t)}
-            testId={`${prefix}-uptime`}
-            value={uptimeValue(uptime, t)}
-          />
-          {props.figuresError !== undefined && props.figuresError !== null ? (
-            <p role="alert" className="col-span-2 text-xs text-loss">
-              {props.figuresError}
-            </p>
-          ) : (
-            <>
-              <Figure
-                icon={ListChecks}
-                label={t("strategies.card.trades")}
-                testId={`${prefix}-trades`}
-                value={count(figures.trades)}
-              />
-              <Figure
-                icon={TrendingUp}
-                label={t("strategies.card.return")}
-                testId={`${prefix}-return`}
-                value={ret.text}
-                tone={ret.tone}
-              />
-              <Figure
-                icon={TrendingDown}
-                label={t("strategies.card.deepest")}
-                testId={`${prefix}-deepest`}
-                value={deepest.text}
-                tone={deepest.tone}
-              />
-              <Figure
-                icon={Target}
-                label={t("strategies.card.winRate")}
-                testId={`${prefix}-winrate`}
-                value={winRateText(figures.winRate, locale)}
-              />
-            </>
-          )}
-          <Figure
-            icon={Users}
-            label={t("strategies.card.subscribers")}
-            testId={`${prefix}-subscribers`}
-            value={
-              figures.subscribers === undefined
-                ? LOADING
-                : figures.subscribers === null
-                  ? NO_FIGURE
-                  : t("strategies.row.subscribersShort", {
-                      count: figures.subscribers.count,
-                      live: figures.subscribers.live,
-                    })
-            }
-          />
-          <Figure
-            icon={Wallet}
-            label={t("strategies.card.capital")}
-            testId={`${prefix}-capital`}
-            value={
-              figures.capital === undefined
-                ? LOADING
-                : figures.capital === null
-                  ? NO_FIGURE
-                  : `${amountText(figures.capital.amount, figures.capital.currency, locale)} ${figures.capital.currency}`
-            }
-          />
-          {props.trailing}
-        </dl>
+        <CardFigureGrid
+          prefix={prefix}
+          since={props.since}
+          sinceKind={props.sinceKind}
+          uptime={uptime}
+          figures={figures}
+          figuresError={props.figuresError}
+          trailing={props.trailing}
+          className="min-w-0 grow"
+        />
         {props.action !== undefined && <div className="relative z-10 shrink-0">{props.action}</div>}
       </div>
       {props.marks !== undefined && <div className="relative z-10">{props.marks}</div>}

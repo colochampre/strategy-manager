@@ -41,7 +41,8 @@
     "unknown": "Mode unknown"
   },
   "mode": {
-    "forcedHint": "The brake is on: everyone is in simulation until it is released.",
+    "brakeLabel": "About the brake",
+    "brakeInfo": "The server's brake is on: nobody trades live, so no capital is shown.",
     "change": "Mode: {{mode}}. Change it",
     "menu": "Modes",
     "toLive": {
@@ -278,8 +279,7 @@
     "explore": {
       "loading": "Loading the public strategies…",
       "error": "The public strategies could not be loaded.",
-      "empty": "No strategy is public yet.",
-      "brake": "The server's brake is on: nobody trades live, so no capital is shown."
+      "empty": "No strategy is public yet."
     },
     "card": {
       "age": "Age",
@@ -314,11 +314,6 @@
       "notFound": "This strategy is not on the public list.",
       "error": "The strategy could not be loaded.",
       "by": "by {{name}}",
-      "age": "Age",
-      "trades": "Closed trades",
-      "return": "Return, unleveraged, before fees",
-      "live": "Subscribers trading live",
-      "capital": "Capital it trades with",
       "returnInfo": "How this return is read",
       "returnHint": "Read from the fills of the trades its author made with real money and closed; simulated trades and subscribers' trades do not count. Trades open at the same time are added together and every other trade compounds on the ones before it, each taken as if the whole capital were on it. No leverage and no fees are counted, so nobody's real result matches it exactly.",
       "capitalInfo": "What this capital is",
@@ -678,6 +673,8 @@
       "urlLabel": "Webhook URL",
       "messageLabel": "Alert message",
       "maskHint": "Only the last four characters of the secret are kept, so you can tell which one an alert uses. The rest cannot be read back.",
+      "maskInfo": "About the last four characters",
+      "hintInfo": "About these alerts",
       "regenerate": "Regenerate secret",
       "regenerateTitle": "Regenerate the secret?",
       "regenerateBody": "The current secret stops working as soon as you confirm. Every alert that still uses it will be refused until you update its URL.",

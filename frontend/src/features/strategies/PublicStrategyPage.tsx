@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Link, useParams, useSearchParams } from "react-router";
 
 import { entryRefusal } from "@/features/strategies/entry-refusal";
-import { PublicFigures, PublicOrigin } from "@/features/strategies/PublicFigures";
+import { PublicOrigin } from "@/features/strategies/PublicFigures";
 import { EnabledBadge } from "@/features/strategies/StrategyCard";
 import { StrategyReportViews } from "@/features/strategies/StrategyReportViews";
 import { SubscribePanel } from "@/features/strategies/SubscribePanel";
@@ -11,7 +11,6 @@ import { ApiError } from "@/shared/api/client";
 import { type Entry, EntryProvider } from "@/shared/api/entry";
 import { usePublicStrategy } from "@/shared/api/public-strategies";
 import type { PublicStrategy } from "@/shared/api/types";
-import { InfoButton, InfoText, useInfoDisclosure } from "@/shared/ui/InfoDisclosure";
 import { LinkifiedText } from "@/shared/ui/LinkifiedText";
 
 function BackToExplore() {
@@ -26,7 +25,6 @@ function BackToExplore() {
 
 function PublicRecord({ strategy }: { strategy: PublicStrategy }) {
   const { t } = useTranslation();
-  const capitalInfo = useInfoDisclosure();
   // Two columns from lg up, as on an own strategy: the record on the left, Subscribe or the reader's seat in the
   // aside on the right. Stacked on a phone, the aside comes last.
   return (
@@ -49,15 +47,6 @@ function PublicRecord({ strategy }: { strategy: PublicStrategy }) {
             </p>
           </section>
         )}
-        <section className="flex flex-col gap-3 rounded-md border border-rule bg-panel px-4 py-3">
-          <PublicFigures
-            strategy={strategy}
-            capitalInfo={<InfoButton disclosure={capitalInfo} label={t("strategies.public.capitalInfo")} />}
-          />
-          <InfoText disclosure={capitalInfo}>
-            <p className="text-xs text-ink-3">{t("strategies.public.capitalHint")}</p>
-          </InfoText>
-        </section>
         <StrategyReportViews strategy={strategy} />
       </div>
       <SubscribePanel strategy={strategy} />

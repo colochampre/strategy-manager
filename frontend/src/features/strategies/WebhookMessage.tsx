@@ -11,6 +11,7 @@ import { SECRET_MASK, webhookUrl } from "@/features/strategies/webhook-url";
 import { useRegenerateWebhookSecret } from "@/shared/api/strategies";
 import { useWebhookOrigin } from "@/shared/api/webhook-origin";
 import { copyText } from "@/shared/lib/clipboard";
+import { InfoButton, InfoText, useInfoDisclosure } from "@/shared/ui/InfoDisclosure";
 
 interface WebhookMessageProps {
   strategyId: string;
@@ -39,6 +40,8 @@ export function WebhookMessage({ strategyId, secretLast4, archived }: WebhookMes
 
 function WebhookMessageView({ strategyId, secretLast4, archived }: WebhookMessageProps) {
   const { t } = useTranslation();
+  const hintInfo = useInfoDisclosure();
+  const maskInfo = useInfoDisclosure();
   const headingId = useId();
   const urlLabelId = useId();
   const messageLabelId = useId();
@@ -67,17 +70,30 @@ function WebhookMessageView({ strategyId, secretLast4, archived }: WebhookMessag
 
   return (
     <section aria-labelledby={headingId} className="flex flex-col gap-3">
-      <h2 id={headingId} className="font-display text-base font-semibold text-ink">
-        {t("strategies.webhook.title")}
-      </h2>
-      <p className="text-sm text-ink-2">{t("strategies.webhook.hint")}</p>
+      <div className="flex flex-col gap-1">
+        <div className="flex items-center gap-1">
+          <h2 id={headingId} className="font-display text-base font-semibold text-ink">
+            {t("strategies.webhook.title")}
+          </h2>
+          <InfoButton disclosure={hintInfo} label={t("strategies.webhook.hintInfo")} />
+        </div>
+        <InfoText disclosure={hintInfo}>
+          <p className="text-sm text-ink-2">{t("strategies.webhook.hint")}</p>
+        </InfoText>
+      </div>
       {issued !== null ? (
         <IssuedWebhookUrl secret={issued} onDone={() => regenerate.reset()} />
       ) : (
         <div className="flex flex-col gap-1">
-          <span id={urlLabelId} className="text-xs text-ink-3">
-            {t("strategies.webhook.urlLabel")}
-          </span>
+          <div className="flex items-center gap-1">
+            <span id={urlLabelId} className="text-xs text-ink-3">
+              {t("strategies.webhook.urlLabel")}
+            </span>
+            <InfoButton disclosure={maskInfo} label={t("strategies.webhook.maskInfo")} />
+          </div>
+          <InfoText disclosure={maskInfo}>
+            <p className="text-xs text-ink-3">{t("strategies.webhook.maskHint")}</p>
+          </InfoText>
           <div className="flex flex-wrap items-center gap-2">
             <code
               aria-labelledby={urlLabelId}
@@ -96,7 +112,6 @@ function WebhookMessageView({ strategyId, secretLast4, archived }: WebhookMessag
               {t("strategies.webhook.regenerate")}
             </button>
           </div>
-          <p className="text-xs text-ink-3">{t("strategies.webhook.maskHint")}</p>
           {hostNote !== null && <p className="text-xs text-ink-3">{t(`strategies.webhook.${hostNote}`)}</p>}
         </div>
       )}
