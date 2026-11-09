@@ -98,7 +98,7 @@ describe("ReturnChart", () => {
   it("draws the colours through utility classes only", () => {
     renderChart([point("2026-07-01", 1, 0), point("2026-07-02", 1.05, -0.02)]);
     expect(screen.getByTestId("return-curve")).toHaveClass("stroke-gain", "fill-none");
-    expect(screen.getByTestId("drawdown-fill")).toHaveClass("fill-loss/20");
+    expect(screen.getByTestId("drawdown-fill")).toHaveClass("stroke-none");
     expect(screen.getByTestId("drawdown-edge")).toHaveClass("stroke-loss", "fill-none");
     expect(screen.getByTestId("waterline")).toHaveClass("stroke-rule-strong");
 
@@ -790,6 +790,27 @@ describe("the modern chart: smoothing, gradient, vertical grid", () => {
     expect(Number(gradient.getAttribute("y2"))).toBeCloseTo(Math.max(...ys), 1);
     const waterStop = [...gradient.querySelectorAll("stop")].find((stop) => Number(stop.getAttribute("stop-opacity")) === 0)!;
     expect(Number(waterStop.getAttribute("offset"))).toBe(0);
+  });
+
+  it("fills the drawdown with a gradient in the loss colour, none at 0% and strongest at its deepest", () => {
+    renderChart(CURVE, "All", READ_ON_LAST_DAY);
+    const fill = screen.getByTestId("drawdown-fill");
+    const id = /^url\(#(.+)\)$/.exec(fill.getAttribute("fill") ?? "")?.[1];
+    expect(id).toBeTruthy();
+    expect(id).not.toBe(/^url\(#(.+)\)$/.exec(attr("return-fill", "fill"))?.[1]);
+    const gradient = screen.getByRole("img").querySelector(`linearGradient[id="${id}"]`)!;
+    expect(gradient).toHaveClass("text-loss");
+    expect(gradient.getAttribute("gradientUnits")).toBe("userSpaceOnUse");
+    const deepest = Math.max(...coordinates(attr("drawdown-edge", "d")).map(([, y]) => y));
+    expect(Number(gradient.getAttribute("y1"))).toBeCloseTo(WATER_Y, 1);
+    expect(Number(gradient.getAttribute("y2"))).toBeCloseTo(deepest, 1);
+    const stops = [...gradient.querySelectorAll("stop")];
+    for (const stop of stops) expect(stop.getAttribute("stop-color")).toBe("currentColor");
+    expect(stops.map((stop) => [Number(stop.getAttribute("offset")), Number(stop.getAttribute("stop-opacity"))])).toEqual([
+      [0, 0],
+      [1, expect.any(Number)],
+    ]);
+    expect(Number(stops[1]!.getAttribute("stop-opacity"))).toBeGreaterThan(0.1);
   });
 
   it("gives each chart its own gradient id, so two on a page do not share one", () => {

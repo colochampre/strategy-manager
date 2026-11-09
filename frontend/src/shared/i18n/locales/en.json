@@ -163,10 +163,10 @@
     "ledger": {
       "available": "Available balance",
       "pnl": "PnL",
-      "pnlRange": "PnL {{range}}",
+      "pnlRange": "PnL, {{range}}",
       "return": "Return",
-      "returnRange": "Return {{range}}",
-      "deepest": "Deepest drawdown",
+      "returnRange": "Return, {{range}}",
+      "deepest": "Drawdown",
       "unreadable": "The figures could not be read."
     },
     "range": {
@@ -176,6 +176,12 @@
       "90D": "90D",
       "1Y": "1Y",
       "All": "All"
+    },
+    "rangeLong": {
+      "7D": "last 7 days",
+      "30D": "last 30 days",
+      "90D": "last 90 days",
+      "1Y": "last year"
     },
     "monthlyGrid": {
       "title": "Month by month",
@@ -207,7 +213,8 @@
       "loading": "Loading this pool's performance…",
       "error": "This pool's performance could not be loaded.",
       "noReport": "No performance report exists for this pool yet.",
-      "stale": "Balance is out of date: last synced {{time}}."
+      "stale": "Balance is out of date: last synced {{time}}.",
+      "staleInfo": "Balance out of date"
     }
   },
   "strategies": {
@@ -282,7 +289,7 @@
       "neverEnabled": "Never enabled",
       "trades": "Closed trades",
       "return": "Return",
-      "deepest": "Deepest drawdown",
+      "deepest": "Drawdown",
       "winRate": "Win rate",
       "subscribers": "Subscribers",
       "capital": "Capital",
@@ -341,7 +348,7 @@
       "mine": "My results",
       "recordChartTitle": "Strategy record",
       "recordReturn": "Return",
-      "recordReturnRange": "Return {{range}}",
+      "recordReturnRange": "Return, {{range}}",
       "joined": "You joined on {{date}}",
       "recordLoading": "Loading the strategy's record…",
       "recordError": "The strategy's record could not be loaded.",
@@ -580,7 +587,7 @@
       "noReport": "No performance report exists for this strategy yet.",
       "chartTitle": "Contribution to the pool, compounded",
       "contribution": "Contribution to the pool",
-      "contributionRange": "Contribution to the pool {{range}}",
+      "contributionRange": "Contribution to the pool, {{range}}",
       "byPair": {
         "title": "By pair",
         "pair": "Pair",

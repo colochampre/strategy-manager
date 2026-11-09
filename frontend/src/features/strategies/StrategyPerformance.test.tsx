@@ -47,7 +47,7 @@ function serve(answer: () => Promise<Response>) {
   return requests;
 }
 
-/** Each figure as its icon's name (its tooltip) and its value: "PnL 30D +70.00 · Return 30D +6.0% · …". */
+/** Each figure as its icon's name (its tooltip) and its value: "PnL, last 30 days +70.00 · Return 30D +6.0% · …". */
 const ledger = () =>
   Array.from(screen.getByTestId("ledger-line").querySelectorAll("dd"))
     .map((value) => {
@@ -70,7 +70,7 @@ describe("StrategyPerformance", () => {
 
     await screen.findByTestId("ledger-line");
 
-    expect(ledger()).toBe("PnL 30D +70.00 · Contribution to the pool 30D +6.0% · Deepest drawdown -2.4%");
+    expect(ledger()).toBe("PnL, last 30 days +70.00 · Contribution to the pool, last 30 days +6.0% · Drawdown -2.4%");
     expect(screen.queryByTestId("ledger-lead")).toBeNull();
     expect(screen.queryByText(/available/)).toBeNull();
   });
@@ -82,7 +82,7 @@ describe("StrategyPerformance", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "7D" }));
 
-    expect(ledger()).toBe("PnL 7D +30.00 · Contribution to the pool 7D +2.5% · Deepest drawdown -2.4%");
+    expect(ledger()).toBe("PnL, last 7 days +30.00 · Contribution to the pool, last 7 days +2.5% · Drawdown -2.4%");
     expect(screen.getByRole("button", { name: "7D" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByTestId("return-curve")).toBeInTheDocument();
   });
@@ -105,11 +105,11 @@ describe("StrategyPerformance", () => {
     await screen.findByTestId("ledger-line");
 
     expect(screen.getByRole("button", { name: "1Y" })).toHaveAttribute("aria-pressed", "true");
-    expect(ledger()).toBe("PnL 1Y +118.40 · Contribution to the pool 1Y +9.6% · Deepest drawdown -2.4%");
+    expect(ledger()).toBe("PnL, last year +118.40 · Contribution to the pool, last year +9.6% · Drawdown -2.4%");
 
     // All is the whole history: no tooltip names it.
     fireEvent.click(screen.getByRole("button", { name: "All" }));
-    expect(ledger()).toBe("PnL +118.40 · Contribution to the pool +9.6% · Deepest drawdown -2.4%");
+    expect(ledger()).toBe("PnL +118.40 · Contribution to the pool +9.6% · Drawdown -2.4%");
 
     fireEvent.click(screen.getByRole("button", { name: "90D" }));
     second.unmount();
@@ -202,7 +202,7 @@ describe("StrategyPerformance", () => {
     expect(await screen.findByText("No closed trades yet")).toBeInTheDocument();
     // A strategy with no pair that has traded draws no By pair section at all, empty state included.
     expect(screen.queryByRole("heading", { name: "By pair" })).toBeNull();
-    expect(ledger()).toBe("PnL 30D 0.00 · Contribution to the pool 30D 0.0% · Deepest drawdown 0.0%");
+    expect(ledger()).toBe("PnL, last 30 days 0.00 · Contribution to the pool, last 30 days 0.0% · Drawdown 0.0%");
   });
 
   it("says the figures cannot be read when the chosen range is missing from the report", async () => {
@@ -283,7 +283,7 @@ describe("StrategyPerformance", () => {
 
     await screen.findByTestId("ledger-line");
 
-    expect(ledger()).toContain("Aporte al pool 30D");
+    expect(ledger()).toContain("Aporte al pool, últimos 30 días");
     expect(screen.getByRole("heading", { name: "Aporte al pool, compuesto" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Por par" })).toBeInTheDocument();
   });

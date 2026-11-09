@@ -163,9 +163,9 @@
     "ledger": {
       "available": "Saldo disponible",
       "pnl": "PnL",
-      "pnlRange": "PnL {{range}}",
+      "pnlRange": "PnL, {{range}}",
       "return": "Rendimiento",
-      "returnRange": "Rendimiento {{range}}",
+      "returnRange": "Rendimiento, {{range}}",
       "deepest": "Caída máxima",
       "unreadable": "No se pudieron leer las cifras."
     },
@@ -176,6 +176,12 @@
       "90D": "90D",
       "1Y": "1A",
       "All": "Todo"
+    },
+    "rangeLong": {
+      "7D": "últimos 7 días",
+      "30D": "últimos 30 días",
+      "90D": "últimos 90 días",
+      "1Y": "último año"
     },
     "monthlyGrid": {
       "title": "Mes a mes",
@@ -207,7 +213,8 @@
       "loading": "Cargando el rendimiento de este pool…",
       "error": "No se pudo cargar el rendimiento de este pool.",
       "noReport": "Este pool todavía no tiene informe de rendimiento.",
-      "stale": "El saldo está desactualizado: última sincronización {{time}}."
+      "stale": "El saldo está desactualizado: última sincronización {{time}}.",
+      "staleInfo": "Saldo desactualizado"
     }
   },
   "strategies": {
@@ -233,7 +240,7 @@
       "yours": "Su estrategia",
       "by": "de {{name}}",
       "noAuthorName": "autor todavía sin nombre",
-      "shareValue": "{{share}} %",
+      "shareValue": "{{share}}%",
       "leaving": "Saliendo: ya no abre nada más y termina cuando se cierre su posición abierta.",
       "leverageValue": "x{{leverage}}",
       "figuresError": "No se pudieron cargar las cifras públicas, así que solo se muestran las suyas.",
@@ -341,7 +348,7 @@
       "mine": "Mis resultados",
       "recordChartTitle": "Historial de la estrategia",
       "recordReturn": "Rendimiento",
-      "recordReturnRange": "Rendimiento {{range}}",
+      "recordReturnRange": "Rendimiento, {{range}}",
       "joined": "Usted se suscribió el {{date}}",
       "recordLoading": "Cargando el historial de la estrategia…",
       "recordError": "No se pudo cargar el historial de la estrategia.",
@@ -580,7 +587,7 @@
       "noReport": "Esta estrategia todavía no tiene informe de rendimiento.",
       "chartTitle": "Aporte al pool, compuesto",
       "contribution": "Aporte al pool",
-      "contributionRange": "Aporte al pool {{range}}",
+      "contributionRange": "Aporte al pool, {{range}}",
       "byPair": {
         "title": "Por par",
         "pair": "Par",

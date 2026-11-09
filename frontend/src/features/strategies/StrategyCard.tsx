@@ -131,7 +131,7 @@ export function StrategyCard(props: StrategyCardProps) {
       className="relative flex flex-col gap-3 rounded-md border border-rule bg-panel px-4 py-3 hover:bg-panel-2"
     >
       <div className="flex min-w-0 flex-col gap-0.5">
-        <div className="flex flex-wrap items-baseline gap-x-2">
+        <div className="flex flex-wrap items-center gap-x-2">
           <Link
             to={props.to}
             className="font-display text-base font-semibold text-gain after:absolute after:inset-0 hover:text-gain-bright"

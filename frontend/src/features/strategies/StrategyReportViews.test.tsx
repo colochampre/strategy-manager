@@ -147,7 +147,7 @@ describe("StrategyReportViews", () => {
     const deepestTerm = deepest.previousElementSibling as HTMLElement;
     expect(deepestTerm.querySelector("svg.lucide-trending-down")).not.toBeNull();
     expect(deepest).toHaveClass("text-loss");
-    expect(within(deepestTerm).getByRole("img", { name: "Deepest drawdown" })).toBeInTheDocument();
+    expect(within(deepestTerm).getByRole("img", { name: "Drawdown" })).toBeInTheDocument();
     // The unleveraged, before-fees disclosure stays with the return.
     expect(within(returnTerm).getByRole("button", { name: i18n.t("strategies.public.returnInfo") })).toBeInTheDocument();
     expect(line.textContent).not.toMatch(/return|deepest/i);
@@ -161,7 +161,7 @@ describe("StrategyReportViews", () => {
       within(screen.getByTestId("record-return").previousElementSibling as HTMLElement).getByRole("img").getAttribute("aria-label");
 
     fireEvent.click(screen.getByRole("button", { name: "7D" }));
-    expect(name()).toBe("Return 7D");
+    expect(name()).toBe("Return, last 7 days");
     fireEvent.click(screen.getByRole("button", { name: "All" }));
     expect(name()).toBe("Return");
     // The range is one choice for the whole panel: put it back where the other tests expect it.

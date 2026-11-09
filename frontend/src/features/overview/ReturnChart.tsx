@@ -148,6 +148,7 @@ export function ReturnChart({
   const { t, i18n } = useTranslation();
   const [measure, measuredWidth] = useElementWidth<HTMLDivElement>(DEFAULT_WIDTH);
   const gradientId = useId();
+  const drawdownGradientId = useId();
   const [hovered, setHovered] = useState<number | null>(null);
   const viewWidth = Math.max(MIN_WIDTH, measuredWidth);
   const right = viewWidth - RIGHT_MARGIN;
@@ -200,6 +201,8 @@ export function ReturnChart({
   const fillBottom = Math.max(waterY, ...curvePoints.map((point) => point.y));
   const waterOffset = fillBottom > fillTop ? (waterY - fillTop) / (fillBottom - fillTop) : 0;
   const drawdownPoints = days.map((day) => ({ x: x(day.date), y: toY(day.drawdown) }));
+  // The drawdown's gradient runs from the waterline, where it is clear, down to the deepest fall, where it is strongest.
+  const drawdownBottom = Math.max(waterY, ...drawdownPoints.map((point) => point.y));
 
   const upperTicks = days.length === 0 ? [] : tickValues(scale.upperMax);
   const lowerTicks = days.length === 0 ? [] : tickValues(scale.lowerMax);
@@ -308,6 +311,18 @@ export function ReturnChart({
               <stop offset={waterOffset} stopColor="currentColor" stopOpacity={0} />
               <stop offset={1} stopColor="currentColor" stopOpacity={FILL_OPACITY} />
             </linearGradient>
+            <linearGradient
+              id={drawdownGradientId}
+              gradientUnits="userSpaceOnUse"
+              x1={0}
+              x2={0}
+              y1={waterY}
+              y2={drawdownBottom}
+              className="text-loss"
+            >
+              <stop offset={0} stopColor="currentColor" stopOpacity={0} />
+              <stop offset={1} stopColor="currentColor" stopOpacity={FILL_OPACITY} />
+            </linearGradient>
           </defs>
           {labels.map(({ date, x: tickX }) => (
             <line
@@ -368,7 +383,8 @@ export function ReturnChart({
               <path
                 data-testid="drawdown-fill"
                 d={drawdownPath(drawdownPoints, waterY)}
-                className="fill-loss/20 stroke-none"
+                fill={`url(#${drawdownGradientId})`}
+                className="stroke-none"
               />
               <path
                 data-testid="drawdown-edge"

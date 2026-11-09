@@ -394,7 +394,11 @@ describe("the available balance", () => {
     });
     renderAt(<AppRoutes />, "/");
 
-    const note = await screen.findByTestId("balance-stale");
+    // Behind an (i) right of the balance, closed until asked (L.10), not on the pool's eyebrow.
+    const lead = await screen.findByTestId("ledger-lead");
+    expect(screen.queryByTestId("balance-stale")).not.toBeInTheDocument();
+    fireEvent.click(within(lead).getByRole("button", { name: "Balance out of date" }));
+    const note = screen.getByTestId("balance-stale");
     expect(note).toHaveTextContent("Balance is out of date: last synced");
     expect(note).toHaveTextContent("2026");
     expect(note.className).not.toContain("text-decision");
@@ -405,8 +409,9 @@ describe("the available balance", () => {
     stubApi(HEALTH, [], { kind: "ok", body: [pool("bybit", "linear", "USDT", BALANCE)] });
     renderAt(<AppRoutes />, "/");
 
-    await screen.findByTestId("ledger-lead");
+    const lead = await screen.findByTestId("ledger-lead");
     expect(screen.queryByTestId("balance-stale")).not.toBeInTheDocument();
+    expect(within(lead).queryByRole("button")).toBeNull();
   });
 });
 
@@ -608,17 +613,14 @@ describe("the overview sizing (decisions 35 and 36)", () => {
     expect(within(header as HTMLElement).getByRole("button", { name: "7D" })).toHaveAttribute("aria-pressed", "true");
   });
 
-  it("keeps the stale note on the eyebrow's row instead of a line of its own", async () => {
+  it("leaves the eyebrow alone on its row: a stale note waits behind the balance's (i) (L.10)", async () => {
     const panel = await renderOne(true);
+    expect(within(panel).queryByTestId("balance-stale")).toBeNull();
+    fireEvent.click(within(within(panel).getByTestId("ledger-lead")).getByRole("button", { name: "Balance out of date" }));
     const note = within(panel).getByTestId("balance-stale");
-    const eyebrow = within(panel).getByTestId("pool-eyebrow");
-    const row = eyebrow.parentElement as HTMLElement;
-    expect(note.parentElement).toBe(row);
-    expect(row).not.toBe(panel);
-    expect(row).toHaveClass("flex", "flex-wrap", "justify-between");
-    expect(note.className).not.toMatch(/\bw-full\b|\bblock\b/);
     expect(note.className).not.toContain("text-decision");
     expect(note).toHaveTextContent("Balance is out of date: last synced");
+    expect(within(panel).getByTestId("pool-eyebrow").parentElement).toBe(panel);
   });
 
   it("keeps the ledger line to its own row: four figures, each value held on one line", async () => {

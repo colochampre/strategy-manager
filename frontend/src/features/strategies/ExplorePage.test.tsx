@@ -131,7 +131,7 @@ describe("Explore", () => {
       ["age", "Age"],
       ["trades", "Closed trades"],
       ["return", "Return"],
-      ["deepest", "Deepest drawdown"],
+      ["deepest", "Drawdown"],
       ["winrate", "Win rate"],
       ["capital", "Capital"],
     ] as const) {

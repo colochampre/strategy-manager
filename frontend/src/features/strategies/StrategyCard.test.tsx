@@ -67,6 +67,12 @@ describe("what a card names", () => {
     expect(screen.getByTestId("card-enabled")).toHaveTextContent(i18n.t("strategies.detail.enabled"));
   });
 
+  it("centres the name and its enabled mark on one line, so a badge never sits off the name's middle (L.10)", () => {
+    draw({ enabled: true });
+    expect(screen.getByTestId("card-enabled").parentElement).toHaveClass("items-center");
+    expect(screen.getByTestId("card-enabled").parentElement).not.toHaveClass("items-baseline");
+  });
+
   it("says disabled when it is disabled", () => {
     draw({ enabled: false });
 
@@ -165,7 +171,7 @@ describe("the figures", () => {
       ["age", "Age"],
       ["trades", "Closed trades"],
       ["return", "Return"],
-      ["deepest", "Deepest drawdown"],
+      ["deepest", "Drawdown"],
       ["winrate", "Win rate"],
       ["subscribers", "Subscribers"],
       ["capital", "Capital"],
@@ -173,8 +179,8 @@ describe("the figures", () => {
       const term = within(row).getByTestId(`card-${key}`).previousElementSibling as HTMLElement;
       expect(within(term).getByRole("img", { name }), key).toBeInTheDocument();
     }
-    fireEvent.mouseEnter(within(row).getByRole("img", { name: "Deepest drawdown" }).parentElement as HTMLElement);
-    expect(within(row).getByRole("tooltip")).toHaveTextContent("Deepest drawdown");
+    fireEvent.mouseEnter(within(row).getByRole("img", { name: "Drawdown" }).parentElement as HTMLElement);
+    expect(within(row).getByRole("tooltip")).toHaveTextContent("Drawdown");
   });
 
   it("read their values", () => {
