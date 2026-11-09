@@ -2021,3 +2021,19 @@ Sent after reading the second round.
 
 - [ ] L.11 The third round, inline:
   - Built, awaiting its commit and the owner's read: the language switch shows the language in use (its flag and code) and its name says what pressing it does (`app.language`); the Overview's balance and the figures beside it share one middle line; a card's subscribers are the live count alone ("Live subscribers" in the tooltip; sorting by subscribers follows it); a PnL is a figure of the card's grid, left of the return (`CardFigureGrid pnl`): the author's on My strategies, the reader's own all-time PnL on My subscriptions ("Your PnL", from their report in the strategy); another author's page centres its name and its mark, and draws its figures in one row wherever its column holds eight (a container query, 32rem; four a row below it); under My results that row carries the reader's own PnL, contribution and drawdown over the chart's range, and the report below draws no ledger line of its own (`StrategyPerformance ledger={false}`); the PnL, a ninth figure, goes where the column holds one row of eight but not of nine (32rem to 40rem, the owner's word); the record is not read until its view is known; win rate's icon is a trophy. Found while rendering: a card's first four columns stayed the phone's explicit `minmax(0, 1fr)` on lg, so a long PnL (+2058.38 USDT) ran into the return; the card's grid drops them on lg (`lg:grid-cols-none`) and no column is narrower than its value (`minmax(max-content, 1fr)`). 31 of 31 hand mutations killed; 3793 frontend tests, lint green.
+
+### The owner's fourth round (2026-11-09), verbatim
+
+Sent after reading the third round.
+
+> Aplicar place ítems center a los iconos de los grid los distribuye mejor cuando un item tiene un valor de varios caracteres. Por ejemplo PnL con '+2058,38 USDT' queda muy cercano a Return y alejado de Closed trades. Con esta solucion los iconos se separan del borde izquierdo, perdiendo un poco la prolijidad de la tarjeta. Cómo se podría conseguir lo mejor de ambos? En la vista de una estrategia ajena, quedaron bien distribuidos. No se si tenga la misma configuración, pero a lo mejor sirve.
+>
+> En las tarjetas de estrategia:
+> - en las tarjetas de My strategies colocar el switch de activar/desactivar a la altura del titulo de la estrategia, en la esquina derecha, asi los iconos tienen más lugar.
+> - Como el tag de enabled es muy repetitivo, en las tarjetas, cambiarlo por un circulo relleno de color. Si está activa o deshabilitada, vos decidis qué colores usar, verde, gris, rojo u otros.
+>
+> En la vista de estrategias:
+> - en la vista de una estrategia ajena, el tag de enabled usa un estilo distinto al de una estrategia propia. Que sean consistentes.
+
+- [ ] L.12 The fourth round, inline:
+  - Built, awaiting the owner's read: a card's figures are spread as another author's page spreads them, the best of both the owner asked for: on lg each column is as wide as its value, the first at the card's left edge and the last at its right, the room left shared out equally between them (`lg:auto-cols-max lg:justify-between`), so a long PnL takes nothing from its neighbours and the left edge stays straight. The price: a middle figure no longer sits under the same figure of the card above, since each card's columns follow its own values. My strategies' switch sits on the title's line at its right end, so the figures have the card's width. A card marks whether its strategy runs with a filled dot (`EnabledDot`): green when it runs, grey when it does not, never the loss colour since a stopped strategy is not a fault; the word is the dot's name and tooltip. A strategy's page, the author's own or another author's, draws one mark beside its name (`EnabledBadge`, the own page's square mono style; Archived on an archived one). 12 of 12 hand mutations killed; 3795 frontend tests, lint green.

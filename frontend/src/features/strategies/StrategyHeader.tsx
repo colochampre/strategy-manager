@@ -4,11 +4,11 @@ import { useTranslation } from "react-i18next";
 import { Link } from "react-router";
 
 import { AuthorCapital } from "@/features/strategies/AuthorCapital";
+import { EnabledBadge } from "@/features/strategies/StrategyCard";
 import { StrategyTitle } from "@/features/strategies/StrategyTitle";
 import { UptimeSummary } from "@/features/strategies/UptimeSummary";
 import { WebhookMessage } from "@/features/strategies/WebhookMessage";
 import type { Strategy } from "@/shared/api/types";
-import { cn } from "@/shared/lib/cn";
 
 interface StrategyHeaderProps {
   strategy: Strategy;
@@ -38,21 +38,13 @@ export function StrategyHeader({ strategy }: StrategyHeaderProps) {
   const [open, setOpen] = useState(false);
   const panelId = useId();
   const archived = strategy.archived_at !== null;
-  const status = archived ? "strategies.row.archived" : strategy.enabled ? "strategies.detail.enabled" : "strategies.detail.disabled";
 
   return (
     <header className="flex flex-col gap-1.5">
       <BackToStrategies />
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         <StrategyTitle strategy={strategy} />
-        <span
-          className={cn(
-            "rounded border px-2 py-1 font-mono text-[11px] uppercase tracking-[0.12em]",
-            strategy.enabled && !archived ? "border-gain text-gain" : "border-rule text-ink-3",
-          )}
-        >
-          {t(status)}
-        </span>
+        <EnabledBadge enabled={strategy.enabled} archived={archived} testId="strategy-status" />
         <button
           type="button"
           aria-expanded={open}

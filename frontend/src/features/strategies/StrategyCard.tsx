@@ -8,6 +8,7 @@ import { Figure, useAgeSince } from "@/features/strategies/PublicFigures";
 import type { StrategyUptime } from "@/shared/api/types";
 import { amountText, percentText, toneClass } from "@/shared/lib/amount-text";
 import { cn } from "@/shared/lib/cn";
+import { Tooltip } from "@/shared/ui/Tooltip";
 
 const DAY_SECONDS = 86_400;
 /** What a figure shows where there is nothing true to say yet. */
@@ -17,13 +18,13 @@ const LOADING = "…";
 
 /**
  * The grid every card draws its figures in: four a row on a phone, with the items centred, and every figure of the
- * card on one row from `lg`, however many the list adds (share and leverage, PnL): equal columns, except that none is
- * narrower than its own value, so a long PnL widens its column instead of running into the next. The phone's four
- * columns are dropped there: kept, the first four would stay `minmax(0, 1fr)` and never widen. One grid for the
- * three lists.
+ * card on one row from `lg`, however many the list adds (share and leverage, PnL), spread as another author's page
+ * spreads them: each column as wide as its value, the first at the card's left edge and the last at its right, the
+ * room left shared out equally between them, so a long PnL takes no room from its neighbours. The phone's four
+ * columns are dropped there: kept, the first four would stay `minmax(0, 1fr)`. One grid for the three lists.
  */
 const CARD_GRID =
-  "grid grid-cols-4 place-items-center gap-x-4 gap-y-3 sm:place-items-start lg:grid-flow-col lg:grid-cols-none lg:auto-cols-[minmax(max-content,1fr)] lg:gap-x-6";
+  "grid grid-cols-4 place-items-center gap-x-4 gap-y-3 sm:place-items-start lg:grid-flow-col lg:grid-cols-none lg:auto-cols-max lg:justify-between lg:gap-x-6";
 
 /**
  * The same figures on a strategy's page, whose column is narrower than a card and shares the screen with an aside:
@@ -107,19 +108,43 @@ function winRateText(rate: number | null | undefined, locale: string): string {
   return new Intl.NumberFormat(locale, { style: "percent", maximumFractionDigits: 1 }).format(rate);
 }
 
-/** The word that says whether a strategy runs, beside its name: on a card and on another author's page. */
-export function EnabledBadge({ enabled, testId }: { enabled: boolean; testId: string }) {
+/**
+ * The word that says whether a strategy runs, beside its name on a strategy's page: the author's own and another
+ * author's draw the same mark. An archived strategy says so instead, in the quiet colour.
+ */
+export function EnabledBadge({ enabled, archived = false, testId }: { enabled: boolean; archived?: boolean; testId: string }) {
   const { t } = useTranslation();
+  const status = archived ? "strategies.row.archived" : enabled ? "strategies.detail.enabled" : "strategies.detail.disabled";
   return (
     <span
       data-testid={testId}
       className={cn(
-        "rounded-full border px-2 text-[11px] uppercase tracking-wide",
-        enabled ? "border-gain text-gain" : "border-rule text-ink-3",
+        "rounded border px-2 py-1 font-mono text-[11px] uppercase tracking-[0.12em]",
+        enabled && !archived ? "border-gain text-gain" : "border-rule text-ink-3",
       )}
     >
-      {t(enabled ? "strategies.detail.enabled" : "strategies.detail.disabled")}
+      {t(status)}
     </span>
+  );
+}
+
+/**
+ * Whether a strategy runs, on a card: a filled dot beside its name, where a word on every card repeated itself. Green
+ * when it runs; grey when it does not, never the loss colour, since a stopped strategy is not a fault. The word is the
+ * dot's name and its tooltip, and the dot is lifted above the card's stretched link so the tooltip answers.
+ */
+export function EnabledDot({ enabled, testId }: { enabled: boolean; testId: string }) {
+  const { t } = useTranslation();
+  const word = t(enabled ? "strategies.detail.enabled" : "strategies.detail.disabled");
+  return (
+    <Tooltip text={word} className="relative z-10">
+      <span
+        role="img"
+        aria-label={word}
+        data-testid={testId}
+        className={cn("block size-2.5 rounded-full", enabled ? "bg-gain" : "bg-ink-3")}
+      />
+    </Tooltip>
   );
 }
 
@@ -288,44 +313,45 @@ export function StrategyCard(props: StrategyCardProps) {
       data-testid={props.rowTestId}
       className="relative flex flex-col gap-3 rounded-md border border-rule bg-panel px-4 py-3 hover:bg-panel-2"
     >
-      <div className="flex min-w-0 flex-col gap-0.5">
-        <div className="flex flex-wrap items-center gap-x-2">
-          <Link
-            to={props.to}
-            className="font-display text-base font-semibold text-gain after:absolute after:inset-0 hover:text-gain-bright"
-          >
-            {props.name}
-          </Link>
-          {props.archived === true && (
-            <span className="text-xs uppercase tracking-wide text-ink-3">{t("strategies.row.archived")}</span>
+      {/* The card's one control sits on the title's line, at its right end, so the figures have the card's width. */}
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex min-w-0 flex-col gap-0.5">
+          <div className="flex flex-wrap items-center gap-x-2">
+            <Link
+              to={props.to}
+              className="font-display text-base font-semibold text-gain after:absolute after:inset-0 hover:text-gain-bright"
+            >
+              {props.name}
+            </Link>
+            {props.archived === true && (
+              <span className="text-xs uppercase tracking-wide text-ink-3">{t("strategies.row.archived")}</span>
+            )}
+            {props.enabled !== undefined && props.enabled !== null && (
+              <EnabledDot enabled={props.enabled} testId={`${prefix}-enabled`} />
+            )}
+          </div>
+          {props.byline !== undefined && props.byline !== null && (
+            <p data-testid={`${prefix}-origin`} className="text-xs text-ink-2">
+              {props.byline}
+            </p>
           )}
-          {props.enabled !== undefined && props.enabled !== null && (
-            <EnabledBadge enabled={props.enabled} testId={`${prefix}-enabled`} />
-          )}
-        </div>
-        {props.byline !== undefined && props.byline !== null && (
-          <p data-testid={`${prefix}-origin`} className="text-xs text-ink-2">
-            {props.byline}
+          <p data-testid={`${prefix}-market`} className="font-mono text-[11px] uppercase tracking-[0.14em] text-ink-3">
+            {props.market}
           </p>
-        )}
-        <p data-testid={`${prefix}-market`} className="font-mono text-[11px] uppercase tracking-[0.14em] text-ink-3">
-          {props.market}
-        </p>
-      </div>
-      <div className="flex items-center justify-between gap-4">
-        <CardFigureGrid
-          prefix={prefix}
-          since={props.since}
-          sinceKind={props.sinceKind}
-          uptime={uptime}
-          figures={figures}
-          figuresError={props.figuresError}
-          pnl={props.pnl}
-          trailing={props.trailing}
-          className="min-w-0 grow"
-        />
+        </div>
         {props.action !== undefined && <div className="relative z-10 shrink-0">{props.action}</div>}
       </div>
+      <CardFigureGrid
+        prefix={prefix}
+        since={props.since}
+        sinceKind={props.sinceKind}
+        uptime={uptime}
+        figures={figures}
+        figuresError={props.figuresError}
+        pnl={props.pnl}
+        trailing={props.trailing}
+        className="min-w-0"
+      />
       {props.marks !== undefined && <div className="relative z-10">{props.marks}</div>}
       {props.notice}
     </li>

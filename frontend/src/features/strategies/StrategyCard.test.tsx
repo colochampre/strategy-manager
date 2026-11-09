@@ -61,34 +61,36 @@ describe("what a card names", () => {
     expect(within(row).queryByTestId("card-origin")).not.toBeInTheDocument();
   });
 
-  it("marks another author's strategy enabled or disabled, in words", () => {
+  it("marks a running strategy with a filled dot in the gain colour, its word the dot's name and tooltip (L.12)", () => {
     draw({ enabled: true });
 
-    expect(screen.getByTestId("card-enabled")).toHaveTextContent(i18n.t("strategies.detail.enabled"));
+    const dot = screen.getByTestId("card-enabled");
+    expect(dot).toHaveAccessibleName(i18n.t("strategies.detail.enabled"));
+    expect(dot).toHaveAttribute("role", "img");
+    expect(dot).toHaveClass("rounded-full", "bg-gain");
+    expect(dot).not.toHaveClass("bg-ink-3");
+    expect(dot.textContent).toBe("");
+    fireEvent.mouseEnter(dot.parentElement as HTMLElement);
+    expect(screen.getByRole("tooltip")).toHaveTextContent(/^Enabled$/);
   });
 
-  it("centres the name and its enabled mark on one line, so a badge never sits off the name's middle (L.10)", () => {
-    draw({ enabled: true });
-    expect(screen.getByTestId("card-enabled").parentElement).toHaveClass("items-center");
-    expect(screen.getByTestId("card-enabled").parentElement).not.toHaveClass("items-baseline");
-  });
-
-  it("says disabled when it is disabled", () => {
+  it("marks a stopped strategy with a quiet grey dot, not the loss colour: off is not a fault (L.12)", () => {
     draw({ enabled: false });
 
-    expect(screen.getByTestId("card-enabled")).toHaveTextContent(i18n.t("strategies.detail.disabled"));
+    const dot = screen.getByTestId("card-enabled");
+    expect(dot).toHaveAccessibleName(i18n.t("strategies.detail.disabled"));
+    expect(dot).toHaveClass("bg-ink-3");
+    expect(dot).not.toHaveClass("bg-gain");
+    expect(dot).not.toHaveClass("bg-loss");
   });
 
-  it("draws a running strategy's word in the gain colour and a stopped one's in the quiet colour", () => {
-    draw({ enabled: true });
-    expect(screen.getByTestId("card-enabled")).toHaveClass("text-gain");
-    expect(screen.getByTestId("card-enabled")).not.toHaveClass("text-ink-3");
-  });
+  it("centres the name and its dot on one line, and lifts the dot above the link for its tooltip (L.10, L.12)", () => {
+    const row = draw({ enabled: true });
 
-  it("draws a stopped strategy's word in the quiet colour", () => {
-    draw({ enabled: false });
-    expect(screen.getByTestId("card-enabled")).toHaveClass("text-ink-3");
-    expect(screen.getByTestId("card-enabled")).not.toHaveClass("text-gain");
+    const title = within(row).getByRole("link", { name: "Alpha" }).parentElement as HTMLElement;
+    expect(title).toContainElement(screen.getByTestId("card-enabled"));
+    expect(title).toHaveClass("items-center");
+    expect(screen.getByTestId("card-enabled").parentElement).toHaveClass("relative", "z-10");
   });
 
   it("draws no mark when the card says nothing of whether it runs", () => {
@@ -294,9 +296,12 @@ describe("the grid", () => {
     const row = draw();
 
     const grid = row.querySelector("dl") as HTMLElement;
-    expect(grid).toHaveClass("grid", "grid-cols-4", "place-items-center", "sm:place-items-start", "lg:grid-flow-col", "lg:auto-cols-[minmax(max-content,1fr)]");
-    // Equal columns, none narrower than its value: a PnL such as +2058.38 USDT ran into the return beside it (L.11).
+    expect(grid).toHaveClass("grid", "grid-cols-4", "place-items-center", "sm:place-items-start", "lg:grid-flow-col", "lg:auto-cols-max", "lg:justify-between");
+    // As another author's page spreads them: each column as wide as its value, the first at the left edge, the last
+    // at the right, the room left shared out equally between them, so a long PnL takes no room from its neighbours
+    // (L.12). Equal columns drew +2058.38 USDT against the return, and away from the closed trades.
     expect(grid).not.toHaveClass("lg:auto-cols-fr");
+    expect(grid).not.toHaveClass("lg:auto-cols-[minmax(max-content,1fr)]");
     // The phone's four columns are explicit and would hold the first four at minmax(0, 1fr) on lg.
     expect(grid).toHaveClass("lg:grid-cols-none");
     // From lg every figure stays whole on one line in its column; a phone may wrap it rather than widen the page.
@@ -343,17 +348,23 @@ describe("what varies between the lists", () => {
     expect(within(row).getByRole("tooltip")).toHaveTextContent(/^Live subscribers$/);
   });
 
-  it("draws the trailing figures after the capital, and the action last", () => {
-    const row = draw({
-      trailing: <Figure label="Share" testId="card-share" value="30%" />,
-      action: <button type="button">Switch</button>,
-    });
+  it("draws the trailing figures after the capital", () => {
+    const row = draw({ trailing: <Figure label="Share" testId="card-share" value="30%" /> });
 
     const order = Array.from(row.querySelectorAll("dd")).map((cell) => cell.getAttribute("data-testid"));
     expect(order.slice(-2)).toEqual(["card-capital", "card-share"]);
-    const grid = row.querySelector("dl") as HTMLElement;
+  });
+
+  it("puts the action on the title's line, at its right end, and leaves the figures the card's whole width (L.12)", () => {
+    const row = draw({ action: <button type="button">Switch</button> });
+
     const button = within(row).getByRole("button", { name: "Switch" });
-    expect(grid.compareDocumentPosition(button) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+    const grid = row.querySelector("dl") as HTMLElement;
+    expect(grid.compareDocumentPosition(button) & Node.DOCUMENT_POSITION_PRECEDING).not.toBe(0);
+    const head = (button.parentElement as HTMLElement).parentElement as HTMLElement;
+    expect(head).toContainElement(within(row).getByRole("link", { name: "Alpha" }));
+    expect(head).toHaveClass("flex", "justify-between");
+    expect(grid.parentElement).toBe(row);
   });
 
   it("draws a note under the card's figures", () => {

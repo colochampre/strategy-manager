@@ -64,6 +64,31 @@ afterEach(async () => {
   await i18n.changeLanguage("en");
 });
 
+describe("StrategyHeader status", () => {
+  it("marks the strategy beside its name as another author's page does, in words (L.12)", () => {
+    setup({ ...STRATEGY, enabled: true });
+
+    const mark = screen.getByTestId("strategy-status");
+    expect(mark).toHaveTextContent(/^Enabled$/);
+    expect(mark).toHaveClass("rounded", "border", "px-2", "py-1", "font-mono", "uppercase", "border-gain", "text-gain");
+    expect(mark).not.toHaveClass("rounded-full");
+    expect(mark.parentElement).toHaveClass("items-center");
+  });
+
+  it("says Disabled, and Archived for an archived strategy, in the quiet colour (L.12)", () => {
+    setup({ ...STRATEGY, enabled: true, archived_at: "2026-11-01T00:00:00Z" });
+    const mark = screen.getByTestId("strategy-status");
+    expect(mark).toHaveTextContent(/^Archived$/);
+    expect(mark).toHaveClass("border-rule", "text-ink-3");
+    expect(mark).not.toHaveClass("text-gain");
+  });
+
+  it("says Disabled for a strategy that does not run (L.12)", () => {
+    setup({ ...STRATEGY, enabled: false });
+    expect(screen.getByTestId("strategy-status")).toHaveTextContent(/^Disabled$/);
+  });
+});
+
 describe("StrategyHeader subscribers", () => {
   it("tells its author who holds it, simulated subscribers included", () => {
     setup({ ...STRATEGY, subscribers: 3, live_subscribers: 2 });

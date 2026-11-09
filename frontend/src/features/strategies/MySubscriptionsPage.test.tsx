@@ -231,7 +231,7 @@ describe("a card of My subscriptions shows what Explore shows", () => {
     open();
 
     const row = await screen.findByTestId("subscription-row");
-    expect(within(row).getByTestId("subscription-enabled")).toHaveTextContent(i18n.t("strategies.detail.disabled"));
+    expect(within(row).getByTestId("subscription-enabled")).toHaveAccessibleName(i18n.t("strategies.detail.disabled"));
     expect(within(row).getByTestId("subscription-uptime")).toHaveTextContent(/^≥3$/);
   });
 

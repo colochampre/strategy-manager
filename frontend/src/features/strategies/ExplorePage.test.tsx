@@ -99,8 +99,8 @@ describe("Explore", () => {
     open();
 
     const [alpha, beta] = await screen.findAllByTestId("public-strategy-row");
-    expect(within(alpha as HTMLElement).getByTestId("public-enabled")).toHaveTextContent(i18n.t("strategies.detail.enabled"));
-    expect(within(beta as HTMLElement).getByTestId("public-enabled")).toHaveTextContent(i18n.t("strategies.detail.disabled"));
+    expect(within(alpha as HTMLElement).getByTestId("public-enabled")).toHaveAccessibleName(i18n.t("strategies.detail.enabled"));
+    expect(within(beta as HTMLElement).getByTestId("public-enabled")).toHaveAccessibleName(i18n.t("strategies.detail.disabled"));
   });
 
   it("opens the strategy from anywhere on the card, through the one link", async () => {

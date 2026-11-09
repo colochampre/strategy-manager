@@ -313,6 +313,9 @@ describe("the public page", () => {
     const pill = await screen.findByTestId("public-enabled");
     expect(pill).toHaveTextContent("Enabled");
     expect(pill).toHaveClass("border-gain", "text-gain");
+    // The same mark as the author's own page draws beside its name (L.12).
+    expect(pill).toHaveClass("rounded", "border", "px-2", "py-1", "font-mono", "uppercase");
+    expect(pill).not.toHaveClass("rounded-full");
     const title = screen.getByRole("heading", { level: 1, name: "Alpha" }).parentElement as HTMLElement;
     expect(title).toContainElement(pill);
     // The name and its mark share one centred line (L.11).
