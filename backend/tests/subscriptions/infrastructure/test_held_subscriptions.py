@@ -8,7 +8,7 @@ enabled one does.
 """
 
 from collections.abc import AsyncIterator, Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -52,6 +52,7 @@ BODY_KEYS = {
     "venue",
     "settlement_currency",
     "strategy_enabled",
+    "strategy_uptime",
 }
 
 
@@ -165,6 +166,58 @@ async def test_a_seat_says_whether_its_strategy_runs(
     held = await _only(client_for(subscriber))
 
     assert held["strategy_enabled"] is False
+
+
+async def _enabled_ten_days_off_two(factory: Any, strategy_id: UUID) -> datetime:
+    """The strategy's whole enablement log: on ten days ago, off from six to four days
+    ago, on since. Eight days active; the first enable ten days ago."""
+    now = datetime.now(UTC)
+    async with factory() as session:
+        await session.execute(
+            text("DELETE FROM strategy_enablement_events WHERE strategy_id = :id"),
+            {"id": strategy_id},
+        )
+        for days_ago, enabled in ((10, True), (6, False), (4, True)):
+            await session.execute(
+                text(
+                    "INSERT INTO strategy_enablement_events "
+                    "(id, strategy_id, enabled, occurred_at, origin) "
+                    "VALUES (:id, :strategy, :enabled, :at, 'OBSERVED')"
+                ),
+                {
+                    "id": uuid4(),
+                    "strategy": strategy_id,
+                    "enabled": enabled,
+                    "at": now - timedelta(days=days_ago),
+                },
+            )
+        await session.commit()
+    return now - timedelta(days=10)
+
+
+def _reads_eight_days(uptime: dict[str, Any], first: datetime) -> bool:
+    eight = timedelta(days=8).total_seconds()
+    return (
+        eight <= uptime["seconds"] < eight + 120
+        and datetime.fromisoformat(uptime["first_enabled_at"]) == first
+        and uptime["baseline"] is False
+    )
+
+
+async def test_a_seat_says_how_long_its_strategy_has_run(
+    pg_session_factory: Factory,  # noqa: F811
+    client_for: ClientFor,
+) -> None:
+    """tasks.md L.1: the days active, for a seat on a strategy off the public list too."""
+    author, _ = await seeds.user(pg_session_factory)
+    subscriber, pool = await seeds.user(pg_session_factory)
+    strategy_id = await seeds.strategy(pg_session_factory, author_id=author)
+    await seeds.subscription(pg_session_factory, subscriber, strategy_id, pool or 0)
+    first = await _enabled_ten_days_off_two(pg_session_factory, strategy_id)
+
+    held = await _only(client_for(subscriber))
+
+    assert _reads_eight_days(held["strategy_uptime"], first), held["strategy_uptime"]
 
 
 async def test_an_author_with_no_name_yet_reads_as_null(

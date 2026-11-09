@@ -68,6 +68,7 @@ BODY_KEYS = {
     "max_drawdown",
     "win_rate",
     "enabled",
+    "uptime",
 }
 
 Factory = async_sessionmaker[AsyncSession]
@@ -451,6 +452,58 @@ async def test_with_no_closed_trade_there_is_no_win_rate_and_no_drop(
 
     assert listed["win_rate"] is None
     assert Decimal(listed["max_drawdown"]) == 0
+
+
+async def _enabled_ten_days_off_two(factory: Any, strategy_id: UUID) -> datetime:
+    """The strategy's whole enablement log: on ten days ago, off from six to four days
+    ago, on since. Eight days active; the first enable ten days ago."""
+    now = datetime.now(UTC)
+    async with factory() as session:
+        await session.execute(
+            text("DELETE FROM strategy_enablement_events WHERE strategy_id = :id"),
+            {"id": strategy_id},
+        )
+        for days_ago, enabled in ((10, True), (6, False), (4, True)):
+            await session.execute(
+                text(
+                    "INSERT INTO strategy_enablement_events "
+                    "(id, strategy_id, enabled, occurred_at, origin) "
+                    "VALUES (:id, :strategy, :enabled, :at, 'OBSERVED')"
+                ),
+                {
+                    "id": uuid4(),
+                    "strategy": strategy_id,
+                    "enabled": enabled,
+                    "at": now - timedelta(days=days_ago),
+                },
+            )
+        await session.commit()
+    return now - timedelta(days=10)
+
+
+def _reads_eight_days(uptime: dict[str, Any], first: datetime) -> bool:
+    eight = timedelta(days=8).total_seconds()
+    return (
+        eight <= uptime["seconds"] < eight + 120
+        and datetime.fromisoformat(uptime["first_enabled_at"]) == first
+        and uptime["baseline"] is False
+    )
+
+
+async def test_the_list_and_the_page_say_how_long_the_strategy_has_run(
+    pg_session_factory: Factory, api: _Api
+) -> None:
+    """tasks.md L.1: the days active beside the age, the same figure the author's own
+    card shows: the enabled stretches added up, not the time since it was made."""
+    author = await _new_user(pg_session_factory)
+    strategy_id = await _strategy(pg_session_factory, author)
+    first = await _enabled_ten_days_off_two(pg_session_factory, strategy_id)
+
+    [listed] = await api.listed()
+    page = await api.page(strategy_id)
+
+    assert _reads_eight_days(listed["uptime"], first), listed["uptime"]
+    assert _reads_eight_days(page["uptime"], first), page["uptime"]
 
 
 # --- the record -----------------------------------------------------------------------
@@ -1070,7 +1123,9 @@ async def test_the_read_runs_in_one_read_only_snapshot_and_touches_no_signal_or_
     transaction = [each for each in statements if "SET TRANSACTION" in each]
     assert transaction == ["SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY"]
     read = statements[statements.index(transaction[0]) :]
-    assert len(read) == 4, "the snapshot, the listings, the author's fills and the seats"
+    assert len(read) == 5, (
+        "the snapshot, the listings, the author's fills, the seats and the enablement log"
+    )
     assert not [each for each in read if "signals" in each]
     assert not [each for each in statements if "raw_payload" in each]
 

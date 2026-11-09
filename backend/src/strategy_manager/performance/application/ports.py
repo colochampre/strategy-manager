@@ -21,6 +21,7 @@ from strategy_manager.performance.domain.open_position import (
 )
 from strategy_manager.performance.domain.operation import OperationFill, PricingFacts
 from strategy_manager.performance.domain.public_capital import LiveSeat
+from strategy_manager.strategies.domain.enablement import EnablementEvent
 
 
 @dataclass(frozen=True, slots=True)
@@ -225,3 +226,10 @@ class PublicStrategiesSourcePort(Protocol):
     async def live_seats(
         self, strategy_ids: Sequence[UUID]
     ) -> Mapping[UUID, Sequence[LiveSeat]]: ...
+
+    async def enablement(
+        self, strategy_ids: Sequence[UUID]
+    ) -> Mapping[UUID, Sequence[EnablementEvent]]:
+        """Each strategy's enablement log, oldest first: the days active a card shows
+        beside the age (tasks.md L.1). Only when it was on and off leaves."""
+        ...

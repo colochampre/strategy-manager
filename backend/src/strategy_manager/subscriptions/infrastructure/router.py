@@ -10,7 +10,7 @@ Refusals follow the strategies router: a 404 carries a plain ``detail`` string,
 and a 409 carries ``{"error": <CODE>, "message": ...}``.
 """
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Annotated
 from uuid import UUID
 
@@ -26,6 +26,7 @@ from strategy_manager.shared.db import get_session
 from strategy_manager.shared.domain.leverage import MAX_LEVERAGE, NEW_SEAT_LEVERAGE, Leverage
 from strategy_manager.shared.infrastructure.clock import SystemClock
 from strategy_manager.shared.infrastructure.wire import Money
+from strategy_manager.strategies.domain.enablement import Uptime, uptime
 from strategy_manager.strategies.domain.invite_code import (
     InviteCodeNotLive,
     TooManyCodeAttempts,
@@ -37,8 +38,10 @@ from strategy_manager.strategies.infrastructure.code_entry_http import (
     CodeCheckDep,
     code_refusal,
 )
+from strategy_manager.strategies.infrastructure.enablement_log import SqlAlchemyEnablementLog
 from strategy_manager.strategies.infrastructure.pool_lock_adapter import PoolLockAdapter
 from strategy_manager.strategies.infrastructure.share_input import Share
+from strategy_manager.strategies.infrastructure.uptime_view import UptimeView
 from strategy_manager.subscriptions.application.change_share import ChangeShare
 from strategy_manager.subscriptions.application.errors import (
     AlreadySubscribed,
@@ -142,9 +145,11 @@ class HeldSubscriptionView(SubscriptionView):
     venue: str
     settlement_currency: str
     strategy_enabled: bool
+    # How long the strategy has taken signals, as its author's card reads it (tasks.md L.1).
+    strategy_uptime: UptimeView
 
     @classmethod
-    def of_held(cls, held: HeldSubscription) -> "HeldSubscriptionView":
+    def of_held(cls, held: HeldSubscription, active: Uptime) -> "HeldSubscriptionView":
         exchange, venue, settlement_currency = held.market
         return cls(
             **SubscriptionView.of(held.subscription).model_dump(),
@@ -155,6 +160,7 @@ class HeldSubscriptionView(SubscriptionView):
             venue=venue,
             settlement_currency=settlement_currency,
             strategy_enabled=held.strategy_enabled,
+            strategy_uptime=UptimeView.of(active),
         )
 
 
@@ -214,9 +220,19 @@ async def list_subscriptions(session: SessionDep, user: CurrentUserDep) -> list[
 async def list_held(session: SessionDep, user: CurrentUserDep) -> list[HeldSubscriptionView]:
     """The signed-in user's ACTIVE and LEAVING subscriptions, each with its strategy's
     name, author and market, public or not: a subscriber keeps what they hold when
-    it turns private (decision 21). One statement, whatever their number."""
+    it turns private (decision 21). Two statements, whatever their number: the seats,
+    then their strategies' enablement logs for the days active."""
     held = await SqlAlchemySubscriptionRepository(session).held(user.id)
-    return [HeldSubscriptionView.of_held(subscription) for subscription in held]
+    events = await SqlAlchemyEnablementLog(session).list_for_many(
+        [each.subscription.strategy_id for each in held]
+    )
+    now = datetime.now(UTC)
+    return [
+        HeldSubscriptionView.of_held(
+            subscription, uptime(events.get(subscription.subscription.strategy_id, []), now)
+        )
+        for subscription in held
+    ]
 
 
 @router.post("/{subscription_id}/leave", response_model=SubscriptionView)

@@ -56,7 +56,9 @@ from strategy_manager.performance.application.ports import NO_ENTRY, PageEntry, 
 from strategy_manager.performance.domain.closed_trade import FillGroup
 from strategy_manager.performance.domain.public_capital import LiveSeat
 from strategy_manager.shared.domain.mode import Mode
+from strategy_manager.strategies.domain.enablement import EnablementEvent
 from strategy_manager.strategies.domain.strategy import Visibility
+from strategy_manager.strategies.infrastructure.enablement_log import SqlAlchemyEnablementLog
 from strategy_manager.strategies.infrastructure.models import StrategyRow
 from strategy_manager.subscriptions.domain.subscription import SubscriptionStatus
 from strategy_manager.subscriptions.infrastructure.models import SubscriptionRow
@@ -237,6 +239,12 @@ class SqlAlchemyPublicStrategiesSource:
                 )
             )
         return found
+
+    async def enablement(
+        self, strategy_ids: Sequence[UUID]
+    ) -> Mapping[UUID, Sequence[EnablementEvent]]:
+        """The author's own list reads the same log the same way, in one statement."""
+        return await SqlAlchemyEnablementLog(self._session).list_for_many(strategy_ids)
 
     async def live_seats(self, strategy_ids: Sequence[UUID]) -> Mapping[UUID, Sequence[LiveSeat]]:
         rows = await self._session.execute(

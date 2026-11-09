@@ -164,6 +164,7 @@ from strategy_manager.strategies.infrastructure.share_input import Share
 from strategy_manager.strategies.infrastructure.subscribers_adapter import (
     StrategySubscribersAdapter,
 )
+from strategy_manager.strategies.infrastructure.uptime_view import UptimeView
 from strategy_manager.subscriptions.domain.subscription import Subscription
 from strategy_manager.subscriptions.infrastructure.repository import (
     SqlAlchemySubscriptionRepository,
@@ -202,22 +203,6 @@ SHARE_PREVIEW_FAULT_DETAIL = "share preview data failed an integrity check"
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 CurrentUserDep = Annotated[User, Depends(current_user)]
 
-
-class UptimeView(BaseModel):
-    """Mirrors ``enablement.Uptime`` (design.md § 9). ``baseline=True``
-    means the earliest known enable is a BASELINE row written by migration
-    0024 -- the true first-enabled date is unknown, and the panel renders
-    "active >= X days" rather than claiming an exact one."""
-
-    seconds: float
-    first_enabled_at: datetime | None
-    baseline: bool
-
-    @classmethod
-    def of(cls, value: Uptime) -> "UptimeView":
-        return cls(
-            seconds=value.seconds, first_enabled_at=value.first_enabled_at, baseline=value.baseline
-        )
 
 
 class StrategyView(BaseModel):

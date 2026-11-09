@@ -74,6 +74,7 @@ from strategy_manager.performance.infrastructure.performance_router import (
 from strategy_manager.performance.infrastructure.public_strategies_source import (
     SqlAlchemyPublicStrategiesSource,
 )
+from strategy_manager.shared.application.ports import ClockPort
 from strategy_manager.shared.config import get_settings
 from strategy_manager.shared.infrastructure.wire import Instant, Money, Ratio, ratio
 from strategy_manager.strategies.application.code_entry import CheckInviteCode
@@ -87,6 +88,7 @@ from strategy_manager.strategies.infrastructure.code_entry_http import (
     LinkQuery,
     code_refusal,
 )
+from strategy_manager.strategies.infrastructure.uptime_view import UptimeView
 
 logger = logging.getLogger(__name__)
 
@@ -128,6 +130,8 @@ class PublicStrategyBody(BaseModel):
     max_drawdown: Ratio
     win_rate: Ratio | None
     enabled: bool
+    # The days active beside the age, as the author's own card reads them (tasks.md L.1).
+    uptime: UptimeView
 
 
 def _body(strategy: PublicStrategy) -> PublicStrategyBody:
@@ -149,11 +153,12 @@ def _body(strategy: PublicStrategy) -> PublicStrategyBody:
         max_drawdown=strategy.record.max_drawdown,
         win_rate=strategy.record.win_rate,
         enabled=listing.enabled,
+        uptime=UptimeView.of(strategy.uptime),
     )
 
 
-def _reader(source: PublicStrategiesSourcePort) -> ReadPublicStrategies:
-    return ReadPublicStrategies(source, brake=get_settings().dry_run)
+def _reader(source: PublicStrategiesSourcePort, clock: ClockPort) -> ReadPublicStrategies:
+    return ReadPublicStrategies(source, brake=get_settings().dry_run, clock=clock)
 
 
 def _writable(strategy: PublicStrategy) -> bool:
@@ -169,8 +174,12 @@ def _writable(strategy: PublicStrategy) -> bool:
 
 
 @router.get("", response_model=list[PublicStrategyBody])
-async def list_public_strategies(source: SourceDep) -> list[PublicStrategyBody]:
-    return [_body(strategy) for strategy in await _reader(source).read_all() if _writable(strategy)]
+async def list_public_strategies(source: SourceDep, clock: ClockDep) -> list[PublicStrategyBody]:
+    return [
+        _body(strategy)
+        for strategy in await _reader(source, clock).read_all()
+        if _writable(strategy)
+    ]
 
 
 class RecordRangeBody(BaseModel):
@@ -290,12 +299,13 @@ async def read_public_record(
 async def read_public_strategy(
     strategy_id: UUID,
     source: SourceDep,
+    clock: ClockDep,
     reader: ReaderDep,
     codes: CodeCheckDep,
     link: LinkQuery = None,
     code: CodeQuery = None,
 ) -> PublicStrategyBody:
-    strategies = _reader(source)
+    strategies = _reader(source, clock)
     strategy = await _entered(
         strategy_id,
         reader,
