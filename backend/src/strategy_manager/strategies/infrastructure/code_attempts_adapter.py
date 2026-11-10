@@ -15,7 +15,11 @@ from uuid import UUID
 from sqlalchemy import delete, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from strategy_manager.strategies.application.code_entry import LocatedCode
 from strategy_manager.strategies.domain.invite_code import IssuedCode
+from strategy_manager.strategies.domain.strategy import Visibility
+from strategy_manager.strategies.infrastructure.author_names import SqlAlchemyAuthorNames
+from strategy_manager.strategies.infrastructure.models import StrategyRow
 from strategy_manager.subscriptions.infrastructure.models import (
     InviteCodeAttemptRow,
     InviteCodeRow,
@@ -61,7 +65,7 @@ class SqlAlchemyCodeAttempts:
             expires_at=row.expires_at, revoked_at=row.revoked_at, redeemed_at=row.redeemed_at
         )
 
-    async def locate(self, code_hash: str) -> tuple[UUID, IssuedCode] | None:
+    async def locate(self, code_hash: str) -> LocatedCode | None:
         """A hash is unique across every strategy (``ux_invite_codes_code_hash``)."""
         row = (
             await self._session.execute(
@@ -70,13 +74,26 @@ class SqlAlchemyCodeAttempts:
                     InviteCodeRow.expires_at,
                     InviteCodeRow.revoked_at,
                     InviteCodeRow.redeemed_at,
-                ).where(InviteCodeRow.code_hash == code_hash)
+                    StrategyRow.visibility,
+                    StrategyRow.archived_at,
+                    StrategyRow.author_id,
+                )
+                .join(StrategyRow, StrategyRow.id == InviteCodeRow.strategy_id)
+                .where(InviteCodeRow.code_hash == code_hash)
             )
         ).one_or_none()
         if row is None:
             return None
-        return row.strategy_id, IssuedCode(
-            expires_at=row.expires_at, revoked_at=row.revoked_at, redeemed_at=row.redeemed_at
+        return LocatedCode(
+            strategy_id=row.strategy_id,
+            issued=IssuedCode(
+                expires_at=row.expires_at, revoked_at=row.revoked_at, redeemed_at=row.redeemed_at
+            ),
+            visibility=Visibility(row.visibility),
+            archived=row.archived_at is not None,
+            author_named=await SqlAlchemyAuthorNames(self._session).has_display_name(
+                row.author_id
+            ),
         )
 
     async def record_failure(self, user_id: UUID, at: datetime, prune_before: datetime) -> None:

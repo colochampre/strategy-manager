@@ -13,6 +13,10 @@ the reader's, against the same limit the page and subscribing use, so a code can
 be guessed here faster than there. A dead code says why (410), naming nobody and no
 strategy; a wrong one is a 404; the limit is a 429.
 
+**It names only a strategy the page would open.** A live code of an archived
+strategy, or of an author with no name, is the same 404 as a wrong code, uncounted,
+since the page refuses it too (K.D advisory A2).
+
 **The code travels in the body**, not the path, so no access log keeps it.
 """
 

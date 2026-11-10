@@ -10,8 +10,13 @@ strategy, so a code is spent only when it is what let its holder in.
 then the code is marked redeemed by it under the code's row lock, re-read there, so
 two holders of one code make one seat. A code that is no longer live by then
 refuses the seat, which the caller rolls back.
+
+**The log answers who got in with a code** (K.D advisory A3): a spend that loses
+to another, or finds the code gone, says so at WARNING; a seat a code paid for, at
+INFO once committed. Each names the user, the strategy and the seat, never the code.
 """
 
+import logging
 from uuid import UUID, uuid4
 
 from strategy_manager.shared.application.ports import ClockPort
@@ -35,6 +40,8 @@ from strategy_manager.subscriptions.application.ports import (
     UserPoolPort,
 )
 from strategy_manager.subscriptions.domain.subscription import Subscription
+
+logger = logging.getLogger(__name__)
 
 
 class Subscribe:
@@ -107,8 +114,22 @@ class Subscribe:
         if spent is not None:
             gone = await self._spend.spend(strategy_id, spent, user_id, subscription.id, now)
             if gone is not None:
+                logger.warning(
+                    "invite code no longer live at its spend, seat refused: user=%s "
+                    "strategy=%s outcome=%s",
+                    user_id,
+                    strategy_id,
+                    gone.value,
+                )
                 raise InviteCodeNotLive(gone)
         await self._commit.commit()
+        if spent is not None:
+            logger.info(
+                "invite code redeemed: user=%s strategy=%s subscription=%s",
+                user_id,
+                strategy_id,
+                subscription.id,
+            )
         return subscription
 
     async def _entered_with(

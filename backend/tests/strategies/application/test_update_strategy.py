@@ -5,6 +5,7 @@ routes the close of an open position to the wrong adapter, which leaves a real
 holding open while the system believes it closed.
 """
 
+import logging
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
@@ -28,6 +29,8 @@ from tests.strategies.author_names import FixedAuthorNames
 
 STRATEGY_ID = UUID("7256917a-9937-4a6c-b6d3-9cb2b4a9cedd")
 FIXED_NOW = datetime(2026, 9, 25, 12, 0, 0, tzinfo=UTC)
+LOGGER = "strategy_manager.strategies.application.update_strategy"
+TOKEN = "t" * 43
 
 
 def _strategy(**overrides: object) -> Strategy:
@@ -307,3 +310,56 @@ async def test_noop_patch_setting_enabled_true_again_writes_no_event() -> None:
 
     assert log.calls == []
     assert commit.commits == 1
+
+
+# --- the log of a link (K.D advisory A3) ------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("held", "asked", "said"),
+    [
+        (Visibility.PRIVATE, Visibility.LINK, "made"),
+        (Visibility.PUBLIC, Visibility.LINK, "made"),
+        (Visibility.LINK, Visibility.PRIVATE, "killed"),
+        (Visibility.LINK, Visibility.PUBLIC, "killed"),
+    ],
+)
+async def test_a_link_made_or_killed_is_said_at_info_naming_the_strategy_never_the_token(
+    held: Visibility, asked: Visibility, said: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Whoever holds a link opens the strategy, so when one began or stopped working
+    must be answerable from the log; a link killed and made again is a rotation."""
+    existing = _strategy(visibility=held, share_token=TOKEN if held is Visibility.LINK else None)
+    use_case, repository, _, _, _ = _build(existing)
+
+    with caplog.at_level(logging.INFO, logger=LOGGER):
+        await use_case.update(UpdateCommand(strategy_id=STRATEGY_ID, visibility=asked))
+
+    lines = [each for each in caplog.records if each.name == LOGGER]
+    assert [each.levelno for each in lines] == [logging.INFO]
+    line = lines[0].getMessage()
+    assert f"link {said}" in line
+    assert str(STRATEGY_ID) in line and str(OWNER_ID) in line
+    assert TOKEN not in line
+    token = repository.updated[0].share_token
+    assert token is None or token not in line
+
+
+@pytest.mark.parametrize(
+    ("held", "command"),
+    [
+        (Visibility.LINK, UpdateCommand(strategy_id=STRATEGY_ID, visibility=Visibility.LINK)),
+        (Visibility.LINK, UpdateCommand(strategy_id=STRATEGY_ID, name="renamed")),
+        (Visibility.PRIVATE, UpdateCommand(strategy_id=STRATEGY_ID, visibility=Visibility.PUBLIC)),
+    ],
+)
+async def test_an_update_that_neither_makes_nor_kills_a_link_says_nothing_of_one(
+    held: Visibility, command: UpdateCommand, caplog: pytest.LogCaptureFixture
+) -> None:
+    existing = _strategy(visibility=held, share_token=TOKEN if held is Visibility.LINK else None)
+    use_case, _, _, _, _ = _build(existing)
+
+    with caplog.at_level(logging.INFO, logger=LOGGER):
+        await use_case.update(command)
+
+    assert [each for each in caplog.records if each.name == LOGGER] == []

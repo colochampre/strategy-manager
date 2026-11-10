@@ -23,9 +23,15 @@ raises ``TooManyCodeAttempts``.
 committed even when the request then answers a refusal and rolls back.
 
 The log names the user, the strategy and the failures in the window, never the code.
+
+**A live code of a strategy that opens to nobody** -- archived, or its author has no
+name (decision 27) -- is answered by ``locate`` as no code, as the page answers it,
+so the lookup names no strategy the page then refuses (K.D advisory A2). It is a
+real code, not a guess, so it is not counted, as the page does not count it.
 """
 
 import logging
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Protocol
 from uuid import UUID
@@ -39,8 +45,27 @@ from strategy_manager.strategies.domain.invite_code import (
     TooManyCodeAttempts,
     may_attempt,
 )
+from strategy_manager.strategies.domain.strategy import Entry, Visibility, offered_to
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True, slots=True)
+class LocatedCode:
+    """A code found by its hash alone, with what decides whether its strategy opens."""
+
+    strategy_id: UUID
+    issued: IssuedCode
+    visibility: Visibility
+    archived: bool
+    author_named: bool
+
+    @property
+    def opens(self) -> bool:
+        """Whether the page this code names would open to it: the page's own rule."""
+        return not self.archived and offered_to(
+            self.visibility, author_named=self.author_named, entry=Entry.CODE
+        )
 
 
 class CodeAttemptsPort(Protocol):
@@ -54,7 +79,7 @@ class CodeAttemptsPort(Protocol):
         """The code of ``strategy_id`` with this hash, live or dead, or None."""
         ...
 
-    async def locate(self, code_hash: str) -> tuple[UUID, IssuedCode] | None:
+    async def locate(self, code_hash: str) -> LocatedCode | None:
         """The code with this hash, of whichever strategy, and that strategy; or None."""
         ...
 
@@ -85,7 +110,16 @@ class CheckInviteCode:
         now, failures = await self._admit(user_id, None)
         code = InviteCode.parse(typed)
         found = None if code is None else await self._attempts.locate(code.hash)
-        strategy_id, issued = (None, None) if found is None else found
+        if found is not None and found.issued.why_dead(now) is None and not found.opens:
+            await self._attempts.commit()
+            logger.info(
+                "invite code opens nothing, its strategy archived or its author unnamed: "
+                "user=%s strategy=%s",
+                user_id,
+                found.strategy_id,
+            )
+            return None
+        strategy_id, issued = (None, None) if found is None else (found.strategy_id, found.issued)
         if await self._settle(user_id, strategy_id, issued, now=now, failures=failures):
             return strategy_id
         return None
