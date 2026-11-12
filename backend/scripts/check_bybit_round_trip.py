@@ -204,7 +204,7 @@ async def main() -> int:
 
             available = (
                 await BybitBalanceReader(reader, SystemClock()).read(
-                    [("usdt-m", "USDT")]
+                    [(EXCHANGE, "usdt-m", "USDT")]
                 )
             )[0].available
             price = await reader.last_price(symbol)
@@ -299,7 +299,7 @@ async def main() -> int:
             remaining = await _open_position(reader, symbol)
             after = (
                 await BybitBalanceReader(reader, SystemClock()).read(
-                    [("usdt-m", "USDT")]
+                    [(EXCHANGE, "usdt-m", "USDT")]
                 )
             )[0].available
 
