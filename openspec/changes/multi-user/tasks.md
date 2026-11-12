@@ -1793,6 +1793,12 @@ The follow-up of the PNUT incident above, and decision 38. Branch `feat/subscrip
       ```
 
       The `set to ISOLATED at 2x` line closes A4.
+    - **Seen 2026-11-12.** Live openings on PNUT and SFP; the owner had set at
+      least one of them to x1 by hand at Binance. Both positions opened at x2,
+      the seats' leverage, as the owner read at the venue. So the setting
+      write went through, and the read-back right after it agreed: a lagging
+      read would have refused the opening. A4 is closed on that evidence. The
+      INFO line itself was not read.
 
 ## Decision 40: same-day trades that follow each other compound (PR #96)
 
