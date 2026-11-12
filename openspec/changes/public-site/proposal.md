@@ -63,14 +63,14 @@ The privacy policy describes exactly this, no more. Items marked *to confirm* ar
 
 The owner sends them in Spanish to a lawyer they know. This is the English summary.
 
-1. Does the database need registering with the AAIP? What must the privacy policy state (Ley 25.326), and may the address be other than a home address?
-2. International transfer: the data passes through Cloudflare (United States), and the VPS is in another country.
+1. Does the database need registering with the AAIP (art. 21 suggests it does), and through which procedure? What must the privacy policy state (Ley 25.326), and may the address be other than a home address?
+2. International transfer: the data passes through Cloudflare (United States), and the VPS is in another country. The United States is not an adequate country, so express consent or model clauses are needed: is an express consent inside the acceptance checkbox enough? Does Cloudflare's standard data processing agreement serve?
 3. The right to deletion against an append-only trading ledger and the absence of account deletion. Is anonymising enough?
-4. Financial regulation: could the service count as investment advice or management, or as a virtual asset service provider (CNV)? Does charging for plans change the answer?
-5. Liability for losses, app failures or exchange failures: what the terms may limit, and what consumer law (Ley 24.240) forbids excluding once plans are paid.
-6. Users abroad: restrict to Argentina, or state the governing law and jurisdiction?
+4. Financial regulation: could the service count as investment advice or management, or as a virtual asset service provider (CNV)? Does a user's trading API key count as an "instrument that allows control" over virtual assets? If so, does the individuals' exemption under 35,000 UVA a month apply, and how is it measured for a service that moves no funds of its own? Does charging for plans change the answer?
+5. Liability: consumer law applies while free (art. 1) and a clause limiting liability for damage is void (art. 37, Disposición 377/2026). The draft now answers for the service's own damage, leaves market risk to the user, and leaves the exchange and TradingView answering for their own services. Is that right? May the service be offered "as it is and as available"? (Reworded 2026-11-12.)
+6. Users abroad: the draft no longer chooses a forum (CCyC arts. 1109 and 2654), disputes go to the user's domicile. Does that expose the service to foreign courts and consumer laws? Restrict to Argentina? (Reworded 2026-11-12.)
 7. Minimum age.
-8. Terms while it is free: sign-up is open and free and no terms are published yet, only the privacy policy in the panel. Are terms needed now, without charging? What is the exposure if someone loses money before they exist? (Added 2026-11-12.)
+8. Terms while it is free: a draft is published in the panel and binds by use. Is that enough while it is free? What is the exposure if someone loses money before they are reviewed? (Added 2026-11-12, reworded the same day.)
 9. Acceptance: is a checkbox "I accept the terms and have read the privacy policy", recorded with the user, the version and the date, enough proof? Must it be asked again on every change? (Added 2026-11-12.)
 
 ### What public sources already say (researched 2026-11-12)

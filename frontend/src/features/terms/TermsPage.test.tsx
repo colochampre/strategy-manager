@@ -95,6 +95,16 @@ describe("terms of service page", () => {
     expect(screen.getByText(/never holds your funds/).closest("article")).toHaveClass("sm:text-justify");
   });
 
+  it("answers for the service's own damage and leaves disputes to the user's courts, as consumer law requires", () => {
+    renderAt(<TermsPage />);
+
+    expect(screen.getByText(/We answer for the damage the service itself causes you/)).toBeInTheDocument();
+    expect(screen.getByText(/Market risk is yours/)).toBeInTheDocument();
+    expect(screen.getByText(/the courts of your domicile/)).toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent("[JURISDICTION]");
+    expect(document.body).not.toHaveTextContent("[LIABILITY LIMIT");
+  });
+
   it("reads in Spanish", async () => {
     await i18n.changeLanguage("es");
     renderAt(<TermsPage />);

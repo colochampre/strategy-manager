@@ -1170,7 +1170,7 @@
       },
       "liability": {
         "title": "Responsabilidad",
-        "body": "En la medida en que la ley lo permita, no somos responsables por pérdidas de trading, por ganancias no obtenidas ni por fallas de TradingView, de su exchange, de la red o de la app. [LÍMITE DE RESPONSABILIDAD, A CONFIRMAR CON UN ABOGADO]",
+        "body": "Respondemos por los daños que el propio servicio le cause, según lo que establece la ley. El riesgo de mercado es suyo: una operación que pierde dinero porque el precio se movió es el riesgo descrito arriba, no un daño causado por el servicio. Lo que hagan su exchange o TradingView está fuera de nuestro control, y cada uno responde por su propio servicio.",
         "rights": "Nada en estos términos limita los derechos que la ley le reconoce y que no pueden renunciarse."
       },
       "price": {
@@ -1193,7 +1193,7 @@
       },
       "law": {
         "title": "Ley aplicable",
-        "body": "Estos términos se rigen por las leyes de la República Argentina. Cualquier controversia se somete a los tribunales de [JURISDICCIÓN], sin perjuicio de los derechos que la ley de defensa del consumidor le reconoce para elegir el suyo."
+        "body": "Estos términos se rigen por las leyes de la República Argentina, incluida la Ley de Defensa del Consumidor N° 24.240. Cualquier controversia corresponde a los tribunales de su domicilio."
       },
       "contact": {
         "title": "Contacto",

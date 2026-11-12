@@ -1170,7 +1170,7 @@
       },
       "liability": {
         "title": "Liability",
-        "body": "To the extent the law allows, we are not liable for trading losses, for profits not made, or for failures of TradingView, of your exchange, of the network or of the app. [LIABILITY LIMIT, TO BE CONFIRMED BY A LAWYER]",
+        "body": "We answer for the damage the service itself causes you, as the law provides. Market risk is yours: a trade that loses money because the price moved is the risk described above, not damage caused by the service. What your exchange or TradingView do is outside our control, and each answers for its own service.",
         "rights": "Nothing in these terms limits the rights the law gives you that cannot be waived."
       },
       "price": {
@@ -1193,7 +1193,7 @@
       },
       "law": {
         "title": "Governing law",
-        "body": "These terms are governed by the laws of the Argentine Republic. Any dispute goes to the courts of [JURISDICTION], without prejudice to the rights consumer law gives you to choose your own."
+        "body": "These terms are governed by the laws of the Argentine Republic, including the consumer protection law (Law No. 24,240). Any dispute goes to the courts of your domicile."
       },
       "contact": {
         "title": "Contact",
