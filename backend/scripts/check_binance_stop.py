@@ -48,6 +48,7 @@ Usage:
     uv run python scripts/check_binance_stop.py --user-email <e-mail>                 # preview
     uv run python scripts/check_binance_stop.py --user-email <e-mail> --stop-pct 0.05 --confirm
     uv run python scripts/check_binance_stop.py --user-email <e-mail> --mode close-first --confirm
+    uv run python scripts/check_binance_stop.py --user-email <e-mail> --inspect <algoId>
 """
 
 import argparse
@@ -93,7 +94,6 @@ from strategy_manager.shared.infrastructure.binance.factory import (
     read_only_client,
     trade_client,
 )
-from strategy_manager.shared.infrastructure.binance.read_client import PerpContract
 from strategy_manager.shared.infrastructure.binance.signer import (
     BinanceCredentials,
     BinanceSigner,
@@ -105,7 +105,12 @@ DEFAULT_SYMBOL = "DOGEUSDT"
 
 ALGO_ORDER_PATH = "/fapi/v1/algoOrder"
 OPEN_ALGO_ORDERS_PATH = "/fapi/v1/openAlgoOrders"
+ALL_ALGO_ORDERS_PATH = "/fapi/v1/allAlgoOrders"
 USER_TRADES_PATH = "/fapi/v1/userTrades"
+
+ORDER_DOES_NOT_EXIST = "-2013"
+READ_ATTEMPTS = 5
+READ_RETRY_SECONDS = 2
 
 DEFAULT_STOP_PCT = Decimal("0.15")
 MIN_STOP_PCT = Decimal("0.05")
@@ -181,9 +186,61 @@ async def _open_algo_orders(
 async def _algo_order(
     settings: Settings, credentials: BinanceCredentials, algo_id: str, when: str
 ) -> dict[str, Any]:
-    payload = await _get(settings, credentials, ALGO_ORDER_PATH, {"algoId": algo_id})
-    _dump(f"RAW algoOrder {algo_id} {when}", payload)
-    return payload if isinstance(payload, dict) else {}
+    """A diagnostic read: it never fails the run.
+
+    Seen live on 2026-11-12: queried 1s after ``POST /fapi/v1/algoOrder``
+    acknowledged it, ``GET /fapi/v1/algoOrder?algoId=`` answered
+    ``-2013 Order does not exist.`` That read failing left a real position
+    and a resting stop behind. So it is retried, and a stop it still cannot
+    find is reported, not raised.
+    """
+    for attempt in range(1, READ_ATTEMPTS + 1):
+        try:
+            payload = await _get(settings, credentials, ALGO_ORDER_PATH, {"algoId": algo_id})
+        except BinanceApiError as exc:
+            if exc.code != ORDER_DOES_NOT_EXIST:
+                raise
+            print(f"  algoOrder {algo_id} {when}: {exc.code} {exc} "
+                  f"(attempt {attempt}/{READ_ATTEMPTS})")
+            await asyncio.sleep(READ_RETRY_SECONDS)
+            continue
+        _dump(f"RAW algoOrder {algo_id} {when} (attempt {attempt})", payload)
+        return payload if isinstance(payload, dict) else {}
+    print(f"  algoOrder {algo_id} {when}: still not found after {READ_ATTEMPTS} attempts",
+          file=sys.stderr)
+    return {}
+
+
+async def _algo_history(
+    settings: Settings, credentials: BinanceCredentials, symbol: str, when: str
+) -> list[Any]:
+    """Every algo order of the symbol, the finished ones included."""
+    payload = await _get(settings, credentials, ALL_ALGO_ORDERS_PATH, {"symbol": symbol})
+    _dump(f"RAW allAlgoOrders {when}", payload)
+    return _as_list(payload)
+
+
+async def _show_fill_of(
+    settings: Settings,
+    credentials: BinanceCredentials,
+    symbol: str,
+    algo_id: str,
+    order: Mapping[str, Any],
+) -> None:
+    """The trades of the order a fired stop created, found by ``actualOrderId``."""
+    actual = str(order.get("actualOrderId") or "")
+    if not actual:
+        for entry in await _algo_history(settings, credentials, symbol, "looking for the stop"):
+            if isinstance(entry, dict) and str(entry.get("algoId")) == algo_id:
+                actual = str(entry.get("actualOrderId") or "")
+                break
+    if not actual:
+        print(f"  no actualOrderId found for algo order {algo_id}", file=sys.stderr)
+        return
+    _dump(
+        f"RAW userTrades of actualOrderId {actual}",
+        await _get(settings, credentials, USER_TRADES_PATH, {"symbol": symbol, "orderId": actual}),
+    )
 
 
 async def _close(
@@ -220,18 +277,16 @@ def _bounded(args: argparse.Namespace) -> str | None:
     return None
 
 
-async def _after_open(  # noqa: PLR0913 -- the run's whole state, named
+async def _set_stop(
     args: argparse.Namespace,
     settings: Settings,
     credentials: BinanceCredentials,
-    adapter: BinanceFuturesExchangeAdapter,
     symbol: str,
-    rules: PerpContract,
-    filled: Decimal,
+    stop: Decimal,
     entry: Decimal,
 ) -> str:
-    """Everything after the fill. Returns the stop's algoId for the final check."""
-    stop = _stop_price(entry, args.stop_pct, rules.tick_size)
+    """Places the stop and returns its algoId, before anything reads it back,
+    so that a failure after this point can name the stop left resting."""
     client_algo_id = str(uuid4())
     params = {
         "algoType": "CONDITIONAL",
@@ -254,6 +309,20 @@ async def _after_open(  # noqa: PLR0913 -- the run's whole state, named
     algo_id = str((answer or {}).get("algoId", "")) if isinstance(answer, dict) else ""
     if not algo_id:
         raise BinanceApiError("the stop was not acknowledged with an algoId")
+    return algo_id
+
+
+async def _after_open(  # noqa: PLR0913 -- the run's whole state, named
+    args: argparse.Namespace,
+    settings: Settings,
+    credentials: BinanceCredentials,
+    adapter: BinanceFuturesExchangeAdapter,
+    symbol: str,
+    filled: Decimal,
+    stop: Decimal,
+    algo_id: str,
+) -> None:
+    """Everything after the stop was placed."""
     await _algo_order(settings, credentials, algo_id, "after setting")
     await _open_algo_orders(settings, credentials, symbol, "after setting")
 
@@ -293,23 +362,12 @@ async def _after_open(  # noqa: PLR0913 -- the run's whole state, named
         if hit:
             print("\n  RESULT: the stop FIRED. What the venue reports:")
             order = await _algo_order(settings, credentials, algo_id, "after firing")
-            actual = str(order.get("actualOrderId", ""))
-            if actual:
-                _dump(
-                    f"RAW userTrades of actualOrderId {actual}",
-                    await _get(
-                        settings, credentials, USER_TRADES_PATH,
-                        {"symbol": symbol, "orderId": actual},
-                    ),
-                )
-            else:
-                print("  the algo order names no actualOrderId", file=sys.stderr)
+            await _show_fill_of(settings, credentials, symbol, algo_id, order)
         else:
             print("\n  RESULT: the market did not reach the stop in time. "
                   "Cancelling it and closing.")
             await _cancel(settings, credentials, algo_id)
             await _close(adapter, settings, credentials, symbol, filled)
-    return algo_id
 
 
 async def main() -> int:  # noqa: PLR0911, PLR0915 -- a linear script, one refusal per guard
@@ -323,6 +381,9 @@ async def main() -> int:  # noqa: PLR0911, PLR0915 -- a linear script, one refus
     parser.add_argument("--working-type", choices=WORKING_TYPES, default="CONTRACT_PRICE")
     parser.add_argument("--wait-minutes", type=int, default=DEFAULT_WAIT_MINUTES)
     parser.add_argument("--confirm", action="store_true")
+    parser.add_argument("--inspect", metavar="ALGO_ID",
+                        help="Only read what the venue reports about this algo order of "
+                        "--symbol, and the trades of the order it created. Places nothing.")
     add_user_email_argument(parser)
     args = parser.parse_args()
 
@@ -339,6 +400,15 @@ async def main() -> int:  # noqa: PLR0911, PLR0915 -- a linear script, one refus
         credentials = BinanceCredentials(api_key=vaulted.api_key, api_secret=vaulted.api_secret)
         print(f"Binance futures URL: {settings.binance_futures_base_url}")
         print(f"Alert symbol {args.symbol} -> venue symbol {symbol}")
+        if args.inspect:
+            print(f"INSPECTING algo order {args.inspect}: reads only, nothing is placed")
+            async with read_only_client(settings, credentials) as reader:
+                held = await reader.position_for(symbol)
+            print(f"  position now {'FLAT' if held is None else held.signed_size}")
+            inspected = await _algo_order(settings, credentials, args.inspect, "now")
+            await _open_algo_orders(settings, credentials, symbol, "now")
+            await _show_fill_of(settings, credentials, symbol, args.inspect, inspected)
+            return 0
         print(f"Mode {args.mode}   stop {args.stop_pct}% below the fill, "
               f"working type {args.working_type}")
 
@@ -432,9 +502,12 @@ async def main() -> int:  # noqa: PLR0911, PLR0915 -- a linear script, one refus
                     adapter, settings, credentials, order.client_order_id,
                     placed.exchange_order_id, symbol,
                 )
-                algo_id = await _after_open(
-                    args, settings, credentials, adapter, symbol, rules,
-                    leg.quantity, leg.average_price,
+                stop = _stop_price(leg.average_price, args.stop_pct, rules.tick_size)
+                algo_id = await _set_stop(
+                    args, settings, credentials, symbol, stop, leg.average_price
+                )
+                await _after_open(
+                    args, settings, credentials, adapter, symbol, leg.quantity, stop, algo_id
                 )
             except Exception as exc:
                 _panic(symbol, order.base_size, order.client_order_id,
