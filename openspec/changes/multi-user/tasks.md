@@ -1797,8 +1797,10 @@ The follow-up of the PNUT incident above, and decision 38. Branch `feat/subscrip
       least one of them to x1 by hand at Binance. Both positions opened at x2,
       the seats' leverage, as the owner read at the venue. So the setting
       write went through, and the read-back right after it agreed: a lagging
-      read would have refused the opening. A4 is closed on that evidence. The
-      INFO line itself was not read.
+      read would have refused the opening. A4 is closed. The journal shows
+      both INFO lines, at 21:00:31 and 21:00:34 UTC:
+      `Binance PNUTUSDT set to ISOLATED at 2x, was ISOLATED at 1x, before order 4f0ff9e0-…`
+      and the same for SFPUSDT (`e6005ac6-…`).
 
 ## Decision 40: same-day trades that follow each other compound (PR #96)
 
