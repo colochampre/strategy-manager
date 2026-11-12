@@ -433,4 +433,14 @@ describe("privacy in the shell", () => {
     expect(screen.getByRole("region", { name: "Privacy" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Privacy policy" })).toHaveAttribute("href", "/privacy");
   });
+
+  it("closes every page with a footer that names the app and links the policy", async () => {
+    stubApi({ kind: "ok", body: { status: "ok", dry_run: true } });
+    renderShell("/");
+
+    const footer = await screen.findByRole("contentinfo");
+    expect(footer).toHaveTextContent(`© ${new Date().getFullYear()} Strategy Manager`);
+    expect(within(footer).getByRole("link", { name: "Privacy policy" })).toHaveAttribute("href", "/privacy");
+    expect(footer).toHaveClass("border-t");
+  });
 });

@@ -52,11 +52,14 @@ export function AppShell() {
             <SignInGate>
               <PrivacyNotice />
               <Outlet />
-              <footer className="mt-auto pt-8 text-xs text-ink-3">
-                <Link to="/privacy" className="hover:text-ink-2">
-                  {t("privacy.link")}
-                </Link>
-              </footer>
+              <div className="mt-auto pt-10">
+                <footer className="flex flex-wrap items-center gap-x-6 gap-y-2 border-t border-rule pt-5 text-xs text-ink-3">
+                  <span>{t("privacy.copyright", { year: new Date().getFullYear() })}</span>
+                  <Link to="/privacy" className="text-ink-2 hover:text-ink">
+                    {t("privacy.link")}
+                  </Link>
+                </footer>
+              </div>
             </SignInGate>
           </div>
         </main>

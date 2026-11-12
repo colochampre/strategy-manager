@@ -1026,6 +1026,7 @@
     "updated": "Last updated: [DATE]",
     "intro": "This policy explains what Strategy Manager stores about you, what it is for, who else handles it and what you can ask for. It applies to everyone who signs in.",
     "link": "Privacy policy",
+    "copyright": "© {{year}} Strategy Manager",
     "notice": {
       "label": "Privacy",
       "body": "Strategy Manager stores your e-mail and what you enter here, only to run the service for you.",

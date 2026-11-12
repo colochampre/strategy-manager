@@ -1026,6 +1026,7 @@
     "updated": "Última actualización: [FECHA]",
     "intro": "Esta política explica qué guarda Strategy Manager sobre usted, para qué, quién más interviene y qué puede pedir. Se aplica a todas las personas que inician sesión.",
     "link": "Política de privacidad",
+    "copyright": "© {{year}} Strategy Manager",
     "notice": {
       "label": "Privacidad",
       "body": "Strategy Manager guarda su e-mail y lo que usted carga aquí, solo para prestarle el servicio.",

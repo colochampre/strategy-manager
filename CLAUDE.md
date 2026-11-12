@@ -465,6 +465,7 @@ resume work.
   Every silent-failure defect in this project was found that way, never by
   the gate.
 - Lock order is the pool advisory lock first, then row locks, everywhere.
+- A change that stores, shows or shares a user's data in a new way updates the privacy policy in the same PR (`privacy` in both locales, `features/privacy/`) and bumps `PRIVACY_VERSION`, so every user sees the notice again.
 
 **Safety**
 - Never print credentials or DSNs, never enable traceback locals, never ask
