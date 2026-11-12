@@ -40,6 +40,13 @@ describe("privacy notice", () => {
     expect(screen.queryByRole("region", { name: "Privacy" })).not.toBeInTheDocument();
   });
 
+  it("closes by itself on the policy page, and counts it as read", () => {
+    renderAt(<PrivacyNotice />, "/privacy");
+
+    expect(screen.queryByRole("region", { name: "Privacy" })).not.toBeInTheDocument();
+    expect(window.localStorage.getItem(PRIVACY_NOTICE_KEY)).toBe(PRIVACY_VERSION);
+  });
+
   it("comes back when the policy changes", () => {
     window.localStorage.setItem(PRIVACY_NOTICE_KEY, "an-older-version");
     renderAt(<PrivacyNotice />);

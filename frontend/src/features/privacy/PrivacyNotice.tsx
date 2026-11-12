@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Link } from "react-router";
+import { Link, useLocation } from "react-router";
 
 /** Where the version of the policy a reader dismissed is kept, per browser. */
 export const PRIVACY_NOTICE_KEY = "privacy-notice-seen";
@@ -20,13 +20,13 @@ function seenThisVersion(): boolean {
  * Tells a reader what the app stores and links the policy, until they dismiss
  * this version of it (Ley 25.326 art. 6: inform when the data is collected,
  * which here is the first sign-in). Dismissing is a convenience kept in the
- * browser, not a record of consent.
+ * browser, not a record of consent. Opening the policy itself counts as
+ * reading it: the notice closes there, for this version.
  */
 export function PrivacyNotice() {
   const { t } = useTranslation();
+  const onPolicy = useLocation().pathname === "/privacy";
   const [open, setOpen] = useState(() => !seenThisVersion());
-
-  if (!open) return null;
 
   const dismiss = () => {
     try {
@@ -36,6 +36,12 @@ export function PrivacyNotice() {
     }
     setOpen(false);
   };
+
+  useEffect(() => {
+    if (open && onPolicy) dismiss();
+  });
+
+  if (!open || onPolicy) return null;
 
   return (
     <section
