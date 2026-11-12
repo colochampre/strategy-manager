@@ -58,12 +58,63 @@ Planning. Decisions made; nothing is built until the owner says to build. It goe
     Bybit removes a Full-mode stop with its position, so a normal close leaves
     nothing behind to cancel. The accounting closes exactly: price −0.002 and
     fees 0.0089595 + 0.0089584 make −0.0199179, the balance difference.
+  - *Run 4, Bybit, 2026-11-12, `--mode attach` (PR #104), the stop sent ON the
+    opening order:* `/v5/order/create` with `stopLoss: "81.330"`,
+    `slTriggerBy: LastPrice`, `tpslMode: Full`, `slOrderType: Market` was
+    accepted. SOLUSDT LONG 0.2 filled at 81.47.
+    - The resting stop existed as soon as the fill did, so there was no
+      unprotected moment and no second call that could fail. **This is the
+      shape for D1 on Bybit.**
+    - The stop carries `parentOrderLinkId` equal to the opening's
+      `orderLinkId`, which is our own id. The stop is thus tied to its
+      allocation from the start, and run 2 showed that its execution carries
+      the stop's own `orderId`.
+    - Otherwise it is the same order as run 1: `StopLoss`, `CreateByStopLoss`,
+      `Untriggered`, `reduceOnly`, `closeOnTrigger`, `qty` the whole
+      position, `orderLinkId: ""`.
+    - A reduce-only close removed it, as in run 3. The cost was −0.0239201
+      USDT.
+  - *Run 5, Binance, 2026-11-12, `--mode trigger` (PR #104), TRIGGERED:*
+    DOGEUSDT LONG 76 at 0.066340, 1x, fee 0.00252091 USDT.
+    - `POST /fapi/v1/algoOrder` with `algoType: CONDITIONAL`,
+      `type: STOP_MARKET`, `triggerPrice: 0.066240`,
+      `workingType: CONTRACT_PRICE`, `closePosition: true` and a UUID
+      `clientAlgoId` was acknowledged with an `algoId`. It reported
+      `algoStatus: NEW`, `reduceOnly: true`, `quantity: "0"` (closePosition
+      sizes at trigger) and `timeInForce: GTE_GTC`.
+    - The stop was created 1.02s after the opening filled (fill time against
+      `createTime`). That is the unprotected gap on Binance, which has no stop
+      on the opening order.
+    - *Probe defect:* about a second after the acknowledgement,
+      `GET /fapi/v1/algoOrder?algoId=` answered `-2013 Order does not exist.`
+      The probe treated that read as fatal and exited with the position and
+      the stop still live. The stop then fired about 31 minutes after it was
+      created. PR #105 makes the read retry and adds `--inspect`.
+    - Read afterwards with `--inspect`, the same GET found the stop:
+      - `algoStatus: FINISHED`, `actualOrderId: 105975543111`,
+        `actualType: MARKET`, `actualQty: 76`, `actualPrice: 0.066240`,
+        `triggerTime` set;
+      - `quantity` had become `76`;
+      - `clientAlgoId` round-trips, so the stop can carry our own id.
+    - `userTrades?orderId=<actualOrderId>` returned the fill: SELL 76 at
+      0.066240, the trigger price exactly, fee 0.00251712 USDT (0.0005 taker),
+      `realizedPnl: -0.0076`.
+    - The trade itself names no `clientAlgoId`. The ledger reaches the fill
+      through the algo order: `clientAlgoId` (ours) to `actualOrderId`, then
+      `userTrades`.
+    - No open algo order was left, and the position was flat.
+    - The `-2013` right after creation looks like read-after-write lag: the
+      same GET worked later. This is an assumption, not verified. A system
+      reading a just-placed stop must retry `-2013` and must not conclude the
+      stop is missing.
   - Still open:
-    - `--mode cancel` on its own, to see that `stopLoss: "0"` removes the
-      stop while the position stays open (useful when an author changes the
-      level, if that ever moves stops already placed);
-    - the stop attached to the opening order itself;
-    - the same questions on Binance.
+    - Binance `--mode close-first`: does a `closePosition` stop survive a
+      normal reduce-only close? If it does, a stop left behind could close
+      the NEXT position on that pair, so this decides whether D1 must cancel
+      on Binance.
+    - Bybit `--mode cancel` on its own, to see that `stopLoss: "0"` removes
+      the stop while the position stays open. This is useful when an author
+      changes the level, if that ever moves stops already placed.
 - [ ] SS.2 Specs and tasks for the chosen layers.
 
 ## Log
