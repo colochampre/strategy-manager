@@ -3,6 +3,13 @@
 Branch: `feat/account-deletion`, cut from an up-to-date `main` when the owner
 says to build. Strict TDD; gate after every unit. Not started.
 
+**Waits for `subscriber-safety`.** The owner pointed out that S2, as written,
+blocks an author with subscribers indefinitely, because subscribers do not
+leave by themselves and `Leave` does not close a position. S2 is revised once
+subscribers can no longer be stranded: refuse only while a subscriber holds a
+position, and archive each authored strategy (disable it and end its
+subscriptions, as `ArchiveStrategy` does).
+
 **Risk:** item 1 (it irreversibly overwrites and deletes stored personal data
 and keys), item 2 (identity and credentials) and item 4 (it must not race an
 opening). An independent verifier runs on the backend unit, and the migration
