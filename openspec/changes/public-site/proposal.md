@@ -73,6 +73,20 @@ The owner sends them in Spanish to a lawyer they know. This is the English summa
 8. Terms while it is free: sign-up is open and free and no terms are published yet, only the privacy policy in the panel. Are terms needed now, without charging? What is the exposure if someone loses money before they exist? (Added 2026-11-12.)
 9. Acceptance: is a checkbox "I accept the terms and have read the privacy policy", recorded with the user, the version and the date, enough proof? Must it be asked again on every change? (Added 2026-11-12.)
 
+### What public sources already say (researched 2026-11-12)
+
+Not legal advice; primary texts where found, for the lawyer to confirm.
+
+- **Consumer law applies while it is free.** Ley 24.240 art. 1 covers whoever acquires or uses services "en forma gratuita u onerosa" as final user. So questions 5 and 8 apply today, not only with paid plans.
+- **Liability (question 5).** Art. 37 inc. a) holds as not agreed any clause that limits liability for damages, and the listing of abusive clauses (Res. 53/2003, updated by Disposición 377 of March 2026) names excluding or limiting the provider's liability for damage it causes. The draft's blanket exclusion of "failures of the app" is therefore likely void; the market risk of a trade is a different thing and can be stated as a risk.
+- **Jurisdiction (question 6).** CCyC art. 2654 and art. 1109 (and Ley 24.240 art. 36): against a consumer, a choice-of-forum clause is not valid; the consumer's domicile governs. The draft's `[JURISDICTION]` placeholder should become "the courts of your domicile", or go.
+- **International transfer (question 2).** The AAIP's adequacy list (Disp. 60/2016, Res. AAIP 34/2019) does not include the United States. A lawful transfer to a non-adequate country needs the data subject's express consent, or a contract on the model clauses (Disp. 60/2016, Res. AAIP 198/2023). That makes question 9's checkbox the natural place for an express consent to the transfer.
+- **Registration (question 1).** Ley 25.326 art. 21: private databases whose use exceeds the purely personal must be registered with the AAIP; an unregistered one is unlawful.
+- **CNV (question 4).** A PSAV is whoever, as a business, does one of five activities "para o en nombre de otra persona" (Ley 25.246 art. 4 bis, after Ley 27.739). The closest is "custodia y/o administración de Activos Virtuales o instrumentos que permitan el control sobre los mismos", and RG CNV 1058/2025 art. 8 limits that category to custodial services. The app holds no funds, but an API key that can trade is arguably an instrument of control. Individuals are exempt under 35,000 UVA a month (art. 1). This is the sharpest open question.
+- **Acceptance (question 9).** CCyC art. 1106: an electronic medium satisfies the written form in consumer contracts; doctrine accepts a click as a declaration of will. The checkbox is a valid form; what it must show beforehand is the lawyer's call.
+
+Sources: argentina.gob.ar (Ley 24.240, RG CNV 1058/2025, AAIP international transfers), marval.com, abogados.com.ar, aldiaargentina.microjuris.com, pensamientocivil.com.ar.
+
 ## Out of scope
 
 - The paid plans themselves, and the seat-priority requirement (multi-user `tasks.md`, under G.D.5).
