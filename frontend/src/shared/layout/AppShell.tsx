@@ -35,7 +35,7 @@ import { TopBar } from "@/shared/layout/TopBar";
  * the whole column and its bottom padding follows the content (task 7p.3). A
  * short page still fills `main`, because the column is `flex-1`.
  *
- * Every page ends with a link to the privacy policy, and a first visit opens
+ * Every page ends with links to the privacy policy and the terms, and a first visit opens
  * with the notice that links it (Ley 25.326 art. 6). Both sit inside the gate:
  * whoever reaches them has signed in.
  */
@@ -57,6 +57,9 @@ export function AppShell() {
                   <span>{t("privacy.copyright", { year: new Date().getFullYear() })}</span>
                   <Link to="/privacy" className="text-ink-2 hover:text-ink">
                     {t("privacy.link")}
+                  </Link>
+                  <Link to="/terms" className="text-ink-2 hover:text-ink">
+                    {t("terms.link")}
                   </Link>
                 </footer>
               </div>

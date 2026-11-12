@@ -26,6 +26,11 @@ The plan is in `proposal.md`. Each task records its evidence when done. Push, PR
 - [ ] PS.2 Drafts of the privacy policy and the terms of service, in English and Spanish, written from `proposal.md`'s inventory and nothing else.
   - Placeholders: `[FULL NAME]` and `[ADDRESS]`.
   - The owner and their lawyer review them; the lawyer's answers and every change are recorded here.
+  - *Terms built inside the panel 2026-11-12, not yet read by the owner* (owner: "Hagamos los terminos directamente", instead of closing sign-up to a list of e-mails until terms exist). `/terms` in the shell, EN and ES, linked from the footer beside privacy. Fifteen sections: who provides it, what it does (holds no funds, simulation or live), not financial advice, risks (all the capital can be lost), account and keys, strategies you publish, acceptable use, availability, liability, price (free today), stopping, privacy (links the policy), changes, governing law (Argentina), contact (`privacy@strategymanager.trade`).
+    - Placeholders: `[DATE]`, `[LIABILITY LIMIT, TO BE CONFIRMED BY A LAWYER]`, `[JURISDICTION]` and their Spanish twins; the name and address come from the build, as in the policy. Liability and jurisdiction wait for the lawyer (questions 5, 6, 8).
+    - The privacy policy and the terms share `shared/legal/LegalDocument.tsx`; the placeholders for name and address moved to `legal.placeholder`.
+    - Today the terms bind by use ("By signing in and using the app you accept them"). A recorded acceptance (a checkbox, stored with the user, the version and the date, asked again on a change) is not built: it stores something new, so it also changes the policy, and whether it is enough is question 9.
+    - Strict TDD, RED on assertions (8 failed: no heading, no text, no link, no footer link). The privacy tests stayed green through the extraction. 7 hand mutations, all killed. Frontend gate green: `npm run lint`, and `npx vitest run` with 147 files and 3823 tests.
 - [ ] PS.3 The home page, in English and Spanish: what the app does and does not do (it holds no funds; trading can lose money; it is not financial advice), a link to the panel to sign in, and links to privacy and terms.
 - [ ] PS.4 The site in `site/`:
   - plain HTML and CSS, no build step and no external script;

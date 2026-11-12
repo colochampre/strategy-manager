@@ -441,6 +441,7 @@ describe("privacy in the shell", () => {
     const footer = await screen.findByRole("contentinfo");
     expect(footer).toHaveTextContent(`© ${new Date().getFullYear()} Strategy Manager`);
     expect(within(footer).getByRole("link", { name: "Privacy policy" })).toHaveAttribute("href", "/privacy");
+    expect(within(footer).getByRole("link", { name: "Terms of service" })).toHaveAttribute("href", "/terms");
     expect(footer).toHaveClass("border-t");
   });
 });

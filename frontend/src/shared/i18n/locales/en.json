@@ -1021,13 +1021,15 @@
     "body": "Your e-mail, your name and your keys are gone. Signing in again with the same e-mail starts a new, empty account.",
     "signOut": "Sign out"
   },
-  "privacy": {
-    "title": "Privacy policy",
-    "updated": "Last updated: [DATE]",
+  "legal": {
     "placeholder": {
       "name": "[FULL NAME]",
       "address": "[ADDRESS]"
-    },
+    }
+  },
+  "privacy": {
+    "title": "Privacy policy",
+    "updated": "Last updated: [DATE]",
     "intro": "This policy explains what Strategy Manager stores about you, what it is for, who else handles it and what you can ask for. It applies to everyone who signs in. If you do not agree with it, do not use the app.",
     "link": "Privacy policy",
     "copyright": "© {{year}} Strategy Manager",
@@ -1111,6 +1113,91 @@
       "contact": {
         "title": "Contact",
         "body": "For any question or complaint about your data or this policy, write to {{contact}}."
+      }
+    }
+  },
+  "terms": {
+    "title": "Terms of service",
+    "updated": "Last updated: [DATE]",
+    "intro": "These terms govern your use of Strategy Manager. By signing in and using the app you accept them. If you do not agree with them, do not use the app.",
+    "link": "Terms of service",
+    "sections": {
+      "who": {
+        "title": "Who provides the service",
+        "body": "Strategy Manager is provided by {{name}}, an individual in Argentina, at {{address}}. In these terms, \"we\" means them and \"you\" means the person who signs in."
+      },
+      "service": {
+        "title": "What the service does",
+        "body": "Strategy Manager receives the signals of trading strategies, sent as TradingView alerts, and places and closes the matching orders in your own account on an exchange (for example Binance or Bybit), with the API key you add.",
+        "custody": "It never holds your funds and cannot move them out of your exchange account: your capital stays there at all times, and a key that allows withdrawals is refused.",
+        "modes": "You choose whether you trade in simulation, where no real order is placed, or live, with real money."
+      },
+      "advice": {
+        "title": "Not financial advice",
+        "body": "What the app shows is not investment, financial, legal or tax advice, nor a recommendation to buy or sell anything. Strategies, their records and their descriptions are information published by their authors. Every decision to trade, and with which settings, is yours."
+      },
+      "risks": {
+        "title": "Risks",
+        "intro": "Trading crypto-asset futures with leverage is highly risky. By using the app in live mode you accept that:",
+        "loss": "you can lose all of the capital you assign, and losses grow with leverage;",
+        "past": "a strategy's past results do not guarantee its future results;",
+        "signals": "a signal can arrive late or not at all, and an order can fill at another price or not fill, because of TradingView, the exchange, the network or the app;",
+        "exchange": "your exchange can fail, change its rules, close positions or freeze your account, and that is outside our control."
+      },
+      "account": {
+        "title": "Your account and keys",
+        "body": "You sign in with your e-mail and are responsible for what is done with it. Keep your e-mail account safe: whoever controls it can sign in as you.",
+        "keys": "The API keys you add are yours. Create them without withdrawal permission, keep them only in the app and at your exchange, and revoke them at your exchange if you think they leaked.",
+        "settings": "The share of capital and the leverage of each subscription, and your trading mode, are set by you, and you can change or stop them at any time.",
+        "age": "You must be 18 or over to use the app."
+      },
+      "authors": {
+        "title": "Strategies you publish",
+        "body": "If you publish a strategy, you are responsible for its signals, its name and its description, and you must not present it as a promise of results. Its record is computed by the app from your real trades and shown as it is.",
+        "subscribers": "You do not manage your subscribers' money: each subscriber decides their own capital and leverage, and their orders go to their own account.",
+        "removal": "We may hide or remove a public strategy that breaks these terms or misleads other people."
+      },
+      "use": {
+        "title": "Acceptable use",
+        "intro": "You must not:",
+        "attack": "try to reach other users' data, or attack, overload or probe the app;",
+        "illegal": "use the app for anything illegal, such as manipulating markets;",
+        "others": "sign in or trade on behalf of someone else without their permission."
+      },
+      "availability": {
+        "title": "Availability",
+        "body": "The service is provided as it is and as available. It can stop, fail or change, and we may add, change or remove features at any time."
+      },
+      "liability": {
+        "title": "Liability",
+        "body": "To the extent the law allows, we are not liable for trading losses, for profits not made, or for failures of TradingView, of your exchange, of the network or of the app. [LIABILITY LIMIT, TO BE CONFIRMED BY A LAWYER]",
+        "rights": "Nothing in these terms limits the rights the law gives you that cannot be waived."
+      },
+      "price": {
+        "title": "Price",
+        "body": "The service is free today. If paid plans are added, their price and conditions will be shown before you choose one, and nothing will be charged without your express acceptance."
+      },
+      "stopping": {
+        "title": "Stopping",
+        "you": "You can stop using the app at any time. To delete your account, write to {{contact}}.",
+        "us": "We may suspend or close an account that breaks these terms.",
+        "positions": "Either way, positions already open stay in your exchange account, where you can close them yourself."
+      },
+      "privacy": {
+        "title": "Privacy",
+        "body": "What the app stores about you, and what for, is explained in the privacy policy."
+      },
+      "changes": {
+        "title": "Changes to these terms",
+        "body": "When these terms change, this page shows the new date. If a change matters, the app will tell you before it applies. If you keep using the app after that, you accept the new terms."
+      },
+      "law": {
+        "title": "Governing law",
+        "body": "These terms are governed by the laws of the Argentine Republic. Any dispute goes to the courts of [JURISDICTION], without prejudice to the rights consumer law gives you to choose your own."
+      },
+      "contact": {
+        "title": "Contact",
+        "body": "For any question about these terms, write to {{contact}}."
       }
     }
   }

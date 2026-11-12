@@ -1021,13 +1021,15 @@
     "body": "Su e-mail, su nombre y sus claves ya no están. Si vuelve a ingresar con el mismo e-mail, se crea una cuenta nueva y vacía.",
     "signOut": "Cerrar sesión"
   },
-  "privacy": {
-    "title": "Política de privacidad",
-    "updated": "Última actualización: [FECHA]",
+  "legal": {
     "placeholder": {
       "name": "[NOMBRE COMPLETO]",
       "address": "[DOMICILIO]"
-    },
+    }
+  },
+  "privacy": {
+    "title": "Política de privacidad",
+    "updated": "Última actualización: [FECHA]",
     "intro": "Esta política explica qué guarda Strategy Manager sobre usted, para qué, quién más interviene y qué puede pedir. Se aplica a todas las personas que inician sesión. Si no está de acuerdo con ella, no use la app.",
     "link": "Política de privacidad",
     "copyright": "© {{year}} Strategy Manager",
@@ -1111,6 +1113,91 @@
       "contact": {
         "title": "Contacto",
         "body": "Por cualquier consulta o reclamo sobre sus datos o esta política, escriba a {{contact}}."
+      }
+    }
+  },
+  "terms": {
+    "title": "Términos y condiciones",
+    "updated": "Última actualización: [FECHA]",
+    "intro": "Estos términos regulan el uso de Strategy Manager. Al iniciar sesión y usar la app, usted los acepta. Si no está de acuerdo con ellos, no use la app.",
+    "link": "Términos y condiciones",
+    "sections": {
+      "who": {
+        "title": "Quién presta el servicio",
+        "body": "Strategy Manager es prestado por {{name}}, persona humana en Argentina, con domicilio en {{address}}. En estos términos, \"nosotros\" se refiere a esa persona y \"usted\" a quien inicia sesión."
+      },
+      "service": {
+        "title": "Qué hace el servicio",
+        "body": "Strategy Manager recibe las señales de estrategias de trading, enviadas como alertas de TradingView, y abre y cierra las órdenes correspondientes en su propia cuenta de un exchange (por ejemplo Binance o Bybit), con la API key que usted carga.",
+        "custody": "Nunca tiene sus fondos ni puede sacarlos de su cuenta en el exchange: su capital queda siempre allí, y una key que permite retiros se rechaza.",
+        "modes": "Usted elige si opera en simulación, donde no se envía ninguna orden real, o en real, con dinero real."
+      },
+      "advice": {
+        "title": "No es asesoramiento financiero",
+        "body": "Lo que muestra la app no es asesoramiento de inversión, financiero, legal ni impositivo, ni una recomendación de comprar o vender nada. Las estrategias, sus historiales y sus descripciones son información publicada por sus autores. Cada decisión de operar, y con qué configuración, es suya."
+      },
+      "risks": {
+        "title": "Riesgos",
+        "intro": "Operar futuros de criptoactivos con apalancamiento es muy riesgoso. Al usar la app en modo real, usted acepta que:",
+        "loss": "puede perder todo el capital que asigne, y las pérdidas crecen con el apalancamiento;",
+        "past": "los resultados pasados de una estrategia no garantizan sus resultados futuros;",
+        "signals": "una señal puede llegar tarde o no llegar, y una orden puede ejecutarse a otro precio o no ejecutarse, por TradingView, el exchange, la red o la app;",
+        "exchange": "su exchange puede fallar, cambiar sus reglas, cerrar posiciones o congelar su cuenta, y eso está fuera de nuestro control."
+      },
+      "account": {
+        "title": "Su cuenta y sus keys",
+        "body": "Usted inicia sesión con su e-mail y es responsable de lo que se haga con él. Mantenga segura su cuenta de e-mail: quien la controle puede iniciar sesión como usted.",
+        "keys": "Las API keys que carga son suyas. Créelas sin permiso de retiro, guárdelas solo en la app y en su exchange, y revóquelas en su exchange si cree que se filtraron.",
+        "settings": "La parte del capital y el apalancamiento de cada suscripción, y su modo de operación, los fija usted, y puede cambiarlos o detenerlos cuando quiera.",
+        "age": "Debe tener 18 años o más para usar la app."
+      },
+      "authors": {
+        "title": "Estrategias que publica",
+        "body": "Si publica una estrategia, usted es responsable de sus señales, su nombre y su descripción, y no debe presentarla como una promesa de resultados. Su historial lo calcula la app con sus operaciones reales y se muestra tal como es.",
+        "subscribers": "Usted no administra el dinero de sus suscriptores: cada suscriptor decide su propio capital y apalancamiento, y sus órdenes van a su propia cuenta.",
+        "removal": "Podemos ocultar o quitar una estrategia pública que incumpla estos términos o engañe a otras personas."
+      },
+      "use": {
+        "title": "Uso aceptable",
+        "intro": "Usted no debe:",
+        "attack": "intentar acceder a datos de otros usuarios, ni atacar, sobrecargar o sondear la app;",
+        "illegal": "usar la app para algo ilegal, como manipular mercados;",
+        "others": "iniciar sesión u operar en nombre de otra persona sin su permiso."
+      },
+      "availability": {
+        "title": "Disponibilidad",
+        "body": "El servicio se presta tal como está y según su disponibilidad. Puede detenerse, fallar o cambiar, y podemos agregar, cambiar o quitar funciones en cualquier momento."
+      },
+      "liability": {
+        "title": "Responsabilidad",
+        "body": "En la medida en que la ley lo permita, no somos responsables por pérdidas de trading, por ganancias no obtenidas ni por fallas de TradingView, de su exchange, de la red o de la app. [LÍMITE DE RESPONSABILIDAD, A CONFIRMAR CON UN ABOGADO]",
+        "rights": "Nada en estos términos limita los derechos que la ley le reconoce y que no pueden renunciarse."
+      },
+      "price": {
+        "title": "Precio",
+        "body": "Hoy el servicio es gratuito. Si se agregan planes pagos, su precio y sus condiciones se mostrarán antes de que elija uno, y no se cobrará nada sin su aceptación expresa."
+      },
+      "stopping": {
+        "title": "Baja",
+        "you": "Puede dejar de usar la app cuando quiera. Para eliminar su cuenta, escriba a {{contact}}.",
+        "us": "Podemos suspender o cerrar una cuenta que incumpla estos términos.",
+        "positions": "En ambos casos, las posiciones ya abiertas quedan en su cuenta del exchange, donde puede cerrarlas usted."
+      },
+      "privacy": {
+        "title": "Privacidad",
+        "body": "Qué guarda la app sobre usted, y para qué, se explica en la política de privacidad."
+      },
+      "changes": {
+        "title": "Cambios en estos términos",
+        "body": "Cuando estos términos cambien, esta página mostrará la nueva fecha. Si un cambio es importante, la app se lo avisará antes de que rija. Si sigue usando la app después, acepta los nuevos términos."
+      },
+      "law": {
+        "title": "Ley aplicable",
+        "body": "Estos términos se rigen por las leyes de la República Argentina. Cualquier controversia se somete a los tribunales de [JURISDICCIÓN], sin perjuicio de los derechos que la ley de defensa del consumidor le reconoce para elegir el suyo."
+      },
+      "contact": {
+        "title": "Contacto",
+        "body": "Por cualquier consulta sobre estos términos, escriba a {{contact}}."
       }
     }
   }
