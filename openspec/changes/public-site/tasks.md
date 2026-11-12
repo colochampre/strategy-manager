@@ -2,6 +2,14 @@
 
 The plan is in `proposal.md`. Each task records its evidence when done. Push, PR and merge happen only on the owner's word.
 
+**On standby (owner, 2026-11-12)**, except PS.0: the site, Google and the paid plans wait for the lawyer's and an accountant's answers. The owner's words: "Bueno, todo esto queda en standby. Es complejo, tengo que hacer esas consultas y me hacen plantearme si vale la pena".
+
+- [ ] PS.0 The privacy policy inside the panel, now (owner, 2026-11-12: "Dale, arrancá con el borrador dentro del panel"). Sign-up is open, so whoever signs in is told what is stored when it is stored (Ley 25.326 art. 6).
+  - `/privacy` in the shell, EN and ES, written from the inventory in `proposal.md`; a link at the foot of every page; a notice on the first visit that links it, dismissed per browser and per policy version (`PRIVACY_VERSION`), not a record of consent.
+  - Placeholders the owner fills before the panel moves: `[FULL NAME]`, `[ADDRESS]`, `[DATE]`, `[SERVER PROVIDER]`, `[SERVER COUNTRY]`, `[LOG RETENTION]`, `[BACKUP RETENTION]`, `[HOW TRADE RECORDS ARE HANDLED ON DELETION]`, and their Spanish twins. The last one waits for the lawyer (question 3). Every panel deploy (pps.6) from now on refuses a bundle that still holds `[FULL NAME]` or `[NOMBRE COMPLETO]`.
+  - It carries the control authority's notice of Disposición DNPDP 10/2008, in Spanish as written and in English as a translation, for the lawyer to confirm.
+  - *Built 2026-11-12, not yet read by the owner:* `features/privacy/PrivacyPage.tsx` and `PrivacyNotice.tsx`, the route, and the shell's notice and footer link. Strict TDD, RED on assertions (no heading, no region, no link). 15 hand mutations, all killed. Frontend gate green: `npm run lint`, and `npx vitest run` with 146 files and 3811 tests.
+
 - [ ] PS.1 Confirm the data inventory's open items, without printing an address, e-mail or credential:
   - what the API's access log records as the client address behind the tunnel;
   - journald retention on the VPS;

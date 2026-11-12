@@ -423,3 +423,14 @@ describe("pages", () => {
     expect(await screen.findByRole("heading", { level: 1, name: "Settings" })).toBeInTheDocument();
   });
 });
+
+describe("privacy in the shell", () => {
+  it("shows the notice to a newcomer and links the policy from every page", async () => {
+    stubApi({ kind: "ok", body: { status: "ok", dry_run: true } });
+    renderShell("/");
+
+    expect(await screen.findByText("page body")).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Privacy" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Privacy policy" })).toHaveAttribute("href", "/privacy");
+  });
+});

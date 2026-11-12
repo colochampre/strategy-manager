@@ -15,6 +15,7 @@ PLAN, 2026-11-12. Base `main` at `635a821`.
 
 ## Settled
 
+- **The privacy policy goes first, inside the panel** (owner, 2026-11-12). It needs neither the site, Google nor the paid plans, and sign-up is already open. The public site serves it again later, for Google.
 - **Where the site lives.** A static site on Cloudflare Pages at `about.strategymanager.trade`, outside Access. It touches neither the API, the panel nor the Access application. The assistant proposed it and the owner did not object.
 - **Who is responsible.** The owner, as a person, in Argentina, with contact `colochampre3@gmail.com`.
   - The full name and the address are placeholders, `[FULL NAME]` and `[ADDRESS]`, filled by the owner. Ley 25.326 art. 6 asks for both, so neither may be invented.

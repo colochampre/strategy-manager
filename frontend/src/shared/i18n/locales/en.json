@@ -1020,5 +1020,74 @@
     "title": "Your account was deleted",
     "body": "Your e-mail, your name and your keys are gone. Signing in again with the same e-mail starts a new, empty account.",
     "signOut": "Sign out"
+  },
+  "privacy": {
+    "title": "Privacy policy",
+    "updated": "Last updated: [DATE]",
+    "intro": "This policy explains what Strategy Manager stores about you, what it is for, who else handles it and what you can ask for. It applies to everyone who signs in.",
+    "link": "Privacy policy",
+    "notice": {
+      "label": "Privacy",
+      "body": "Strategy Manager stores your e-mail and what you enter here, only to run the service for you.",
+      "read": "Read the privacy policy",
+      "dismiss": "Got it"
+    },
+    "sections": {
+      "who": {
+        "title": "Who is responsible",
+        "body": "Strategy Manager is run by [FULL NAME], an individual in Argentina, at [ADDRESS], who is responsible for your data. Write to colochampre3@gmail.com about anything in this policy."
+      },
+      "stores": {
+        "title": "What the app stores",
+        "intro": "Only what it needs to run the service for you:",
+        "email": "Your e-mail address, which Cloudflare Access verifies when you sign in, the date you joined and the last time you used the app.",
+        "name": "The display name you choose, if you choose one.",
+        "keys": "The API keys you add for your exchanges. They are encrypted before they are stored, opened only to sign your orders, and never shown again except for their last four characters. A key that allows withdrawals is refused.",
+        "balances": "The balances the app reads from your exchange account, to size your orders.",
+        "strategies": "The strategies you create and subscribe to, and your settings: the share of your capital, the leverage, and whether you trade in simulation or live.",
+        "trades": "Every order placed for you and its result: price, quantity, fees and profit or loss.",
+        "never": "The app never stores a password, identity documents or payment details."
+      },
+      "use": {
+        "title": "What it is used for",
+        "body": "To run the service and nothing else: signing you in, reading your balances, placing and closing the orders of the strategies you subscribe to, showing you your results and showing the record of public strategies. Your data is not sold, not used for advertising and not shared beyond what this policy lists."
+      },
+      "public": {
+        "title": "What other people can see",
+        "body": "Your display name, next to the strategies you make public. For each public strategy: its name, its description, its record computed from your real trades (return, drawdown, win rate, closed trades), its number of subscribers, and the capital traded with it as one sum of the author's and the subscribers'.",
+        "subscribers": "As a subscriber, your capital counts toward that sum, but your name, e-mail and own figures are never shown to the author or to anyone else.",
+        "private": "A private strategy is seen only by its author and its subscribers; one shared by link, also by whoever holds the link.",
+        "admin": "The administrator of the service sees the list of users: e-mail, display name, mode, which exchanges have a key, how many subscriptions and open positions, and the last sign-in. No amounts."
+      },
+      "others": {
+        "title": "Who else handles it",
+        "cloudflare": "Cloudflare (United States) signs you in and carries the app's traffic. It sees your e-mail, your IP address and when you sign in.",
+        "exchanges": "Your exchange (for example Binance or Bybit) receives your orders, in your own account and with your own key. Its own privacy policy applies there.",
+        "tradingview": "TradingView sends the alerts of strategy authors. It receives nothing about subscribers.",
+        "server": "The app and its database run on a server rented from [SERVER PROVIDER], in [SERVER COUNTRY].",
+        "abroad": "Your data is therefore also processed outside Argentina."
+      },
+      "retention": {
+        "title": "How long it is kept",
+        "account": "Your account and settings: while your account exists.",
+        "trades": "Orders and trades: they are kept and never altered, because your results and the accounting depend on them.",
+        "logs": "Server logs: [LOG RETENTION]. They record internal identifiers and order details, never your e-mail, your keys or your secrets.",
+        "backups": "Database backups: [BACKUP RETENTION]."
+      },
+      "rights": {
+        "title": "Your rights",
+        "body": "You can ask to see, correct, update or delete your data by writing to colochampre3@gmail.com. You will get an answer within the terms Law No. 25,326 sets.",
+        "deletion": "There is no button to delete an account yet: a deletion request is handled by e-mail. Trade records cannot be deleted, for the reason above: [HOW TRADE RECORDS ARE HANDLED ON DELETION].",
+        "authority": "The holder of the personal data has the right to access it free of charge at intervals of no less than six months, unless a legitimate interest is shown, as set out in article 14, paragraph 3 of Law No. 25,326. The AGENCIA DE ACCESO A LA INFORMACIÓN PÚBLICA, as the control authority of Law No. 25,326, has the power to handle the complaints and claims of anyone whose rights are affected by a breach of the rules on personal data protection."
+      },
+      "security": {
+        "title": "How it is protected",
+        "body": "Sign-in goes through Cloudflare Access and the app keeps no password. Exchange keys are encrypted at rest, and only the process that places orders can open them. Data travels encrypted between your browser and the app."
+      },
+      "changes": {
+        "title": "Changes to this policy",
+        "body": "When this policy changes, this page shows the new date and the app shows you the notice again."
+      }
+    }
   }
 }

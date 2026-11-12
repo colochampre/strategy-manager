@@ -1,4 +1,7 @@
-import { Outlet } from "react-router";
+import { useTranslation } from "react-i18next";
+import { Link, Outlet } from "react-router";
+
+import { PrivacyNotice } from "@/features/privacy/PrivacyNotice";
 
 import { SignInGate } from "@/shared/auth/SignInGate";
 import { BottomNav } from "@/shared/layout/BottomNav";
@@ -31,8 +34,14 @@ import { TopBar } from "@/shared/layout/TopBar";
  * the row ended flush with the bottom of the viewport. Uncapped, `main` scrolls
  * the whole column and its bottom padding follows the content (task 7p.3). A
  * short page still fills `main`, because the column is `flex-1`.
+ *
+ * Every page ends with a link to the privacy policy, and a first visit opens
+ * with the notice that links it (Ley 25.326 art. 6). Both sit inside the gate:
+ * whoever reaches them has signed in.
  */
 export function AppShell() {
+  const { t } = useTranslation();
+
   return (
     <div className="flex h-full flex-col bg-ground">
       <TopBar />
@@ -41,7 +50,13 @@ export function AppShell() {
         <main className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-auto p-4 lg:px-9 lg:py-7">
           <div className="mx-auto flex w-full max-w-[90rem] flex-1 flex-col">
             <SignInGate>
+              <PrivacyNotice />
               <Outlet />
+              <footer className="mt-auto pt-8 text-xs text-ink-3">
+                <Link to="/privacy" className="hover:text-ink-2">
+                  {t("privacy.link")}
+                </Link>
+              </footer>
             </SignInGate>
           </div>
         </main>
