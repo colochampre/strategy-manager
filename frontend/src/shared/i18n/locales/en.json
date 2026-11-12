@@ -1074,7 +1074,7 @@
         "cloudflare": "Cloudflare (United States) signs you in and carries the app's traffic. It sees your e-mail, your IP address and when you sign in.",
         "exchanges": "Your exchange (for example Binance or Bybit) receives your orders, in your own account and with your own key. Its own privacy policy applies there.",
         "tradingview": "TradingView sends the alerts of strategy authors. It receives nothing about subscribers.",
-        "server": "The app and its database run on a server rented from [SERVER PROVIDER], in [SERVER COUNTRY].",
+        "server": "The app and its database run on a server rented from netcup GmbH, in a data centre in Nuremberg, Germany.",
         "abroad": "Your data is therefore also processed outside Argentina.",
         "links": "Strategy descriptions and these pages may link to other sites. They are not run by Strategy Manager, and their own policies apply once you follow the link."
       },

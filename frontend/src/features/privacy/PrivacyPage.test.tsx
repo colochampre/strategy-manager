@@ -82,6 +82,14 @@ describe("privacy policy page", () => {
     expect(who).toHaveTextContent("[ADDRESS]");
   });
 
+  it("names the server's provider and where it runs", () => {
+    renderAt(<PrivacyPage />);
+
+    expect(screen.getByText(/server rented from netcup GmbH/)).toHaveTextContent("Nuremberg, Germany");
+    expect(document.body).not.toHaveTextContent("[SERVER PROVIDER]");
+    expect(document.body).not.toHaveTextContent("[SERVER COUNTRY]");
+  });
+
   it("says what is never stored and that keys are encrypted", () => {
     renderAt(<PrivacyPage />);
 

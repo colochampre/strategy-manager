@@ -6,7 +6,7 @@ The plan is in `proposal.md`. Each task records its evidence when done. Push, PR
 
 - [ ] PS.0 The privacy policy inside the panel, now (owner, 2026-11-12: "Dale, arrancá con el borrador dentro del panel"). Sign-up is open, so whoever signs in is told what is stored when it is stored (Ley 25.326 art. 6).
   - `/privacy` in the shell, EN and ES, written from the inventory in `proposal.md`; a link at the foot of every page; a notice on the first visit that links it, dismissed per browser and per policy version (`PRIVACY_VERSION`), not a record of consent.
-  - Placeholders the owner fills before the panel moves: `[FULL NAME]`, `[ADDRESS]`, `[DATE]`, `[SERVER PROVIDER]`, `[SERVER COUNTRY]`, `[LOG RETENTION]`, `[BACKUP RETENTION]`, `[HOW TRADE RECORDS ARE HANDLED ON DELETION]`, and their Spanish twins. The last one waits for the lawyer (question 3). Every panel deploy (pps.6) from now on refuses a bundle that still holds `[FULL NAME]` or `[NOMBRE COMPLETO]`.
+  - Placeholders the owner fills before the panel moves: `[FULL NAME]`, `[ADDRESS]`, `[DATE]`, `[LOG RETENTION]`, `[BACKUP RETENTION]`, `[HOW TRADE RECORDS ARE HANDLED ON DELETION]`, and their Spanish twins. The last one waits for the lawyer (question 3). Every panel deploy (pps.6) from now on refuses a bundle that still holds `[FULL NAME]` or `[NOMBRE COMPLETO]`.
   - It carries the control authority's notice of Disposición DNPDP 10/2008, in Spanish as written and in English as a translation, for the lawyer to confirm.
   - *Built 2026-11-12, not yet read by the owner:* `features/privacy/PrivacyPage.tsx` and `PrivacyNotice.tsx`, the route, and the shell's notice and footer link. Strict TDD, RED on assertions (no heading, no region, no link). 15 hand mutations, all killed. Frontend gate green: `npm run lint`, and `npx vitest run` with 146 files and 3811 tests.
   - *Reviewed by the owner 2026-11-12 ("Lo revisé, y esta todo ok"), then reshaped* from Hyperliquid's policy as a reference for sections and format, and the owner's "Yo le agregaría justificacion al texto":
@@ -22,7 +22,7 @@ The plan is in `proposal.md`. Each task records its evidence when done. Push, PR
   - what the API's access log records as the client address behind the tunnel;
   - journald retention on the VPS;
   - backup retention under `/var/backups/strategy-manager`;
-  - the VPS provider and its country (owner).
+  - ~~the VPS provider and its country~~: netcup GmbH, Nuremberg, Germany (owner, 2026-11-12: "el VPS está hosteado en Nuremberg. Es un servicio de Netcup"). Written into the privacy policy (`others.server`, test pinned, RED on an assertion), `PRIVACY_VERSION` bumped to `2026-11-12-draft-3`, and into the lawyer questions.
 - [ ] PS.2 Drafts of the privacy policy and the terms of service, in English and Spanish, written from `proposal.md`'s inventory and nothing else.
   - Placeholders: `[FULL NAME]` and `[ADDRESS]`.
   - The owner and their lawyer review them; the lawyer's answers and every change are recorded here.

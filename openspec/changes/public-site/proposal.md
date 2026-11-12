@@ -51,7 +51,7 @@ The privacy policy describes exactly this, no more. Items marked *to confirm* ar
   - **Google:** only for a user who signs in with Google, once enabled.
   - **The exchanges** (Binance, Bybit): the user's own account, through the key the user gave.
   - **TradingView:** sends an author's alerts and receives nothing of a subscriber.
-  - **The VPS provider:** *to confirm* its name and country.
+  - **The VPS provider:** netcup GmbH, in a data centre in Nuremberg, Germany (owner, 2026-11-12). Germany is in the EU, which the AAIP lists as adequate.
 - **Deletion today.**
   - There is no "delete my account".
   - The ledger cannot be deleted by design.
@@ -64,7 +64,7 @@ The privacy policy describes exactly this, no more. Items marked *to confirm* ar
 The owner sends them in Spanish to a lawyer they know. This is the English summary.
 
 1. Does the database need registering with the AAIP (art. 21 suggests it does), and through which procedure? What must the privacy policy state (Ley 25.326), and may the address be other than a home address?
-2. International transfer: the data passes through Cloudflare (United States), and the VPS is in another country. The United States is not an adequate country, so express consent or model clauses are needed: is an express consent inside the acceptance checkbox enough? Does Cloudflare's standard data processing agreement serve?
+2. International transfer: the data is stored on netcup's server in Nuremberg, Germany (EU, adequate), and sign-in and traffic pass through Cloudflare (United States). The United States is not an adequate country, so for Cloudflare express consent or model clauses are needed: is an express consent inside the acceptance checkbox enough? Does Cloudflare's standard data processing agreement serve?
 3. The right to deletion against an append-only trading ledger and the absence of account deletion. Is anonymising enough?
 4. Financial regulation: could the service count as investment advice or management, or as a virtual asset service provider (CNV)? Does a user's trading API key count as an "instrument that allows control" over virtual assets? If so, does the individuals' exemption under 35,000 UVA a month apply, and how is it measured for a service that moves no funds of its own? Does charging for plans change the answer?
 5. Liability: consumer law applies while free (art. 1) and a clause limiting liability for damage is void (art. 37, Disposición 377/2026). The draft now answers for the service's own damage, leaves market risk to the user, and leaves the exchange and TradingView answering for their own services. Is that right? May the service be offered "as it is and as available"? (Reworded 2026-11-12.)

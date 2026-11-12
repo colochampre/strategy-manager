@@ -1074,7 +1074,7 @@
         "cloudflare": "Cloudflare (Estados Unidos) inicia su sesión y transporta el tráfico de la app. Ve su e-mail, su dirección IP y cuándo inicia sesión.",
         "exchanges": "Su exchange (por ejemplo Binance o Bybit) recibe sus órdenes, en su propia cuenta y con su propia key. Allí rige su propia política de privacidad.",
         "tradingview": "TradingView envía las alertas de los autores de estrategias. No recibe nada sobre los suscriptores.",
-        "server": "La app y su base de datos funcionan en un servidor alquilado a [PROVEEDOR DEL SERVIDOR], en [PAÍS DEL SERVIDOR].",
+        "server": "La app y su base de datos funcionan en un servidor alquilado a netcup GmbH, en un centro de datos de Núremberg, Alemania.",
         "abroad": "Por eso sus datos también se procesan fuera de Argentina.",
         "links": "Las descripciones de las estrategias y estas páginas pueden enlazar a otros sitios. No los opera Strategy Manager, y al seguir el enlace rigen sus propias políticas."
       },
