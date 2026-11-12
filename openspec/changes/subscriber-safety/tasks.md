@@ -5,7 +5,7 @@ Planning. Decisions made; nothing is built until the owner says to build. It goe
 ## Tasks
 
 - [x] SS.0 Decisions D1-D4 (owner, 2026-11-12), recorded in `proposal.md`.
-- [ ] SS.1 Verify the exchange stop live on Bybit and Binance with a probe that
+- [x] SS.1 Verify the exchange stop live on Bybit and Binance with a probe that
   signs from the vault (`scripts/probe_credentials.py`, `--user-email`): order
   shape, reduce-only, how a stop's fill is reported, and how it is cancelled
   when the strategy closes first.
@@ -107,14 +107,24 @@ Planning. Decisions made; nothing is built until the owner says to build. It goe
       same GET worked later. This is an assumption, not verified. A system
       reading a just-placed stop must retry `-2013` and must not conclude the
       stop is missing.
-  - Still open:
-    - Binance `--mode close-first`: does a `closePosition` stop survive a
-      normal reduce-only close? If it does, a stop left behind could close
-      the NEXT position on that pair, so this decides whether D1 must cancel
-      on Binance.
-    - Bybit `--mode cancel` on its own, to see that `stopLoss: "0"` removes
-      the stop while the position stays open. This is useful when an author
-      changes the level, if that ever moves stops already placed.
+  - *Run 6, Binance, 2026-11-12, `--mode close-first` (PR #105):* DOGEUSDT
+    LONG 76 at 0.066280, stop at 0.066180, then a reduce-only market close.
+    - The stop was created 1.47s after the opening filled. The gap on Binance
+      is a second or more, every time.
+    - The GET right after creation found it on the first attempt this time.
+      The `-2013` of run 5 is intermittent.
+    - `openAlgoOrders` listed it (`quantity: "0.0"`, `triggerPrice: "0.06618"`:
+      that list formats numbers differently from the single-order GET).
+    - The close filled at 22:24:00.818. The stop went to
+      `algoStatus: EXPIRED` at `updateTime` 0.824, 6 ms later, with no
+      `actualOrderId`, and `openAlgoOrders` was empty. **Binance expires a
+      `closePosition` stop with its position, as Bybit removes a Full-mode
+      one: a normal close leaves nothing to cancel on either venue.**
+    - The accounting closes exactly: no price move, and fees 0.00251864 ×
+      2 = 0.00503728, the balance difference.
+  - Not run, optional: Bybit `--mode cancel` on its own, which would show that
+    `stopLoss: "0"` removes the stop while the position stays open. It
+    matters only if a changed stop level ever moves stops already placed.
 - [ ] SS.2 Specs and tasks for the chosen layers.
 
 ## Log
