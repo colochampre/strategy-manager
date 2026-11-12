@@ -1024,7 +1024,11 @@
   "privacy": {
     "title": "Política de privacidad",
     "updated": "Última actualización: [FECHA]",
-    "intro": "Esta política explica qué guarda Strategy Manager sobre usted, para qué, quién más interviene y qué puede pedir. Se aplica a todas las personas que inician sesión.",
+    "placeholder": {
+      "name": "[NOMBRE COMPLETO]",
+      "address": "[DOMICILIO]"
+    },
+    "intro": "Esta política explica qué guarda Strategy Manager sobre usted, para qué, quién más interviene y qué puede pedir. Se aplica a todas las personas que inician sesión. Si no está de acuerdo con ella, no use la app.",
     "link": "Política de privacidad",
     "copyright": "© {{year}} Strategy Manager",
     "notice": {
@@ -1036,7 +1040,7 @@
     "sections": {
       "who": {
         "title": "Quién es responsable",
-        "body": "Strategy Manager es operado por [NOMBRE COMPLETO], persona humana en Argentina, con domicilio en [DOMICILIO], responsable de sus datos. Escriba a colochampre3@gmail.com por cualquier tema de esta política."
+        "body": "Strategy Manager es operado por {{name}}, persona humana en Argentina, con domicilio en {{address}}, responsable de sus datos y de la base de datos que los contiene. Puede escribirle a {{contact}}."
       },
       "stores": {
         "title": "Qué guarda la app",
@@ -1047,11 +1051,14 @@
         "balances": "Los saldos que la app lee de su cuenta en el exchange, para dimensionar sus órdenes.",
         "strategies": "Las estrategias que crea y a las que se suscribe, y su configuración: la parte de su capital, el apalancamiento y si opera en simulación o en real.",
         "trades": "Cada orden hecha a su nombre y su resultado: precio, cantidad, comisiones y ganancia o pérdida.",
-        "never": "La app nunca guarda contraseñas, documentos de identidad ni datos de pago."
+        "logs": "Un registro técnico de los pedidos que responde el servidor: cuándo ocurrió cada uno, qué se pidió y el resultado.",
+        "messages": "Lo que nos escriba, y la dirección desde la que escribe.",
+        "never": "La app nunca guarda contraseñas, documentos de identidad ni datos de pago, y no usa herramientas de analítica, publicidad ni seguimiento."
       },
       "use": {
         "title": "Para qué se usa",
-        "body": "Para prestar el servicio y nada más: iniciar su sesión, leer sus saldos, abrir y cerrar las órdenes de las estrategias a las que se suscribe, mostrarle sus resultados y mostrar el historial de las estrategias públicas. Sus datos no se venden, no se usan para publicidad ni se comparten más allá de lo que enumera esta política."
+        "body": "Para prestar el servicio y nada más: iniciar su sesión, leer sus saldos, abrir y cerrar las órdenes de las estrategias a las que se suscribe, mostrarle sus resultados y mostrar el historial de las estrategias públicas. Los registros sirven solo para mantener el servicio funcionando y seguro.",
+        "basis": "Sus datos se tratan porque son necesarios para prestarle el servicio que pidió al iniciar sesión (Ley N° 25.326, artículo 5). No se venden, no se usan para publicidad ni se comparten más allá de lo que enumera esta política."
       },
       "public": {
         "title": "Qué pueden ver otras personas",
@@ -1066,7 +1073,14 @@
         "exchanges": "Su exchange (por ejemplo Binance o Bybit) recibe sus órdenes, en su propia cuenta y con su propia key. Allí rige su propia política de privacidad.",
         "tradingview": "TradingView envía las alertas de los autores de estrategias. No recibe nada sobre los suscriptores.",
         "server": "La app y su base de datos funcionan en un servidor alquilado a [PROVEEDOR DEL SERVIDOR], en [PAÍS DEL SERVIDOR].",
-        "abroad": "Por eso sus datos también se procesan fuera de Argentina."
+        "abroad": "Por eso sus datos también se procesan fuera de Argentina.",
+        "links": "Las descripciones de las estrategias y estas páginas pueden enlazar a otros sitios. No los opera Strategy Manager, y al seguir el enlace rigen sus propias políticas."
+      },
+      "cookies": {
+        "title": "Cookies y almacenamiento del navegador",
+        "access": "Cloudflare Access guarda una cookie de sesión al iniciar sesión. Es estrictamente necesaria: sin ella, cada página le volvería a pedir que inicie sesión.",
+        "storage": "La app guarda algunas preferencias en el almacenamiento de su propio navegador: el idioma, el último exchange que eligió, el rango de un gráfico y si cerró el aviso de privacidad. Nunca salen de su navegador y puede borrarlas cuando quiera.",
+        "none": "No hay cookies de publicidad, de analítica ni de terceros."
       },
       "retention": {
         "title": "Cuánto tiempo se guarda",
@@ -1077,17 +1091,26 @@
       },
       "rights": {
         "title": "Sus derechos",
-        "body": "Puede pedir ver, corregir, actualizar o eliminar sus datos escribiendo a colochampre3@gmail.com. Recibirá respuesta dentro de los plazos que fija la Ley N° 25.326.",
+        "body": "Puede pedir ver, corregir, actualizar o eliminar sus datos escribiendo a {{contact}}. Antes de responder le pediremos que confirme el pedido desde el e-mail de su cuenta, para que nadie más pueda obtener ni cambiar sus datos. Recibirá respuesta dentro de los plazos que fija la Ley N° 25.326.",
         "deletion": "Todavía no hay un botón para eliminar una cuenta: el pedido se atiende por e-mail. Los registros de operaciones no se pueden eliminar, por lo dicho arriba: [CÓMO SE TRATAN LOS REGISTROS DE OPERACIONES AL ELIMINAR UNA CUENTA].",
         "authority": "El titular de los datos personales tiene la facultad de ejercer el derecho de acceso a los mismos en forma gratuita a intervalos no inferiores a seis meses, salvo que se acredite un interés legítimo al efecto conforme lo establecido en el artículo 14, inciso 3 de la Ley N° 25.326. La AGENCIA DE ACCESO A LA INFORMACIÓN PÚBLICA, en su carácter de Órgano de Control de la Ley N° 25.326, tiene la atribución de atender las denuncias y reclamos que interpongan quienes resulten afectados en sus derechos por incumplimiento de las normas vigentes en materia de protección de datos personales."
       },
       "security": {
         "title": "Cómo se protege",
-        "body": "El inicio de sesión pasa por Cloudflare Access y la app no guarda contraseñas. Las keys de los exchanges se guardan cifradas, y solo el proceso que envía las órdenes puede abrirlas. Los datos viajan cifrados entre su navegador y la app."
+        "body": "El inicio de sesión pasa por Cloudflare Access y la app no guarda contraseñas. Las keys de los exchanges se guardan cifradas, y solo el proceso que envía las órdenes puede abrirlas. Los datos viajan cifrados entre su navegador y la app.",
+        "limits": "Ningún sistema es perfectamente seguro: estas medidas bajan el riesgo, no lo eliminan. Mantenga sus keys de exchange sin permiso de retiro, como exige la app."
+      },
+      "age": {
+        "title": "Edad mínima",
+        "body": "Strategy Manager es para personas de 18 años o más. Si sabemos que alguien menor tiene una cuenta, la cerraremos y eliminaremos lo que la ley permita eliminar."
       },
       "changes": {
         "title": "Cambios en esta política",
         "body": "Cuando esta política cambie, esta página mostrará la nueva fecha y la app le volverá a mostrar el aviso."
+      },
+      "contact": {
+        "title": "Contacto",
+        "body": "Por cualquier consulta o reclamo sobre sus datos o esta política, escriba a {{contact}}."
       }
     }
   }

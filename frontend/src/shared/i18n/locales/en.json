@@ -1024,7 +1024,11 @@
   "privacy": {
     "title": "Privacy policy",
     "updated": "Last updated: [DATE]",
-    "intro": "This policy explains what Strategy Manager stores about you, what it is for, who else handles it and what you can ask for. It applies to everyone who signs in.",
+    "placeholder": {
+      "name": "[FULL NAME]",
+      "address": "[ADDRESS]"
+    },
+    "intro": "This policy explains what Strategy Manager stores about you, what it is for, who else handles it and what you can ask for. It applies to everyone who signs in. If you do not agree with it, do not use the app.",
     "link": "Privacy policy",
     "copyright": "© {{year}} Strategy Manager",
     "notice": {
@@ -1036,7 +1040,7 @@
     "sections": {
       "who": {
         "title": "Who is responsible",
-        "body": "Strategy Manager is run by [FULL NAME], an individual in Argentina, at [ADDRESS], who is responsible for your data. Write to colochampre3@gmail.com about anything in this policy."
+        "body": "Strategy Manager is run by {{name}}, an individual in Argentina, at {{address}}, who is responsible for your data and for the database that holds it. You can write to them at {{contact}}."
       },
       "stores": {
         "title": "What the app stores",
@@ -1047,11 +1051,14 @@
         "balances": "The balances the app reads from your exchange account, to size your orders.",
         "strategies": "The strategies you create and subscribe to, and your settings: the share of your capital, the leverage, and whether you trade in simulation or live.",
         "trades": "Every order placed for you and its result: price, quantity, fees and profit or loss.",
-        "never": "The app never stores a password, identity documents or payment details."
+        "logs": "A technical log of the requests the server answers: when each happened, what was asked and the result.",
+        "messages": "What you write to us, and the address you write from.",
+        "never": "The app never stores a password, identity documents or payment details, and it uses no analytics, advertising or tracking tools."
       },
       "use": {
         "title": "What it is used for",
-        "body": "To run the service and nothing else: signing you in, reading your balances, placing and closing the orders of the strategies you subscribe to, showing you your results and showing the record of public strategies. Your data is not sold, not used for advertising and not shared beyond what this policy lists."
+        "body": "To run the service and nothing else: signing you in, reading your balances, placing and closing the orders of the strategies you subscribe to, showing you your results and showing the record of public strategies. The logs serve only to keep the service working and secure.",
+        "basis": "Your data is processed because it is needed to provide the service you asked for when you signed in (Law No. 25,326, article 5). It is not sold, not used for advertising and not shared beyond what this policy lists."
       },
       "public": {
         "title": "What other people can see",
@@ -1066,7 +1073,14 @@
         "exchanges": "Your exchange (for example Binance or Bybit) receives your orders, in your own account and with your own key. Its own privacy policy applies there.",
         "tradingview": "TradingView sends the alerts of strategy authors. It receives nothing about subscribers.",
         "server": "The app and its database run on a server rented from [SERVER PROVIDER], in [SERVER COUNTRY].",
-        "abroad": "Your data is therefore also processed outside Argentina."
+        "abroad": "Your data is therefore also processed outside Argentina.",
+        "links": "Strategy descriptions and these pages may link to other sites. They are not run by Strategy Manager, and their own policies apply once you follow the link."
+      },
+      "cookies": {
+        "title": "Cookies and browser storage",
+        "access": "Cloudflare Access sets a session cookie when you sign in. It is strictly necessary: without it, every page would ask you to sign in again.",
+        "storage": "The app keeps a few preferences in your browser's own storage: your language, the exchange you last chose, a chart's range, and whether you closed the privacy notice. They never leave your browser and you can clear them at any time.",
+        "none": "There are no advertising, analytics or third-party cookies."
       },
       "retention": {
         "title": "How long it is kept",
@@ -1077,17 +1091,26 @@
       },
       "rights": {
         "title": "Your rights",
-        "body": "You can ask to see, correct, update or delete your data by writing to colochampre3@gmail.com. You will get an answer within the terms Law No. 25,326 sets.",
+        "body": "You can ask to see, correct, update or delete your data by writing to {{contact}}. Before answering, we will ask you to confirm the request from the e-mail address your account uses, so that nobody else can obtain or change your data. You will get an answer within the terms Law No. 25,326 sets.",
         "deletion": "There is no button to delete an account yet: a deletion request is handled by e-mail. Trade records cannot be deleted, for the reason above: [HOW TRADE RECORDS ARE HANDLED ON DELETION].",
         "authority": "The holder of the personal data has the right to access it free of charge at intervals of no less than six months, unless a legitimate interest is shown, as set out in article 14, paragraph 3 of Law No. 25,326. The AGENCIA DE ACCESO A LA INFORMACIÓN PÚBLICA, as the control authority of Law No. 25,326, has the power to handle the complaints and claims of anyone whose rights are affected by a breach of the rules on personal data protection."
       },
       "security": {
         "title": "How it is protected",
-        "body": "Sign-in goes through Cloudflare Access and the app keeps no password. Exchange keys are encrypted at rest, and only the process that places orders can open them. Data travels encrypted between your browser and the app."
+        "body": "Sign-in goes through Cloudflare Access and the app keeps no password. Exchange keys are encrypted at rest, and only the process that places orders can open them. Data travels encrypted between your browser and the app.",
+        "limits": "No system is perfectly secure: these measures lower the risk, they cannot remove it. Keep your exchange keys without withdrawal permission, as the app requires."
+      },
+      "age": {
+        "title": "Minimum age",
+        "body": "Strategy Manager is for people aged 18 or over. If we learn that someone younger has an account, we will close it and delete what the law allows us to delete."
       },
       "changes": {
         "title": "Changes to this policy",
         "body": "When this policy changes, this page shows the new date and the app shows you the notice again."
+      },
+      "contact": {
+        "title": "Contact",
+        "body": "For any question or complaint about your data or this policy, write to {{contact}}."
       }
     }
   }

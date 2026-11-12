@@ -5,7 +5,7 @@ import { Link } from "react-router";
 /** Where the version of the policy a reader dismissed is kept, per browser. */
 export const PRIVACY_NOTICE_KEY = "privacy-notice-seen";
 /** Changed whenever the policy changes, so the notice comes back (its "Changes" section). */
-export const PRIVACY_VERSION = "2026-11-12-draft";
+export const PRIVACY_VERSION = "2026-11-12-draft-2";
 
 function seenThisVersion(): boolean {
   try {
