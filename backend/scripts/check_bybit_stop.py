@@ -32,6 +32,13 @@ its documentation:
                           would, then check the stop is gone.
   ``--mode cancel``       open, set the stop, cancel it with ``"0"``, check it
                           is gone, then close.
+  ``--mode attach``       open WITH the stop on the opening order itself
+                          (``/v5/order/create`` with ``stopLoss``), so the
+                          position never exists unprotected; show how it
+                          rests, then close and check it is gone.
+
+Runs 1-3 (2026-11-12) answered trigger and close-first; ``attach`` exists
+because they showed that setting the stop after the fill leaves a gap.
 
 Every mode ends flat and checks it. Raw payloads are printed beside what was
 sent: a parser agreeing with itself proves nothing.
@@ -103,7 +110,7 @@ WAIT_POLL_SECONDS = 10
 FILL_POLL_ATTEMPTS = 10
 FILL_POLL_SECONDS = 1.5
 
-MODES = ("trigger", "close-first", "cancel")
+MODES = ("trigger", "close-first", "cancel", "attach")
 TRIGGER_BY = ("LastPrice", "MarkPrice")
 
 
@@ -139,6 +146,41 @@ async def _set_stop(
     _dump("SENT to /v5/position/trading-stop", payload)
     async with signed_transport(settings, credentials) as transport:
         answer = await transport.post("/v5/position/trading-stop", payload)
+    _dump("ANSWER (result)", answer)
+
+
+async def _open_with_stop(  # noqa: PLR0913 -- one raw order, every field named
+    settings: Settings,
+    credentials: BybitCredentials,
+    symbol: str,
+    order_link_id: str,
+    qty: Decimal,
+    stop: Decimal,
+    trigger_by: str,
+) -> None:
+    """The production adapter's market order, plus the stop fields, sent raw.
+
+    The adapter cannot attach a stop yet; that is what this run decides. So the
+    payload copies the adapter's own (`BybitTradeClient.place_market_order`)
+    field for field and adds only the four stop fields.
+    """
+    payload: dict[str, Any] = {
+        "category": "linear",
+        "symbol": symbol,
+        "side": "Buy",
+        "orderType": "Market",
+        "qty": format(qty, "f"),
+        "orderLinkId": order_link_id,
+        "positionIdx": 0,
+        "reduceOnly": False,
+        "stopLoss": str(stop),
+        "slTriggerBy": trigger_by,
+        "tpslMode": "Full",
+        "slOrderType": "Market",
+    }
+    _dump("SENT to /v5/order/create", payload)
+    async with signed_transport(settings, credentials) as transport:
+        answer = await transport.post("/v5/order/create", payload)
     _dump("ANSWER (result)", answer)
 
 
@@ -348,37 +390,54 @@ async def main() -> int:  # noqa: PLR0911, PLR0912, PLR0915 -- a linear script, 
                 return 0
 
             started_ms = str(int(time.time() * 1000))
-            print("\nOPENING...")
-            placed = await adapter.place(order)
-            print(f"  accepted, exchange order {placed.exchange_order_id}")
-            filled, notional = await _await_fills(
-                adapter, settings, credentials, open_id, symbol
-            )
-            entry = notional / filled
-            stop = _stop_price(entry, args.stop_pct, rules.tick_size)
-            if stop >= entry:
-                print("  stop rounded onto the entry; closing and refusing to go on",
-                      file=sys.stderr)
-                await _close(adapter, settings, credentials, args.symbol, symbol, filled)
-                return 1
+            if args.mode == "attach":
+                # The stop rides on the opening order itself: one call, so there
+                # is no moment when the position exists without its stop, and no
+                # second call whose failure would leave it unprotected. Its level
+                # comes from the last price, because the fill does not exist yet.
+                stop = preview_stop
+                print(f"\nOPENING WITH THE STOP ATTACHED at {stop}...")
+                await _open_with_stop(
+                    settings, credentials, symbol, open_id, order.base_size, stop,
+                    args.trigger_by,
+                )
+                filled, notional = await _await_fills(
+                    adapter, settings, credentials, open_id, symbol
+                )
+                print(f"  entry {notional / filled}")
+                await _show_stop_state(settings, credentials, symbol, "after the opening")
+            else:
+                print("\nOPENING...")
+                placed = await adapter.place(order)
+                print(f"  accepted, exchange order {placed.exchange_order_id}")
+                filled, notional = await _await_fills(
+                    adapter, settings, credentials, open_id, symbol
+                )
+                entry = notional / filled
+                stop = _stop_price(entry, args.stop_pct, rules.tick_size)
+                if stop >= entry:
+                    print("  stop rounded onto the entry; closing and refusing to go on",
+                          file=sys.stderr)
+                    await _close(adapter, settings, credentials, args.symbol, symbol, filled)
+                    return 1
 
-            print(f"\nSETTING THE STOP at {stop} (entry {entry})")
-            await _set_stop(
-                settings,
-                credentials,
-                {
-                    "category": "linear",
-                    "symbol": symbol,
-                    "tpslMode": "Full",
-                    "positionIdx": "0",
-                    "stopLoss": str(stop),
-                    "slTriggerBy": args.trigger_by,
-                    "slOrderType": "Market",
-                },
-            )
-            await _show_stop_state(settings, credentials, symbol, "after setting")
+                print(f"\nSETTING THE STOP at {stop} (entry {entry})")
+                await _set_stop(
+                    settings,
+                    credentials,
+                    {
+                        "category": "linear",
+                        "symbol": symbol,
+                        "tpslMode": "Full",
+                        "positionIdx": "0",
+                        "stopLoss": str(stop),
+                        "slTriggerBy": args.trigger_by,
+                        "slOrderType": "Market",
+                    },
+                )
+                await _show_stop_state(settings, credentials, symbol, "after setting")
 
-            if args.mode == "close-first":
+            if args.mode in ("close-first", "attach"):
                 await _close(adapter, settings, credentials, args.symbol, symbol, filled)
                 left = await _show_stop_state(settings, credentials, symbol, "after the close")
                 print("\n  RESULT: the stop " + (
