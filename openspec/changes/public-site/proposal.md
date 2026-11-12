@@ -70,6 +70,8 @@ The owner sends them in Spanish to a lawyer they know. This is the English summa
 5. Liability for losses, app failures or exchange failures: what the terms may limit, and what consumer law (Ley 24.240) forbids excluding once plans are paid.
 6. Users abroad: restrict to Argentina, or state the governing law and jurisdiction?
 7. Minimum age.
+8. Terms while it is free: sign-up is open and free and no terms are published yet, only the privacy policy in the panel. Are terms needed now, without charging? What is the exposure if someone loses money before they exist? (Added 2026-11-12.)
+9. Acceptance: is a checkbox "I accept the terms and have read the privacy policy", recorded with the user, the version and the date, enough proof? Must it be asked again on every change? (Added 2026-11-12.)
 
 ## Out of scope
 
