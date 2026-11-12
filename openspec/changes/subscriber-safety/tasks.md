@@ -1,11 +1,10 @@
 # Subscriber safety — tasks
 
-Planning. Nothing is built until the open decisions in `proposal.md` are made
-and the owner says to build. It goes before `account-deletion`.
+Planning. Decisions made; nothing is built until the owner says to build. It goes before `account-deletion`.
 
 ## Tasks
 
-- [ ] SS.0 Decisions D1-D4 (owner).
+- [x] SS.0 Decisions D1-D4 (owner, 2026-11-12), recorded in `proposal.md`.
 - [ ] SS.1 Verify the exchange stop live on Bybit and Binance with a probe that
   signs from the vault (`scripts/probe_credentials.py`, `--user-email`): order
   shape, reduce-only, how a stop's fill is reported, and how it is cancelled

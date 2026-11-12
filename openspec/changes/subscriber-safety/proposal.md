@@ -36,14 +36,36 @@ leave subscribers holding positions no signal will close.
    panel first. E-mail needs an outbound provider the app does not have yet
    (there is no outbound e-mail today).
 
-## Open decisions (asked one at a time)
+## Decisions
 
-- D1: is the exchange stop mandatory for every live opening, and who sets its
-  level?
-- D2: the grace period before an orphaned position is closed.
-- D3: what counts as silence: a threshold the author declares, or one derived
-  from the strategy's own history.
-- D4: e-mail notices now (outbound provider) or later.
+- D1 **decided** (owner, 2026-11-12, "Mandatory, author sets"): every live
+  opening places the stop at the exchange, at one level the author fixes for
+  the whole strategy. *Assumption: a change of level applies to new openings
+  only; a stop already at the exchange stays where it was placed.*
+- D2 **decided** (owner, 2026-11-12): "Diría Immediately, aunque si un autor no
+  puede deshabilitar ni archivar mientras hay posiciones abiertas, es una buena
+  medida de seguridad. Si por cualquier motivo el autor logra deshabilitar,
+  archivar o borrar su cuenta con posiciones abiertas, se cierran inmediatamente
+  sin depender de una alerta que no se sabe si va a llegar". So, two rules:
+  - disabling, archiving and deleting the account are REFUSED while anyone holds
+    a position on the author's strategy (archive already refuses; disable and
+    deletion must too). An author who wants to stop closes first, then disables;
+  - if a strategy still ends up disabled, archived or authorless with positions
+    open, the app closes every one of them at once, at market, without waiting
+    for an alert.
+- D3 **decided** (owner, 2026-11-12, "No silence rule"): a strategy that stays
+  enabled but stops signalling is covered by the exchange stop alone. A position
+  that never reaches the stop stays open until a signal, a manual close or one
+  of the D2 events. Layer 2 therefore closes on disable, archive and account
+  deletion only.
+- D4 **decided** (owner, 2026-11-12): notices are delivered by a notifications
+  system the owner is about to request as its own change: "un sistema de
+  notificaciones, con las aperturas y cierres de las estrategias suscritas, con
+  opción de recibirlas por Telegram, WhatsApp, email o solo la app. El usuario
+  elije donde recibirlas". This change records each safety event (stop fired,
+  position closed because its strategy was disabled, archived or lost its
+  author) and shows it in the panel. Delivery to other channels belongs to
+  `notifications`, which must carry these events too.
 
 ## Out of scope
 
