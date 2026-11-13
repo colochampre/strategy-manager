@@ -29,6 +29,7 @@ from strategy_manager.shared.infrastructure.binance.signer import (
 )
 from strategy_manager.shared.infrastructure.binance.trade_client import (
     ACCOUNT_CONFIG_PATH,
+    ALGO_ORDER_PATH,
     AMBIGUOUS_CODES,
     LEVERAGE_PATH,
     MARGIN_TYPE_PATH,
@@ -475,6 +476,178 @@ async def test_a_definitive_rejection_keeps_its_code_and_stays_an_api_error(
 
     assert caught.value.code == "-2015"
     assert str(caught.value.code) not in AMBIGUOUS_CODES
+
+
+# --- the algo stop (subscriber-safety SS.6) ----------------------------------
+
+CLIENT_STOP_ID = "9b2f4c1e-6d3a-4f7b-8a15-2c9e0d4b7a61"
+ALGO_ACK = {
+    "algoId": 3000000123456,
+    "clientAlgoId": CLIENT_STOP_ID,
+    "algoType": "CONDITIONAL",
+    "orderType": "STOP_MARKET",
+    "symbol": SYMBOL,
+    "side": "SELL",
+    "triggerPrice": "0.059700",
+    "algoStatus": "NEW",
+    "closePosition": True,
+}
+
+
+async def _place_stop(
+    client: BinanceTradeClient,
+    *,
+    side: str = "SELL",
+    trigger: Decimal = Decimal("0.059700"),
+    client_stop_id: str = CLIENT_STOP_ID,
+) -> int:
+    return await client.place_stop_order(
+        symbol=SYMBOL, side=side, trigger_price=trigger, client_stop_id=client_stop_id
+    )
+
+
+def _stop_client(
+    recorded: list[httpx.Request], answer: httpx.Response | None = None
+) -> BinanceTradeClient:
+    return _client(
+        recorded,
+        overrides={("POST", ALGO_ORDER_PATH): answer or httpx.Response(200, json=ALGO_ACK)},
+    )
+
+
+async def test_the_stop_is_sent_as_the_exact_signed_body_the_live_run_proved(
+    recorded: list[httpx.Request],
+) -> None:
+    """The fields and their order are those of the 2026-11-12 live runs: a conditional
+    STOP_MARKET that closes the whole position, triggered by the mark price."""
+    client = _stop_client(recorded)
+
+    await _place_stop(client)
+
+    body = _sent_body(recorded)
+    signed, _, signature = body.rpartition("&signature=")
+    assert signed == (
+        f"algoType=CONDITIONAL&symbol={SYMBOL}&side=SELL&type=STOP_MARKET"
+        f"&triggerPrice=0.059700&workingType=MARK_PRICE&closePosition=true"
+        f"&clientAlgoId={CLIENT_STOP_ID}&recvWindow=5000"
+        f"&timestamp={int(FROZEN_NOW.timestamp() * 1000)}"
+    )
+    assert signature == signature_for(API_SECRET, signed)
+    posted = [r for r in recorded if r.method == "POST"][0]
+    assert posted.url.path == ALGO_ORDER_PATH and posted.url.query == b""
+
+
+async def test_a_stop_for_a_short_is_sent_as_a_buy(recorded: list[httpx.Request]) -> None:
+    client = _stop_client(recorded)
+
+    await _place_stop(client, side="BUY")
+
+    assert _sent_order(recorded)["side"] == "BUY"
+
+
+async def test_the_stop_returns_the_numeric_algo_id(recorded: list[httpx.Request]) -> None:
+    client = _stop_client(recorded)
+
+    assert await _place_stop(client) == 3000000123456
+
+
+async def test_a_trigger_price_is_never_sent_in_scientific_notation(
+    recorded: list[httpx.Request],
+) -> None:
+    client = _stop_client(recorded)
+
+    await _place_stop(client, trigger=Decimal("1E-7"))
+
+    assert _sent_order(recorded)["triggerPrice"] == "0.0000001"
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"trigger": Decimal("0")},
+        {"trigger": Decimal("-1")},
+        {"side": "HOLD"},
+        {"client_stop_id": ""},
+        {"client_stop_id": "x" * 37},
+        {"client_stop_id": "has space"},
+    ],
+)
+async def test_a_stop_that_cannot_be_valid_never_reaches_the_venue(
+    recorded: list[httpx.Request], kwargs: dict[str, Any]
+) -> None:
+    client = _stop_client(recorded)
+
+    with pytest.raises(BinanceApiError):
+        await _place_stop(client, **kwargs)
+
+    assert recorded == []
+
+
+async def test_a_stop_acknowledged_with_no_algo_id_is_refused(
+    recorded: list[httpx.Request],
+) -> None:
+    """Without the id the stop cannot be read back or named when it fires."""
+    client = _stop_client(recorded, httpx.Response(200, json={"clientAlgoId": CLIENT_STOP_ID}))
+
+    with pytest.raises(BinanceApiError, match="algoId"):
+        await _place_stop(client)
+
+
+async def test_a_refused_stop_keeps_its_code_and_status(recorded: list[httpx.Request]) -> None:
+    client = _stop_client(
+        recorded,
+        httpx.Response(400, json={"code": -2021, "msg": "Order would immediately trigger."}),
+    )
+
+    with pytest.raises(BinanceApiError) as caught:
+        await _place_stop(client)
+
+    assert (caught.value.code, caught.value.http_status) == ("-2021", 400)
+
+
+def _read_client(recorded: list[httpx.Request], answer: httpx.Response) -> BinanceTradeClient:
+    return _client(recorded, overrides={("GET", ALGO_ORDER_PATH): answer})
+
+
+async def test_a_stop_is_read_back_by_its_client_id_alone(
+    recorded: list[httpx.Request],
+) -> None:
+    client = _read_client(recorded, httpx.Response(200, json=ALGO_ACK))
+
+    algo = await client.algo_order_for(CLIENT_STOP_ID)
+
+    [request] = recorded
+    assert request.method == "GET" and request.url.path == ALGO_ORDER_PATH
+    assert request.url.params["clientAlgoId"] == CLIENT_STOP_ID
+    assert "algoId" not in request.url.params
+    assert (algo.algo_id, algo.client_algo_id, algo.status) == (
+        3000000123456,
+        CLIENT_STOP_ID,
+        "NEW",
+    )
+
+
+async def test_a_stop_the_venue_has_no_record_of_is_order_not_found(
+    recorded: list[httpx.Request],
+) -> None:
+    client = _read_client(
+        recorded, httpx.Response(400, json={"code": -2013, "msg": "Order does not exist."})
+    )
+
+    with pytest.raises(BinanceOrderNotFound):
+        await client.algo_order_for(CLIENT_STOP_ID)
+
+
+@pytest.mark.parametrize("code", [-1001, -1007])
+async def test_an_ambiguous_stop_read_is_never_read_as_no_such_stop(
+    recorded: list[httpx.Request], code: int
+) -> None:
+    client = _read_client(recorded, httpx.Response(500, json={"code": code, "msg": "unknown"}))
+
+    with pytest.raises(BinanceApiError) as caught:
+        await client.algo_order_for(CLIENT_STOP_ID)
+
+    assert caught.value.code == str(code)
 
 
 # --- fills -------------------------------------------------------------------

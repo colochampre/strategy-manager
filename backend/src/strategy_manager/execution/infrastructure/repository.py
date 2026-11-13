@@ -2,6 +2,7 @@
 the ``execution_attempts`` table (migrations ``0005``, ``0011``, ``0012``).
 """
 
+from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import func, or_, select, update
@@ -87,6 +88,7 @@ class SqlAlchemyProtectiveStopRepository:
                 stop_loss_pct=stop.stop_loss_pct,
                 trigger_price=stop.trigger_price,
                 venue_stop_id=stop.venue_stop_id,
+                client_stop_id=stop.client_stop_id,
                 status=stop.status.value,
             )
         )
@@ -128,6 +130,19 @@ class SqlAlchemyProtectiveStopRepository:
         )
 
 
+    async def record_trigger_price(
+        self, user_id: UUID, attempt_id: UUID, trigger_price: Decimal
+    ) -> None:
+        await self._session.execute(
+            update(ProtectiveStopRow)
+            .where(
+                ProtectiveStopRow.execution_attempt_id == attempt_id,
+                ProtectiveStopRow.user_id == user_id,
+            )
+            .values(trigger_price=trigger_price, updated_at=func.now())
+        )
+
+
 def _stop_to_domain(row: ProtectiveStopRow) -> ProtectiveStop:
     return ProtectiveStop(
         id=row.id,
@@ -141,6 +156,7 @@ def _stop_to_domain(row: ProtectiveStopRow) -> ProtectiveStop:
         trigger_price=row.trigger_price,
         status=StopStatus(row.status),
         venue_stop_id=row.venue_stop_id,
+        client_stop_id=row.client_stop_id,
     )
 
 

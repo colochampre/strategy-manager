@@ -53,6 +53,7 @@ from strategy_manager.execution.domain.order import (
     market_order,
 )
 from strategy_manager.execution.domain.placeable import PlaceableOrder, SpotOrder
+from strategy_manager.execution.infrastructure.no_after_fill_stop import NoAfterFillStop
 from strategy_manager.shared.domain.money import Venue
 from strategy_manager.shared.infrastructure.pionex.errors import (
     PionexApiError,
@@ -71,7 +72,7 @@ _EPOCH = datetime.fromtimestamp(0, UTC)
 AMBIGUOUS_STATUSES = frozenset({408, 429})
 
 
-class PionexExchangeAdapter:
+class PionexExchangeAdapter(NoAfterFillStop):
     """Implements ``execution.application.ports.ExchangePort`` against Pionex
     spot.
 

@@ -226,7 +226,7 @@ owner's preference.
       `547beff6a81338b08a13398508c8c0ca84ea140623f3503056cdb2b3a7c0d6a2`. The
       owner's block printed `OK`, `readable`, and both `bundle` and `checkout`
       at `ec75f7e467d0`.
-- [ ] SS.5 Bybit: the stop attached to the opening order, with the migration
+- [x] SS.5 Bybit: the stop attached to the opening order, with the migration
   creating `protective_stops`. The resting stop is
   found by `parentOrderLinkId` and recorded. A failure closes the position at
   once. Risk: item 6 (live venue behaviour) and item 4.
@@ -288,9 +288,94 @@ owner's preference.
       - A `SIMULATED` row records the level, with `trigger_price` NULL.
     - The Binance DOGE example in the spec gave 0.059706 on a 0.000010 tick.
       That is not a multiple of the tick: corrected to 0.059700 for SS.6.
+  - Delivered, 2026-11-13: PR #107, merge `5d6931638709`, with the panel fix
+    for the stop level editor (`8db8988`). The owner ran the three steps from
+    Git Bash.
+    - Rehearsal on `sm_rehearsal_0041`, restored from a fresh backup: 0040 to
+      0041; `protective_stops` empty, with its 9 constraints and 4 indexes;
+      `execution_attempts` (50 rows) and `reservations` (26) hashed unchanged;
+      the downgrade dropped the table and the re-upgrade made it again. The
+      copy was dropped.
+    - Production: backup `pre-0041-deploy-20261113T144140Z.dump`, 0040 to
+      0041, `protective_stops` empty, both services `active`, and no ERROR
+      or Traceback line after the restart.
+    - Panel (pps.6): built by the assistant from a detached worktree of
+      `origin/main` at `5d6931638709`, 22 entries, SHA-256
+      `f05b56eb199c7b4a23e2eed5a05a55fdc2fd5d5fce4f1971fc1d2c340554732a`. The
+      owner's block printed `OK`, `readable`, and both `bundle` and `checkout`
+      at `5d6931638709`.
 - [ ] SS.6 Binance: the algo stop right after the fill, with `clientAlgoId`
   recorded first, `-2013` retried, an unknown outcome resolved by reading
   back, and a failure closing at once. Risk: items 4 and 6.
+  - Design, 2026-11-13, from a read-only code map.
+    - Migration 0042 adds `protective_stops.client_stop_id` (nullable, unique
+      where set).
+    - Adapters declare `places_stop_after_fill`: Binance yes, every other
+      adapter no. `PlaceOrder` writes a `PENDING` row for a live Binance
+      opening, with a fresh UUID as `client_stop_id` and no trigger price.
+      It goes in the attempt's own transaction, so the `clientAlgoId` is
+      recorded before any algo request.
+    - Settle enqueues `PROTECTIVE_STOP_CONFIRM` as in SS.5. For a venue that
+      places after the fill, the job does this:
+      - With no trigger price recorded, it reads the opening's fills through
+        `fetch_fills` and takes their volume-weighted average as the entry. The
+        adapter turns that into the trigger, rounded to the tick away from the
+        entry (`protective_stop_price`). The trigger is committed, then
+        `POST /fapi/v1/algoOrder` is sent:
+        - `algoType` CONDITIONAL and `type` STOP_MARKET;
+        - `side` opposite the position;
+        - `workingType` MARK_PRICE and `closePosition` true;
+        - the recorded `clientAlgoId`.
+      - With a trigger price already recorded, an earlier POST may have
+        reached the venue. The job first reads the stop back with
+        `GET /fapi/v1/algoOrder?clientAlgoId=`. The Binance documentation
+        accepts either id (checked 2026-11-13). A `-2013` is retried 5 times,
+        2 s apart, with an injectable sleep. Found in any status, the stop is
+        `RESTING`, and SS.7's watcher reads its status. Still `-2013` after
+        the retries, the POST is sent again with the same `clientAlgoId` and
+        trigger.
+      - An acknowledged POST is `RESTING` at once, with its `algoId`. It is
+        not read back, so `-2013` cannot hit the normal path.
+      - An ambiguous error (the stricter `_is_definitive_setting_refusal`
+        rule) makes the job retry. A definitive refusal takes SS.5's path:
+        `FAILED`, an ERROR line, and `ClosePosition` at once.
+    - Bybit's path is unchanged.
+  - Progress, 2026-11-13.
+    - The writer built it as designed, plus three choices:
+      - The confirm job branches on the row (`client_stop_id` set) rather
+        than on the adapter.
+      - Empty fills raise `FillsNotPublishedYet`, so the job retries and
+        closes nothing.
+      - One mixin, `NoAfterFillStop`, gives Bybit, Pionex and the fake
+        exchange the flag set to false and refusing calls.
+    - This supersedes SS.5's "Binance writes no row until SS.6": a live
+      Binance opening now writes a `PENDING` row.
+    - Gate on `03ba6c7`: `ruff`, `mypy src` and the full `pytest`, exit 0.
+    - Independent verifier (items 4 and 6), against `75de478`: no blockers.
+      - Crash safety at each step leaves exactly one stop.
+      - Every ambiguous error retries.
+      - SIMULATED still wins over the after-fill flag.
+      - Bybit, Pionex and the fake exchange are untouched.
+      - 19 hand mutations: 18 caught, one survived.
+    - Fixed after the verifier:
+      - The surviving mutation: the read-back's ambiguity test now covers
+        503/-1008, 429/-1003 and 408. That rules the lax rule out on the
+        GET, as it already was on the POST; a mutation proved it.
+      - A POST sent again may be refused because the first request did
+        arrive and its read only lagged past the retries, for example as a
+        duplicate `clientAlgoId`. Binance's answer to a duplicate id is
+        unverified. The stop is now read once more before anything is
+        closed, so a protected position is not closed for it. A first POST
+        that is refused is not read back.
+    - Advisories, not fixed here:
+      - A stop the read never sees and Binance refuses again is `FAILED`
+        and closed. If it did rest, it is left at the venue: nothing cancels
+        it. A `closePosition` stop on a flat position cannot open one, and
+        SS.7's watcher reads it.
+      - `place_stop_order`'s own refusals, of an invalid id or a
+        non-positive trigger, carry no code, so they read as ambiguous and
+        would retry for ever. A UUID4 and a priced trigger cannot reach
+        them.
 - [ ] SS.7 The stop watcher job, with the migration adding a cause to
   `execution_attempts` (SIGNAL / STOP / SAFETY_CLOSE / MANUAL):
   - fills booked under the allocation with cause STOP, plus `STOP_FIRED`;

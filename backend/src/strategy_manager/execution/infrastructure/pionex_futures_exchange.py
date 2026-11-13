@@ -56,6 +56,7 @@ from strategy_manager.execution.domain.futures_order import (
     futures_position_size,
 )
 from strategy_manager.execution.domain.placeable import PlaceableOrder
+from strategy_manager.execution.infrastructure.no_after_fill_stop import NoAfterFillStop
 from strategy_manager.shared.domain.money import Venue
 from strategy_manager.shared.infrastructure.pionex.errors import (
     PionexApiError,
@@ -74,7 +75,7 @@ _EPOCH = datetime.fromtimestamp(0, UTC)
 AMBIGUOUS_STATUSES = frozenset({408, 429})
 
 
-class PionexFuturesExchangeAdapter:
+class PionexFuturesExchangeAdapter(NoAfterFillStop):
     """Implements ``execution.application.ports.ExchangePort`` against Pionex
     USDT-M futures."""
 

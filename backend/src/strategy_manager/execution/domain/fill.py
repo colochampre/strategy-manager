@@ -3,9 +3,12 @@
 Recording).
 """
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
+
+from strategy_manager.shared.domain.errors import InvariantViolation
 
 # Every fill the DRY_RUN fake exchange mints carries this prefix on its
 # ``exchange_fill_id``. It is the single definition: the fake mints with it and
@@ -40,3 +43,15 @@ class Fill:
     fee: Decimal
     fee_currency: str
     filled_at: datetime
+
+
+def average_fill_price(fills: Sequence[Fill]) -> Decimal:
+    """The volume-weighted average price of ``fills``: what the position cost per unit.
+
+    The protective stop of a Binance opening lies a percentage away from this, so it is the
+    quantity-weighted mean, never the first fill's price and never the plain mean. Fills of
+    no quantity have no price to average and are refused rather than read as zero."""
+    quantity = sum((fill.quantity for fill in fills), Decimal(0))
+    if quantity <= 0:
+        raise InvariantViolation("no fill quantity to average a price over")
+    return sum((fill.quantity * fill.price for fill in fills), Decimal(0)) / quantity

@@ -63,6 +63,10 @@ from strategy_manager.shared.infrastructure.binance.transport import BinanceTran
 # One path serves both verbs: POST places an order, GET looks one up.
 ORDER_PATH = "/fapi/v1/order"
 USER_TRADES_PATH = "/fapi/v1/userTrades"
+# One path serves both verbs here too: POST places a conditional (algo) order, GET reads
+# one. Verified live 2026-11-12 (subscriber-safety SS.1) and in Binance's docs 2026-11-13,
+# where the GET takes ``algoId`` OR ``clientAlgoId``.
+ALGO_ORDER_PATH = "/fapi/v1/algoOrder"
 # The position mode is read from here, not from /fapi/v1/positionSide/dual:
 # both answer ``dualSidePosition``, but that one costs an IP weight of 30 and
 # this one 5 (verified in Binance's docs 2026-11-03). The mode is read on every
@@ -120,6 +124,16 @@ class BinanceOrderAck:
 
     order_id: int
     client_order_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class BinanceAlgoOrder:
+    """A conditional (algo) order as ``GET /fapi/v1/algoOrder`` reports it. ``status`` is
+    the venue's ``algoStatus``, read for SS.7's watcher and not interpreted here."""
+
+    algo_id: int
+    client_algo_id: str
+    status: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -402,6 +416,74 @@ class BinanceTradeClient:
         return [_parse_execution(entry) for entry in payload]
 
 
+    async def place_stop_order(
+        self, *, symbol: str, side: str, trigger_price: Decimal, client_stop_id: str
+    ) -> int:
+        """Places a conditional STOP_MARKET that closes the whole position, and returns
+        its ``algoId`` (subscriber-safety SS.6).
+
+        Exactly the request that worked live on 2026-11-12: ``closePosition`` takes no
+        quantity and no ``reduceOnly``, and ``workingType`` MARK_PRICE is the price
+        liquidation reads. ``side`` is the one that CLOSES the position, so a SELL for a
+        long and a BUY for a short. ``clientAlgoId`` is the id this system recorded before
+        the call, the only handle that finds the stop again if this answer is lost.
+
+        An acknowledged stop is not read back (``-2013`` is how a read of a just-placed stop
+        answers). Local checks run before any request.
+        """
+        _assert_valid_client_order_id(client_stop_id, field="clientAlgoId")
+        if side not in ("BUY", "SELL"):
+            raise BinanceApiError(f"a stop's side must be BUY or SELL, got {side!r}")
+        if trigger_price <= 0:
+            raise BinanceApiError(f"triggerPrice must be positive, got {trigger_price}")
+
+        data = await self._transport.post(
+            ALGO_ORDER_PATH,
+            {
+                "algoType": "CONDITIONAL",
+                "symbol": symbol,
+                "side": side,
+                "type": "STOP_MARKET",
+                # ``format(..., "f")`` and NOT ``_plain``: ``normalize()`` would drop the
+                # tick's trailing zeros, and the venue is sent what the tick printed.
+                "triggerPrice": format(trigger_price, "f"),
+                "workingType": "MARK_PRICE",
+                "closePosition": "true",
+                "clientAlgoId": client_stop_id,
+            },
+        )
+        if not isinstance(data, dict):
+            raise BinanceApiError("new algo order returned no result object")
+        return _integer(data, "algoId")
+
+    async def algo_order_for(self, client_stop_id: str) -> BinanceAlgoOrder:
+        """The conditional order placed under ``client_stop_id``, read back by it.
+
+        ``clientAlgoId`` alone is enough: the endpoint takes it OR ``algoId`` and no symbol
+        (Binance's docs, checked 2026-11-13). Raises ``BinanceOrderNotFound`` ONLY on
+        ``-2013``, which is also how a just-placed stop answers for a moment (live run 5),
+        so the caller retries before it believes it. Every other failure keeps its code.
+        """
+        try:
+            data = await self._transport.get_signed(
+                ALGO_ORDER_PATH, {"clientAlgoId": client_stop_id}
+            )
+        except BinanceApiError as exc:
+            if exc.code in ORDER_NOT_FOUND_CODES:
+                raise BinanceOrderNotFound(
+                    f"Binance has no algo order under clientAlgoId {client_stop_id}"
+                ) from exc
+            raise
+        if not isinstance(data, dict):
+            raise BinanceApiError("the algo order lookup returned no result object")
+        status = data.get("algoStatus")
+        return BinanceAlgoOrder(
+            algo_id=_integer(data, "algoId"),
+            client_algo_id=client_stop_id,
+            status=status if isinstance(status, str) and status else None,
+        )
+
+
 def _plain(value: Decimal) -> str:
     """Formats a ``Decimal`` without scientific notation.
 
@@ -413,16 +495,20 @@ def _plain(value: Decimal) -> str:
     return format(value.normalize(), "f")
 
 
-def _assert_valid_client_order_id(client_order_id: str) -> None:
+def _assert_valid_client_order_id(
+    client_order_id: str, *, field: str = "newClientOrderId"
+) -> None:
+    """``field`` names the parameter in the message: ``clientAlgoId`` has the same
+    documented shape as ``newClientOrderId``."""
     if not client_order_id or len(client_order_id) > CLIENT_ORDER_ID_MAX_LENGTH:
         raise BinanceApiError(
-            f"newClientOrderId must be 1-{CLIENT_ORDER_ID_MAX_LENGTH} characters, "
+            f"{field} must be 1-{CLIENT_ORDER_ID_MAX_LENGTH} characters, "
             f"got {len(client_order_id)}. A UUID4 is exactly "
             f"{CLIENT_ORDER_ID_MAX_LENGTH}, so there is no room for a prefix."
         )
     if not _CLIENT_ORDER_ID_PATTERN.fullmatch(client_order_id):
         raise BinanceApiError(
-            "newClientOrderId must contain only letters, numbers, dots, colons, "
+            f"{field} must contain only letters, numbers, dots, colons, "
             f"slashes, dashes and underscores, got {client_order_id!r}"
         )
 

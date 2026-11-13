@@ -72,6 +72,7 @@ from strategy_manager.execution.domain.futures_order import (
 )
 from strategy_manager.execution.domain.market_symbol import strip_contract_marker
 from strategy_manager.execution.domain.placeable import PlaceableOrder
+from strategy_manager.execution.infrastructure.no_after_fill_stop import NoAfterFillStop
 from strategy_manager.shared.domain.errors import InvariantViolation
 from strategy_manager.shared.domain.money import Exchange, Venue
 from strategy_manager.shared.infrastructure.bybit.errors import (
@@ -101,7 +102,7 @@ AMBIGUOUS_STATUSES = frozenset({408, 429})
 ISOLATED_MARGIN = "ISOLATED_MARGIN"
 
 
-class BybitFuturesExchangeAdapter:
+class BybitFuturesExchangeAdapter(NoAfterFillStop):
     """Implements ``execution.application.ports.ExchangePort`` against Bybit
     USDT-M linear perpetuals."""
 

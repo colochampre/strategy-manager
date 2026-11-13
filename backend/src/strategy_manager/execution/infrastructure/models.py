@@ -139,6 +139,7 @@ class ProtectiveStopRow(Base):
     __tablename__ = "protective_stops"
     __table_args__ = (
         UniqueConstraint("execution_attempt_id", name="uq_protective_stops_attempt"),
+        UniqueConstraint("client_stop_id", name="uq_protective_stops_client_stop_id"),
         CheckConstraint(
             "status IN ('PENDING', 'RESTING', 'FAILED', 'GONE', 'VOID', 'SIMULATED')",
             name="ck_protective_stops_status",
@@ -183,6 +184,8 @@ class ProtectiveStopRow(Base):
     stop_loss_pct: Mapped[Decimal] = mapped_column(Numeric(4, 2), nullable=False)
     trigger_price: Mapped[Decimal | None] = mapped_column(Numeric(38, 18), nullable=True)
     venue_stop_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Binance's ``clientAlgoId``, recorded before the stop is sent (migration 0042, SS.6).
+    client_stop_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()

@@ -50,7 +50,9 @@ The ids arrive as JSON integers rather than strings, so they are converted
 explicitly on the way into the domain.
 """
 
+import asyncio
 import logging
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
@@ -71,9 +73,12 @@ from strategy_manager.execution.domain.futures_order import (
     FuturesMarketOrder,
     close_futures_order,
     futures_position_size,
+    protective_stop_price,
 )
 from strategy_manager.execution.domain.market_symbol import strip_contract_marker
+from strategy_manager.execution.domain.order import OrderSide
 from strategy_manager.execution.domain.placeable import PlaceableOrder
+from strategy_manager.execution.domain.protective_stop import PositionSide
 from strategy_manager.shared.domain.money import Exchange, Venue
 from strategy_manager.shared.infrastructure.binance.errors import (
     BinanceApiError,
@@ -98,6 +103,12 @@ logger = logging.getLogger(__name__)
 
 AMBIGUOUS_STATUSES = frozenset({408, 429})
 
+# Reading back a just-placed stop answers -2013 for a moment (live run 5, 2026-11-12), so a
+# read that finds nothing is repeated before it is believed: five reads, two seconds apart,
+# the shape that worked in ``scripts/check_binance_stop.py``.
+STOP_READ_ATTEMPTS = 5
+STOP_READ_RETRY_SECONDS = 2.0
+
 
 class BinanceFuturesExchangeAdapter:
     """Implements ``execution.application.ports.ExchangePort`` against Binance
@@ -113,8 +124,17 @@ class BinanceFuturesExchangeAdapter:
     # whose orders no pool can fund.
     venues = frozenset({Venue.USDT_M.value})
 
-    def __init__(self, client: BinanceTradeClient) -> None:
+    # Binance has no stop on the opening order: it is a request of its own, sent once the
+    # fills are recorded (subscriber-safety SS.6).
+    places_stop_after_fill = True
+
+    def __init__(
+        self,
+        client: BinanceTradeClient,
+        sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+    ) -> None:
         self._client = client
+        self._sleep = sleep
 
     async def build_open_order(self, spec: OpenOrderSpec) -> PlaceableOrder:
         """Sizes a position from reserved margin at the subscription's
@@ -346,9 +366,88 @@ class BinanceFuturesExchangeAdapter:
     async def find_resting_stop(
         self, client_order_id: str, symbol: str
     ) -> RestingStop | None:
-        """Never asked until SS.6: Binance has no stop on the opening order, so
-        an opening there writes no ``PENDING`` row for this to confirm."""
-        raise ExchangeError("the Binance adapter rests no stop on an opening yet")
+        """Never asked: Binance has no stop on the opening order, so there is no parent
+        order to find one by. Its stop is placed after the fill and read back by its own
+        ``clientAlgoId`` (``find_stop``)."""
+        raise ExchangeError("a Binance opening carries no stop: it is placed after the fill")
+
+    async def stop_trigger_price(
+        self,
+        symbol: str,
+        position_side: PositionSide,
+        entry: Decimal,
+        stop_loss_pct: Decimal,
+    ) -> Decimal:
+        """Where the stop of a position entered at ``entry`` rests: ``stop_loss_pct`` away
+        from it, rounded to the symbol's tick away from the entry (``protective_stop_price``,
+        the same rule the Bybit opening uses). The tick is the catalogue's, read here, so a
+        price the venue would refuse is never sent."""
+        rules = await self._client.perp_rules(_venue_symbol(symbol))
+        return protective_stop_price(
+            side=OrderSide.BUY if position_side is PositionSide.LONG else OrderSide.SELL,
+            entry=entry,
+            stop_loss_pct=stop_loss_pct,
+            tick=rules.tick_size,
+        )
+
+    async def place_stop(
+        self,
+        symbol: str,
+        position_side: PositionSide,
+        trigger_price: Decimal,
+        client_stop_id: str,
+    ) -> str:
+        """Sends the stop and returns its ``algoId``, the id its execution carries when it
+        fires. A stop that closes a LONG is a SELL and one that closes a SHORT is a BUY.
+
+        The stricter rule of a setting write decides what is definitive: a 5xx, a 408 or a
+        429 is unknown whatever code its body carries, because the stop may well be resting.
+        An unknown outcome propagates unchanged and the caller reads the stop back by
+        ``client_stop_id`` before it decides anything. Only what Binance demonstrably
+        decided becomes ``ExchangeError``."""
+        closing = "SELL" if position_side is PositionSide.LONG else "BUY"
+        try:
+            algo_id = await self._client.place_stop_order(
+                symbol=_venue_symbol(symbol),
+                side=closing,
+                trigger_price=trigger_price,
+                client_stop_id=client_stop_id,
+            )
+        except BinanceApiError as exc:
+            if _is_definitive_setting_refusal(exc):
+                raise ExchangeError(
+                    f"Binance refused the stop on {_venue_symbol(symbol)} "
+                    f"(code={exc.code}): {exc}"
+                ) from exc
+            raise
+        return str(algo_id)
+
+    async def find_stop(self, symbol: str, client_stop_id: str) -> RestingStop | None:
+        """The stop placed under ``client_stop_id``, or ``None`` when Binance positively
+        holds none after ``STOP_READ_ATTEMPTS`` reads.
+
+        A ``-2013`` is how a just-placed stop answers for a moment (live run 5: it was
+        there), so it is retried ``STOP_READ_RETRY_SECONDS`` apart before it is believed.
+        It is found in any status: SS.7's watcher reads what became of it. ``symbol`` is
+        not sent, because the endpoint is keyed by the id alone. Any other failure is not a
+        missing stop: an unknown outcome propagates unchanged, a definitive one is an
+        ``ExchangeError``."""
+        for attempt in range(1, STOP_READ_ATTEMPTS + 1):
+            try:
+                algo = await self._client.algo_order_for(client_stop_id)
+            except BinanceOrderNotFound:
+                if attempt < STOP_READ_ATTEMPTS:
+                    await self._sleep(STOP_READ_RETRY_SECONDS)
+                continue
+            except BinanceApiError as exc:
+                if _is_definitive_setting_refusal(exc):
+                    raise ExchangeError(
+                        f"Binance refused to read the stop {client_stop_id} "
+                        f"(code={exc.code}): {exc}"
+                    ) from exc
+                raise
+            return RestingStop(venue_stop_id=str(algo.algo_id))
+        return None
 
     async def fetch_fills(self, client_order_id: str, symbol: str) -> list[Fill]:
         """Two hops: our own id, then Binance's, then the fills.

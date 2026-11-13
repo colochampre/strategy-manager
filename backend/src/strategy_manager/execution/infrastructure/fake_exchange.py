@@ -44,6 +44,7 @@ from strategy_manager.execution.domain.order import (
 )
 from strategy_manager.execution.domain.placeable import PlaceableOrder
 from strategy_manager.execution.infrastructure.fake_venue_book import FakeVenueBook
+from strategy_manager.execution.infrastructure.no_after_fill_stop import NoAfterFillStop
 from strategy_manager.execution.infrastructure.simulated_fee_rates import SIMULATED_FEE_CURRENCY
 from strategy_manager.execution.infrastructure.venue_mark_prices import MarkPriceSource
 from strategy_manager.shared.domain.errors import InvariantViolation
@@ -71,7 +72,7 @@ def _is_usable(price: Decimal | None) -> TypeGuard[Decimal]:
     return price is not None and price.is_finite() and price > 0
 
 
-class FakeExchangeAdapter:
+class FakeExchangeAdapter(NoAfterFillStop):
     """Implements ``execution.application.ports.ExchangePort``.
 
     Accepts an order and fills it immediately and in full, with no real API

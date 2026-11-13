@@ -268,7 +268,12 @@ class PlaceOrder:
         # exist there (SS.5). Its level is the command's, the one the cap was checked
         # against, and it is the one the adapter was asked to build at.
         stop_row = _stop_row(
-            order, reservation, attempt_id, command, exchange_is_live=exchange.is_live
+            order,
+            reservation,
+            attempt_id,
+            command,
+            exchange_is_live=exchange.is_live,
+            places_stop_after_fill=exchange.places_stop_after_fill,
         )
         if stop_row is not None:
             await self._stops.insert(command.user_id, stop_row)
@@ -340,22 +345,32 @@ def _stop_row(
     command: PlaceCommand,
     *,
     exchange_is_live: bool,
+    places_stop_after_fill: bool,
 ) -> ProtectiveStop | None:
     """The row an opening writes for its stop, or ``None`` when it has none to track.
 
     ``PENDING`` when the order itself carries a stop (a live Bybit): the confirm job
     finds it resting once the opening fills. ``SIMULATED`` for a futures opening a
     simulated exchange builds, which records the level it would have used and places no
-    stop. Nothing for a live adapter that attaches none (Binance until SS.6): a
-    ``PENDING`` row nobody would confirm would read as a protected position. Nothing for
-    spot, which is outside the protective stop (D9).
+    stop. ``PENDING`` with a ``client_stop_id`` and no trigger for a live adapter that
+    places its stop after the fill (Binance, SS.6). Nothing for a live adapter that does
+    neither: a ``PENDING`` row nobody would confirm would read as a protected position.
+    Nothing for spot, which is outside the protective stop (D9).
     """
     if not isinstance(order, FuturesMarketOrder):
         return None
+    client_stop_id: str | None = None
     if order.stop_price is not None:
         status = StopStatus.PENDING
     elif not exchange_is_live:
         status = StopStatus.SIMULATED
+    elif places_stop_after_fill:
+        # The stop is a request of its own, sent once the fills are recorded. Its id is
+        # written HERE, in the attempt's transaction, so any request that might reach the
+        # venue comes after a commit that holds it; a POST whose outcome is unknown is then
+        # read back by it. The trigger is worked out from the fills, so there is none yet.
+        status = StopStatus.PENDING
+        client_stop_id = str(uuid4())
     else:
         return None
     return ProtectiveStop(
@@ -369,6 +384,7 @@ def _stop_row(
         stop_loss_pct=command.stop_loss_pct,
         trigger_price=order.stop_price,
         status=status,
+        client_stop_id=client_stop_id,
     )
 
 
