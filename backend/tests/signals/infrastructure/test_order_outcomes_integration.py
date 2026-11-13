@@ -34,9 +34,18 @@ from strategy_manager.allocation.infrastructure.reservation_gateway import (
 )
 from strategy_manager.execution.application.close_position import CloseCommand, ClosePosition
 from strategy_manager.execution.application.place_order import PlaceCommand, PlaceOrder
-from strategy_manager.execution.application.ports import FillRecord, OrderNotPlaceable
+from strategy_manager.execution.application.ports import (
+    FillRecord,
+    OrderNotPlaceable,
+    PositionAlreadyFlat,
+)
 from strategy_manager.execution.domain.execution_attempt import ExecutionCause
 from strategy_manager.execution.domain.order import OrderSide
+from strategy_manager.execution.domain.protective_stop import (
+    PositionSide,
+    ProtectiveStop,
+    StopStatus,
+)
 from strategy_manager.execution.infrastructure.exchange_registry import VenueExchangeRegistry
 from strategy_manager.execution.infrastructure.fake_exchange import FakeExchangeAdapter
 from strategy_manager.execution.infrastructure.models import ExecutionAttemptRow
@@ -148,6 +157,7 @@ def _close_position(
         outcomes=SignalOrderOutcomeRecorder(
             SqlAlchemyDeliveryOutcomeAdapter(session, _FixedClock())
         ),
+        stops=SqlAlchemyProtectiveStopRepository(session),
     )
 
 
@@ -548,3 +558,104 @@ async def test_a_close_with_no_signal_leaves_every_signal_untouched(
     assert commit.calls == 2
     signal = await _signal(pg_session_factory, signal_id)
     assert (signal.status, signal.outcome_reason) == ("ACCEPTED", None)
+
+
+class _FlatPositionExchange(FakeExchangeAdapter):
+    """A venue whose position is already flat: it refuses the reduce-only close."""
+
+    async def place(self, order: object) -> object:
+        raise PositionAlreadyFlat("current position is zero")
+
+
+async def test_a_close_refused_for_a_flat_position_ends_the_delivery_processed_already_flat(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """SS.7 on real PostgreSQL: the FAILED mark and the PROCESSED outcome with its reason
+    land on one commit, and the closing attempt keeps what the venue said."""
+    strategy_id, signal_id, allocation_id = await _seed_close(pg_session_factory)
+    command = await _close_command(pg_session_factory, strategy_id, allocation_id, signal_id)
+
+    async with pg_session_factory() as session:
+        commit = _FaultyCommit(session, fail_on=None)
+        result = await _close_position(
+            session, commit, _FlatPositionExchange(exchange="bybit", fee_rate=Decimal("0"))
+        ).close(command)
+
+    assert result.status == "ALREADY_FLAT"
+    assert commit.calls == 2
+    delivery = await _signal(pg_session_factory, signal_id)
+    assert (delivery.status, delivery.outcome_reason) == ("PROCESSED", "ALREADY_FLAT")
+    assert delivery.outcome_detail is not None
+    assert "current position is zero" in delivery.outcome_detail
+    [attempt] = await _closing_attempts(pg_session_factory, allocation_id)
+    assert (attempt.status, attempt.error) == ("FAILED", "current position is zero")
+    assert attempt.cause == ExecutionCause.SIGNAL.value
+
+
+async def test_a_close_after_the_stop_fired_ends_the_delivery_processed_and_sends_nothing(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """SS.7 on real PostgreSQL: the stop's fills are booked (the ledger is flat) and its row
+    is FIRED, so the strategy's close writes no attempt and enqueues no settle."""
+    strategy_id, signal_id, allocation_id = await _seed_close(pg_session_factory)
+    async with pg_session_factory() as session:
+        [opening_id] = (
+            await session.execute(
+                select(ExecutionAttemptRow.id).where(
+                    ExecutionAttemptRow.reservation_id == allocation_id
+                )
+            )
+        ).scalars().all()
+        await RecordFill(SqlAlchemyLedgerRepository(session)).record(
+            FillRecord(
+                user_id=OWNER_ID,
+                strategy_id=strategy_id,
+                allocation_id=allocation_id,
+                execution_attempt_id=opening_id,
+                exchange="bybit",
+                venue="usdt-m",
+                settlement_currency="USDT",
+                symbol=_VENUE_BARE,
+                side="SELL",
+                quantity=Decimal("1"),
+                price=Decimal("1.8"),
+                fee=Decimal("0"),
+                fee_currency="USDT",
+                notional=Decimal("1.8"),
+                exchange_order_id="stop-order",
+                exchange_fill_id="stop-fill",
+                filled_at=_NOW,
+                usd_rate_at_fill=Decimal("1"),
+            )
+        )
+        await SqlAlchemyProtectiveStopRepository(session).insert(
+            OWNER_ID,
+            ProtectiveStop(
+                id=uuid4(),
+                execution_attempt_id=opening_id,
+                allocation_id=allocation_id,
+                exchange="bybit",
+                venue="usdt-m",
+                symbol=_TRADINGVIEW,
+                position_side=PositionSide.LONG,
+                stop_loss_pct=Decimal("10"),
+                trigger_price=Decimal("1.8"),
+                status=StopStatus.FIRED,
+            ),
+        )
+        await session.commit()
+    command = await _close_command(pg_session_factory, strategy_id, allocation_id, signal_id)
+
+    async with pg_session_factory() as session:
+        commit = _FaultyCommit(session, fail_on=None)
+        result = await _close_position(
+            session, commit, FakeExchangeAdapter(exchange="bybit", fee_rate=Decimal("0"))
+        ).close(command)
+
+    assert result.status == "ALREADY_CLOSED_BY_STOP"
+    assert commit.calls == 1
+    delivery = await _signal(pg_session_factory, signal_id)
+    assert (delivery.status, delivery.outcome_reason) == ("PROCESSED", "ALREADY_CLOSED_BY_STOP")
+    assert await _closing_attempts(pg_session_factory, allocation_id) == []
+    async with pg_session_factory() as session:
+        assert (await session.execute(select(JobRow))).scalars().all() == []

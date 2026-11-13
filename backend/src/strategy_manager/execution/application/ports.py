@@ -116,6 +116,17 @@ class LeverageConflict(OpeningSettingRefused):
     reason_code: ClassVar[str] = "LEVERAGE_CONFLICT"
 
 
+class PositionAlreadyFlat(ExchangeError):
+    """A reduce-only close the venue refused because the position it would reduce is flat
+    (subscriber-safety SS.7).
+
+    Definitive, and not a failure of the close: the position is gone, most likely because its
+    protective stop fired while the close was in flight, and the stop watcher books the stop's
+    fill. ``ClosePosition`` ends the close ``ALREADY_FLAT`` with a WARNING and no operator
+    alert, instead of the ERROR a refused close raises. A subclass of ``ExchangeError`` so a
+    caller that knows nothing of it still reads a definitive refusal."""
+
+
 class OrderNotFound(DomainError):
     """The exchange has no order under this ``client_order_id``.
 
@@ -469,6 +480,12 @@ class ProtectiveStopRepositoryPort(Protocol):
         venue that attaches none."""
         ...
 
+    async def for_allocation(self, user_id: UUID, allocation_id: UUID) -> ProtectiveStop | None:
+        """The stop of the opening the allocation was funded for, in any status, or ``None``
+        when the allocation has none (SS.7: ``ClosePosition`` asks whether a stop already
+        closed what it was told to close). An allocation has one opening, so one stop."""
+        ...
+
     async def mark(
         self,
         user_id: UUID,
@@ -598,6 +615,12 @@ class OrderOutcomeRecorderPort(Protocol):
     async def record_processing(self, delivery_id: UUID) -> None: ...
 
     async def record_rejected(self, delivery_id: UUID, reason: str, detail: str) -> None: ...
+
+    async def record_processed(self, delivery_id: UUID, reason: str, detail: str) -> None:
+        """Ends the delivery ``PROCESSED`` with a ``reason`` (SS.7): a close that did nothing
+        because there was nothing left to close, ``ALREADY_CLOSED_BY_STOP`` or
+        ``ALREADY_FLAT``. Not a rejection, so no operator is told."""
+        ...
 
 
 class PoolLockPort(Protocol):

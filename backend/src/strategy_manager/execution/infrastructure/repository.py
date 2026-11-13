@@ -113,6 +113,21 @@ class SqlAlchemyProtectiveStopRepository:
         ).scalar_one_or_none()
         return None if row is None else _stop_to_domain(row)
 
+    async def for_allocation(self, user_id: UUID, allocation_id: UUID) -> ProtectiveStop | None:
+        """``user_id``'s stop of the allocation, read past the identity map. An allocation
+        has one opening and so at most one stop; another user's allocation is not found."""
+        row = (
+            await self._session.execute(
+                select(ProtectiveStopRow)
+                .where(
+                    ProtectiveStopRow.allocation_id == allocation_id,
+                    ProtectiveStopRow.user_id == user_id,
+                )
+                .execution_options(populate_existing=True)
+            )
+        ).scalar_one_or_none()
+        return None if row is None else _stop_to_domain(row)
+
     async def mark(
         self,
         user_id: UUID,

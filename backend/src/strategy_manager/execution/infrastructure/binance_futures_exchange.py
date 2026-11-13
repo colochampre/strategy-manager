@@ -66,6 +66,7 @@ from strategy_manager.execution.application.ports import (
     OrderNotFound,
     OrderNotPlaceable,
     PlacedOrder,
+    PositionAlreadyFlat,
     RestingStop,
     StopFired,
     StopNotResting,
@@ -99,6 +100,10 @@ from strategy_manager.shared.infrastructure.binance.trade_client import (
 )
 
 _EPOCH = datetime.fromtimestamp(0, UTC)
+
+# The refusal of a reduce-only order whose position is flat: ``ReduceOnly Order is rejected``.
+# *Assumption* (SS.7), unverified live, and read only on a reduce-only order.
+_POSITION_ALREADY_FLAT_CODE = "-2022"
 
 # ``algoStatus`` values that end a stop without it firing (SS.7). ``FINISHED`` is a stop that
 # fired; every other value is a stop still, or about to be, in force.
@@ -358,6 +363,8 @@ class BinanceFuturesExchangeAdapter:
             )
         except BinanceApiError as exc:
             if _is_definitive_rejection(exc):
+                if order.reduce_only and exc.code == _POSITION_ALREADY_FLAT_CODE:
+                    raise PositionAlreadyFlat(str(exc)) from exc
                 raise ExchangeError(str(exc)) from exc
             # Ambiguous: re-raised as-is so PlaceOrder does NOT release the
             # reservation. This branch is the difference between retrying and

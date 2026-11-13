@@ -174,6 +174,7 @@ def _close_position(session: AsyncSession, exchange: FakeExchangeAdapter) -> Clo
         outcomes=SignalOrderOutcomeRecorder(
             SqlAlchemyDeliveryOutcomeAdapter(session, _FixedClock())
         ),
+        stops=SqlAlchemyProtectiveStopRepository(session),
     )
 
 

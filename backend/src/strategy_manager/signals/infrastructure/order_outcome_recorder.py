@@ -23,3 +23,6 @@ class SignalOrderOutcomeRecorder:
 
     async def record_rejected(self, delivery_id: UUID, reason: str, detail: str) -> None:
         await self._outcomes.record(delivery_id, SignalOutcome.rejected(reason, detail))
+
+    async def record_processed(self, delivery_id: UUID, reason: str, detail: str) -> None:
+        await self._outcomes.record(delivery_id, SignalOutcome.processed(reason, detail))

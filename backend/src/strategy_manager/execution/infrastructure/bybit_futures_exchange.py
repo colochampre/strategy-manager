@@ -61,6 +61,7 @@ from strategy_manager.execution.application.ports import (
     OrderNotFound,
     OrderNotPlaceable,
     PlacedOrder,
+    PositionAlreadyFlat,
     RestingStop,
     StopFired,
     StopNotResting,
@@ -330,6 +331,8 @@ class BybitFuturesExchangeAdapter(NoAfterFillStop):
             )
         except BybitApiError as exc:
             if _is_definitive_rejection(exc):
+                if order.reduce_only and exc.code == _POSITION_ALREADY_FLAT_CODE:
+                    raise PositionAlreadyFlat(str(exc)) from exc
                 raise ExchangeError(str(exc)) from exc
             # Ambiguous: re-raised as-is so PlaceOrder does NOT release the
             # reservation. This branch is the difference between retrying and
@@ -447,6 +450,11 @@ def _bybit_side(order: FuturesMarketOrder) -> str:
     ``BUY``/``SELL``. Translated at the boundary rather than by storing
     Bybit's spelling in the domain."""
     return order.side.value.capitalize()
+
+
+# The refusal of a reduce-only order whose position is zero. *Assumption* (SS.7), unverified
+# live, and read only on a reduce-only order.
+_POSITION_ALREADY_FLAT_CODE = "110017"
 
 
 def _is_definitive_rejection(error: BybitApiError) -> bool:

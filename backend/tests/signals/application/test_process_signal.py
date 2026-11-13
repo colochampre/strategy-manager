@@ -787,6 +787,39 @@ async def test_a_dust_residual_close_is_reported_as_not_executed_without_retryin
     assert result.failed == "BTC_USDT residual is dust no order can close"
 
 
+@pytest.mark.parametrize("status", ["ALREADY_CLOSED_BY_STOP", "ALREADY_FLAT"])
+async def test_a_close_that_found_its_position_already_gone_ends_the_job_without_a_retry(
+    status: str,
+) -> None:
+    """SS.7. ``ClosePosition`` ends the DELIVERY itself (PROCESSED with the reason), so the
+    handler has nothing to record and nothing to retry: it returns, and the job ends DONE.
+    Reporting it as a failure would send the same close round again."""
+    close_position = SpyClosePosition(
+        result=CloseResult(status=status, execution_attempt_id=None, base_size=Decimal("0"))
+    )
+    context = SignalContext(
+        strategy_id=uuid4(),
+        symbol="BTC_USDT",
+        price=Decimal("50000"),
+        position_size=Decimal("0"),
+        prior_position_size=Decimal("1"),  # close long -> RELEASES
+        prior_reservation_id=uuid4(),
+        settlement_currency="USDT",
+    )
+    handler = _process_signal_handler(
+        context=context,
+        allocate_capital=_allocate_capital(SpyAdvisoryLock()),
+        place_order=SpyPlaceOrder(),
+        close_position=close_position,
+    )
+
+    result = await handler.handle(uuid4())
+
+    assert len(close_position.calls) == 1
+    assert result.failed is None
+    assert result.executed is True
+
+
 async def test_releases_signal_with_no_prior_reservation_is_a_safe_no_op() -> None:
     lock = SpyAdvisoryLock()
     allocate_capital = _allocate_capital(lock)

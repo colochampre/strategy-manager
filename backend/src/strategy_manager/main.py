@@ -616,6 +616,8 @@ def _build_process_delivery(
         commit=session,
         settle_delay_seconds=settings.execution_settle_delay_seconds,
         outcomes=SignalOrderOutcomeRecorder(delivery_outcomes),
+        # SS.7: whether the allocation's stop already closed it (ALREADY_CLOSED_BY_STOP).
+        stops=SqlAlchemyProtectiveStopRepository(session),
     )
 
     # The S5 continuation (design.md § S5) and this handler need each other:
@@ -750,6 +752,7 @@ def _build_confirm_protective_stop(
             outcomes=SignalOrderOutcomeRecorder(
                 SqlAlchemyDeliveryOutcomeAdapter(session, SystemClock())
             ),
+            stops=SqlAlchemyProtectiveStopRepository(session),
         ),
         commit=session,
     )

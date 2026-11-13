@@ -13,6 +13,7 @@ express: a size that comes from the ledger, and an attempt that belongs to a
 position rather than to a reservation.
 """
 
+import logging
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from uuid import UUID, uuid4
@@ -30,6 +31,7 @@ from strategy_manager.execution.application.ports import (
     OpenOrderSpec,
     OrderNotPlaceable,
     PlacedOrder,
+    PositionAlreadyFlat,
 )
 from strategy_manager.execution.domain.execution_attempt import ExecutionAttempt, ExecutionCause
 from strategy_manager.execution.domain.fill import Fill
@@ -39,6 +41,11 @@ from strategy_manager.execution.domain.order import (
     market_order,
 )
 from strategy_manager.execution.domain.placeable import PlaceableOrder
+from strategy_manager.execution.domain.protective_stop import (
+    PositionSide,
+    ProtectiveStop,
+    StopStatus,
+)
 from strategy_manager.execution.infrastructure.exchange_registry import (
     VenueExchangeRegistry,
 )
@@ -180,6 +187,32 @@ class SpyExchange:
         raise NotImplementedError
 
 
+class FakeStops:
+    """The stop of the allocation being closed: ``status`` ``None`` is an allocation with
+    none."""
+
+    def __init__(self, status: StopStatus | None) -> None:
+        self.status = status
+        self.asked: list[tuple[UUID, UUID]] = []
+
+    async def for_allocation(self, user_id: UUID, allocation_id: UUID) -> ProtectiveStop | None:
+        self.asked.append((user_id, allocation_id))
+        if self.status is None:
+            return None
+        return ProtectiveStop(
+            id=uuid4(),
+            execution_attempt_id=uuid4(),
+            allocation_id=allocation_id,
+            exchange="pionex",
+            venue="spot",
+            symbol="BTC_USDT",
+            position_side=PositionSide.LONG,
+            stop_loss_pct=Decimal("10"),
+            trigger_price=Decimal("1"),
+            status=self.status,
+        )
+
+
 class SpyCommit:
     def __init__(self, log: list[str]) -> None:
         self.commits = 0
@@ -198,6 +231,7 @@ def _build(
     outcomes: RecordingOrderOutcomes | None = None,
     modes: RecordedModes | None = None,
     asked: list[Mode] | None = None,
+    stops: FakeStops | None = None,
 ) -> tuple[ClosePosition, SpyAttempts, SpyQueue, SpyExchange, FakeHeld, list[str]]:
     log: list[str] = []
     outcomes = outcomes if outcomes is not None else RecordingOrderOutcomes()
@@ -219,6 +253,7 @@ def _build(
         commit=SpyCommit(log),
         settle_delay_seconds=SETTLE_DELAY,
         outcomes=outcomes,
+        stops=stops if stops is not None else FakeStops(None),  # type: ignore[arg-type]
     )
     return use_case, attempts, queue, exchange, held, log
 
@@ -386,6 +421,143 @@ async def test_a_position_with_nothing_recorded_yet_is_retried_never_declared_cl
     assert exchange.orders == []
     assert attempts.inserted == []
     assert queue.enqueued == []
+
+
+async def test_a_close_after_the_stop_fired_sends_no_order_and_ends_already_closed_by_stop(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """SS.7. The allocation's stop fired and its fills are booked, so the ledger is flat.
+    The strategy's close reaches it afterwards: it must send nothing, must not retry (no
+    ``NothingRecordedYet``), and the delivery ends PROCESSED with that reason."""
+    outcomes = RecordingOrderOutcomes()
+    stops = FakeStops(StopStatus.FIRED)
+    use_case, attempts, queue, exchange, _, log = _build(
+        net_base=Decimal("0"), outcomes=outcomes, stops=stops
+    )
+
+    with caplog.at_level(logging.INFO):
+        result = await use_case.close(_command())
+
+    assert result.status == "ALREADY_CLOSED_BY_STOP"
+    assert result.execution_attempt_id is None
+    assert result.base_size == Decimal("0")
+    assert stops.asked == [(OWNER, ALLOCATION_ID)]
+    # Nothing was built, sent, written or scheduled.
+    assert exchange.built_closes == [] and exchange.orders == []
+    assert attempts.inserted == [] and queue.enqueued == []
+    # The delivery ended PROCESSED with the reason, durably, on the one commit.
+    [(delivery_id, reason, detail)] = outcomes.processed
+    assert delivery_id == DELIVERY_ID
+    assert reason == "ALREADY_CLOSED_BY_STOP"
+    assert str(ALLOCATION_ID) in detail
+    assert outcomes.rejected == [] and outcomes.processing == []
+    assert log == ["outcome.processed", "commit"]
+    # A line says why nothing was sent, and it is not an alert.
+    [record] = [r for r in caplog.records if "already closed by its stop" in r.getMessage()]
+    assert record.levelno == logging.INFO
+    assert str(ALLOCATION_ID) in record.getMessage() and "BTC_USDT" in record.getMessage()
+    assert [r for r in caplog.records if r.levelno >= logging.WARNING] == []
+
+
+async def test_a_close_after_the_stop_fired_with_no_delivery_writes_no_outcome() -> None:
+    """An orphan close has no delivery to end."""
+    outcomes = RecordingOrderOutcomes()
+    use_case, _, _, exchange, _, log = _build(
+        net_base=Decimal("0"), outcomes=outcomes, stops=FakeStops(StopStatus.FIRED)
+    )
+
+    result = await use_case.close(_command(signal_id=None))
+
+    assert result.status == "ALREADY_CLOSED_BY_STOP"
+    assert outcomes.processed == []
+    assert exchange.orders == []
+    assert log == ["commit"]
+
+
+@pytest.mark.parametrize(
+    "status",
+    [
+        None,
+        StopStatus.PENDING,
+        StopStatus.RESTING,
+        StopStatus.FAILED,
+        StopStatus.GONE,
+        StopStatus.VOID,
+        StopStatus.SIMULATED,
+    ],
+)
+async def test_an_empty_ledger_with_a_stop_that_did_not_fire_is_still_retried(
+    status: StopStatus | None,
+) -> None:
+    """Only a FIRED stop explains a flat ledger. Every other state is what it was before
+    SS.7: the opening fills most likely have not settled yet, so the close retries."""
+    use_case, attempts, _, exchange, _, _ = _build(
+        net_base=Decimal("0"), stops=FakeStops(status)
+    )
+
+    with pytest.raises(NothingRecordedYet):
+        await use_case.close(_command())
+
+    assert exchange.orders == [] and attempts.inserted == []
+
+
+async def test_a_ledger_that_still_holds_the_position_closes_whatever_its_stop_says() -> None:
+    """The guard is for a ledger that is already flat. One that holds a position closes
+    it, so the stop is not even asked about."""
+    stops = FakeStops(StopStatus.FIRED)
+    use_case, _, _, exchange, _, _ = _build(stops=stops)
+
+    result = await use_case.close(_command())
+
+    assert result.status == "PLACED"
+    assert len(exchange.orders) == 1
+    assert stops.asked == []
+
+
+async def test_a_close_the_venue_refuses_because_the_position_is_flat_ends_already_flat(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """SS.7: the stop fired while the close was in flight. The attempt is FAILED with the
+    venue's words, the delivery ends PROCESSED ``ALREADY_FLAT``, and the line is a WARNING,
+    never an ERROR: no operator is alerted. The stop watcher books the stop's fill."""
+    outcomes = RecordingOrderOutcomes()
+    use_case, attempts, _, _, _, log = _build(
+        exchange_raises=PositionAlreadyFlat("current position is zero"), outcomes=outcomes
+    )
+
+    with caplog.at_level(logging.INFO):
+        result = await use_case.close(_command())
+
+    assert result.status == "ALREADY_FLAT"
+    assert result.error == "current position is zero"
+    assert result.execution_attempt_id == attempts.inserted[0].id
+    assert attempts.failed == [(result.execution_attempt_id, "current position is zero")]
+    assert attempts.placed == []
+    [(delivery_id, reason, detail)] = outcomes.processed
+    assert (delivery_id, reason) == (DELIVERY_ID, "ALREADY_FLAT")
+    assert "current position is zero" in detail
+    assert outcomes.rejected == [] and outcomes.processing == []
+    # The outcome rides the commit that makes the FAILED mark durable.
+    assert log[-2:] == ["outcome.processed", "commit"]
+    [record] = [r for r in caplog.records if "already flat" in r.getMessage()]
+    assert record.levelno == logging.WARNING
+    message = record.getMessage()
+    assert str(STRATEGY_ID) in message and "BTC_USDT" in message
+    assert str(ALLOCATION_ID) in message and str(result.execution_attempt_id) in message
+    assert [r for r in caplog.records if r.levelno >= logging.ERROR] == []
+
+
+async def test_an_already_flat_close_with_no_delivery_writes_no_outcome() -> None:
+    outcomes = RecordingOrderOutcomes()
+    use_case, attempts, _, _, _, _ = _build(
+        exchange_raises=PositionAlreadyFlat("current position is zero"), outcomes=outcomes
+    )
+
+    result = await use_case.close(_command(signal_id=None))
+
+    assert result.status == "ALREADY_FLAT"
+    assert outcomes.processed == [] and outcomes.rejected == []
+    assert attempts.failed[0][1] == "current position is zero"
 
 
 async def test_closing_a_short_is_refused_rather_than_approximated() -> None:

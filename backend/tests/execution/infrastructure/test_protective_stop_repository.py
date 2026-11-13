@@ -334,6 +334,46 @@ async def test_another_users_stop_is_neither_read_nor_marked(
     assert read is not None and read.status is StopStatus.PENDING
 
 
+@pytest.mark.parametrize("status", list(StopStatus))
+async def test_the_stop_of_an_allocation_is_found_by_the_allocation_in_any_status(
+    pg_session_factory: async_sessionmaker[AsyncSession], status: StopStatus
+) -> None:
+    """``ClosePosition`` asks whether the allocation it was told to close was already
+    closed by its stop, and it knows the allocation, not the opening attempt."""
+    allocation_id, attempt_id = await _opening(pg_session_factory)
+    written = _stop(allocation_id, attempt_id, status=status)
+    async with pg_session_factory() as session:
+        await SqlAlchemyProtectiveStopRepository(session).insert(OWNER_ID, written)
+        await session.commit()
+
+    async with pg_session_factory() as session:
+        read = await SqlAlchemyProtectiveStopRepository(session).for_allocation(
+            OWNER_ID, allocation_id
+        )
+
+    assert read == written
+
+
+async def test_an_allocation_with_no_stop_and_another_users_allocation_find_none(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    allocation_id, attempt_id = await _opening(pg_session_factory)
+    other_allocation, _ = await _opening(pg_session_factory)
+    async with pg_session_factory() as session:
+        other = await seed_other_user(session)
+        await session.commit()
+    async with pg_session_factory() as session:
+        await SqlAlchemyProtectiveStopRepository(session).insert(
+            OWNER_ID, _stop(allocation_id, attempt_id, status=StopStatus.FIRED)
+        )
+        await session.commit()
+
+    async with pg_session_factory() as session:
+        repository = SqlAlchemyProtectiveStopRepository(session)
+        assert await repository.for_allocation(OWNER_ID, other_allocation) is None
+        assert await repository.for_allocation(other, allocation_id) is None
+
+
 async def test_the_resting_stops_of_every_user_are_listed_with_their_owner(
     pg_session_factory: async_sessionmaker[AsyncSession],
 ) -> None:

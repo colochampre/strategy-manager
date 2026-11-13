@@ -400,6 +400,7 @@ async def test_the_open_waits_for_the_close_to_settle_then_grants_the_freed_bala
             commit=session,
             settle_delay_seconds=0.0,
             outcomes=RecordingOrderOutcomes(),
+            stops=SqlAlchemyProtectiveStopRepository(session),
         )
         close_result = await close_position.close(
             CloseCommand(

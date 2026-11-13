@@ -32,8 +32,10 @@ class SignalOutcome:
         return SignalOutcome(status=SignalStatus.PROCESSING)
 
     @staticmethod
-    def processed() -> "SignalOutcome":
-        return SignalOutcome(status=SignalStatus.PROCESSED)
+    def processed(reason: str | None = None, detail: str | None = None) -> "SignalOutcome":
+        """Done. A ``reason`` says why nothing more was needed (SS.7: a close that found its
+        position already gone), and only a ``REJECTED`` outcome requires one."""
+        return SignalOutcome(status=SignalStatus.PROCESSED, reason=reason, detail=detail)
 
     @staticmethod
     def rejected(reason: str, detail: str | None = None) -> "SignalOutcome":
