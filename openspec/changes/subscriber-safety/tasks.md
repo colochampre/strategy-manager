@@ -134,7 +134,6 @@ Planning. Decisions made; nothing is built until the owner says to build. It goe
     - the leverage cap formula;
     - `MarkPrice` as the trigger;
     - the 30 s stop watcher;
-    - live Pionex openings refused;
     - simulated openings without a stop;
     - the seat staying ACTIVE after "Close now".
   - The code map came from a read-only explorer:
@@ -200,6 +199,14 @@ owner's preference.
 - L2 Correction, the same day: the assistant had said `Leave` closes the
   subscriber's position. It does not (`leave.py:16`). No in-app close exists
   for a subscriber.
+- L4 Correction, 2026-11-12: the first draft of `protective-stop` refused live
+  Pionex openings (`STOP_NOT_SUPPORTED`). The assistant wrote it from the
+  presence of `pionex_exchange.py`, without checking its registration. No
+  Pionex adapter is registered (`main.py:1203-1212`), and no Pionex key can be
+  saved, so that path cannot happen. The owner asked "No se pueden vincular
+  claves API de Pionex de todos modos, por lo que no termino de entender cómo
+  se rechaza una apertura de Pionex". The requirement now states the adapter
+  contract instead.
 - L3 (owner, 2026-11-12): "Si, va a haber que planificar medidas de seguridad
   para los suscriptores. Un cierre manual no puede ser la única medida de
   seguridad. Un usuario que no entra al panel no puede cerrar a mano."
