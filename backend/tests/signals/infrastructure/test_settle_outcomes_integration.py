@@ -43,6 +43,7 @@ from strategy_manager.execution.infrastructure.fake_exchange import FakeExchange
 from strategy_manager.execution.infrastructure.models import ExecutionAttemptRow
 from strategy_manager.execution.infrastructure.repository import (
     SqlAlchemyExecutionAttemptRepository,
+    SqlAlchemyProtectiveStopRepository,
 )
 from strategy_manager.ledger.application.read_held_base import ReadHeldBase
 from strategy_manager.ledger.application.read_symbol_holdings import ReadSymbolHoldings
@@ -129,6 +130,8 @@ def _settle(
             SqlAlchemySignalRepository(session),
         ),
         pool_lock=PoolLockAdapter(session),
+        stops=SqlAlchemyProtectiveStopRepository(session),
+        queue=PostgresJobQueue(session, clock=_FixedClock()),
         leaving=EndLeavingSubscription(
             SqlAlchemySubscriptionRepository(session),
             OpenAllocationAdapter(
@@ -153,6 +156,7 @@ def _place_order(session: AsyncSession, exchange: FakeExchangeAdapter) -> PlaceO
         outcomes=SignalOrderOutcomeRecorder(
             SqlAlchemyDeliveryOutcomeAdapter(session, _FixedClock())
         ),
+        stops=SqlAlchemyProtectiveStopRepository(session),
     )
 
 
@@ -299,6 +303,7 @@ async def _place_open(
                 symbol=_TRADINGVIEW,
                 side=OrderSide.BUY,
                 price=Decimal("2"),
+                stop_loss_pct=Decimal("10"),
                 leverage=NEW_SEAT_LEVERAGE,
             )
         )

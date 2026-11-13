@@ -2,6 +2,7 @@ import { useId } from "react";
 import { useTranslation } from "react-i18next";
 
 import { DESCRIPTION_MAX, readDescription } from "@/features/strategies/description-value";
+import { FIELD_NAME_CLASS, type FieldNameLook } from "@/features/strategies/field-name";
 import { InfoButton, InfoText, useInfoDisclosure } from "@/shared/ui/InfoDisclosure";
 
 interface DescriptionFieldProps {
@@ -9,6 +10,8 @@ interface DescriptionFieldProps {
   onChange: (text: string) => void;
   /** Held still: a request is in flight, or the strategy takes no change. */
   disabled?: boolean;
+  /** How the name reads: a dialog's field, or a section of the strategy page. Default: a dialog's field. */
+  look?: FieldNameLook;
 }
 
 /**
@@ -16,7 +19,7 @@ interface DescriptionFieldProps {
  * characters as the server counts them, and the refusal in words when it is over the limit. It holds no state of
  * its own and sends nothing; the dialog and the strategy page each decide when to send.
  */
-export function DescriptionField({ value, onChange, disabled = false }: DescriptionFieldProps) {
+export function DescriptionField({ value, onChange, disabled = false, look = "field" }: DescriptionFieldProps) {
   const { t } = useTranslation();
   const ids = { field: useId(), problem: useId() };
   const info = useInfoDisclosure();
@@ -27,7 +30,7 @@ export function DescriptionField({ value, onChange, disabled = false }: Descript
   return (
     <div className="flex flex-col gap-1">
       <div className="flex items-start">
-        <label htmlFor={ids.field} className="text-xs font-semibold leading-5 text-ink-2">
+        <label htmlFor={ids.field} className={FIELD_NAME_CLASS[look]}>
           {t("strategies.description.label")}
         </label>
         <InfoButton disclosure={info} label={t("strategies.description.info")} />

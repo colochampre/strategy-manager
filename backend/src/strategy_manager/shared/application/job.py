@@ -42,6 +42,10 @@ class JobKind(StrEnum):
     # ``reconciliation.application.booking_prepare_handler``'s own docstring
     # explains why it never shares the scan handler's singleton.
     RECONCILIATION_PREPARE_BOOKING = "reconciliation.prepare_booking"
+    # Finds the stop that rests for a live opening once its fills are recorded, and
+    # closes the position at once when none does (subscriber-safety SS.5). Enqueued
+    # by ``SettleExecution`` in the transaction that records the fills.
+    PROTECTIVE_STOP_CONFIRM = "protective_stop.confirm"
 
 
 @dataclass(frozen=True, slots=True)

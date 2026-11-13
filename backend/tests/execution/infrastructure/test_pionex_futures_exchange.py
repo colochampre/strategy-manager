@@ -117,6 +117,7 @@ def _open(side: OrderSide = OrderSide.BUY, granted: str = "100") -> OpenOrderSpe
         side=side,
         granted=Decimal(granted),
         price=Decimal("64000"),
+        stop_loss_pct=Decimal("10"),
     )
 
 

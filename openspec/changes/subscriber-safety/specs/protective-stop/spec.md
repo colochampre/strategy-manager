@@ -135,7 +135,7 @@ Binance has no stop on the opening order.
 #### Scenario: The stop follows the fill
 - GIVEN a live LONG on DOGEUSDT filled at an average of 0.066340, a 0.000010 tick and a strategy at 10
 - WHEN the fills are recorded
-- THEN an algo order is sent with `triggerPrice` "0.059706", `side` SELL and `closePosition` "true"
+- THEN an algo order is sent with `triggerPrice` "0.059700" (0.059706 rounded down to the tick), `side` SELL and `closePosition` "true"
 - AND its `clientAlgoId` was stored before the request
 
 #### Scenario: A lagging read is retried

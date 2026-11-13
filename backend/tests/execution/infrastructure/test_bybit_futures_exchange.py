@@ -22,6 +22,7 @@ from strategy_manager.execution.application.ports import (
     OpenOrderSpec,
     OrderNotFound,
     OrderNotPlaceable,
+    RestingStop,
 )
 from strategy_manager.execution.domain.futures_order import FuturesMarketOrder
 from strategy_manager.execution.domain.order import MarketBuy, OrderSide
@@ -85,7 +86,12 @@ class FakeTradeClient:
         held: tuple[str, Decimal] = ("", Decimal("0")),
         leverage_write_raises: Exception | None = None,
         writes_apply: bool = True,
+        resting_stop: str | None = "STOP-1",
+        stop_raises: Exception | None = None,
     ) -> None:
+        self._resting_stop = resting_stop
+        self._stop_raises = stop_raises
+        self.stop_lookups: list[tuple[str, str]] = []
         # Every read or write of an account setting, in order: what proves
         # that nothing is written before the size is known to be placeable.
         self.calls: list[str] = []
@@ -161,6 +167,7 @@ class FakeTradeClient:
         side: str,
         qty: Decimal,
         reduce_only: bool,
+        stop_loss: Decimal | None = None,
     ) -> BybitOrderAck:
         if self._place_raises is not None:
             raise self._place_raises
@@ -170,9 +177,16 @@ class FakeTradeClient:
                 "side": side,
                 "qty": qty,
                 "reduce_only": reduce_only,
+                "stop_loss": stop_loss,
             }
         )
         return BybitOrderAck(order_id="BY-1", order_link_id=order_link_id)
+
+    async def resting_stop_for(self, symbol: str, parent_order_link_id: str) -> str | None:
+        self.stop_lookups.append((symbol, parent_order_link_id))
+        if self._stop_raises is not None:
+            raise self._stop_raises
+        return self._resting_stop
 
     async def fills_for(self, order_link_id: str) -> list[BybitExecution]:
         return self._executions
@@ -203,6 +217,7 @@ def _open(
         side=side,
         granted=Decimal(granted),
         price=PRICE,
+        stop_loss_pct=Decimal("10"),
         leverage=Leverage(leverage),
     )
 
@@ -783,3 +798,144 @@ async def test_a_pair_already_at_the_leverage_logs_no_setting_line(
         await _adapter(client).build_open_order(_open())
 
     assert _setting_lines(caplog) == []
+
+
+# --- the protective stop rides on the opening (subscriber-safety SS.5) ----------------
+
+
+async def test_a_long_opening_is_built_with_its_stop_below_the_mark_price() -> None:
+    """78000 mark, a stop of 10: 70200 on a 0.10 tick."""
+    order = await _adapter(FakeTradeClient()).build_open_order(_open())
+
+    assert isinstance(order, FuturesMarketOrder)
+    assert order.stop_price == Decimal("70200.0")
+
+
+async def test_a_short_opening_is_built_with_its_stop_above_the_mark_price() -> None:
+    order = await _adapter(FakeTradeClient()).build_open_order(_open(side=OrderSide.SELL))
+
+    assert isinstance(order, FuturesMarketOrder)
+    assert order.stop_price == Decimal("85800.0")
+
+
+async def test_the_stop_is_the_level_the_spec_carries() -> None:
+    order = await _adapter(FakeTradeClient()).build_open_order(
+        replace(_open(), stop_loss_pct=Decimal("7.5"))
+    )
+
+    assert isinstance(order, FuturesMarketOrder)
+    assert order.stop_price == Decimal("72150.0")
+
+
+async def test_the_stop_is_computed_from_the_venues_mark_never_the_alerts_price() -> None:
+    """The same price the order is sized against: an author who posted a tenth of the
+    market must not put the stop a tenth of the way down."""
+    spec = replace(_open(), price=PRICE / 10)
+
+    order = await _adapter(FakeTradeClient(mark_price=PRICE)).build_open_order(spec)
+
+    assert isinstance(order, FuturesMarketOrder)
+    assert order.stop_price == Decimal("70200.0")
+
+
+async def test_the_stop_is_rounded_to_the_symbols_tick_away_from_the_entry() -> None:
+    """80.03 at 10%: a LONG's 72.027 floors to 72.02, a SHORT's 88.033 ceils to 88.04,
+    on this contract's 0.01 tick."""
+    rules = replace(LIVE_RULES, tick_size=Decimal("0.01"))
+    long_order = await _adapter(
+        FakeTradeClient(rules=rules, mark_price=Decimal("80.03"))
+    ).build_open_order(_open())
+    short_order = await _adapter(
+        FakeTradeClient(rules=rules, mark_price=Decimal("80.03"))
+    ).build_open_order(_open(side=OrderSide.SELL))
+
+    assert isinstance(long_order, FuturesMarketOrder)
+    assert isinstance(short_order, FuturesMarketOrder)
+    assert str(long_order.stop_price) == "72.02"
+    assert str(short_order.stop_price) == "88.04"
+
+
+async def test_a_stop_that_rounds_to_nothing_is_refused_by_name_before_any_setting() -> None:
+    """A tick coarser than the stop's level: no venue would rest it, and the venue's
+    catalogue decided, so the reservation is released rather than the opening retried."""
+    rules = replace(LIVE_RULES, tick_size=Decimal("100000"))
+    client = FakeTradeClient(rules=rules, leverage=Decimal("3"))
+
+    with pytest.raises(OrderNotPlaceable, match="stop price must be positive"):
+        await _adapter(client).build_open_order(
+            replace(_open(leverage=3), stop_loss_pct=Decimal("50"))
+        )
+
+    # Only the read every opening starts with: no margin mode read, no leverage written.
+    assert client.calls == ["read position"]
+
+
+async def test_the_stop_goes_on_the_wire_with_the_opening() -> None:
+    client = FakeTradeClient()
+    adapter = _adapter(client)
+    order = await adapter.build_open_order(_open())
+
+    await adapter.place(order)
+
+    assert client.orders[0]["stop_loss"] == Decimal("70200.0")
+
+
+async def test_a_close_is_sent_with_no_stop() -> None:
+    client = FakeTradeClient()
+    adapter = _adapter(client)
+    order = await adapter.build_close_order(
+        CloseOrderSpec(
+            client_order_id=CLIENT_ORDER_ID,
+            symbol=SYMBOL,
+            side=OrderSide.SELL,
+            base_size=Decimal("0.012"),
+        )
+    )
+
+    await adapter.place(order)
+
+    assert client.orders[0]["stop_loss"] is None
+
+
+async def test_the_resting_stop_is_asked_by_the_venue_symbol_and_the_openings_own_id() -> None:
+    client = FakeTradeClient(resting_stop="STOP-9")
+
+    found = await _adapter(client).find_resting_stop(CLIENT_ORDER_ID, f"{SYMBOL}.P")
+
+    assert found == RestingStop(venue_stop_id="STOP-9")
+    assert client.stop_lookups == [(SYMBOL, CLIENT_ORDER_ID)]
+
+
+async def test_no_resting_stop_is_none() -> None:
+    client = FakeTradeClient(resting_stop=None)
+
+    assert await _adapter(client).find_resting_stop(CLIENT_ORDER_ID, SYMBOL) is None
+
+
+async def test_a_definitive_refusal_reading_the_stop_is_an_exchange_error() -> None:
+    client = FakeTradeClient(stop_raises=BybitApiError("no permission", code="10005"))
+
+    with pytest.raises(ExchangeError):
+        await _adapter(client).find_resting_stop(CLIENT_ORDER_ID, SYMBOL)
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        BybitApiError("server timeout", code="10000"),
+        BybitApiError("connection reset"),
+        BybitApiError("gateway", http_status=502),
+        BybitApiError("throttled", http_status=429),
+    ],
+)
+async def test_an_ambiguous_failure_reading_the_stop_propagates_so_the_job_retries(
+    failure: BybitApiError,
+) -> None:
+    """Closing a protected position because the venue timed out would be the failure
+    this lookup exists to prevent."""
+    client = FakeTradeClient(stop_raises=failure)
+
+    with pytest.raises(BybitApiError) as caught:
+        await _adapter(client).find_resting_stop(CLIENT_ORDER_ID, SYMBOL)
+
+    assert not isinstance(caught.value, ExchangeError)

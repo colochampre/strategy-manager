@@ -21,6 +21,7 @@ from strategy_manager.execution.domain.mode_origin import (
 )
 from strategy_manager.execution.domain.order import OrderSide
 from strategy_manager.execution.domain.placeable import PlaceableOrder
+from strategy_manager.execution.domain.protective_stop import ProtectiveStop, StopStatus
 from strategy_manager.shared.domain.errors import DomainError
 from strategy_manager.shared.domain.leverage import NEW_SEAT_LEVERAGE, Leverage
 from strategy_manager.shared.domain.mode import Mode
@@ -143,6 +144,14 @@ class PlacedOrder:
 
 
 @dataclass(frozen=True, slots=True)
+class RestingStop:
+    """A stop the venue holds for an opening: ``venue_stop_id`` is the id its
+    execution carries when it fires (subscriber-safety, protective-stop spec)."""
+
+    venue_stop_id: str
+
+
+@dataclass(frozen=True, slots=True)
 class OpenOrderSpec:
     """What an adapter needs to turn granted capital into an opening order.
 
@@ -170,6 +179,12 @@ class OpenOrderSpec:
     side: OrderSide
     granted: Decimal
     price: Decimal
+    # The strategy's stop level as a percentage of price (subscriber-safety D5), read from
+    # the SAME policy snapshot the leverage cap was checked against, never re-read. REQUIRED
+    # with no default: an opening that forgets it would be placed with no stop. An adapter
+    # whose venue takes the stop on the order (Bybit) computes the level from it; the others
+    # ignore it until they rest a stop of their own (SS.6).
+    stop_loss_pct: Decimal
     # The subscription's choice (decision 38). A simulated exchange sizes at it. The
     # live adapters still size at the leverage the venue reports, until they set this
     # one on the venue first (PR H, H.5 and H.6). A spec that names none is one times.
@@ -253,6 +268,19 @@ class ExchangePort(Protocol):
 
     async def fetch_fills(self, client_order_id: str, symbol: str) -> list[Fill]: ...
 
+    async def find_resting_stop(
+        self, client_order_id: str, symbol: str
+    ) -> RestingStop | None:
+        """The stop the venue holds for the OPENING placed under ``client_order_id``,
+        or ``None`` when it positively holds none.
+
+        Asked only of an opening that carried a stop (``FuturesMarketOrder.stop_price``).
+        A venue refusal that is definitive raises ``ExchangeError``, like ``place``; a
+        failure whose outcome is unknown propagates unchanged, and the caller retries.
+        An adapter that never attaches a stop to an opening raises ``ExchangeError``: it
+        is never asked."""
+        ...
+
 
 class ExchangeRegistryPort(Protocol):
     """Which adapter trades a given pool.
@@ -335,6 +363,30 @@ class ExecutionAttemptRepositoryPort(Protocol):
     ) -> None: ...
 
     async def mark_failed(self, user_id: UUID, attempt_id: UUID, error: str) -> None: ...
+
+
+class ProtectiveStopRepositoryPort(Protocol):
+    """The stop of each opening attempt (subscriber-safety SS.5). Every method names
+    the user whose stop it is, like the attempt repository: another user's row under
+    the same attempt id is neither read nor marked. None of them commits."""
+
+    async def insert(self, user_id: UUID, stop: ProtectiveStop) -> None: ...
+
+    async def for_attempt(self, user_id: UUID, attempt_id: UUID) -> ProtectiveStop | None:
+        """``None`` for an attempt that has no stop: a close, a spot opening, or a
+        venue that attaches none."""
+        ...
+
+    async def mark(
+        self,
+        user_id: UUID,
+        attempt_id: UUID,
+        status: StopStatus,
+        venue_stop_id: str | None = None,
+    ) -> None:
+        """Moves the attempt's stop to ``status``. ``venue_stop_id`` is written only when
+        given, so a later mark never forgets the id a stop was found under."""
+        ...
 
 
 @dataclass(frozen=True, slots=True)

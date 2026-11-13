@@ -61,15 +61,18 @@ from strategy_manager.execution.application.ports import (
     OrderNotFound,
     OrderNotPlaceable,
     PlacedOrder,
+    RestingStop,
 )
 from strategy_manager.execution.domain.fill import Fill
 from strategy_manager.execution.domain.futures_order import (
     FuturesMarketOrder,
     close_futures_order,
     futures_position_size,
+    protective_stop_price,
 )
 from strategy_manager.execution.domain.market_symbol import strip_contract_marker
 from strategy_manager.execution.domain.placeable import PlaceableOrder
+from strategy_manager.shared.domain.errors import InvariantViolation
 from strategy_manager.shared.domain.money import Exchange, Venue
 from strategy_manager.shared.infrastructure.bybit.errors import (
     BybitApiError,
@@ -165,6 +168,26 @@ class BybitFuturesExchangeAdapter:
                 step=rules.qty_step,
             ) from exc
 
+        # The stop rides on the opening, from the same mark price the order is sized
+        # against and the strategy's level the cap was checked for (SS.5). Worked out
+        # here, before anything is written, so a level the venue could not rest refuses
+        # the opening as an unplaceable size does.
+        try:
+            stop_price = protective_stop_price(
+                side=spec.side,
+                entry=price,
+                stop_loss_pct=spec.stop_loss_pct,
+                tick=rules.tick_size,
+            )
+        except InvariantViolation as exc:
+            raise OrderNotPlaceable(
+                str(exc),
+                symbol=symbol,
+                size=qty,
+                minimum=rules.min_order_qty,
+                step=rules.qty_step,
+            ) from exc
+
         # Only now, with an order known to be placeable, is anything written.
         await self._apply_settings(
             symbol, position, spec.leverage.value, spec.client_order_id
@@ -177,6 +200,7 @@ class BybitFuturesExchangeAdapter:
             base_size=qty,
             leverage=leverage,
             reduce_only=False,
+            stop_price=stop_price,
         )
 
     async def _apply_settings(
@@ -296,6 +320,7 @@ class BybitFuturesExchangeAdapter:
                 side=_bybit_side(order),
                 qty=order.base_size,
                 reduce_only=order.reduce_only,
+                stop_loss=order.stop_price,
             )
         except BybitApiError as exc:
             if _is_definitive_rejection(exc):
@@ -308,6 +333,28 @@ class BybitFuturesExchangeAdapter:
         return PlacedOrder(
             exchange_order_id=ack.order_id, client_order_id=ack.order_link_id
         )
+
+    async def find_resting_stop(
+        self, client_order_id: str, symbol: str
+    ) -> RestingStop | None:
+        """The conditional order that rests for the opening placed under
+        ``client_order_id``: the one whose ``parentOrderLinkId`` is that id
+        (SS.5, run 2). ``None`` only when the venue answered and holds no such order.
+
+        Same rule as ``place``: a refusal the venue decided is an ``ExchangeError``
+        (the stop cannot be found, and the position is closed for it); a failure
+        whose outcome is unknown propagates unchanged and the job retries, because
+        closing a protected position over a timeout is the failure this prevents.
+        """
+        try:
+            stop_id = await self._client.resting_stop_for(
+                _venue_symbol(symbol), client_order_id
+            )
+        except BybitApiError as exc:
+            if _is_definitive_rejection(exc):
+                raise ExchangeError(str(exc)) from exc
+            raise
+        return None if stop_id is None else RestingStop(venue_stop_id=stop_id)
 
     async def fetch_fills(self, client_order_id: str, symbol: str) -> list[Fill]:
         """One hop: Bybit's execution endpoint takes our own id.

@@ -85,6 +85,7 @@ def _open() -> OpenOrderSpec:
         side=OrderSide.BUY,
         granted=GRANTED,
         price=ALERT_PRICE,
+        stop_loss_pct=Decimal("10"),
         # The pair already holds it, so the Binance opening writes no setting.
         leverage=Leverage(3),
     )

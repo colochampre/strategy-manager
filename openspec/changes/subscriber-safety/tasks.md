@@ -153,7 +153,7 @@ Planning. Decisions made; nothing is built until the owner says to build. It goe
 Implementation, not started. Each task is planned as one PR, following the
 owner's preference.
 
-- [ ] SS.3 The stop level and the leverage cap. Route: one bounded writer,
+- [x] SS.3 The stop level and the leverage cap. Route: one bounded writer,
   for the context backstop of a long parent session. Branch
   `feat/subscriber-safety-stop-level`. Each later task brings its own
   migration with the code that uses it.
@@ -206,10 +206,88 @@ owner's preference.
       - Count production seats above 9x before migrating: their live
         openings are refused from the deploy on.
         Counted on 2026-11-13: 0 seats that are not ENDED sit above 9x.
+  - **Delivered.** Merged as #106 (`ec75f7e`) and deployed by the owner on
+    2026-11-13 with three scripts piped over ssh from Git Bash (PowerShell has
+    no `<` redirection):
+    - Rehearsal on `sm_rehearsal_0040`, restored from
+      `pre-0040-rehearsal-20261113T032457Z.dump`:
+      - `0039 -> 0040`;
+      - all 7 strategies at `10.00`;
+      - `numeric(4,2)`, NOT NULL, default 10, and the CHECK present;
+      - every other column of every strategy unchanged (md5 over all rows);
+      - downgrade and re-upgrade clean;
+      - the copy dropped.
+    - API: 0 seats above 9x, then backup
+      `pre-0040-deploy-20261113T032611Z.dump` and production `0039 -> 0040`,
+      with 7 strategies at `10.00`. Both services `active`, and no ERROR or
+      Traceback line.
+    - Panel (pps.6): built by the assistant from a detached worktree of
+      `origin/main` at `ec75f7e467d0`, 22 entries, SHA-256
+      `547beff6a81338b08a13398508c8c0ca84ea140623f3503056cdb2b3a7c0d6a2`. The
+      owner's block printed `OK`, `readable`, and both `bundle` and `checkout`
+      at `ec75f7e467d0`.
 - [ ] SS.5 Bybit: the stop attached to the opening order, with the migration
   creating `protective_stops`. The resting stop is
   found by `parentOrderLinkId` and recorded. A failure closes the position at
   once. Risk: item 6 (live venue behaviour) and item 4.
+  - Design, 2026-11-13, from a read-only code map.
+    - The level is carried in memory from the policy snapshot that the
+      cap was checked against (`process_signal.py`, `_handle_consumes`):
+      `PlaceCommand.stop_loss_pct`, then `OpenOrderSpec.stop_loss_pct`. The
+      strategy is never re-read for it, which closes the SS.3 advisory.
+    - `FuturesMarketOrder` gains `stop_price: Decimal | None`. The Bybit
+      `build_open_order` computes it from the mark price it already sizes
+      against, rounded to the tick away from the entry, by one domain helper
+      in `execution/domain/futures_order.py`. `place()` sends `stopLoss`,
+      `slTriggerBy: MarkPrice`, `tpslMode: Full` and `slOrderType: Market`.
+    - Migration 0041 creates `protective_stops`, one row per opening
+      attempt. It is written in the same transaction as the opening's
+      execution attempt, before the order is sent, so a crash leaves a trace.
+      Statuses: `PENDING`, `RESTING`, `FAILED`, `GONE`, `VOID`, `SIMULATED`.
+      SS.7 adds `FIRED`.
+    - A simulated opening writes a `SIMULATED` row with the level and places
+      nothing. Binance writes no row until SS.6.
+    - Settle enqueues a new job, `PROTECTIVE_STOP_CONFIRM`, in the same
+      transaction as the opening's fills. A failure after settle's commit
+      then cannot be lost to the `ALREADY_SETTLED` gate.
+    - The job finds the conditional order whose `parentOrderLinkId` is the
+      opening's `orderLinkId` (`/v5/order/realtime`, `orderFilter=StopOrder`,
+      matched client-side):
+      - found: `RESTING`, with its `orderId`;
+      - ambiguous error: the job retries;
+      - not found: `FAILED`, an ERROR line, and `ClosePosition` at once with
+        no signal. A ledger already flat (`NothingRecordedYet`) marks it
+        `GONE` instead. The `STOP_FAILED_CLOSED` row comes with SS.10.
+    - An opening that ends without fills marks its row `VOID`.
+  - Progress, 2026-11-13.
+    - The first writer was cut by the 5-hour usage limit with two tests in
+      RED. A fresh writer finished from the working tree: the `FAILED` mark
+      is staged, not committed, and rides `ClosePosition`'s own commit. A
+      close that cannot be built rolls it back, so the stop stays `PENDING`
+      and the job's retry looks again.
+    - Gate on `27c2ab0`: `ruff`, `mypy src` and the full `pytest`, exit 0.
+    - Independent verifier (items 1, 4 and 6), against `8db8988`: no
+      blockers.
+      - Every `ClosePosition` outcome commits the mark: PLACED, refused,
+        NOT_CLOSABLE, and an ambiguous place, whose retry then skips.
+      - A redelivered settle enqueues one confirm. `VOID` is set only on a
+        definitive refusal and on settle's no-order path.
+      - Binance, Pionex and the fake exchange build and send what they did.
+      - 15 hand mutations, 15 caught.
+    - Advisories, not fixed here:
+      - A FAILED stop whose close is refused, or is dust, leaves the
+        position open without a stop. Only `ClosePosition`'s ERROR line says
+        so. SS.10's `STOP_FAILED_CLOSED` event is where the user learns it.
+      - One empty read of `/v5/order/realtime` closes the position. Run 4
+        found the stop resting as soon as the fill exists, and the job runs
+        after settle, so no retry was added.
+      - That read takes the first page only (20 orders per symbol). One-way
+        mode holds one position per symbol, so a miss is unlikely.
+      - The confirm job stages its UPDATE on the stop row before it locks
+        the reservation row. No concurrent pair takes both today.
+      - A `SIMULATED` row records the level, with `trigger_price` NULL.
+    - The Binance DOGE example in the spec gave 0.059706 on a 0.000010 tick.
+      That is not a multiple of the tick: corrected to 0.059700 for SS.6.
 - [ ] SS.6 Binance: the algo stop right after the fill, with `clientAlgoId`
   recorded first, `-2013` retried, an unknown outcome resolved by reading
   back, and a failure closing at once. Risk: items 4 and 6.

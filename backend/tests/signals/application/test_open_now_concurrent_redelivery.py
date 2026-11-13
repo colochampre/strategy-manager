@@ -80,6 +80,7 @@ from strategy_manager.execution.infrastructure.fake_exchange import FakeExchange
 from strategy_manager.execution.infrastructure.models import ExecutionAttemptRow
 from strategy_manager.execution.infrastructure.repository import (
     SqlAlchemyExecutionAttemptRepository,
+    SqlAlchemyProtectiveStopRepository,
 )
 from strategy_manager.ledger.application.read_symbol_holdings import ReadSymbolHoldings
 from strategy_manager.ledger.application.record_fill import RecordFill
@@ -485,6 +486,7 @@ def _build_handler(
             commit=session,
             settle_delay_seconds=0.0,
             outcomes=RecordingOrderOutcomes(),
+            stops=SqlAlchemyProtectiveStopRepository(session),
         ),
         close_position=NeverCalledClosePosition(),  # type: ignore[arg-type]
         open_after_close=seeder,

@@ -2,6 +2,7 @@ import { useId, useState } from "react";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
+import { FIELD_NAME_CLASS, type FieldNameLook } from "@/features/strategies/field-name";
 import { InfoButton, InfoText, useInfoDisclosure } from "@/shared/ui/InfoDisclosure";
 
 export type PairSelectorStatus = "idle" | "loading" | "error" | "ready";
@@ -24,6 +25,8 @@ export interface PairSelectorProps {
   info?: { label: string; text: string };
   /** Beside the search field, on its row (the editor's Save). */
   action?: ReactNode;
+  /** How the name reads: a dialog's field, or a section of the strategy page. Default: a dialog's field. */
+  look?: FieldNameLook;
 }
 
 /** How many matches are rendered; the count line says how many there are. */
@@ -70,6 +73,7 @@ export function PairSelector({
   disabled,
   info,
   action,
+  look = "field",
 }: PairSelectorProps) {
   const { t } = useTranslation();
   const nameId = useId();
@@ -100,7 +104,8 @@ export function PairSelector({
     >
       {/* One wrapping row: the name, its information button and the chips of the added pairs, to take less height. */}
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-        <span id={nameId} className="text-xs font-semibold text-ink-2">
+        {/* In a dialog the name keeps its line height from the chips beside it. */}
+        <span id={nameId} className={look === "section" ? FIELD_NAME_CLASS.section : "text-xs font-semibold text-ink-2"}>
           {label}
         </span>
         {info !== undefined && <InfoButton disclosure={disclosure} label={info.label} />}

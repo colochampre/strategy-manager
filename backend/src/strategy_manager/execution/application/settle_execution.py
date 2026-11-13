@@ -32,6 +32,7 @@ from strategy_manager.execution.application.ports import (
     ModeExchangesPort,
     OrderNotFound,
     PoolLockPort,
+    ProtectiveStopRepositoryPort,
     ReservationGatewayPort,
     SettleOutcomeRecorderPort,
 )
@@ -40,9 +41,12 @@ from strategy_manager.execution.domain.execution_attempt import (
     ExecutionStatus,
 )
 from strategy_manager.execution.domain.fill import Fill
+from strategy_manager.execution.domain.protective_stop import StopStatus
+from strategy_manager.shared.application.job import Job, JobKind
 from strategy_manager.shared.application.ports import (
     AllocationModePort,
     ClockPort,
+    JobQueuePort,
     UsdRateProviderPort,
 )
 from strategy_manager.shared.domain.money import Currency
@@ -83,7 +87,11 @@ class SettleExecution:
         outcomes: SettleOutcomeRecorderPort,
         pool_lock: PoolLockPort,
         leaving: LeavingSubscriptionPort,
+        stops: ProtectiveStopRepositoryPort,
+        queue: JobQueuePort,
     ) -> None:
+        self._stops = stops
+        self._queue = queue
         self._pool_lock = pool_lock
         self._leaving = leaving
         self._reservations = reservations
@@ -155,6 +163,17 @@ class SettleExecution:
 
         await self._attempts.mark_filled(user_id, attempt_id, fills[0].exchange_order_id)
         if not attempt.is_closing:
+            # The opening's stop is found resting, or its absence closes the position,
+            # by a job that rides THIS commit: a failure after it cannot then be lost to
+            # the ``ALREADY_SETTLED`` gate above (subscriber-safety SS.5).
+            stop = await self._stops.for_attempt(user_id, attempt_id)
+            if stop is not None and stop.status is StopStatus.PENDING:
+                await self._queue.enqueue(
+                    Job(
+                        kind=JobKind.PROTECTIVE_STOP_CONFIRM,
+                        payload={"execution_attempt_id": str(attempt_id)},
+                    )
+                )
             # A closing order has no reservation of its own, and the one it is
             # unwinding went FILLED when the position opened. Re-marking it
             # would rewrite settled history to say something it already says.
@@ -221,6 +240,9 @@ class SettleExecution:
             # first, as the release's own update would take it.
             await self._reservations.get_for_update(user_id, attempt.allocation_id)
             await self._reservations.mark(user_id, attempt.allocation_id, RELEASED, now)
+            # The opening ended without fills: no stop ever mattered.
+            if await self._stops.for_attempt(user_id, attempt.id) is not None:
+                await self._stops.mark(user_id, attempt.id, StopStatus.VOID)
         await self._attempts.mark_failed(
             user_id, attempt.id, "the exchange has no order under this client order id"
         )

@@ -64,6 +64,7 @@ from strategy_manager.execution.application.ports import (
     OrderNotFound,
     OrderNotPlaceable,
     PlacedOrder,
+    RestingStop,
 )
 from strategy_manager.execution.domain.fill import Fill
 from strategy_manager.execution.domain.futures_order import (
@@ -341,6 +342,13 @@ class BinanceFuturesExchangeAdapter:
         return PlacedOrder(
             exchange_order_id=str(ack.order_id), client_order_id=ack.client_order_id
         )
+
+    async def find_resting_stop(
+        self, client_order_id: str, symbol: str
+    ) -> RestingStop | None:
+        """Never asked until SS.6: Binance has no stop on the opening order, so
+        an opening there writes no ``PENDING`` row for this to confirm."""
+        raise ExchangeError("the Binance adapter rests no stop on an opening yet")
 
     async def fetch_fills(self, client_order_id: str, symbol: str) -> list[Fill]:
         """Two hops: our own id, then Binance's, then the fills.

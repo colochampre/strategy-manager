@@ -474,6 +474,16 @@ function precedes(before: Element, after: Element): boolean {
 
 
 describe("AllowedPairsEditor layout (L.7)", () => {
+  it("names the section at the size of the Share and Leverage names", async () => {
+    setup(strategy());
+    await catalogueReady();
+
+    const name = classesOf(screen.getByText(i18n.t("strategies.detail.pairs.title"), { selector: "span" }));
+    expect(name).toEqual(expect.arrayContaining(["text-sm", "leading-5", "text-ink-2"]));
+    expect(name).not.toContain("text-xs");
+    expect(name).not.toContain("font-semibold");
+  });
+
   it("puts Save, as an icon, on the search field's row", async () => {
     setup(strategy());
     await catalogueReady();

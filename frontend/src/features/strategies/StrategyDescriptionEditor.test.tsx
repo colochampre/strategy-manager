@@ -124,6 +124,16 @@ async function ready() {
 }
 
 describe("StrategyDescriptionEditor", () => {
+  it("names the section at the size of the Share and Leverage names", async () => {
+    setupPage(strategy());
+    await ready();
+
+    const name = screen.getByText("Description", { selector: "label" }).className.split(/\s+/);
+    expect(name).toEqual(expect.arrayContaining(["text-sm", "leading-5", "text-ink-2"]));
+    expect(name).not.toContain("text-xs");
+    expect(name).not.toContain("font-semibold");
+  });
+
   it("shows the stored description and a counter, with Save off", async () => {
     setupPage(strategy());
     await ready();

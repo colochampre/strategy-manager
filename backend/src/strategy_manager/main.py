@@ -88,6 +88,9 @@ from strategy_manager.execution.application.assert_mode_matches_ledger import (
     assert_mode_matches_ledger,
 )
 from strategy_manager.execution.application.close_position import ClosePosition
+from strategy_manager.execution.application.confirm_protective_stop import (
+    ConfirmProtectiveStop,
+)
 from strategy_manager.execution.application.place_order import PlaceOrder
 from strategy_manager.execution.application.ports import (
     ExchangePort,
@@ -109,6 +112,7 @@ from strategy_manager.execution.infrastructure.mode_origin_reader import (
 )
 from strategy_manager.execution.infrastructure.repository import (
     SqlAlchemyExecutionAttemptRepository,
+    SqlAlchemyProtectiveStopRepository,
 )
 from strategy_manager.execution.infrastructure.simulated_fee_rates import (
     SIMULATED_TAKER_FEE_RATES,
@@ -591,6 +595,8 @@ def _build_process_delivery(
         commit=session,
         settle_delay_seconds=settings.execution_settle_delay_seconds,
         outcomes=SignalOrderOutcomeRecorder(delivery_outcomes),
+        # SS.5: the row of the stop an opening carries, written with its attempt.
+        stops=SqlAlchemyProtectiveStopRepository(session),
     )
 
     # A close shares the exchange and the attempt repository with placement,
@@ -707,6 +713,41 @@ def _build_settle_execution(
         # open allocation it books, in the same transaction.
         pool_lock=PoolLockAdapter(session),
         leaving=_end_leaving(session),
+        # SS.5: an opening whose stop is still PENDING gets its confirm job enqueued on
+        # the commit that records its fills. Only enqueues, so no backoff is needed.
+        stops=SqlAlchemyProtectiveStopRepository(session),
+        queue=PostgresJobQueue(session),
+    )
+
+
+def _build_confirm_protective_stop(
+    session: AsyncSession, settings: Settings, exchanges: ModeExchangesPort
+) -> ConfirmProtectiveStop:
+    """Composes the ``protective_stop.confirm`` job's use case (SS.5): find the stop that
+    rests for a live opening, or close the position at once through ``ClosePosition``
+    with no signal and so no delivery to record an outcome on."""
+    allocation_modes = SqlAlchemyAllocationMode(session)
+    attempts = SqlAlchemyExecutionAttemptRepository(session)
+    return ConfirmProtectiveStop(
+        stops=SqlAlchemyProtectiveStopRepository(session),
+        attempts=attempts,
+        reservations=ReservationGatewayAdapter(SqlAlchemyReservationRepository(session)),
+        exchanges=exchanges,
+        allocation_modes=allocation_modes,
+        closer=ClosePosition(
+            exchanges=exchanges,
+            allocation_modes=allocation_modes,
+            attempts=attempts,
+            held=ReadHeldBase(SqlAlchemyLedgerRepository(session)),
+            queue=_job_queue(session, settings),
+            clock=SystemClock(),
+            commit=session,
+            settle_delay_seconds=settings.execution_settle_delay_seconds,
+            outcomes=SignalOrderOutcomeRecorder(
+                SqlAlchemyDeliveryOutcomeAdapter(session, SystemClock())
+            ),
+        ),
+        commit=session,
     )
 
 
@@ -1824,6 +1865,23 @@ def build_worker_runner(
             async with exchanges_by_mode.for_job(session, owner) as job_exchanges:
                 await _build_settle_execution(session, job_exchanges).settle(owner, attempt_id)
 
+    async def handle_protective_stop_confirm(job: ClaimedJob) -> None:
+        """Asks the venue for the stop that rests for a live opening, as the user whose
+        key placed it, and closes the position at once when none does (SS.5). The
+        owner is read off the attempt, like settle's."""
+        attempt_id = UUID(str(job.payload["execution_attempt_id"]))
+        async with factory() as session:
+            owner = await attempt_owner(session, attempt_id)
+            if owner is None:
+                raise LookupError(
+                    f"execution attempt {attempt_id} has no owner: the attempt, its "
+                    "reservation or its strategy is gone"
+                )
+            async with exchanges_by_mode.for_job(session, owner) as job_exchanges:
+                await _build_confirm_protective_stop(session, settings, job_exchanges).confirm(
+                    owner, attempt_id
+                )
+
     async def handle_balance_sync(job: ClaimedJob) -> None:
         """One sync per exchange that has enabled pools AND an active vault
         credential right now.
@@ -2266,6 +2324,7 @@ def build_worker_runner(
         JobKind.RESERVATION_SWEEP: handle_reservation_sweep,
         JobKind.BALANCE_SYNC: handle_balance_sync,
         JobKind.EXECUTION_SETTLE: handle_execution_settle,
+        JobKind.PROTECTIVE_STOP_CONFIRM: handle_protective_stop_confirm,
         JobKind.RECONCILIATION_SCAN: handle_reconciliation_scan,
         JobKind.RECONCILIATION_PREPARE_BOOKING: handle_reconciliation_prepare_booking,
         JobKind.JOBS_PURGE: handle_jobs_purge,

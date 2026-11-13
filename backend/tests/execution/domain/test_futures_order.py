@@ -14,6 +14,7 @@ from strategy_manager.execution.domain.futures_order import (
     close_futures_order,
     futures_position_size,
     open_futures_order,
+    protective_stop_price,
 )
 from strategy_manager.execution.domain.order import OrderSide
 from strategy_manager.shared.domain.errors import InvariantViolation
@@ -193,3 +194,81 @@ def test_an_order_with_no_leverage_is_unrepresentable() -> None:
             base_size=Decimal("0.01"),
             leverage=Decimal("0"),
         )
+
+
+# ---- the protective stop's price (subscriber-safety SS.5) ----
+
+
+@pytest.mark.parametrize(
+    ("side", "entry", "tick", "expected"),
+    [
+        # Spec: "a live LONG opening built against 80.00 on a 0.01 tick" -> 72.00, and the
+        # SHORT's stop is above it.
+        (OrderSide.BUY, "80.00", "0.01", "72.00"),
+        (OrderSide.SELL, "80.00", "0.01", "88.00"),
+        # Off the tick, a LONG's level moves DOWN and a SHORT's UP: away from the entry,
+        # never towards it, so the stop is never tighter than the author asked.
+        (OrderSide.BUY, "80.03", "0.01", "72.02"),
+        (OrderSide.SELL, "80.03", "0.01", "88.04"),
+        # A small price, six places.
+        (OrderSide.BUY, "0.066340", "0.000001", "0.059706"),
+        (OrderSide.SELL, "0.066340", "0.000001", "0.072974"),
+    ],
+)
+def test_the_stop_lies_ten_percent_away_on_the_tick_and_on_the_far_side(
+    side: OrderSide, entry: str, tick: str, expected: str
+) -> None:
+    stop = protective_stop_price(
+        side=side, entry=Decimal(entry), stop_loss_pct=Decimal("10"), tick=Decimal(tick)
+    )
+
+    assert str(stop) == expected
+
+
+def test_the_stop_keeps_the_scale_of_the_tick_so_it_is_sent_as_the_spec_writes_it() -> None:
+    stop = protective_stop_price(
+        side=OrderSide.BUY,
+        entry=Decimal("80"),
+        stop_loss_pct=Decimal("10"),
+        tick=Decimal("0.01"),
+    )
+
+    assert format(stop, "f") == "72.00"
+
+
+def test_a_stop_that_rounds_to_nothing_is_refused_rather_than_sent() -> None:
+    with pytest.raises(InvariantViolation, match="stop price must be positive"):
+        protective_stop_price(
+            side=OrderSide.BUY,
+            entry=Decimal("0.5"),
+            stop_loss_pct=Decimal("50"),
+            tick=Decimal("1"),
+        )
+
+
+def test_an_opening_order_may_carry_a_stop_price_and_a_close_never_does() -> None:
+    opening = FuturesMarketOrder(
+        client_order_id="abc",
+        symbol="BTCUSDT",
+        side=OrderSide.BUY,
+        base_size=Decimal("0.01"),
+        leverage=Decimal("5"),
+        stop_price=Decimal("72.00"),
+    )
+    assert opening.stop_price == Decimal("72.00")
+
+    with pytest.raises(InvariantViolation, match="a reduce-only order carries no stop"):
+        FuturesMarketOrder(
+            client_order_id="abc",
+            symbol="BTCUSDT",
+            side=OrderSide.SELL,
+            base_size=Decimal("0.01"),
+            reduce_only=True,
+            stop_price=Decimal("72.00"),
+        )
+
+
+def test_the_orders_built_by_the_domain_carry_no_stop_unless_told() -> None:
+    assert close_futures_order(
+        side=OrderSide.SELL, client_order_id="abc", symbol="BTCUSDT", base_size=Decimal("1")
+    ).stop_price is None

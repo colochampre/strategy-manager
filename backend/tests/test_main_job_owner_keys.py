@@ -174,6 +174,56 @@ async def test_a_settle_job_trades_with_the_attempts_author_key_never_another_us
     assert recorded.settled_as == [other]
 
 
+async def test_a_stop_confirm_job_asks_the_venue_with_the_attempts_owner_key_never_another_users(
+    pg_session_factory: async_sessionmaker[AsyncSession],  # noqa: F811
+    recorded: _Recorded,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Subscriber-safety SS.5: the job that looks for a live opening's stop, and closes
+    the position when none rests, runs as the user whose key placed the opening."""
+    _, attempt_id, other = await _the_other_users_signal(pg_session_factory, recorded.master_key)
+
+    class _Confirm:
+        def __init__(self, exchanges: ModeExchangesPort) -> None:
+            self._exchanges = exchanges
+
+        async def confirm(self, user_id: UUID, attempt: UUID) -> None:
+            await self._exchanges.for_mode(Mode.LIVE)
+            recorded.settled_as.append(user_id)
+            recorded.handled.append(attempt)
+
+    monkeypatch.setattr(
+        main,
+        "_build_confirm_protective_stop",
+        lambda session, settings, exchanges: _Confirm(exchanges),
+    )
+    runner = main.build_worker_runner([_BYBIT_POOL], session_factory_override=pg_session_factory)
+
+    await runner._handlers[JobKind.PROTECTIVE_STOP_CONFIRM](  # noqa: SLF001
+        _job(JobKind.PROTECTIVE_STOP_CONFIRM, {"execution_attempt_id": str(attempt_id)})
+    )
+
+    assert recorded.handled == [attempt_id]
+    assert recorded.signed_with == [OTHER_KEY]
+    assert recorded.settled_as == [other]
+
+
+async def test_a_stop_confirm_job_for_an_attempt_that_is_gone_fails_loudly(
+    pg_session_factory: async_sessionmaker[AsyncSession],  # noqa: F811
+    recorded: _Recorded,
+) -> None:
+    """No owner means no key to ask the venue with, and guessing one would ask another
+    user's account: the job fails, so it is retried and then seen."""
+    runner = main.build_worker_runner([_BYBIT_POOL], session_factory_override=pg_session_factory)
+
+    with pytest.raises(LookupError, match="has no owner"):
+        await runner._handlers[JobKind.PROTECTIVE_STOP_CONFIRM](  # noqa: SLF001
+            _job(JobKind.PROTECTIVE_STOP_CONFIRM, {"execution_attempt_id": str(uuid4())})
+        )
+
+    assert recorded.signed_with == []
+
+
 async def test_a_signal_job_fans_out_its_signal_and_opens_no_venue_client(
     pg_session_factory: async_sessionmaker[AsyncSession],  # noqa: F811
     recorded: _Recorded,

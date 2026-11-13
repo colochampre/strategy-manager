@@ -501,6 +501,22 @@ describe("the new-strategy dialog", () => {
     expect(api.posted[0]?.body.leverage).toBe(12);
   });
 
+  // The strategy page names its sections larger; in the dialog the stop, description and pairs names stay captions.
+  it("names the stop level, the description and the pairs as the dialog's other fields", async () => {
+    stubApi(HEALTH, [], POOLS, {}, creationApi(created).route);
+    renderAt(<AppRoutes />, "/strategies/authored");
+    await screen.findByText(en.strategies.empty);
+    const dialog = openDialog();
+
+    const classesOf = (element: Element) => element.className.split(/\s+/);
+    const names = [
+      within(dialog).getByText(en.strategies.stopLevel.label, { selector: "label" }),
+      within(dialog).getByText(en.strategies.description.label, { selector: "label" }),
+      within(dialog).getByText(en.strategies.new.pairs, { selector: "span" }),
+    ];
+    for (const name of names) expect(classesOf(name)).toEqual(expect.arrayContaining(["text-xs", "font-semibold"]));
+  });
+
   it.each(["0.5", "60", "7.505", ""])("refuses a stop level of %j in the field, disables the submit and posts nothing", async (typed) => {
     const api = creationApi(created);
     stubApi(HEALTH, [], POOLS, {}, api.route);

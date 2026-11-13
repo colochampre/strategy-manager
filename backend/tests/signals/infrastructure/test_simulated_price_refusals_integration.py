@@ -326,6 +326,7 @@ async def test_a_refused_opening_on_a_market_not_quoted_in_usdt_releases_its_res
                 symbol="ETHBTC",
                 side=OrderSide.BUY,
                 price=Decimal("0.05"),
+                stop_loss_pct=Decimal("10"),
                 leverage=NEW_SEAT_LEVERAGE,
             )
         )

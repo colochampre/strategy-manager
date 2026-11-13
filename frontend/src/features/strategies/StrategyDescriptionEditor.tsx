@@ -62,6 +62,7 @@ export function StrategyDescriptionEditor({ strategy }: StrategyDescriptionEdito
           setSaved(false);
         }}
         disabled={readOnly || busy}
+        look="section"
       />
       <div className="flex items-start justify-end">
         <StatusButton
