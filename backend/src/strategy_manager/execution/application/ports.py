@@ -21,7 +21,11 @@ from strategy_manager.execution.domain.mode_origin import (
 )
 from strategy_manager.execution.domain.order import OrderSide
 from strategy_manager.execution.domain.placeable import PlaceableOrder
-from strategy_manager.execution.domain.protective_stop import ProtectiveStop, StopStatus
+from strategy_manager.execution.domain.protective_stop import (
+    PositionSide,
+    ProtectiveStop,
+    StopStatus,
+)
 from strategy_manager.shared.domain.errors import DomainError
 from strategy_manager.shared.domain.leverage import NEW_SEAT_LEVERAGE, Leverage
 from strategy_manager.shared.domain.mode import Mode
@@ -281,6 +285,45 @@ class ExchangePort(Protocol):
         is never asked."""
         ...
 
+    # ---- a stop placed AFTER the fill (subscriber-safety SS.6) ----
+    #
+    # Binance has no stop on the opening order, so the stop is a request of its own, sent
+    # once the opening's fills are recorded. An adapter that does this declares
+    # ``places_stop_after_fill`` and implements the three calls below; every other adapter
+    # declares it false and refuses them. ``PlaceOrder`` writes the stop's row (with its
+    # ``client_stop_id``) only for an adapter that declares it.
+
+    places_stop_after_fill: bool
+
+    async def stop_trigger_price(
+        self,
+        symbol: str,
+        position_side: PositionSide,
+        entry: Decimal,
+        stop_loss_pct: Decimal,
+    ) -> Decimal:
+        """Where the stop of a position entered at ``entry`` rests: the level away from it,
+        rounded to the venue's tick away from the entry."""
+        ...
+
+    async def place_stop(
+        self,
+        symbol: str,
+        position_side: PositionSide,
+        trigger_price: Decimal,
+        client_stop_id: str,
+    ) -> str:
+        """Sends the stop and returns the id the venue gave it. A refusal the venue decided
+        raises ``ExchangeError``; a failure whose outcome is unknown propagates unchanged,
+        and the caller reads the stop back by ``client_stop_id`` before it decides."""
+        ...
+
+    async def find_stop(self, symbol: str, client_stop_id: str) -> RestingStop | None:
+        """The stop the venue holds under ``client_stop_id``, in any status, or ``None``
+        when it positively holds none (after the adapter's own retries of a read that lags
+        the placing). Failures follow ``place_stop``."""
+        ...
+
 
 class ExchangeRegistryPort(Protocol):
     """Which adapter trades a given pool.
@@ -386,6 +429,14 @@ class ProtectiveStopRepositoryPort(Protocol):
     ) -> None:
         """Moves the attempt's stop to ``status``. ``venue_stop_id`` is written only when
         given, so a later mark never forgets the id a stop was found under."""
+        ...
+
+    async def record_trigger_price(
+        self, user_id: UUID, attempt_id: UUID, trigger_price: Decimal
+    ) -> None:
+        """Records where a stop placed after the fill will rest (SS.6), worked out from
+        the fills. Written before the request that places it, so a retry after an unknown
+        outcome places the SAME stop and never works out a second price."""
         ...
 
 

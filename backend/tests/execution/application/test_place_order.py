@@ -138,6 +138,7 @@ class SpyExchange:
     is_live = False
     exchange = "pionex"
     venues = frozenset({"spot"})
+    places_stop_after_fill = False
 
     def __init__(
         self,
@@ -276,10 +277,12 @@ def _build(
     stops: SpyStops | None = None,
     log: list[str] | None = None,
     futures: tuple[Decimal | None, bool] | None = None,
+    after_fill: bool = False,
 ) -> tuple[PlaceOrder, FakeReservations, SpyAttempts, SpyQueue, SpyExchange, list[str]]:
     """``log`` lets a test share its own with a ``SpyStops``; ``futures`` is ``(the stop
     price the adapter puts on the order, whether the adapter is live)`` for a venue that
-    builds a futures opening, and the default is the spot double every older test uses."""
+    builds a futures opening, and the default is the spot double every older test uses.
+    ``after_fill`` is whether that adapter places its stop after the fill (Binance)."""
     log = log if log is not None else []
     outcomes = outcomes if outcomes is not None else RecordingOrderOutcomes()
     outcomes.log = log
@@ -291,6 +294,7 @@ def _build(
         exchange = FuturesSpyExchange(
             log, stop_price=futures[0], live=futures[1], raises=exchange_raises
         )
+        exchange.places_stop_after_fill = after_fill
     else:
         exchange = SpyExchange(log, exchange_raises, build_open_raises)
     use_case = PlaceOrder(
@@ -887,6 +891,121 @@ async def test_a_live_opening_on_a_venue_that_attaches_no_stop_writes_no_row() -
     await use_case.place(_command())
 
     assert stops.inserted == []
+
+
+async def test_a_live_opening_on_a_venue_that_places_its_stop_after_the_fill_writes_a_pending_row(
+) -> None:
+    """Binance (SS.6): the order carries no stop, but the row is written now, with the id
+    the stop will be sent under and no trigger price, because that is worked out from the
+    fills."""
+    log: list[str] = []
+    stops = SpyStops(log)
+    use_case, _, attempts, *_ = _build(
+        stops=stops, log=log, futures=(None, True), after_fill=True
+    )
+
+    await use_case.place(_command(side=OrderSide.BUY, stop_loss_pct=Decimal("7.5")))
+
+    assert len(stops.inserted) == 1
+    [stop] = stops.inserted
+    [attempt] = attempts.inserted
+    assert stop.status is StopStatus.PENDING
+    assert stop.execution_attempt_id == attempt.id
+    assert stop.allocation_id == RESERVATION_ID
+    assert stop.symbol == "BTC_USDT"
+    assert stop.position_side is PositionSide.LONG
+    assert stop.stop_loss_pct == Decimal("7.5")
+    assert stop.trigger_price is None
+    assert stop.venue_stop_id is None
+    # A UUID4, exactly the 36 characters Binance's ``clientAlgoId`` allows, and not the
+    # opening's own id: the two orders are found by their own handles.
+    assert stop.client_stop_id is not None
+    assert len(stop.client_stop_id) == 36
+    assert str(UUID(stop.client_stop_id)) == stop.client_stop_id
+    assert stop.client_stop_id != attempt.client_order_id
+    assert stops.users == [OWNER]
+
+
+async def test_a_short_opening_on_that_venue_records_a_short_position() -> None:
+    log: list[str] = []
+    stops = SpyStops(log)
+    use_case, *_ = _build(stops=stops, log=log, futures=(None, True), after_fill=True)
+
+    await use_case.place(_command(side=OrderSide.SELL))
+
+    assert len(stops.inserted) == 1
+    assert stops.inserted[0].position_side is PositionSide.SHORT
+
+
+async def test_the_client_stop_id_is_recorded_before_the_order_is_sent() -> None:
+    """The whole point of recording it: any request that might reach the venue for this
+    stop comes after a commit that holds the id, so a crash can read it back."""
+    log: list[str] = []
+    stops = SpyStops(log)
+    use_case, *_ = _build(stops=stops, log=log, futures=(None, True), after_fill=True)
+
+    await use_case.place(_command())
+
+    first_commit = log.index("commit")
+    assert log.index("attempt.insert") < log.index("stop.insert") < first_commit
+    assert log.index("queue.enqueue") < first_commit < log.index("exchange.place")
+
+
+async def test_every_opening_gets_its_own_client_stop_id() -> None:
+    log: list[str] = []
+    stops = SpyStops(log)
+    first, *_ = _build(stops=stops, log=log, futures=(None, True), after_fill=True)
+    second, *_ = _build(stops=stops, log=log, futures=(None, True), after_fill=True)
+
+    await first.place(_command())
+    await second.place(_command())
+
+    ids = [stop.client_stop_id for stop in stops.inserted]
+    assert len(ids) == 2 and ids[0] != ids[1]
+
+
+async def test_a_simulated_opening_places_no_stop_even_on_an_adapter_flagged_for_one() -> None:
+    log: list[str] = []
+    stops = SpyStops(log)
+    use_case, *_ = _build(
+        stops=stops, log=log, mode=Mode.SIMULATION, futures=(None, False), after_fill=True
+    )
+
+    await use_case.place(_command())
+
+    assert len(stops.inserted) == 1
+    assert stops.inserted[0].status is StopStatus.SIMULATED
+    assert stops.inserted[0].client_stop_id is None
+
+
+async def test_a_stop_riding_the_order_has_no_client_stop_id() -> None:
+    """Bybit: the stop is on the opening order and found by its parent, never by an id of
+    its own."""
+    log: list[str] = []
+    stops = SpyStops(log)
+    use_case, *_ = _build(stops=stops, log=log, futures=(Decimal("72.00"), True))
+
+    await use_case.place(_command())
+
+    assert len(stops.inserted) == 1
+    assert stops.inserted[0].client_stop_id is None
+
+
+async def test_a_refused_opening_voids_the_stop_placed_after_the_fill_too() -> None:
+    log: list[str] = []
+    stops = SpyStops(log)
+    use_case, _, attempts, *_ = _build(
+        stops=stops,
+        log=log,
+        exchange_raises=ExchangeError("insufficient balance"),
+        futures=(None, True),
+        after_fill=True,
+    )
+
+    await use_case.place(_command())
+
+    [attempt] = attempts.inserted
+    assert stops.marked == [(attempt.id, StopStatus.VOID)]
 
 
 async def test_a_spot_opening_writes_no_stop_row() -> None:

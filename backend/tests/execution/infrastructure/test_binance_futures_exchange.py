@@ -27,9 +27,11 @@ from strategy_manager.execution.application.ports import (
     OpenOrderSpec,
     OrderNotFound,
     OrderNotPlaceable,
+    RestingStop,
 )
 from strategy_manager.execution.domain.futures_order import FuturesMarketOrder
 from strategy_manager.execution.domain.order import MarketBuy, OrderSide
+from strategy_manager.execution.domain.protective_stop import PositionSide
 from strategy_manager.execution.infrastructure.binance_futures_exchange import (
     BinanceFuturesExchangeAdapter,
 )
@@ -45,6 +47,7 @@ from strategy_manager.shared.infrastructure.binance.read_client import (
     SymbolConfig,
 )
 from strategy_manager.shared.infrastructure.binance.trade_client import (
+    BinanceAlgoOrder,
     BinanceExecution,
     BinanceOrderAck,
 )
@@ -944,3 +947,233 @@ async def test_a_pair_already_set_logs_no_setting_line(caplog: pytest.LogCapture
         await _adapter(client).build_open_order(_open(leverage=2))
 
     assert _setting_lines(caplog) == []
+
+
+# --- the stop placed after the fill (subscriber-safety SS.6) ------------------
+
+# DOGEUSDT as the catalogue reports it: a tick of 0.000010 (a coarser grid than the price
+# shows, which is why 0.059706 is not a price the venue accepts).
+DOGE_RULES = replace(LIVE_RULES, symbol="DOGEUSDT", tick_size=Decimal("0.000010"))
+CLIENT_STOP_ID = "9b2f4c1e-6d3a-4f7b-8a15-2c9e0d4b7a61"
+# The alert's spelling, with TradingView's perpetual suffix; the venue's own has none.
+ALERT_SYMBOL = "DOGEUSDT.P"
+
+
+class RecordingSleep:
+    def __init__(self) -> None:
+        self.waits: list[float] = []
+
+    async def __call__(self, seconds: float) -> None:
+        self.waits.append(seconds)
+
+
+class StopClient(FakeTradeClient):
+    """``FakeTradeClient`` with the two algo calls: what was placed, what was asked, and a
+    script of answers for the read (a value is returned, an exception is raised)."""
+
+    def __init__(
+        self,
+        *,
+        algo_answers: list[BinanceAlgoOrder | Exception] | None = None,
+        stop_raises: Exception | None = None,
+    ) -> None:
+        super().__init__(rules=DOGE_RULES)
+        self.stops: list[dict[str, object]] = []
+        self.algo_reads: list[str] = []
+        self._algo_answers = list(algo_answers or [])
+        self._stop_raises = stop_raises
+
+    async def place_stop_order(
+        self, *, symbol: str, side: str, trigger_price: Decimal, client_stop_id: str
+    ) -> int:
+        if self._stop_raises is not None:
+            raise self._stop_raises
+        self.stops.append(
+            {
+                "symbol": symbol,
+                "side": side,
+                "trigger_price": trigger_price,
+                "client_stop_id": client_stop_id,
+            }
+        )
+        return 3000000123456
+
+    async def algo_order_for(self, client_stop_id: str) -> BinanceAlgoOrder:
+        self.algo_reads.append(client_stop_id)
+        answer = self._algo_answers.pop(0)
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+
+def _stop_adapter(
+    client: StopClient, sleep: RecordingSleep | None = None
+) -> BinanceFuturesExchangeAdapter:
+    return BinanceFuturesExchangeAdapter(
+        client,  # type: ignore[arg-type]
+        sleep=sleep or RecordingSleep(),
+    )
+
+
+def _algo(status: str | None = "NEW") -> BinanceAlgoOrder:
+    return BinanceAlgoOrder(algo_id=3000000123456, client_algo_id=CLIENT_STOP_ID, status=status)
+
+
+def test_binance_places_its_stop_after_the_fill() -> None:
+    assert BinanceFuturesExchangeAdapter.places_stop_after_fill is True
+
+
+async def test_a_long_stop_is_the_entry_less_the_level_rounded_down_to_the_tick() -> None:
+    """The spec's example: an average fill of 0.066340 at 10% is 0.059706, which is not a
+    multiple of the 0.000010 tick, so it rests at 0.059700."""
+    adapter = _stop_adapter(StopClient())
+
+    trigger = await adapter.stop_trigger_price(
+        ALERT_SYMBOL, PositionSide.LONG, Decimal("0.066340"), Decimal("10")
+    )
+
+    assert trigger == Decimal("0.059700")
+    assert str(trigger) == "0.059700"
+
+
+async def test_a_short_stop_is_above_the_entry_rounded_up_to_the_tick() -> None:
+    adapter = _stop_adapter(StopClient())
+
+    trigger = await adapter.stop_trigger_price(
+        ALERT_SYMBOL, PositionSide.SHORT, Decimal("0.066340"), Decimal("10")
+    )
+
+    # 0.066340 * 1.10 = 0.072974, rounded away from the entry to 0.072980.
+    assert trigger == Decimal("0.072980")
+
+
+@pytest.mark.parametrize(
+    ("position", "closing"),
+    [(PositionSide.LONG, "SELL"), (PositionSide.SHORT, "BUY")],
+)
+async def test_the_stop_is_sent_on_the_side_that_closes_the_position(
+    position: PositionSide, closing: str
+) -> None:
+    client = StopClient()
+
+    algo_id = await _stop_adapter(client).place_stop(
+        ALERT_SYMBOL, position, Decimal("0.059700"), CLIENT_STOP_ID
+    )
+
+    assert algo_id == "3000000123456"
+    assert client.stops == [
+        {
+            "symbol": "DOGEUSDT",
+            "side": closing,
+            "trigger_price": Decimal("0.059700"),
+            "client_stop_id": CLIENT_STOP_ID,
+        }
+    ]
+
+
+async def test_a_definitive_refusal_of_the_stop_is_an_exchange_error() -> None:
+    client = StopClient(
+        stop_raises=BinanceApiError(
+            "Order would immediately trigger.", code="-2021", http_status=400
+        )
+    )
+
+    with pytest.raises(ExchangeError, match="-2021"):
+        await _stop_adapter(client).place_stop(
+            ALERT_SYMBOL, PositionSide.LONG, Decimal("0.059700"), CLIENT_STOP_ID
+        )
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        BinanceApiError("Send status unknown", code="-1007", http_status=400),
+        BinanceApiError("busy", code="-1008", http_status=503),
+        BinanceApiError("throttled", code="-1003", http_status=429),
+        BinanceApiError("POST failed: timed out"),
+    ],
+)
+async def test_an_unknown_outcome_placing_the_stop_propagates_unchanged(
+    error: BinanceApiError,
+) -> None:
+    """The stricter rule of a setting write: a 5xx or a 429 is unknown whatever code its
+    body carries, because the stop may well be resting."""
+    client = StopClient(stop_raises=error)
+
+    with pytest.raises(BinanceApiError) as caught:
+        await _stop_adapter(client).place_stop(
+            ALERT_SYMBOL, PositionSide.LONG, Decimal("0.059700"), CLIENT_STOP_ID
+        )
+
+    assert caught.value is error
+
+
+async def test_a_stop_found_at_once_is_returned_with_its_algo_id() -> None:
+    client = StopClient(algo_answers=[_algo()])
+    sleep = RecordingSleep()
+
+    found = await _stop_adapter(client, sleep).find_stop(ALERT_SYMBOL, CLIENT_STOP_ID)
+
+    assert found == RestingStop(venue_stop_id="3000000123456")
+    assert client.algo_reads == [CLIENT_STOP_ID]
+    assert sleep.waits == []
+
+
+@pytest.mark.parametrize("status", ["NEW", "FINISHED", "EXPIRED", None])
+async def test_a_stop_found_in_any_status_is_found(status: str | None) -> None:
+    """SS.7's watcher reads what became of it; finding it is all this asks."""
+    client = StopClient(algo_answers=[_algo(status)])
+
+    found = await _stop_adapter(client).find_stop(ALERT_SYMBOL, CLIENT_STOP_ID)
+
+    assert found is not None
+
+
+async def test_a_lagging_read_is_retried_two_seconds_apart_and_not_read_as_missing() -> None:
+    """Live run 5: the stop was there, and a read a second after the POST said -2013."""
+    missing = BinanceOrderNotFound("no such algo order")
+    client = StopClient(algo_answers=[missing, missing, _algo()])
+    sleep = RecordingSleep()
+
+    found = await _stop_adapter(client, sleep).find_stop(ALERT_SYMBOL, CLIENT_STOP_ID)
+
+    assert found == RestingStop(venue_stop_id="3000000123456")
+    assert len(client.algo_reads) == 3
+    assert sleep.waits == [2, 2]
+
+
+async def test_a_stop_still_missing_after_five_reads_is_absent() -> None:
+    missing = BinanceOrderNotFound("no such algo order")
+    client = StopClient(algo_answers=[missing] * 5)
+    sleep = RecordingSleep()
+
+    found = await _stop_adapter(client, sleep).find_stop(ALERT_SYMBOL, CLIENT_STOP_ID)
+
+    assert found is None
+    assert len(client.algo_reads) == 5
+    assert sleep.waits == [2, 2, 2, 2]
+
+
+async def test_an_ambiguous_read_of_the_stop_is_not_retried_and_not_read_as_missing() -> None:
+    error = BinanceApiError("Send status unknown", code="-1007", http_status=400)
+    client = StopClient(algo_answers=[error])
+    sleep = RecordingSleep()
+
+    with pytest.raises(BinanceApiError) as caught:
+        await _stop_adapter(client, sleep).find_stop(ALERT_SYMBOL, CLIENT_STOP_ID)
+
+    assert caught.value is error
+    assert sleep.waits == []
+
+
+async def test_a_definitive_refusal_of_the_read_is_an_exchange_error() -> None:
+    client = StopClient(
+        algo_answers=[
+            BinanceApiError(
+                "Invalid API-key, IP, or permissions", code="-2015", http_status=401
+            )
+        ]
+    )
+
+    with pytest.raises(ExchangeError, match="-2015"):
+        await _stop_adapter(client).find_stop(ALERT_SYMBOL, CLIENT_STOP_ID)

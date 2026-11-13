@@ -3,6 +3,7 @@
 attempt it is, with the venue id kept across a later mark.
 """
 
+from dataclasses import replace
 from decimal import Decimal
 from uuid import UUID, uuid4
 
@@ -108,6 +109,98 @@ async def test_a_simulated_stop_with_no_trigger_price_round_trips(
         )
 
     assert read == written
+
+
+async def test_a_stop_placed_after_the_fill_round_trips_its_client_id_with_no_trigger_yet(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """SS.6: the id is recorded with the row, before any request; the trigger is not yet
+    known because it is worked out from the fills."""
+    allocation_id, attempt_id = await _opening(pg_session_factory)
+    written = replace(
+        _stop(allocation_id, attempt_id, trigger=None), client_stop_id=str(uuid4())
+    )
+
+    async with pg_session_factory() as session:
+        await SqlAlchemyProtectiveStopRepository(session).insert(OWNER_ID, written)
+        await session.commit()
+
+    async with pg_session_factory() as session:
+        read = await SqlAlchemyProtectiveStopRepository(session).for_attempt(
+            OWNER_ID, attempt_id
+        )
+
+    assert read == written
+    assert read is not None and read.client_stop_id is not None
+
+
+async def test_a_stop_with_no_client_id_reads_none(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    allocation_id, attempt_id = await _opening(pg_session_factory)
+
+    async with pg_session_factory() as session:
+        await SqlAlchemyProtectiveStopRepository(session).insert(
+            OWNER_ID, _stop(allocation_id, attempt_id)
+        )
+        await session.commit()
+
+    async with pg_session_factory() as session:
+        read = await SqlAlchemyProtectiveStopRepository(session).for_attempt(
+            OWNER_ID, attempt_id
+        )
+
+    assert read is not None and read.client_stop_id is None
+
+
+async def test_recording_the_trigger_keeps_the_status_and_the_client_id(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    allocation_id, attempt_id = await _opening(pg_session_factory)
+    client_stop_id = str(uuid4())
+    async with pg_session_factory() as session:
+        repository = SqlAlchemyProtectiveStopRepository(session)
+        await repository.insert(
+            OWNER_ID,
+            replace(_stop(allocation_id, attempt_id, trigger=None), client_stop_id=client_stop_id),
+        )
+        await repository.record_trigger_price(OWNER_ID, attempt_id, Decimal("0.059700"))
+        await session.commit()
+
+    async with pg_session_factory() as session:
+        read = await SqlAlchemyProtectiveStopRepository(session).for_attempt(
+            OWNER_ID, attempt_id
+        )
+
+    assert read is not None
+    assert read.trigger_price == Decimal("0.059700")
+    assert read.status is StopStatus.PENDING
+    assert read.client_stop_id == client_stop_id
+
+
+async def test_another_users_trigger_is_not_recorded(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    allocation_id, attempt_id = await _opening(pg_session_factory)
+    async with pg_session_factory() as session:
+        other = await seed_other_user(session)
+        await session.commit()
+    async with pg_session_factory() as session:
+        repository = SqlAlchemyProtectiveStopRepository(session)
+        await repository.insert(OWNER_ID, _stop(allocation_id, attempt_id, trigger=None))
+        await session.commit()
+
+    async with pg_session_factory() as session:
+        await SqlAlchemyProtectiveStopRepository(session).record_trigger_price(
+            other, attempt_id, Decimal("1")
+        )
+        await session.commit()
+
+    async with pg_session_factory() as session:
+        read = await SqlAlchemyProtectiveStopRepository(session).for_attempt(
+            OWNER_ID, attempt_id
+        )
+    assert read is not None and read.trigger_price is None
 
 
 async def test_an_attempt_with_no_stop_reads_none(

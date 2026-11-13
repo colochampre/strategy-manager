@@ -307,6 +307,39 @@ owner's preference.
 - [ ] SS.6 Binance: the algo stop right after the fill, with `clientAlgoId`
   recorded first, `-2013` retried, an unknown outcome resolved by reading
   back, and a failure closing at once. Risk: items 4 and 6.
+  - Design, 2026-11-13, from a read-only code map.
+    - Migration 0042 adds `protective_stops.client_stop_id` (nullable, unique
+      where set).
+    - Adapters declare `places_stop_after_fill`: Binance yes, every other
+      adapter no. `PlaceOrder` writes a `PENDING` row for a live Binance
+      opening, with a fresh UUID as `client_stop_id` and no trigger price.
+      It goes in the attempt's own transaction, so the `clientAlgoId` is
+      recorded before any algo request.
+    - Settle enqueues `PROTECTIVE_STOP_CONFIRM` as in SS.5. For a venue that
+      places after the fill, the job does this:
+      - With no trigger price recorded, it reads the opening's fills through
+        `fetch_fills` and takes their volume-weighted average as the entry. The
+        adapter turns that into the trigger, rounded to the tick away from the
+        entry (`protective_stop_price`). The trigger is committed, then
+        `POST /fapi/v1/algoOrder` is sent:
+        - `algoType` CONDITIONAL and `type` STOP_MARKET;
+        - `side` opposite the position;
+        - `workingType` MARK_PRICE and `closePosition` true;
+        - the recorded `clientAlgoId`.
+      - With a trigger price already recorded, an earlier POST may have
+        reached the venue. The job first reads the stop back with
+        `GET /fapi/v1/algoOrder?clientAlgoId=`. The Binance documentation
+        accepts either id (checked 2026-11-13). A `-2013` is retried 5 times,
+        2 s apart, with an injectable sleep. Found in any status, the stop is
+        `RESTING`, and SS.7's watcher reads its status. Still `-2013` after
+        the retries, the POST is sent again with the same `clientAlgoId` and
+        trigger.
+      - An acknowledged POST is `RESTING` at once, with its `algoId`. It is
+        not read back, so `-2013` cannot hit the normal path.
+      - An ambiguous error (the stricter `_is_definitive_setting_refusal`
+        rule) makes the job retry. A definitive refusal takes SS.5's path:
+        `FAILED`, an ERROR line, and `ClosePosition` at once.
+    - Bybit's path is unchanged.
 - [ ] SS.7 The stop watcher job, with the migration adding a cause to
   `execution_attempts` (SIGNAL / STOP / SAFETY_CLOSE / MANUAL):
   - fills booked under the allocation with cause STOP, plus `STOP_FIRED`;

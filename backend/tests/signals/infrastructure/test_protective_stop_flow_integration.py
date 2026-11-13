@@ -29,6 +29,7 @@ from strategy_manager.execution.application.confirm_protective_stop import (
 )
 from strategy_manager.execution.application.ports import (
     CloseOrderSpec,
+    ExchangeError,
     OpenOrderSpec,
     RestingStop,
 )
@@ -91,7 +92,52 @@ class _StopExchange(FakeExchangeAdapter):
         return None if self._resting is None else RestingStop(venue_stop_id=self._resting)
 
 
-def _confirm(session: AsyncSession, exchange: _StopExchange) -> ConfirmProtectiveStop:
+class _AfterFillExchange(FakeExchangeAdapter):
+    """A live venue with no stop on the opening order (Binance, SS.6): the stop is placed
+    after the fill, under the id the row recorded. ``place_raises`` is what the request
+    meets, and ``found`` what the read-back by the id answers."""
+
+    is_live = True
+    places_stop_after_fill = True
+
+    def __init__(
+        self,
+        *,
+        place_raises: Exception | None = None,
+        found: str | None = None,
+        close_raises: Exception | None = None,
+    ) -> None:
+        super().__init__(exchange="bybit", fee_rate=Decimal("0"), fill_price=Decimal("2"))
+        self.placed: list[tuple[str, PositionSide, Decimal, str]] = []
+        self.finds: list[str] = []
+        self._place_raises = place_raises
+        self._found = found
+        self._close_raises = close_raises
+
+    async def build_close_order(self, spec: CloseOrderSpec) -> PlaceableOrder:
+        if self._close_raises is not None:
+            raise self._close_raises
+        return await super().build_close_order(spec)
+
+    async def stop_trigger_price(
+        self, symbol: str, position_side: PositionSide, entry: Decimal, stop_loss_pct: Decimal
+    ) -> Decimal:
+        return (entry * (1 - stop_loss_pct / 100)).quantize(Decimal("0.1"))
+
+    async def place_stop(
+        self, symbol: str, position_side: PositionSide, trigger_price: Decimal, client_stop_id: str
+    ) -> str:
+        self.placed.append((symbol, position_side, trigger_price, client_stop_id))
+        if self._place_raises is not None:
+            raise self._place_raises
+        return "ALGO-1"
+
+    async def find_stop(self, symbol: str, client_stop_id: str) -> RestingStop | None:
+        self.finds.append(client_stop_id)
+        return None if self._found is None else RestingStop(venue_stop_id=self._found)
+
+
+def _confirm(session: AsyncSession, exchange: FakeExchangeAdapter) -> ConfirmProtectiveStop:
     return ConfirmProtectiveStop(
         stops=SqlAlchemyProtectiveStopRepository(session),
         attempts=SqlAlchemyExecutionAttemptRepository(session),
@@ -116,7 +162,7 @@ async def _jobs(factory: async_sessionmaker[AsyncSession], kind: JobKind) -> lis
 
 
 async def _opened_and_settled(
-    factory: async_sessionmaker[AsyncSession], exchange: _StopExchange
+    factory: async_sessionmaker[AsyncSession], exchange: FakeExchangeAdapter
 ) -> tuple[UUID, UUID]:
     """An opening placed and settled: ``(reservation_id, attempt_id)``."""
     _, _, reservation_id = await _seed_open(factory)
@@ -242,6 +288,92 @@ async def test_a_close_that_cannot_be_built_rolls_the_failed_mark_back_so_the_re
     assert result.status == "CLOSING"
     [stop] = await _stops(pg_session_factory)
     assert stop.status == StopStatus.FAILED.value
+
+
+# ---- a stop placed after the fill (SS.6, Binance) ----
+
+
+async def test_an_opening_on_a_venue_that_places_its_stop_later_records_the_id_first(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    exchange = _AfterFillExchange()
+    _, _, reservation_id = await _seed_open(pg_session_factory)
+
+    await _place_open(pg_session_factory, exchange, reservation_id)
+
+    [attempt] = await _attempts(pg_session_factory)
+    [stop] = await _stops(pg_session_factory)
+    assert stop.execution_attempt_id == attempt.id
+    assert (stop.status, stop.venue_stop_id) == (StopStatus.PENDING.value, None)
+    assert stop.trigger_price is None
+    assert stop.client_stop_id is not None and len(stop.client_stop_id) == 36
+
+
+async def test_the_confirm_job_prices_places_and_records_the_stop(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    exchange = _AfterFillExchange()
+    _, attempt_id = await _opened_and_settled(pg_session_factory, exchange)
+
+    async with pg_session_factory() as session:
+        result = await _confirm(session, exchange).confirm(OWNER_ID, attempt_id)
+
+    assert result.status == "RESTING"
+    [stop] = await _stops(pg_session_factory)
+    assert (stop.status, stop.venue_stop_id) == (StopStatus.RESTING.value, "ALGO-1")
+    # The fake fills at 2, so 10% below is 1.8, committed on the row.
+    assert stop.trigger_price == Decimal("1.8")
+    assert exchange.placed == [
+        ("STXUSDT.P", PositionSide.LONG, Decimal("1.8"), stop.client_stop_id)
+    ]
+    assert len(await _attempts(pg_session_factory)) == 1  # no close was placed
+
+
+async def test_a_request_with_an_unknown_outcome_keeps_the_trigger_and_the_retry_reads_it_back(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """The trigger was committed before the request, so the timeout's rollback does not take
+    it, and the retry finds the stop by its id instead of placing a second one."""
+    timing_out = _AfterFillExchange(place_raises=TimeoutError("venue timed out"))
+    _, attempt_id = await _opened_and_settled(pg_session_factory, timing_out)
+    async with pg_session_factory() as session:
+        with pytest.raises(TimeoutError):
+            await _confirm(session, timing_out).confirm(OWNER_ID, attempt_id)
+    [stop] = await _stops(pg_session_factory)
+    assert (stop.status, stop.trigger_price) == (StopStatus.PENDING.value, Decimal("1.8"))
+    assert len(await _attempts(pg_session_factory)) == 1
+
+    retry = _AfterFillExchange(found="ALGO-1")
+    async with pg_session_factory() as session:
+        result = await _confirm(session, retry).confirm(OWNER_ID, attempt_id)
+
+    assert result.status == "RESTING"
+    assert retry.finds == [stop.client_stop_id] and retry.placed == []
+    [stop] = await _stops(pg_session_factory)
+    assert (stop.status, stop.venue_stop_id) == (StopStatus.RESTING.value, "ALGO-1")
+
+
+async def test_a_refused_stop_closes_the_position_on_the_same_commit_that_fails_it(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    exchange = _AfterFillExchange(place_raises=ExchangeError("Binance refused the stop"))
+    reservation_id, attempt_id = await _opened_and_settled(pg_session_factory, exchange)
+
+    with caplog.at_level(logging.INFO):
+        async with pg_session_factory() as session:
+            result = await _confirm(session, exchange).confirm(OWNER_ID, attempt_id)
+
+    assert result.status == "CLOSING"
+    [stop] = await _stops(pg_session_factory)
+    assert stop.status == StopStatus.FAILED.value
+    assert stop.trigger_price == Decimal("1.8")
+    [_, closing] = sorted(
+        await _attempts(pg_session_factory), key=lambda row: row.closes_allocation_id is not None
+    )
+    assert (closing.closes_allocation_id, closing.side) == (reservation_id, "SELL")
+    errors = [r.getMessage() for r in caplog.records if r.levelno >= logging.ERROR]
+    assert len(errors) == 1 and "Binance refused the stop" in errors[0]
 
 
 async def test_a_confirm_job_run_twice_closes_once(

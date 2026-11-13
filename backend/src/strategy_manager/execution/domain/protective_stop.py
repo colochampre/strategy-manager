@@ -52,7 +52,13 @@ class ProtectiveStop:
     in the ledger. ``stop_loss_pct`` is the level the stop was placed at, carried from
     the policy the leverage cap was checked against. ``trigger_price`` is where it rests,
     ``None`` when no price was worked out (a simulated opening). ``venue_stop_id`` is the
-    id the venue gave it, ``None`` until it is found resting."""
+    id the venue gave it, ``None`` until it is found resting.
+
+    ``client_stop_id`` is the id a stop the system places AFTER the fill is sent under
+    (Binance's ``clientAlgoId``), written with the row before any request so an unknown
+    outcome can be read back by it. ``None`` for a stop that rides the opening order
+    (Bybit) and for a simulated one. A stop with one has no ``trigger_price`` until the
+    fills are read: the price is worked out from them."""
 
     id: UUID
     execution_attempt_id: UUID
@@ -65,3 +71,4 @@ class ProtectiveStop:
     trigger_price: Decimal | None
     status: StopStatus
     venue_stop_id: str | None = None
+    client_stop_id: str | None = None
