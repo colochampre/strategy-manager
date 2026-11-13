@@ -7,10 +7,12 @@ import { readDescription } from "@/features/strategies/description-value";
 import { IssuedWebhookUrl } from "@/features/strategies/IssuedWebhookUrl";
 import { LeverageSlider } from "@/features/strategies/LeverageSlider";
 import { ShareSlider } from "@/features/strategies/ShareSlider";
+import { StopLevelField } from "@/features/strategies/StopLevelField";
+import { DEFAULT_STOP_LEVEL, maxLeverage, readStopLevel } from "@/features/strategies/stop-level";
 import { PairSelector } from "@/features/strategies/PairSelector";
 import type { PairSelectorStatus } from "@/features/strategies/PairSelector";
 import { VisibilityField } from "@/features/strategies/VisibilityField";
-import { LEVERAGE_REFUSAL_TEXT, useLeverageDraft } from "@/features/strategies/useLeverageDraft";
+import { leverageProblem, useLeverageDraft } from "@/features/strategies/useLeverageDraft";
 import { DRAFT_REFUSAL_TEXT } from "@/features/strategies/useShareDraft";
 import { useShareInput } from "@/features/strategies/useShareInput";
 import { ApiError } from "@/shared/api/client";
@@ -61,6 +63,7 @@ function errorMessage(error: unknown): Message {
     if (error.code === "PAIR_CATALOGUE_NOT_SERVED") return { key: "strategies.pairs.errors.notServed" };
     if (error.status === 502) return { key: "strategies.pairs.errors.venueUnavailable" };
     if (error.code === "AUTHOR_HAS_NO_DISPLAY_NAME") return { key: "strategies.visibility.needsName" };
+    if (error.code === "LEVERAGE_ABOVE_STOP_CAP") return { key: "strategies.leverage.aboveCapRefused" };
     if (error.status === 409) return { key: "strategies.new.errors.conflict" };
     if (error.status === 422) return { key: "strategies.new.errors.invalid" };
   }
@@ -110,7 +113,11 @@ export function NewStrategyDialog({ exchange, pools, onClose }: NewStrategyDialo
   const descriptionReading = readDescription(description);
   const descriptionTooLong = !descriptionReading.blank && descriptionReading.tooLong;
   const share = useShareInput(STARTING_SHARE);
-  const leverage = useLeverageDraft(STARTING_LEVERAGE);
+  // The author's own seat is under the stop's cap like anyone's: the level typed decides how high it may go.
+  const [stopLevel, setStopLevel] = useState(DEFAULT_STOP_LEVEL);
+  const stopReading = readStopLevel(stopLevel);
+  const max = maxLeverage(stopLevel);
+  const leverage = useLeverageDraft(STARTING_LEVERAGE, undefined, max);
   const leverageInfo = useInfoDisclosure();
   const register = useRegisterStrategy();
 
@@ -131,7 +138,7 @@ export function NewStrategyDialog({ exchange, pools, onClose }: NewStrategyDialo
   const handleSubmit = (event: FormEvent) => {
     event.preventDefault();
     // The field says why it is refused and the submit is off meanwhile; a form submitted by Enter sends nothing.
-    if (!share.reading.valid || !leverage.reading.valid || descriptionTooLong) return;
+    if (!share.reading.valid || !leverage.reading.valid || !stopReading.valid || descriptionTooLong) return;
     if (name.trim() === "" || pool === undefined || !FILL_MODES.includes(fillMode as FillMode)) {
       setValidation("strategies.new.incomplete");
       return;
@@ -151,6 +158,7 @@ export function NewStrategyDialog({ exchange, pools, onClose }: NewStrategyDialo
       fill_mode: fillMode as FillMode,
       allocation_percent: share.reading.canonical,
       leverage: leverage.reading.value,
+      stop_loss_pct: stopReading.canonical,
       visibility,
       allowed_pairs: pairs,
       ...(descriptionReading.blank ? {} : { description }),
@@ -312,6 +320,8 @@ export function NewStrategyDialog({ exchange, pools, onClose }: NewStrategyDialo
             ))}
         </div>
 
+        <StopLevelField value={stopLevel} onChange={setStopLevel} disabled={register.isPending} />
+
         <div className="flex flex-col gap-1">
           <div className="flex items-start">
             <label id={ids.leverageLabel} htmlFor={ids.leverage} className="text-xs font-semibold leading-5 text-ink-2">
@@ -331,13 +341,17 @@ export function NewStrategyDialog({ exchange, pools, onClose }: NewStrategyDialo
             disabled={register.isPending}
             invalid={!leverage.reading.valid}
             describedBy={leverage.reading.valid ? undefined : ids.leverageProblem}
+            max={max}
             onText={leverage.changeText}
             onHandle={leverage.changeStep}
             onStop={leverage.changeStep}
           />
           {!leverage.reading.valid && (
             <p id={ids.leverageProblem} className="text-xs text-loss">
-              {t(LEVERAGE_REFUSAL_TEXT[leverage.reading.refusal])}
+              {t(
+                leverageProblem(leverage.reading.refusal, max).key,
+                leverageProblem(leverage.reading.refusal, max).values,
+              )}
             </p>
           )}
         </div>
@@ -375,7 +389,7 @@ export function NewStrategyDialog({ exchange, pools, onClose }: NewStrategyDialo
           </button>
           <button
             type="submit"
-            disabled={register.isPending || pools.length === 0 || pairsStatus !== "ready" || !share.reading.valid || !leverage.reading.valid || descriptionTooLong}
+            disabled={register.isPending || pools.length === 0 || pairsStatus !== "ready" || !share.reading.valid || !leverage.reading.valid || !stopReading.valid || descriptionTooLong}
             className="rounded-md bg-gain px-3 py-1.5 text-sm font-medium text-ground hover:opacity-90 disabled:opacity-50"
           >
             {register.isPending ? t("strategies.new.submitting") : t("strategies.new.submit")}

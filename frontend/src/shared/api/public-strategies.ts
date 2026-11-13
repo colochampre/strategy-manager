@@ -37,7 +37,9 @@ function isPublicStrategy(value: unknown): value is PublicStrategy {
     // Null with no closed trade: an answer, so a missing one is refused.
     (value.win_rate === null || typeof value.win_rate === "string") &&
     typeof value.enabled === "boolean" &&
-    isStrategyUptime(value.uptime)
+    isStrategyUptime(value.uptime) &&
+    // The cap on the leverage a reader may choose, a decimal string. Never absent: a missing one would read as no cap.
+    typeof value.stop_loss_pct === "string"
   );
 }
 

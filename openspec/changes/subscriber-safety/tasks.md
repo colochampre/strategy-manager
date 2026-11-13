@@ -172,6 +172,21 @@ owner's preference.
     SS.10, which creates the table.
   - Risk: item 1 (migration) and item 3 (the strategy contract gains a
     field).
+  - Progress, 2026-11-12. The first writer built the backend and the panel.
+    - A SIMULATION opening is not refused for the cap. That mirrors the
+      key-capability refusal, which checks LIVE only, and a simulated opening
+      places no stop.
+    - The refusal is recorded as a REJECTED delivery with a WARNING.
+    - *Advisory, for SS.5/SS.6:* the cap is checked before the pool lock and
+      not again inside it. An author widening the level in between would let
+      one opening through above the new cap. The stop placed must use the
+      same level the cap was checked against, so SS.5/SS.6 read it once and
+      carry it.
+    - A second writer is closing three gaps:
+      - the public and held-seat views lacked the level, so the subscriber's
+        slider was not capped;
+      - the frontend types were optional;
+      - there was no RED evidence for the code written before its tests.
 - [ ] SS.5 Bybit: the stop attached to the opening order, with the migration
   creating `protective_stops`. The resting stop is
   found by `parentOrderLinkId` and recorded. A failure closes the position at

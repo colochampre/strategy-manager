@@ -3,7 +3,8 @@ import { Save } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { LeverageSlider } from "@/features/strategies/LeverageSlider";
-import { LEVERAGE_REFUSAL_TEXT, useLeverageDraft, type LeverageDraft } from "@/features/strategies/useLeverageDraft";
+import { leverageProblem, useLeverageDraft, type LeverageDraft } from "@/features/strategies/useLeverageDraft";
+import { maxLeverage } from "@/features/strategies/stop-level";
 import { ApiError } from "@/shared/api/client";
 import { useSetSubscriptionLeverage } from "@/shared/api/subscriptions";
 import type { Strategy } from "@/shared/api/types";
@@ -12,7 +13,7 @@ import { StatusButton } from "@/shared/ui/StatusButton";
 
 interface SubscriptionLeverageEditorProps {
   /** Only what it reads, so a subscriber's row, which holds no whole strategy, can use it. */
-  strategy: Pick<Strategy, "id" | "subscription" | "archived_at">;
+  strategy: Pick<Strategy, "id" | "subscription" | "archived_at" | "stop_loss_pct">;
   /** The draft, when a parent shares it with the share line; the editor keeps its own otherwise. */
   draft?: LeverageDraft | undefined;
 }
@@ -22,6 +23,7 @@ function saveRefusal(error: unknown): string {
   if (error instanceof ApiError) {
     if (error.status === 422) return "strategies.leverage.outOfRange";
     if (error.status === 409 && error.code === "SUBSCRIPTION_NOT_ACTIVE") return "strategies.leverage.notActive";
+    if (error.status === 409 && error.code === "LEVERAGE_ABOVE_STOP_CAP") return "strategies.leverage.aboveCapRefused";
     if (error.status === 404) return "strategies.leverage.gone";
   }
   return "strategies.leverage.saveFailed";
@@ -41,7 +43,8 @@ export function SubscriptionLeverageEditor({ strategy, draft }: SubscriptionLeve
   const save = useSetSubscriptionLeverage(strategy.id, held?.id ?? "");
   const info = useInfoDisclosure();
   // Any movement of this control ends "Saved": a handle moved, a stop activated, a key typed. No timer.
-  const own = useLeverageDraft(held?.leverage ?? 1);
+  const max = maxLeverage(strategy.stop_loss_pct);
+  const own = useLeverageDraft(held?.leverage ?? 1, undefined, max);
   const shared = draft ?? own;
   const { text, reading, handle } = shared;
   const changeText = (next: string) => {
@@ -90,6 +93,7 @@ export function SubscriptionLeverageEditor({ strategy, draft }: SubscriptionLeve
         disabled={readOnly || busy}
         invalid={!reading.valid}
         describedBy={reading.valid ? undefined : ids.problem}
+        max={max}
         onText={changeText}
         onHandle={changeStep}
         onStop={changeStep}
@@ -110,9 +114,10 @@ export function SubscriptionLeverageEditor({ strategy, draft }: SubscriptionLeve
           </div>
         }
       />
+      {max < 20 && reading.valid && <p className="text-xs text-ink-3">{t("strategies.leverage.capNote", { max })}</p>}
       {!reading.valid && (
         <p id={ids.problem} className="text-xs text-loss">
-          {t(LEVERAGE_REFUSAL_TEXT[reading.refusal])}
+          {t(leverageProblem(reading.refusal, max).key, leverageProblem(reading.refusal, max).values)}
         </p>
       )}
       {save.status === "error" && (

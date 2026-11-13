@@ -63,6 +63,7 @@ class _Strategies:
             author_id=self._author_id,
             visibility=Visibility.PRIVATE,
             author_named=True,
+            stop_loss_pct=Decimal("10"),
         )
 
 

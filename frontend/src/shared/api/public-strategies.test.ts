@@ -41,6 +41,8 @@ describe("fetchPublicStrategies", () => {
     ["a row with a negative closed count", [publicStrategy({ closed_trade_count: -1 })]],
     ["a row with no author", [publicStrategy({ author_name: null })]],
     ["a row with no date", [publicStrategy({ created_at: null })]],
+    ["a row with no stop level", [publicStrategy({ stop_loss_pct: undefined })]],
+    ["a row with a numeric stop level", [publicStrategy({ stop_loss_pct: 10 })]],
   ])("refuses %s", async (_name, body) => {
     stubFetch(jsonResponse(body));
 

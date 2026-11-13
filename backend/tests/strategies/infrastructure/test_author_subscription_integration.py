@@ -20,6 +20,7 @@ from strategy_manager.strategies.application.register_strategy import (
     RegisterCommand,
     RegisterStrategy,
 )
+from strategy_manager.strategies.domain.stop_loss import StopLossPct
 from strategy_manager.strategies.domain.strategy import FillMode
 from strategy_manager.strategies.infrastructure.author_subscription_adapter import (
     SqlAlchemyAuthorSubscription,
@@ -77,6 +78,7 @@ def _command(strategy_id: UUID, author_id: UUID, share: str = "40") -> RegisterC
         allocation_percent=Decimal(share),
         allowed_pairs=["ETHUSDT"],
         author_id=author_id,
+        stop_loss_pct=StopLossPct(Decimal("10")),
     )
 
 

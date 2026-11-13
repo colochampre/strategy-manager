@@ -132,6 +132,8 @@ class PublicStrategyBody(BaseModel):
     enabled: bool
     # The days active beside the age, as the author's own card reads them (tasks.md L.1).
     uptime: UptimeView
+    # The cap on the leverage a reader may choose (subscriber-safety D5).
+    stop_loss_pct: Money
 
 
 def _body(strategy: PublicStrategy) -> PublicStrategyBody:
@@ -154,6 +156,7 @@ def _body(strategy: PublicStrategy) -> PublicStrategyBody:
         win_rate=strategy.record.win_rate,
         enabled=listing.enabled,
         uptime=UptimeView.of(strategy.uptime),
+        stop_loss_pct=listing.stop_loss_pct,
     )
 
 

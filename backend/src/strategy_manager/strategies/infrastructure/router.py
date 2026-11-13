@@ -62,7 +62,12 @@ from strategy_manager.reconciliation.infrastructure.booking_proposal_repository 
 from strategy_manager.shared.config import get_settings
 from strategy_manager.shared.db import get_session
 from strategy_manager.shared.domain.errors import InvariantViolation
-from strategy_manager.shared.domain.leverage import MAX_LEVERAGE, NEW_SEAT_LEVERAGE, Leverage
+from strategy_manager.shared.domain.leverage import (
+    MAX_LEVERAGE,
+    NEW_SEAT_LEVERAGE,
+    Leverage,
+    LeverageAboveStopCap,
+)
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 from strategy_manager.shared.infrastructure.clock import SystemClock
 from strategy_manager.shared.infrastructure.wire import Instant, Money
@@ -125,6 +130,7 @@ from strategy_manager.strategies.domain.pair_catalog import (
     UnknownPairs,
 )
 from strategy_manager.strategies.domain.share_token import link_opens
+from strategy_manager.strategies.domain.stop_loss import StopLossPct
 from strategy_manager.strategies.domain.strategy import (
     Entry,
     FillMode,
@@ -213,6 +219,9 @@ class StrategyView(BaseModel):
     name: str
     # The author's own words, plain text (decision 38), or null.
     description: str | None
+    # Where its positions are stopped, as a percentage of price from the entry; it caps
+    # every seat's leverage (subscriber-safety D5).
+    stop_loss_pct: Money
     exchange: Exchange
     venue: Venue
     settlement_currency: Currency
@@ -257,6 +266,7 @@ class StrategyView(BaseModel):
             id=strategy.id,
             name=strategy.name,
             description=strategy.description,
+            stop_loss_pct=strategy.stop_loss_pct.value,
             exchange=strategy.policy.exchange,
             venue=strategy.policy.venue,
             settlement_currency=strategy.policy.settlement_currency,
@@ -368,6 +378,19 @@ Description = Annotated[str | None, AfterValidator(_stored_description)]
 LeverageInput = Annotated[int, Field(strict=True, ge=1, le=MAX_LEVERAGE)]
 
 
+def _stop_level(value: Decimal) -> Decimal:
+    try:
+        return StopLossPct(value).value
+    except InvariantViolation as exc:
+        raise ValueError(str(exc)) from None
+
+
+#: A stop level as the API takes it: a decimal from 1 to 50 percent of price with at most
+#: two decimals, refused with a 422 naming the field otherwise. Checked by the domain's own
+#: ``StopLossPct``, so the API and the database CHECK cannot drift apart.
+StopLevel = Annotated[Decimal, AfterValidator(_stop_level)]
+
+
 class RegisterRequest(BaseModel):
     """``id`` is the alert's ``signalType``. It is required, and there is no
     server-side default, because a generated one would match no alert."""
@@ -386,6 +409,8 @@ class RegisterRequest(BaseModel):
     description: Description = None
     # The author's seat's, like the share above; it starts at 1x unless chosen.
     leverage: LeverageInput = NEW_SEAT_LEVERAGE.value
+    # Required: a strategy is never registered without a level (D5). The form offers 10.
+    stop_loss_pct: StopLevel
 
 
 class UpdateRequest(BaseModel):
@@ -401,6 +426,8 @@ class UpdateRequest(BaseModel):
     visibility: Visibility | None = None
     # Unlike the fields above, null here clears it; leaving it out keeps it.
     description: Description = None
+    # Applies to openings made after the change only (D5); left out keeps it.
+    stop_loss_pct: StopLevel | None = None
     # The share is each subscriber's now (``PATCH /api/subscriptions/{id}``). A body
     # that still carries one is refused, whatever its value, rather than accepted
     # and ignored: the validator below fires for any value present, ``null``
@@ -689,6 +716,7 @@ async def register_strategy(
                 allocation_percent=body.allocation_percent,
                 allowed_pairs=body.allowed_pairs,
                 author_id=user.id,
+                stop_loss_pct=StopLossPct(body.stop_loss_pct),
                 visibility=body.visibility,
                 description=body.description,
                 leverage=Leverage(body.leverage),
@@ -696,6 +724,11 @@ async def register_strategy(
         )
     except StrategyAlreadyRegistered as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except LeverageAboveStopCap as exc:
+        # Nothing was written: the cap is asked before the strategy is.
+        raise HTTPException(
+            status_code=409, detail={"error": exc.reason_code, "message": str(exc)}
+        ) from exc
     except PoolNotAvailable as exc:
         # May come after the strategy row was flushed (the author's pool deleted
         # since the check): the rollback leaves neither row and frees its locks.
@@ -1032,6 +1065,9 @@ async def update_strategy(
                 fill_mode=body.fill_mode,
                 enabled=body.enabled,
                 visibility=body.visibility,
+                stop_loss_pct=(
+                    None if body.stop_loss_pct is None else StopLossPct(body.stop_loss_pct)
+                ),
                 # Sent, null included, is a change; left out is not.
                 description=(
                     body.description if "description" in body.model_fields_set else UNCHANGED

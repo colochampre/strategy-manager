@@ -3,6 +3,7 @@ case cannot be handed another user's row by mistake (multi-user design AD8)."""
 
 from dataclasses import dataclass, field
 from datetime import datetime
+from decimal import Decimal
 from typing import Protocol
 from uuid import UUID
 
@@ -27,6 +28,9 @@ class StrategyMarket:
     author_id: UUID
     visibility: Visibility
     author_named: bool
+    # Where the strategy stops its positions, as a percentage of price (D5): it caps
+    # the leverage a seat may choose.
+    stop_loss_pct: Decimal
     # The link's token while LINK (decision 41); ``repr`` never names it.
     share_token: str | None = field(default=None, repr=False)
 
@@ -44,6 +48,8 @@ class HeldSubscription:
     market: Market
     # Whether the strategy is taking signals now (tasks.md L.1).
     strategy_enabled: bool
+    # Where the strategy stops its positions: the cap on this seat's leverage.
+    stop_loss_pct: Decimal
 
 
 @dataclass(frozen=True, slots=True)

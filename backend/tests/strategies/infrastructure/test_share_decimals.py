@@ -115,6 +115,7 @@ async def _register(client: AsyncClient, strategy_id: UUID, value: str) -> Any:
             "fill_mode": "PARTIAL",
             "allocation_percent": value,
             "allowed_pairs": ["ETHUSDT"],
+            "stop_loss_pct": "10",
         },
         headers=ADMIN_HEADERS,
     )

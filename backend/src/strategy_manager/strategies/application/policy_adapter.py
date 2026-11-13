@@ -41,4 +41,5 @@ class StrategyPolicyAdapter:
             # archived", never when.
             archived=strategy.archived_at is not None,
             allowed_pairs=frozenset(strategy.allowed_pairs.pairs),
+            stop_loss_pct=strategy.stop_loss_pct.value,
         )

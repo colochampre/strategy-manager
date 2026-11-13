@@ -88,7 +88,7 @@ from strategy_manager.execution.domain.execution_attempt import ExecutionAttempt
 from strategy_manager.execution.domain.market_symbol import is_perpetual, market_key
 from strategy_manager.execution.domain.order import OrderSide
 from strategy_manager.shared.application.ports import AllocationModePort, CommitPort
-from strategy_manager.shared.domain.leverage import Leverage
+from strategy_manager.shared.domain.leverage import Leverage, LeverageAboveStopCap, max_leverage
 from strategy_manager.shared.domain.mode import Mode
 from strategy_manager.shared.domain.money import Currency, Money
 from strategy_manager.shared.domain.trade_capability import TradeCapability, key_refusal
@@ -629,6 +629,17 @@ class ProcessDelivery:
                 delivery, context, transition, policy, close_executed=close_executed
             )
 
+        # Leverage-above-stop-cap refusal (subscriber-safety D5): a seat left above the
+        # cap of its strategy's stop level (the author widened the stop after it was
+        # set) opens nothing live, since its stop would lie beyond its liquidation price.
+        # Its leverage is NOT changed for the user, and a close is never asked this: only
+        # this method opens. Like the key refusal below it guards what a venue would
+        # execute, so a simulated opening is not asked.
+        if mode is Mode.LIVE and delivery.leverage.value > max_leverage(policy.stop_loss_pct):
+            return await self._refuse_leverage_above_stop_cap(
+                delivery, context, transition, policy, close_executed=close_executed
+            )
+
         # Read-only / keyless exchange refusal (decisions 18 and 20; design.md
         # § 4a): a LIVE open on an exchange whose active key cannot trade, or
         # that has no active key, is refused here instead of failing at the
@@ -1142,6 +1153,37 @@ class ProcessDelivery:
         logger.warning(refused)
         return await self._reject(
             delivery, transition, "PAIR_NOT_ALLOWED", refused, close_executed=close_executed
+        )
+
+    async def _refuse_leverage_above_stop_cap(
+        self,
+        delivery: Delivery,
+        context: SignalContext,
+        transition: PositionTransition,
+        policy: StrategyPolicySnapshot,
+        *,
+        close_executed: bool = False,
+    ) -> ProcessSignalResult:
+        """Refuse a LIVE opening of a seat above the cap of its strategy's stop level,
+        before the guard, the balance refresh and the pool's advisory lock: no
+        reservation is ever created for it. Recorded as a ``REJECTED`` outcome through
+        ``_reject`` like the other pre-lock refusals, so it is never silent (the user's
+        safety event for it arrives with the events table, SS.10)."""
+        maximum = max_leverage(policy.stop_loss_pct)
+        refused = (
+            f"signal {delivery.signal_id} for strategy {policy.name} ({context.strategy_id}) "
+            f"refused: LEVERAGE_ABOVE_STOP_CAP, the seat trades at x{delivery.leverage.value} "
+            f"and a stop of {format(policy.stop_loss_pct, 'f')}% allows at most x{maximum}; "
+            f"user={delivery.user_id} subscription={delivery.subscription_id}; "
+            "no capital reserved"
+        )
+        logger.warning("%s", refused)
+        return await self._reject(
+            delivery,
+            transition,
+            LeverageAboveStopCap.reason_code,
+            refused,
+            close_executed=close_executed,
         )
 
     async def _refuse_read_only_exchange(

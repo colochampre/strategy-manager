@@ -46,6 +46,7 @@ from strategy_manager.strategies.application.ports import (
     StrategyRepositoryPort,
 )
 from strategy_manager.strategies.domain.share_token import new_share_token
+from strategy_manager.strategies.domain.stop_loss import StopLossPct
 from strategy_manager.strategies.domain.strategy import (
     NEEDS_A_NAMED_AUTHOR,
     FillMode,
@@ -93,6 +94,8 @@ class UpdateCommand:
     # The one field that can be emptied, so "leave it" is ``UNCHANGED`` and None
     # clears it. Otherwise in its stored shape (``description_of``).
     description: str | None | Unchanged = UNCHANGED
+    # Applies to openings made after the change only (D5).
+    stop_loss_pct: StopLossPct | None = None
 
 
 class UpdateStrategy:
@@ -152,6 +155,11 @@ class UpdateStrategy:
             name=strategy.name if command.name is None else command.name,
             policy=policy,
             enabled=strategy.enabled if command.enabled is None else command.enabled,
+            # No leverage is touched: a seat left above the new cap has its openings
+            # refused instead (``ProcessDelivery``), and its leverage stays as it was.
+            stop_loss_pct=(
+                strategy.stop_loss_pct if command.stop_loss_pct is None else command.stop_loss_pct
+            ),
             description=(
                 strategy.description
                 if isinstance(command.description, Unchanged)
@@ -176,6 +184,14 @@ class UpdateStrategy:
             )
 
         await self._commit.commit()
+        if updated.stop_loss_pct != strategy.stop_loss_pct:
+            logger.info(
+                "strategy stop level changed from %s to %s: strategy=%s author=%s",
+                format(strategy.stop_loss_pct.value, "f"),
+                format(updated.stop_loss_pct.value, "f"),
+                updated.id,
+                updated.author_id,
+            )
         # Whoever holds a link opens the strategy, so when one began or stopped
         # working is answerable from the log, never the token itself; a link killed
         # and made again is how it rotates (K.D advisory A3).

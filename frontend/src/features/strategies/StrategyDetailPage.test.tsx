@@ -47,6 +47,7 @@ function strategy(overrides: Partial<Strategy> = {}): Strategy {
     live_subscribers: 0,
     created_at: null,
     capital: null,
+    stop_loss_pct: "10.00",
     ...overrides,
   };
 }
@@ -162,6 +163,14 @@ describe("StrategyDetailPage", () => {
 
     fireEvent.click(remove);
     expect(screen.getByRole("dialog", { name: i18n.t("strategies.delete.confirmTitle", { name: "ETH Breakout" }) })).toBeInTheDocument();
+  });
+
+  it("mounts the stop level editor on the strategy's own level", async () => {
+    renderPage(strategy({ stop_loss_pct: "7.50" }));
+    await heading("ETH Breakout");
+
+    const region = screen.getByRole("region", { name: i18n.t("strategies.stopLevel.label") });
+    expect(within(region).getByRole("textbox")).toHaveValue("7.5");
   });
 
   it("mounts the allowed-pairs editor on the strategy's own pairs", async () => {

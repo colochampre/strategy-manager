@@ -56,6 +56,7 @@ from strategy_manager.signals.application.fan_out_signal import FanOutResult
 from strategy_manager.signals.infrastructure.models import SignalDeliveryRow, SignalRow
 from strategy_manager.strategies.domain.strategy import AllocationPercent
 from strategy_manager.subscriptions.application.change_share import ChangeShare
+from strategy_manager.subscriptions.infrastructure.adapters import SqlAlchemyStrategyLookup
 from strategy_manager.subscriptions.infrastructure.models import SubscriptionRow
 from strategy_manager.subscriptions.infrastructure.repository import (
     SqlAlchemySubscriptionRepository,
@@ -845,7 +846,11 @@ async def test_a_share_change_leaves_a_held_reservation_alone_and_sizes_the_next
     assert before.amount == Decimal("500")
 
     async with world.factory() as session:
-        await ChangeShare(SqlAlchemySubscriptionRepository(session), commit=session).change(
+        await ChangeShare(
+            SqlAlchemySubscriptionRepository(session),
+            commit=session,
+            strategies=SqlAlchemyStrategyLookup(session),
+        ).change(
             world.author, world.author_subscription, AllocationPercent(Decimal("10"))
         )
 

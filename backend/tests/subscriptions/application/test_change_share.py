@@ -12,9 +12,10 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from strategy_manager.shared.domain.leverage import Leverage
-from strategy_manager.strategies.domain.strategy import AllocationPercent
+from strategy_manager.shared.domain.leverage import Leverage, LeverageAboveStopCap
+from strategy_manager.strategies.domain.strategy import AllocationPercent, Visibility
 from strategy_manager.subscriptions.application.change_share import ChangeShare
+from strategy_manager.subscriptions.application.ports import StrategyMarket
 from strategy_manager.subscriptions.domain.subscription import Subscription
 
 _LOGGER = "strategy_manager.subscriptions.application.change_share"
@@ -33,6 +34,26 @@ class _Subscriptions:
     @property
     def stored(self) -> Subscription:
         return self._subscription
+
+
+class _Strategies:
+    """Implements ``StrategyLookupPort`` for one strategy at ``stop_loss_pct``."""
+
+    def __init__(self, stop_loss_pct: str = "10") -> None:
+        self._stop_loss_pct = Decimal(stop_loss_pct)
+        self.asked: list[UUID] = []
+
+    async def find(self, strategy_id: UUID) -> StrategyMarket | None:
+        self.asked.append(strategy_id)
+        return StrategyMarket(
+            id=strategy_id,
+            market=("bybit", "usdt-m", "USDT"),
+            archived=False,
+            author_id=uuid4(),
+            visibility=Visibility.PRIVATE,
+            author_named=True,
+            stop_loss_pct=self._stop_loss_pct,
+        )
 
 
 class _Commit:
@@ -62,7 +83,7 @@ async def test_a_real_change_is_logged_with_the_ids_and_both_values(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     subscription = _subscription("30")
-    use_case = ChangeShare(_Subscriptions(subscription), _Commit())
+    use_case = ChangeShare(_Subscriptions(subscription), _Commit(), strategies=_Strategies())
 
     with caplog.at_level(logging.INFO, logger=_LOGGER):
         await use_case.change(
@@ -81,7 +102,7 @@ async def test_the_same_value_written_differently_is_not_a_change(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     subscription = _subscription("33.5")
-    use_case = ChangeShare(_Subscriptions(subscription), _Commit())
+    use_case = ChangeShare(_Subscriptions(subscription), _Commit(), strategies=_Strategies())
 
     with caplog.at_level(logging.INFO, logger=_LOGGER):
         await use_case.change(
@@ -96,7 +117,7 @@ async def test_a_leverage_change_alone_keeps_the_share_and_is_logged(
 ) -> None:
     subscription = _subscription("30")
     subscriptions = _Subscriptions(subscription)
-    use_case = ChangeShare(subscriptions, _Commit())
+    use_case = ChangeShare(subscriptions, _Commit(), strategies=_Strategies())
 
     with caplog.at_level(logging.INFO, logger=_LOGGER):
         changed = await use_case.change(
@@ -119,7 +140,7 @@ async def test_both_change_in_one_call_and_each_leaves_its_line(
 ) -> None:
     subscription = _subscription("30")
     subscriptions = _Subscriptions(subscription)
-    use_case = ChangeShare(subscriptions, _Commit())
+    use_case = ChangeShare(subscriptions, _Commit(), strategies=_Strategies())
 
     with caplog.at_level(logging.INFO, logger=_LOGGER):
         await use_case.change(
@@ -139,7 +160,7 @@ async def test_both_change_in_one_call_and_each_leaves_its_line(
 
 async def test_the_same_leverage_is_not_a_change(caplog: pytest.LogCaptureFixture) -> None:
     subscription = _subscription("30")
-    use_case = ChangeShare(_Subscriptions(subscription), _Commit())
+    use_case = ChangeShare(_Subscriptions(subscription), _Commit(), strategies=_Strategies())
 
     with caplog.at_level(logging.INFO, logger=_LOGGER):
         await use_case.change(subscription.user_id, subscription.id, leverage=Leverage(1))
@@ -151,7 +172,7 @@ async def test_a_share_change_alone_keeps_the_leverage() -> None:
     subscription = replace(_subscription("30"), leverage=Leverage(4))
     subscriptions = _Subscriptions(subscription)
 
-    await ChangeShare(subscriptions, _Commit()).change(
+    await ChangeShare(subscriptions, _Commit(), strategies=_Strategies()).change(
         subscription.user_id, subscription.id, AllocationPercent(Decimal("45"))
     )
 
@@ -162,7 +183,9 @@ async def test_a_change_that_never_commits_leaves_no_line(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     subscription = _subscription("30")
-    use_case = ChangeShare(_Subscriptions(subscription), _Commit(fails=True))
+    use_case = ChangeShare(
+        _Subscriptions(subscription), _Commit(fails=True), strategies=_Strategies()
+    )
 
     with caplog.at_level(logging.INFO, logger=_LOGGER), pytest.raises(RuntimeError):
         await use_case.change(
@@ -170,3 +193,39 @@ async def test_a_change_that_never_commits_leaves_no_line(
         )
 
     assert _share_lines(caplog) == []
+
+
+async def test_a_leverage_above_the_cap_is_refused_before_anything_is_written(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A stop of 10 caps leverage at 9x."""
+    subscription = _subscription("30")
+    subscriptions = _Subscriptions(subscription)
+    commit = _Commit()
+    use_case = ChangeShare(subscriptions, commit, strategies=_Strategies("10"))
+
+    with caplog.at_level(logging.WARNING, logger=_LOGGER), pytest.raises(
+        LeverageAboveStopCap
+    ) as refused:
+        await use_case.change(
+            subscription.user_id,
+            subscription.id,
+            AllocationPercent(Decimal("40")),
+            leverage=Leverage(10),
+        )
+
+    assert refused.value.maximum == 9
+    assert subscriptions.stored == subscription
+    assert any("LEVERAGE_ABOVE_STOP_CAP" in line.getMessage() for line in _share_lines(caplog))
+
+
+async def test_a_share_change_alone_never_reads_the_strategy() -> None:
+    subscription = replace(_subscription("30"), leverage=Leverage(9))
+    strategies = _Strategies("15")  # a cap of 6x, under a seat at 9x
+
+    changed = await ChangeShare(
+        _Subscriptions(subscription), _Commit(), strategies=strategies
+    ).change(subscription.user_id, subscription.id, AllocationPercent(Decimal("45")))
+
+    assert changed.leverage == Leverage(9)
+    assert strategies.asked == []

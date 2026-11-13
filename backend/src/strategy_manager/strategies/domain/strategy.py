@@ -17,6 +17,7 @@ from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 from strategy_manager.strategies.domain.allowed_pairs import AllowedPairs
 from strategy_manager.strategies.domain.description import description_of
 from strategy_manager.strategies.domain.share_token import is_share_token
+from strategy_manager.strategies.domain.stop_loss import DEFAULT_STOP_LOSS_PCT, StopLossPct
 
 
 class FillMode(StrEnum):
@@ -134,6 +135,9 @@ class Strategy:
     # The link's token (decision 41): held exactly while the strategy is LINK, as
     # ``ck_strategies_share_token_iff_link`` holds it. ``repr`` never names it.
     share_token: str | None = field(default=None, repr=False)
+    # Where its positions are stopped, as a percentage of price from the entry (D5). A
+    # change applies to openings made after it only.
+    stop_loss_pct: StopLossPct = DEFAULT_STOP_LOSS_PCT
 
     def with_visibility(self, visibility: Visibility, new_token: Callable[[], str]) -> "Strategy":
         """This strategy at ``visibility``. Turning LINK makes a token with

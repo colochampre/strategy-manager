@@ -50,7 +50,9 @@ function isStrategy(value: unknown): value is Strategy {
     // The author's free text, or null when there is none. Never absent.
     (value.description === null || typeof value.description === "string") &&
     // Null under the brake, when nobody trades live. Never absent.
-    (value.capital === null || typeof value.capital === "string")
+    (value.capital === null || typeof value.capital === "string") &&
+    // The stop level, a decimal string. Never absent: a missing one would read as no cap.
+    typeof value.stop_loss_pct === "string"
   );
 }
 
@@ -159,6 +161,22 @@ export async function setStrategyDescription(strategyId: string, description: st
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ description }),
+  });
+  if (!isStrategy(body)) {
+    throw new ApiError(200, { detail: "Unexpected response shape from PATCH /strategies/{id}: expected a strategy" });
+  }
+  return body;
+}
+
+/**
+ * `PATCH /api/strategies/{id}` with only `stop_loss_pct`: every other field stays unchanged. A change applies to
+ * openings made after it; a position already open keeps the stop it has. The answer is checked, as for a read.
+ */
+export async function setStrategyStopLevel(strategyId: string, stopLossPct: string): Promise<Strategy> {
+  const body = await apiFetch<unknown>(`/strategies/${encodeURIComponent(strategyId)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ stop_loss_pct: stopLossPct }),
   });
   if (!isStrategy(body)) {
     throw new ApiError(200, { detail: "Unexpected response shape from PATCH /strategies/{id}: expected a strategy" });
@@ -307,6 +325,21 @@ export function useSetStrategyDescription(strategyId: string) {
   const queryClient = useQueryClient();
   return useMutation<Strategy, Error, string | null>({
     mutationFn: (description) => setStrategyDescription(strategyId, description),
+    onSuccess: (saved) => {
+      queryClient.setQueryData(["strategy", strategyId], saved);
+    },
+    onSettled: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["strategies"] });
+      await queryClient.invalidateQueries({ queryKey: ["strategy", strategyId] });
+    },
+  });
+}
+
+/** Changes the stop level, with the same effects on the cache as the description. */
+export function useSetStrategyStopLevel(strategyId: string) {
+  const queryClient = useQueryClient();
+  return useMutation<Strategy, Error, string>({
+    mutationFn: (stopLossPct) => setStrategyStopLevel(strategyId, stopLossPct),
     onSuccess: (saved) => {
       queryClient.setQueryData(["strategy", strategyId], saved);
     },

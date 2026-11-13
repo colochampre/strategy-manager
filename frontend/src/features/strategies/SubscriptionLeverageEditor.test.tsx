@@ -35,6 +35,7 @@ function strategy(overrides: Partial<Strategy> = {}): Strategy {
     live_subscribers: 0,
     created_at: null,
     capital: null,
+    stop_loss_pct: "10.00",
     ...overrides,
   };
 }
@@ -149,7 +150,8 @@ describe("SubscriptionLeverageEditor", () => {
   });
 
   it("the range, a stop and the keyboard all move the field and the handle together", async () => {
-    setupPage(strategy());
+    // A stop of 1% leaves the whole 1 to 20 range open.
+    setupPage(strategy({ stop_loss_pct: "1.00" }));
     await ready();
 
     fireEvent.change(track(), { target: { value: "12" } });
@@ -188,7 +190,8 @@ describe("SubscriptionLeverageEditor", () => {
   });
 
   it.each(["", "0", "21", "2.5", "x5", "abc"])("a typed %j is refused in words and cannot be saved", async (text) => {
-    const { patches } = setupPage(strategy());
+    // A stop of 1% leaves the whole 1 to 20 range open.
+    const { patches } = setupPage(strategy({ stop_loss_pct: "1.00" }));
     await ready();
 
     fireEvent.change(field(), { target: { value: text } });
@@ -317,5 +320,52 @@ describe("SubscriptionLeverageEditor Save icon (L.8)", () => {
     expect(saveButton().querySelector("svg")).toHaveClass("lucide-save");
     fireEvent.mouseEnter(saveButton().parentElement as HTMLElement);
     expect(screen.getByRole("tooltip")).toHaveTextContent("Save");
+  });
+});
+
+describe("SubscriptionLeverageEditor, under the cap of the strategy's stop level", () => {
+  it("offers no stop above the cap, says what it is, and refuses a typed value above it", async () => {
+    const { patches } = setupPage(strategy({ stop_loss_pct: "10.00" }));
+    await ready();
+
+    expect(screen.getByText("This strategy's stop allows a leverage of up to x9.")).toBeInTheDocument();
+    expect(stopButton(5)).toBeEnabled();
+    for (const stop of [10, 15, 20]) expect(stopButton(stop)).toBeDisabled();
+
+    fireEvent.change(field(), { target: { value: "12" } });
+
+    expect(screen.getByText("This strategy's stop allows at most x9. Enter a whole number from 1 to 9.")).toBeInTheDocument();
+    expect(field()).toHaveAttribute("aria-invalid", "true");
+    fireEvent.click(saveButton());
+    expect(patches()).toHaveLength(0);
+  });
+
+  it("a seat the author left above a widened cap reads as refused and is not changed for its user", async () => {
+    const { patches } = setupPage(strategy({ stop_loss_pct: "15.00", subscription: subscription(9) }));
+    await ready();
+
+    expect(field().value).toBe("9");
+    expect(screen.getByText("This strategy's stop allows at most x6. Enter a whole number from 1 to 6.")).toBeInTheDocument();
+    expect(saveButton()).toBeDisabled();
+
+    fireEvent.change(field(), { target: { value: "6" } });
+    fireEvent.click(saveButton());
+
+    await waitFor(() => expect(patches()).toHaveLength(1));
+    expect(patches()[0]?.body).toBe(JSON.stringify({ leverage: 6 }));
+  });
+
+  it("says the cap when the server still refuses the leverage", async () => {
+    setupPage(strategy({ stop_loss_pct: "10.00" }), {
+      patch: () => jsonResponse({ detail: { error: "LEVERAGE_ABOVE_STOP_CAP", message: "x" } }, 409),
+    });
+    await ready();
+
+    fireEvent.change(field(), { target: { value: "8" } });
+    fireEvent.click(saveButton());
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "That leverage is above what this strategy's stop allows. Lower it and try again.",
+    );
   });
 });

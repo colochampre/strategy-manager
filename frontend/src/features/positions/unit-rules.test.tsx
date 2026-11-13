@@ -55,6 +55,7 @@ function strategy(): Strategy {
     live_subscribers: 0,
     created_at: null,
     capital: null,
+    stop_loss_pct: "10.00",
   };
 }
 

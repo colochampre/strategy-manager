@@ -150,6 +150,7 @@ _NEW_STRATEGY = {
     "fill_mode": "PARTIAL",
     "allocation_percent": "100",
     "allowed_pairs": ["ETHUSDT"],
+    "stop_loss_pct": "10",
 }
 
 PROBES: tuple[Probe, ...] = (

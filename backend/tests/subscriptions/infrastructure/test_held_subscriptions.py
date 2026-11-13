@@ -53,6 +53,7 @@ BODY_KEYS = {
     "settlement_currency",
     "strategy_enabled",
     "strategy_uptime",
+    "stop_loss_pct",
 }
 
 
@@ -147,6 +148,25 @@ async def test_a_subscription_comes_with_what_names_its_strategy(
     assert held["authored"] is False
     assert (held["exchange"], held["venue"], held["settlement_currency"]) == seeds.MARKET
     assert held["strategy_enabled"] is True
+
+
+async def test_a_seat_carries_its_strategys_stop_level_for_the_leverage_cap(
+    pg_session_factory: Factory,  # noqa: F811
+    client_for: ClientFor,
+) -> None:
+    author, _ = await seeds.user(pg_session_factory)
+    await _named(pg_session_factory, author)
+    subscriber, pool = await seeds.user(pg_session_factory)
+    strategy_id = await seeds.strategy(
+        pg_session_factory, author_id=author, stop_loss_pct="12.50"
+    )
+    await seeds.subscription(
+        pg_session_factory, subscriber, strategy_id, pool or 0, share="30", leverage=7
+    )
+
+    held = await _only(client_for(subscriber))
+
+    assert held["stop_loss_pct"] == "12.50"
 
 
 async def test_a_seat_says_whether_its_strategy_runs(

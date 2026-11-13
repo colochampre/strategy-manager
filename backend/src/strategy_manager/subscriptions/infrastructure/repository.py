@@ -159,6 +159,7 @@ class SqlAlchemySubscriptionRepository:
                 StrategyRow.settlement_currency,
                 UserRow.display_name,
                 StrategyRow.enabled,
+                StrategyRow.stop_loss_pct,
             )
             .join(StrategyRow, StrategyRow.id == SubscriptionRow.strategy_id)
             .join(UserRow, UserRow.id == StrategyRow.author_id)
@@ -173,10 +174,19 @@ class SqlAlchemySubscriptionRepository:
                 authored=author_id == user_id,
                 market=(exchange, venue, currency),
                 strategy_enabled=enabled,
+                stop_loss_pct=stop_loss_pct,
             )
-            for row, name, author_id, exchange, venue, currency, author_name, enabled in (
-                result.all()
-            )
+            for (
+                row,
+                name,
+                author_id,
+                exchange,
+                venue,
+                currency,
+                author_name,
+                enabled,
+                stop_loss_pct,
+            ) in result.all()
         ]
 
     async def live_counts_by_user(self) -> dict[UUID, int]:

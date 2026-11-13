@@ -185,6 +185,7 @@ def _create_body(strategy_id: UUID) -> dict[str, Any]:
         "fill_mode": "PARTIAL",
         "allocation_percent": "100",
         "allowed_pairs": ["STXUSDT"],
+        "stop_loss_pct": "10",
     }
 
 

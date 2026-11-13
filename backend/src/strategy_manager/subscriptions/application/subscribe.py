@@ -20,7 +20,11 @@ import logging
 from uuid import UUID, uuid4
 
 from strategy_manager.shared.application.ports import ClockPort
-from strategy_manager.shared.domain.leverage import Leverage
+from strategy_manager.shared.domain.leverage import (
+    Leverage,
+    LeverageAboveStopCap,
+    refuse_above_stop_cap,
+)
 from strategy_manager.strategies.domain.invite_code import InviteCode, InviteCodeNotLive
 from strategy_manager.strategies.domain.share_token import link_opens
 from strategy_manager.strategies.domain.strategy import AllocationPercent, Entry, offered_to
@@ -74,7 +78,9 @@ class Subscribe:
         code: str | None = None,
     ) -> Subscription:
         """Raises ``StrategyNotFound``, ``StrategyArchived``, ``NoPoolForMarket`` or
-        ``AlreadySubscribed``, each before anything is written. The last one is
+        ``AlreadySubscribed``, each before anything is written. A leverage above
+        the cap of the strategy's stop level raises ``LeverageAboveStopCap``, also
+        before anything is written. The last one is
         also what the repository raises when a concurrent request wins the race
         the ``has_live`` read cannot close. A code may also raise
         ``TooManyCodeAttempts`` or ``InviteCodeNotLive``; the second after the seat
@@ -90,6 +96,7 @@ class Subscribe:
             spent = await self._entered_with(strategy, user_id, link, code)
         if strategy.archived:
             raise StrategyArchived(f"strategy {strategy_id} is archived")
+        self._refuse_above_stop_cap(user_id, strategy, leverage)
 
         pool_id = await self._pools.pool_id(user_id, strategy.market)
         if pool_id is None:
@@ -131,6 +138,20 @@ class Subscribe:
                 subscription.id,
             )
         return subscription
+
+    @staticmethod
+    def _refuse_above_stop_cap(user_id: UUID, strategy: StrategyMarket, leverage: Leverage) -> None:
+        try:
+            refuse_above_stop_cap(leverage, strategy.stop_loss_pct)
+        except LeverageAboveStopCap as exc:
+            logger.warning(
+                "subscription refused, %s: user=%s strategy=%s %s",
+                exc.reason_code,
+                user_id,
+                strategy.id,
+                exc,
+            )
+            raise
 
     async def _entered_with(
         self, strategy: StrategyMarket, user_id: UUID, link: str | None, code: str | None

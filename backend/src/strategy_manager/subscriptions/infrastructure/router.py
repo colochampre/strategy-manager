@@ -23,7 +23,12 @@ from strategy_manager.identity.infrastructure.dependencies import current_user
 from strategy_manager.ledger.application.read_symbol_holdings import ReadSymbolHoldings
 from strategy_manager.ledger.infrastructure.repository import SqlAlchemyLedgerRepository
 from strategy_manager.shared.db import get_session
-from strategy_manager.shared.domain.leverage import MAX_LEVERAGE, NEW_SEAT_LEVERAGE, Leverage
+from strategy_manager.shared.domain.leverage import (
+    MAX_LEVERAGE,
+    NEW_SEAT_LEVERAGE,
+    Leverage,
+    LeverageAboveStopCap,
+)
 from strategy_manager.shared.infrastructure.clock import SystemClock
 from strategy_manager.shared.infrastructure.wire import Money
 from strategy_manager.strategies.domain.enablement import Uptime, uptime
@@ -147,6 +152,8 @@ class HeldSubscriptionView(SubscriptionView):
     strategy_enabled: bool
     # How long the strategy has taken signals, as its author's card reads it (tasks.md L.1).
     strategy_uptime: UptimeView
+    # The cap on this seat's leverage (subscriber-safety D5).
+    stop_loss_pct: Money
 
     @classmethod
     def of_held(cls, held: HeldSubscription, active: Uptime) -> "HeldSubscriptionView":
@@ -161,6 +168,7 @@ class HeldSubscriptionView(SubscriptionView):
             settlement_currency=settlement_currency,
             strategy_enabled=held.strategy_enabled,
             strategy_uptime=UptimeView.of(active),
+            stop_loss_pct=held.stop_loss_pct,
         )
 
 
@@ -200,6 +208,8 @@ async def subscribe(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except StrategyArchived as exc:
         raise _conflict("STRATEGY_ARCHIVED", str(exc)) from exc
+    except LeverageAboveStopCap as exc:
+        raise _conflict(exc.reason_code, str(exc)) from exc
     except NoPoolForMarket as exc:
         raise _conflict("NO_POOL_FOR_MARKET", str(exc)) from exc
     except AlreadySubscribed as exc:
@@ -269,7 +279,11 @@ async def change_share(
     session: SessionDep,
     user: CurrentUserDep,
 ) -> SubscriptionView:
-    use_case = ChangeShare(SqlAlchemySubscriptionRepository(session), commit=session)
+    use_case = ChangeShare(
+        SqlAlchemySubscriptionRepository(session),
+        commit=session,
+        strategies=SqlAlchemyStrategyLookup(session),
+    )
     try:
         subscription = await use_case.change(
             user.id,
@@ -279,8 +293,10 @@ async def change_share(
             else AllocationPercent(body.allocation_percent),
             leverage=None if body.leverage is None else Leverage(body.leverage),
         )
-    except SubscriptionNotFound as exc:
+    except (SubscriptionNotFound, StrategyNotFound) as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except SubscriptionNotActive as exc:
         raise _conflict("SUBSCRIPTION_NOT_ACTIVE", str(exc)) from exc
+    except LeverageAboveStopCap as exc:
+        raise _conflict(exc.reason_code, str(exc)) from exc
     return SubscriptionView.of(subscription)

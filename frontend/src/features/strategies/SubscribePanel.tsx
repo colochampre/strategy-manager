@@ -3,13 +3,14 @@ import { LogOut, UserPlus } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router";
 
+import { maxLeverage } from "@/features/strategies/stop-level";
 import { entryRefusal } from "@/features/strategies/entry-refusal";
 import { LeaveDialog } from "@/features/strategies/LeaveDialog";
 import { LeverageSlider } from "@/features/strategies/LeverageSlider";
 import { SeatSettings } from "@/features/strategies/SeatSettings";
 import { ShareAmount } from "@/features/strategies/ShareAmount";
 import { ShareSlider } from "@/features/strategies/ShareSlider";
-import { LEVERAGE_REFUSAL_TEXT, useLeverageDraft } from "@/features/strategies/useLeverageDraft";
+import { leverageProblem, useLeverageDraft } from "@/features/strategies/useLeverageDraft";
 import { DRAFT_REFUSAL_TEXT, useShareDraft } from "@/features/strategies/useShareDraft";
 import { ApiError } from "@/shared/api/client";
 import { NO_ENTRY } from "@/shared/api/entry";
@@ -43,16 +44,19 @@ function refusalText(error: unknown): string {
     if (error.code === "NO_POOL_FOR_MARKET") return "strategies.subscribe.refused.needsKey";
     if (error.code === "ALREADY_SUBSCRIBED") return "strategies.subscribe.refused.already";
     if (error.code === "STRATEGY_ARCHIVED") return "strategies.subscribe.refused.archived";
+    if (error.code === "LEVERAGE_ABOVE_STOP_CAP") return "strategies.leverage.aboveCapRefused";
   }
   return "strategies.subscribe.refused.failed";
 }
 
-function SubscribeForm({ strategyId }: { strategyId: string }) {
+function SubscribeForm({ strategyId, stopLevel }: { strategyId: string; stopLevel: string }) {
   const { t } = useTranslation();
   const ids = { field: useId(), label: useId(), problem: useId() };
   const leverageIds = { field: useId(), label: useId(), problem: useId() };
   const subscribe = useSubscribe(strategyId);
-  const leverage = useLeverageDraft(STARTING_LEVERAGE);
+  // What the strategy's stop allows: the control offers nothing above it.
+  const max = maxLeverage(stopLevel);
+  const leverage = useLeverageDraft(STARTING_LEVERAGE, undefined, max);
   // The share is read at the leverage being chosen in this same form (the one source), so the notional follows
   // it; a leverage that is not a value yet reads as x1 and asks for none.
   const { text, reading, handle, amount, edited, changeText, changeStep } = useShareDraft(
@@ -120,13 +124,20 @@ function SubscribeForm({ strategyId }: { strategyId: string }) {
         disabled={busy}
         invalid={!leverage.reading.valid}
         describedBy={leverage.reading.valid ? undefined : leverageIds.problem}
+        max={max}
         onText={leverage.changeText}
         onHandle={leverage.changeStep}
         onStop={leverage.changeStep}
       />
+      {max < 20 && leverage.reading.valid && (
+        <p className="text-xs text-ink-3">{t("strategies.leverage.capNote", { max })}</p>
+      )}
       {!leverage.reading.valid && (
         <p id={leverageIds.problem} className="text-xs text-loss">
-          {t(LEVERAGE_REFUSAL_TEXT[leverage.reading.refusal])}
+          {t(
+            leverageProblem(leverage.reading.refusal, max).key,
+            leverageProblem(leverage.reading.refusal, max).values,
+          )}
         </p>
       )}
       <p className="text-xs text-ink-3">{t("strategies.subscribe.publicSum")}</p>
@@ -206,7 +217,7 @@ function SubscribeBody({ strategy }: { strategy: PublicStrategy }) {
       </>
     );
   }
-  return <SubscribeForm strategyId={strategy.id} />;
+  return <SubscribeForm strategyId={strategy.id} stopLevel={strategy.stop_loss_pct} />;
 }
 
 /**
@@ -229,7 +240,15 @@ function SeatPanel({ strategy, seat }: { strategy: PublicStrategy; seat: HeldSub
       <h2 id={titleId} className="font-display text-base font-semibold text-ink">
         {t("strategies.subscribe.seatTitle")}
       </h2>
-      <SeatSettings strategy={{ id: seat.strategy_id, subscription: seat, archived_at: null }} />
+      <SeatSettings
+        strategy={{
+          id: seat.strategy_id,
+          subscription: seat,
+          archived_at: null,
+          // The seat's own row carries the level, so the cap holds even if the page was read before a change.
+          stop_loss_pct: seat.stop_loss_pct,
+        }}
+      />
       {!active && <p className="text-sm text-ink-2">{t("strategies.subscriptions.leaving")}</p>}
       {active && (
         <div>

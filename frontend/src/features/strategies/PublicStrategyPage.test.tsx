@@ -688,7 +688,8 @@ describe("subscribing", () => {
   });
 
   it("offers a leverage that starts at x1 and sends the one the user chose, as a number, with the share", async () => {
-    const fetchMock = serve();
+    // A stop of 1% leaves the whole 1 to 20 range open.
+    const fetchMock = serve({ strategy: () => Promise.resolve(jsonResponse(publicStrategy({ id: ID, stop_loss_pct: "1.00" }))) });
     open();
 
     const leverage = await screen.findByRole("textbox", { name: i18n.t("strategies.leverage.label") });
@@ -705,8 +706,59 @@ describe("subscribing", () => {
     expect(init.body).toBe(`{"strategy_id":"${ID}","allocation_percent":"100","leverage":6}`);
   });
 
+  it("caps the leverage a reader may choose at what the strategy's stop allows, before any seat exists", async () => {
+    const fetchMock = serve({
+      strategy: () => Promise.resolve(jsonResponse(publicStrategy({ id: ID, stop_loss_pct: "25.00" }))),
+    });
+    open();
+
+    const leverage = await screen.findByRole("textbox", { name: i18n.t("strategies.leverage.label") });
+    expect(screen.getByText(i18n.t("strategies.leverage.capNote", { max: 3 }))).toBeInTheDocument();
+    fireEvent.change(leverage, { target: { value: "4" } });
+
+    expect(await subscribeButton()).toBeDisabled();
+    expect(leverage).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByText(i18n.t("strategies.leverage.aboveCap", { max: 3 }))).toBeInTheDocument();
+    fireEvent.submit(leverage.closest("form") as HTMLFormElement);
+    await whatWasPressedHasRun();
+    expect(posts(fetchMock)).toHaveLength(0);
+    fireEvent.change(await shareField(), { target: { value: "100" } });
+    fireEvent.change(leverage, { target: { value: "3" } });
+    expect(await subscribeButton()).not.toBeDisabled();
+  });
+
+  it("offers no leverage stop above the cap, so the slider cannot be pressed past it", async () => {
+    serve();
+    open();
+
+    await screen.findByRole("textbox", { name: i18n.t("strategies.leverage.label") });
+    // The fixture's stop of 10% allows x9.
+    expect(screen.getByRole("button", { name: i18n.t("strategies.leverage.stop", { value: 5 }) })).toBeEnabled();
+    expect(screen.getByRole("button", { name: i18n.t("strategies.leverage.stop", { value: 10 }) })).toBeDisabled();
+    expect(screen.getByRole("button", { name: i18n.t("strategies.leverage.stop", { value: 20 }) })).toBeDisabled();
+  });
+
+  it("caps a seat's leverage at the stop level its own row carries", async () => {
+    serve({
+      held: () =>
+        Promise.resolve(jsonResponse([heldSubscription({ strategy_id: ID, leverage: 2, stop_loss_pct: "25.00" })])),
+    });
+    open();
+
+    const leverage = await screen.findByRole("textbox", { name: i18n.t("strategies.leverage.label") });
+    fireEvent.change(leverage, { target: { value: "4" } });
+
+    expect(screen.getByText(i18n.t("strategies.leverage.aboveCap", { max: 3 }))).toBeInTheDocument();
+    expect(
+      within(screen.getByRole("region", { name: i18n.t("strategies.leverage.label") })).getByRole("button", {
+        name: i18n.t("strategies.leverage.save"),
+      }),
+    ).toBeDisabled();
+  });
+
   it.each(["0", "21", "2.5", ""])("refuses a leverage of %j in words and sends nothing", async (text) => {
-    const fetchMock = serve();
+    // A stop of 1% leaves the whole 1 to 20 range open.
+    const fetchMock = serve({ strategy: () => Promise.resolve(jsonResponse(publicStrategy({ id: ID, stop_loss_pct: "1.00" }))) });
     open();
 
     const leverage = await screen.findByRole("textbox", { name: i18n.t("strategies.leverage.label") });
@@ -777,6 +829,7 @@ describe("subscribing", () => {
     [409, { error: "NO_POOL_FOR_MARKET", message: "no" }, "strategies.subscribe.refused.needsKey"],
     [409, { error: "ALREADY_SUBSCRIBED", message: "no" }, "strategies.subscribe.refused.already"],
     [409, { error: "STRATEGY_ARCHIVED", message: "no" }, "strategies.subscribe.refused.archived"],
+    [409, { error: "LEVERAGE_ABOVE_STOP_CAP", message: "no" }, "strategies.leverage.aboveCapRefused"],
     [409, { error: "SOMETHING_NEW", message: "no" }, "strategies.subscribe.refused.failed"],
     [404, "no strategy", "strategies.subscribe.refused.gone"],
     [422, "bad share", "strategies.detail.share.outOfRange"],
