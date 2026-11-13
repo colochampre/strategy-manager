@@ -82,6 +82,15 @@ leave subscribers holding positions no signal will close.
   per-position "Close now" in the panel, is part of this change. Owner, the
   same day: "El boton de cerrar ahora debe pedir confirmacion".
 
+- D9 **decided** (owner, 2026-11-12): the Pionex adapters stay, unregistered.
+  "No. Lo dejamos. El trabajo realizado no lo tiremos a la basura. Si en algun
+  momento hay disponible una estrategia spot automatizada por señales para
+  compra y venta, entiendo que lo que hay actualmente sirve. Pero las medidas
+  de seguridad no son tan rigurosas como con futuros". So D1's exchange stop
+  binds the futures venues. A spot purchase has no leverage and cannot be
+  liquidated. What a spot venue requires will be decided when one is
+  registered, not in this change.
+
 The specs are under `specs/`: `protective-stop`, `safety-close` and
 `safety-events`. Each rule there that the owner has not decided is marked
 *Assumption*.

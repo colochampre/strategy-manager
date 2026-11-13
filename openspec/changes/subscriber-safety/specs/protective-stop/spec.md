@@ -215,8 +215,9 @@ refused because the venue position is already flat MUST be classified as
 
 ### Requirement: Resting a stop is part of a live adapter's contract
 
-A live adapter MUST be able to rest a stop, as described above, before it
-is registered with `VenueExchangeRegistry`. No refusal path is needed: a
+A live FUTURES adapter MUST be able to rest a stop, as described above,
+before it is registered with `VenueExchangeRegistry`. A spot venue is outside
+this requirement (D9). No refusal path is needed: a
 venue without a registered adapter already raises, with no fallback. Today
 only Bybit and Binance are registered. The Pionex adapters are not
 (`main.py:1203-1212`), and no Pionex key can be saved, because no key
