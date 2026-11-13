@@ -57,6 +57,13 @@ class ExecutionCause(StrEnum):
     MANUAL = "MANUAL"
 
 
+ALREADY_FLAT = "ALREADY_FLAT"
+"""The mark that opens the error of a close the venue refused because its position was
+already flat (SS.7): the stop most likely fired while the close was in flight, so the
+close is FAILED but nothing went wrong, and a reverse's continuation waits for the stop's
+booking instead of abandoning."""
+
+
 @dataclass(frozen=True, slots=True)
 class ExecutionAttempt:
     """One attempt to submit an order, either opening a position or closing
@@ -164,3 +171,12 @@ class ExecutionAttempt:
     @property
     def is_closing(self) -> bool:
         return self.closes_allocation_id is not None
+
+    @property
+    def refused_as_already_flat(self) -> bool:
+        """A FAILED close the venue refused because the position was already flat."""
+        return (
+            self.status is ExecutionStatus.FAILED
+            and self.error is not None
+            and self.error.startswith(f"{ALREADY_FLAT}:")
+        )

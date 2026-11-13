@@ -2349,6 +2349,45 @@ async def test_a_retried_reverse_after_a_failed_close_does_not_place_a_new_one()
     assert result.failed == "rejected by venue"
 
 
+async def test_a_retried_reverse_whose_close_was_refused_as_already_flat_is_not_a_failure() -> None:
+    """SS.7, owner decision 2026-11-13 (A): the venue refused the reverse's close because
+    its stop had already flattened the position. Its continuation waits for the stop's
+    booking and then opens, so a replay neither places a new close nor reports a failure."""
+    close_position = SpyClosePosition()
+    prior_reservation_id = uuid4()
+    context = _holdable_reverse_context(prior_reservation_id=prior_reservation_id)
+    flat_close = ExecutionAttempt(
+        id=uuid4(),
+        reservation_id=None,
+        closes_allocation_id=prior_reservation_id,
+        exchange="bybit",
+        venue="usdt-m",
+        settlement_currency="USDT",
+        symbol="ETHUSDT.P",
+        side=OrderSide.SELL,
+        quantity=Decimal("1"),
+        quote_amount=None,
+        leverage=None,
+        status=ExecutionStatus.FAILED,
+        origin=ExecutionOrigin.SYSTEM,
+        client_order_id="client-1",
+        error="ALREADY_FLAT: current position is zero",
+    )
+    handler = _process_signal_handler(
+        context=context,
+        allocate_capital=_allocate_capital(SpyAdvisoryLock()),
+        place_order=SpyPlaceOrder(),
+        close_position=close_position,
+        closing_attempts=FakeClosingAttemptsPort(latest=flat_close),
+    )
+
+    result = await handler.handle(uuid4())
+
+    assert close_position.calls == []
+    assert result.executed is True
+    assert result.failed is None
+
+
 async def test_a_plain_close_retried_after_a_committed_close_does_not_place_a_second() -> None:
     """The idempotent release half generalised to EVERY close path (spec:
     trade-execution § "A retried close is not re-sent"; design.md § S6) --

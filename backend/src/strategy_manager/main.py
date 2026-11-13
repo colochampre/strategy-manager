@@ -601,7 +601,9 @@ def _build_process_delivery(
         clock=SystemClock(),
         commit=session,
         settle_delay_seconds=settings.execution_settle_delay_seconds,
-        outcomes=SignalOrderOutcomeRecorder(delivery_outcomes),
+        outcomes=SignalOrderOutcomeRecorder(
+            delivery_outcomes, SqlAlchemySignalRepository(session)
+        ),
         # SS.5: the row of the stop an opening carries, written with its attempt.
         stops=SqlAlchemyProtectiveStopRepository(session),
     )
@@ -618,7 +620,9 @@ def _build_process_delivery(
         clock=SystemClock(),
         commit=session,
         settle_delay_seconds=settings.execution_settle_delay_seconds,
-        outcomes=SignalOrderOutcomeRecorder(delivery_outcomes),
+        outcomes=SignalOrderOutcomeRecorder(
+            delivery_outcomes, SqlAlchemySignalRepository(session)
+        ),
         # SS.7: whether the allocation's stop already closed it (ALREADY_CLOSED_BY_STOP).
         stops=SqlAlchemyProtectiveStopRepository(session),
     )
@@ -753,7 +757,8 @@ def _build_confirm_protective_stop(
             commit=session,
             settle_delay_seconds=settings.execution_settle_delay_seconds,
             outcomes=SignalOrderOutcomeRecorder(
-                SqlAlchemyDeliveryOutcomeAdapter(session, SystemClock())
+                SqlAlchemyDeliveryOutcomeAdapter(session, SystemClock()),
+                SqlAlchemySignalRepository(session),
             ),
             stops=SqlAlchemyProtectiveStopRepository(session),
         ),

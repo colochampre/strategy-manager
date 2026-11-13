@@ -67,6 +67,7 @@ from strategy_manager.signals.infrastructure.order_outcome_recorder import (
 from strategy_manager.signals.infrastructure.outcome_repository import (
     SqlAlchemyDeliveryOutcomeAdapter,
 )
+from strategy_manager.signals.infrastructure.repository import SqlAlchemySignalRepository
 from tests.allocation.fakes import RecordedModes
 from tests.execution.fakes import OneRegistry
 from tests.owner import OWNER_ID, ensure_delivery
@@ -136,7 +137,8 @@ def _place_order(
         commit=commit,
         settle_delay_seconds=0.0,
         outcomes=SignalOrderOutcomeRecorder(
-            SqlAlchemyDeliveryOutcomeAdapter(session, _FixedClock())
+            SqlAlchemyDeliveryOutcomeAdapter(session, _FixedClock()),
+            SqlAlchemySignalRepository(session),
         ),
         stops=SqlAlchemyProtectiveStopRepository(session),
     )
@@ -155,7 +157,8 @@ def _close_position(
         commit=commit,
         settle_delay_seconds=0.0,
         outcomes=SignalOrderOutcomeRecorder(
-            SqlAlchemyDeliveryOutcomeAdapter(session, _FixedClock())
+            SqlAlchemyDeliveryOutcomeAdapter(session, _FixedClock()),
+            SqlAlchemySignalRepository(session),
         ),
         stops=SqlAlchemyProtectiveStopRepository(session),
     )
@@ -363,13 +366,17 @@ async def _seed_close(
         strategy_id=strategy_id,
         idempotency_key=f"opening-{opening_signal_id}",
         symbol=_PIONEX,
+        received_at=_NOW - timedelta(hours=1),
     )
+    # A plain close: flat after a long of 1, the kind the outcome recorder derives.
     await seed_signal_row(
         factory,
         signal_id=closing_signal_id,
         strategy_id=strategy_id,
         idempotency_key=f"closing-{closing_signal_id}",
         symbol=_PIONEX,
+        position_size=Decimal("0"),
+        received_at=_NOW,
     )
     async with factory() as session:
         await ensure_delivery(session, signal_id=closing_signal_id, strategy_id=strategy_id)
@@ -588,7 +595,10 @@ async def test_a_close_refused_for_a_flat_position_ends_the_delivery_processed_a
     assert delivery.outcome_detail is not None
     assert "current position is zero" in delivery.outcome_detail
     [attempt] = await _closing_attempts(pg_session_factory, allocation_id)
-    assert (attempt.status, attempt.error) == ("FAILED", "current position is zero")
+    assert (attempt.status, attempt.error) == (
+        "FAILED",
+        "ALREADY_FLAT: current position is zero",
+    )
     assert attempt.cause == ExecutionCause.SIGNAL.value
 
 

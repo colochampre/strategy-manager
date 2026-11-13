@@ -277,8 +277,17 @@ class OpenAfterClose:
         ]
 
         # (2) Any awaited close that was definitively rejected ends this
-        # continuation -- there is nothing left to wait for.
-        if any(close is not None and close.status is ExecutionStatus.FAILED for close in closes):
+        # continuation -- there is nothing left to wait for. Except a close the venue
+        # refused because the position was already flat (SS.7, owner decision
+        # 2026-11-13): the stop fired while it was in flight, so this waits for the
+        # stop watcher's booking, a FILLED close that becomes the allocation's latest,
+        # and then opens. The settle timeout below still bounds that wait.
+        if any(
+            close is not None
+            and close.status is ExecutionStatus.FAILED
+            and not close.refused_as_already_flat
+            for close in closes
+        ):
             close_failed = (
                 f"abandoning continuation for signal {signal_id}: an awaited close failed"
             )

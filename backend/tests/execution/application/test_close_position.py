@@ -518,8 +518,10 @@ async def test_a_close_the_venue_refuses_because_the_position_is_flat_ends_alrea
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """SS.7: the stop fired while the close was in flight. The attempt is FAILED with the
-    venue's words, the delivery ends PROCESSED ``ALREADY_FLAT``, and the line is a WARNING,
-    never an ERROR: no operator is alerted. The stop watcher books the stop's fill."""
+    venue's words behind the ``ALREADY_FLAT`` marker a reverse's continuation reads, the
+    signals side decides the delivery's outcome (a reverse's open still follows), and the
+    line is a WARNING, never an ERROR: no operator is alerted. The stop watcher books the
+    stop's fill."""
     outcomes = RecordingOrderOutcomes()
     use_case, attempts, _, _, _, log = _build(
         exchange_raises=PositionAlreadyFlat("current position is zero"), outcomes=outcomes
@@ -531,14 +533,17 @@ async def test_a_close_the_venue_refuses_because_the_position_is_flat_ends_alrea
     assert result.status == "ALREADY_FLAT"
     assert result.error == "current position is zero"
     assert result.execution_attempt_id == attempts.inserted[0].id
-    assert attempts.failed == [(result.execution_attempt_id, "current position is zero")]
+    assert attempts.failed == [
+        (result.execution_attempt_id, "ALREADY_FLAT: current position is zero")
+    ]
     assert attempts.placed == []
-    [(delivery_id, reason, detail)] = outcomes.processed
-    assert (delivery_id, reason) == (DELIVERY_ID, "ALREADY_FLAT")
+    [(delivery_id, signal_id, detail)] = outcomes.already_flat
+    assert (delivery_id, signal_id) == (DELIVERY_ID, SIGNAL_ID)
     assert "current position is zero" in detail
+    assert outcomes.processed == []
     assert outcomes.rejected == [] and outcomes.processing == []
     # The outcome rides the commit that makes the FAILED mark durable.
-    assert log[-2:] == ["outcome.processed", "commit"]
+    assert log[-2:] == ["outcome.already_flat", "commit"]
     [record] = [r for r in caplog.records if "already flat" in r.getMessage()]
     assert record.levelno == logging.WARNING
     message = record.getMessage()
@@ -557,7 +562,8 @@ async def test_an_already_flat_close_with_no_delivery_writes_no_outcome() -> Non
 
     assert result.status == "ALREADY_FLAT"
     assert outcomes.processed == [] and outcomes.rejected == []
-    assert attempts.failed[0][1] == "current position is zero"
+    assert outcomes.already_flat == []
+    assert attempts.failed[0][1] == "ALREADY_FLAT: current position is zero"
 
 
 async def test_closing_a_short_is_refused_rather_than_approximated() -> None:

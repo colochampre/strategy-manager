@@ -979,6 +979,14 @@ class ProcessDelivery:
                 return ProcessSignalResult(
                     transition.kind.value, context.prior_reservation_id, True
                 )
+            if is_reverse_wiring and existing_close.refused_as_already_flat:
+                # SS.7, owner decision 2026-11-13 (A): the venue refused the close
+                # because the stop had already flattened the position. Not a failure:
+                # the continuation this close seeded waits for the stop's booking and
+                # then opens. No new close, and nothing to report.
+                return ProcessSignalResult(
+                    transition.kind.value, context.prior_reservation_id, True
+                )
             if is_reverse_wiring:
                 # FAILED close on a replay of the reverse-wiring release
                 # half (design.md § S6, "Edge case carried from S5b

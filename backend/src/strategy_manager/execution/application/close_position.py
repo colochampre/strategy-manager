@@ -53,6 +53,7 @@ from strategy_manager.execution.application.ports import (
     ProtectiveStopRepositoryPort,
 )
 from strategy_manager.execution.domain.execution_attempt import (
+    ALREADY_FLAT,
     ExecutionAttempt,
     ExecutionCause,
     ExecutionOrigin,
@@ -294,8 +295,12 @@ class ClosePosition:
         except PositionAlreadyFlat as exc:
             # The venue's position is already flat: the stop most likely fired while this
             # close was in flight, and the stop watcher books its fill. Not a failure the
-            # operator can act on, so a WARNING and a PROCESSED delivery, never an ERROR.
-            await self._attempts.mark_failed(command.user_id, attempt_id, str(exc))
+            # operator can act on, so a WARNING, never an ERROR. The mark opens the error, so
+            # a reverse's continuation waits for the stop's booking and then opens; the
+            # signals side ends a plain close's delivery PROCESSED.
+            await self._attempts.mark_failed(
+                command.user_id, attempt_id, f"{ALREADY_FLAT}: {exc}"
+            )
             flat = (
                 "close refused because the venue position is already flat, so nothing was "
                 f"closed by this order: strategy={command.strategy_id} "
@@ -303,8 +308,10 @@ class ClosePosition:
                 f"attempt={attempt_id} pool={command.exchange}/{command.venue}/"
                 f"{command.settlement_currency} venue_said={exc}"
             )
-            if command.delivery_id is not None:
-                await self._outcomes.record_processed(command.delivery_id, "ALREADY_FLAT", flat)
+            if command.delivery_id is not None and command.signal_id is not None:
+                await self._outcomes.record_close_already_flat(
+                    command.delivery_id, command.signal_id, flat
+                )
             await self._commit.commit()
             logger.warning("%s", flat)
             return CloseResult(

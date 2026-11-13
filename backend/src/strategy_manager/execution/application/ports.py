@@ -616,10 +616,20 @@ class OrderOutcomeRecorderPort(Protocol):
 
     async def record_rejected(self, delivery_id: UUID, reason: str, detail: str) -> None: ...
 
+    async def record_close_already_flat(
+        self, delivery_id: UUID, signal_id: UUID, detail: str
+    ) -> None:
+        """A close the venue refused because its position was already flat (SS.7). A plain
+        close's delivery ends ``PROCESSED`` with ``ALREADY_FLAT``; a reverse's writes nothing,
+        because its open half still follows once the stop watcher books the stop and
+        decides the outcome (owner decision, 2026-11-13). Only ``signals`` knows which
+        kind of signal a delivery carries."""
+        ...
+
     async def record_processed(self, delivery_id: UUID, reason: str, detail: str) -> None:
         """Ends the delivery ``PROCESSED`` with a ``reason`` (SS.7): a close that did nothing
-        because there was nothing left to close, ``ALREADY_CLOSED_BY_STOP`` or
-        ``ALREADY_FLAT``. Not a rejection, so no operator is told."""
+        because there was nothing left to close, ``ALREADY_CLOSED_BY_STOP``. Not a
+        rejection, so no operator is told."""
         ...
 
 

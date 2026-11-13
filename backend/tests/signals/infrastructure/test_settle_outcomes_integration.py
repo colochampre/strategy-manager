@@ -155,7 +155,8 @@ def _place_order(session: AsyncSession, exchange: FakeExchangeAdapter) -> PlaceO
         commit=session,
         settle_delay_seconds=0.0,
         outcomes=SignalOrderOutcomeRecorder(
-            SqlAlchemyDeliveryOutcomeAdapter(session, _FixedClock())
+            SqlAlchemyDeliveryOutcomeAdapter(session, _FixedClock()),
+            SqlAlchemySignalRepository(session),
         ),
         stops=SqlAlchemyProtectiveStopRepository(session),
     )
@@ -172,7 +173,8 @@ def _close_position(session: AsyncSession, exchange: FakeExchangeAdapter) -> Clo
         commit=session,
         settle_delay_seconds=0.0,
         outcomes=SignalOrderOutcomeRecorder(
-            SqlAlchemyDeliveryOutcomeAdapter(session, _FixedClock())
+            SqlAlchemyDeliveryOutcomeAdapter(session, _FixedClock()),
+            SqlAlchemySignalRepository(session),
         ),
         stops=SqlAlchemyProtectiveStopRepository(session),
     )
