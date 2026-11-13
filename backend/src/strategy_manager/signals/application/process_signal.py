@@ -914,6 +914,31 @@ class ProcessDelivery:
         )
         if (
             existing_close is not None
+            and existing_close.cause is ExecutionCause.STOP
+            and not is_reverse_wiring
+        ):
+            # The allocation's protective stop fired at the venue and the stop watcher
+            # booked it (SS.7). The strategy's close finds the position already gone:
+            # nothing to send and nothing to refuse, so the delivery ends PROCESSED.
+            # A reverse is not here: it seeds below and opens on that close.
+            logger.info(
+                "signal %s for strategy %s asks to %s %s, but the position "
+                "(%s) was already closed by its protective stop (attempt %s); "
+                "nothing was sent",
+                signal_id,
+                context.strategy_id,
+                transition.kind.value,
+                context.symbol,
+                context.prior_reservation_id,
+                existing_close.id,
+            )
+            await self._outcomes.record(
+                delivery.delivery_id, SignalOutcome.processed("ALREADY_CLOSED_BY_STOP")
+            )
+            await self._commit.commit()
+            return ProcessSignalResult(transition.kind.value, context.prior_reservation_id, True)
+        if (
+            existing_close is not None
             and existing_close.status is not ExecutionStatus.FAILED
             and existing_close.delivery_id != delivery.delivery_id
             and not is_reverse_wiring

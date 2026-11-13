@@ -77,6 +77,7 @@ from strategy_manager.signals.application.ports import (
 )
 from strategy_manager.signals.application.process_signal import Delivery, SignalContext
 from strategy_manager.signals.domain.holding import HeldAllocation
+from strategy_manager.signals.domain.signal import SignalStatus
 from strategy_manager.strategies.infrastructure.pool_lock_adapter import PoolLockAdapter
 from tests.accounts.fakes import BYBIT_KEY, BYBIT_SECRET, TickingClock
 from tests.allocation.fakes import (
@@ -2463,6 +2464,56 @@ async def test_a_plain_close_whose_allocation_another_delivery_closed_is_refused
     assert len(warnings) == 1
     assert "which is not this delivery's" in warnings[0]
     assert result.refused == warnings[0]
+
+
+async def test_a_plain_close_after_the_stop_fired_and_was_booked_ends_already_closed_by_stop(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """SS.7 verifier, blocker 1: the stop watcher books a fired stop on a FILLED attempt
+    of cause STOP with no delivery, the same shape as another delivery's close. The
+    strategy's close that arrives afterwards sends no order, is not refused, and its
+    delivery ends PROCESSED with ``ALREADY_CLOSED_BY_STOP`` and no warning."""
+    caplog.set_level(logging.INFO, logger="strategy_manager.signals.application.process_signal")
+    close_position = SpyClosePosition()
+    outcomes = RecordingSignalOutcomes()
+    prior_reservation_id = uuid4()
+    signal_id = uuid4()
+    context = SignalContext(
+        strategy_id=uuid4(),
+        symbol="ETHUSDT.P",
+        price=Decimal("2000"),
+        position_size=Decimal("0"),
+        prior_position_size=Decimal("1"),
+        prior_reservation_id=prior_reservation_id,
+        settlement_currency="USDT",
+    )
+    stop_booking = replace(
+        _another_deliverys_close(prior_reservation_id),
+        cause=ExecutionCause.STOP,
+        delivery_id=None,
+        client_order_id="stop-1",
+    )
+    handler = _process_signal_handler(
+        context=context,
+        allocate_capital=_allocate_capital(SpyAdvisoryLock()),
+        place_order=SpyPlaceOrder(),
+        close_position=close_position,
+        closing_attempts=FakeClosingAttemptsPort(latest=stop_booking),
+        outcomes=outcomes,
+    )
+
+    result = await handler.handle(signal_id)
+
+    assert close_position.calls == []
+    assert result.executed is True
+    assert result.refused is None
+    assert result.failed is None
+    assert [
+        (row, outcome.status, outcome.reason) for row, outcome in outcomes.calls
+    ] == [(signal_id, SignalStatus.PROCESSED, "ALREADY_CLOSED_BY_STOP")]
+    assert [r for r in caplog.records if r.levelno >= logging.WARNING] == []
+    infos = [r.getMessage() for r in caplog.records if r.levelno == logging.INFO]
+    assert any("already closed by its protective stop" in m for m in infos)
 
 
 async def test_a_reverse_whose_allocation_another_delivery_closed_waits_for_it_and_opens(
