@@ -304,7 +304,7 @@ owner's preference.
       `f05b56eb199c7b4a23e2eed5a05a55fdc2fd5d5fce4f1971fc1d2c340554732a`. The
       owner's block printed `OK`, `readable`, and both `bundle` and `checkout`
       at `5d6931638709`.
-- [ ] SS.6 Binance: the algo stop right after the fill, with `clientAlgoId`
+- [x] SS.6 Binance: the algo stop right after the fill, with `clientAlgoId`
   recorded first, `-2013` retried, an unknown outcome resolved by reading
   back, and a failure closing at once. Risk: items 4 and 6.
   - Design, 2026-11-13, from a read-only code map.
@@ -376,6 +376,24 @@ owner's preference.
         non-positive trigger, carry no code, so they read as ambiguous and
         would retry for ever. A UUID4 and a priced trigger cannot reach
         them.
+  - Delivered, 2026-11-13: PR #108, merge `1ce62e112557`. The owner ran both
+    steps from Git Bash. There was no panel move: `frontend/` did not change.
+    - Rehearsal on `sm_rehearsal_0042`, restored from a fresh backup:
+      - 0041 to 0042;
+      - `client_stop_id` added as nullable `text`, with
+        `uq_protective_stops_client_stop_id`;
+      - the other columns hashed unchanged;
+      - the downgrade dropped the column and the re-upgrade added it again;
+      - the copy was dropped.
+    - Production:
+      - backup `pre-0042-deploy-20261113T171511Z.dump`;
+      - 0041 to 0042;
+      - both services `active`, and no ERROR or Traceback line after the
+        restart.
+    - `protective_stops` was still empty in production at 18:15 local time.
+      No live opening had come since SS.5's deploy, so the first one on each
+      venue is the first real confirmation. Watch its `protective stop
+      resting` INFO line and its row.
 - [ ] SS.7 The stop watcher job, with the migration adding a cause to
   `execution_attempts` (SIGNAL / STOP / SAFETY_CLOSE / MANUAL):
   - fills booked under the allocation with cause STOP, plus `STOP_FIRED`;
