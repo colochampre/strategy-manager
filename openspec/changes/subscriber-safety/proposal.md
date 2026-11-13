@@ -20,9 +20,10 @@ leave subscribers holding positions no signal will close.
 1. **A protective stop at the exchange.** A reduce-only stop order placed with
    every live opening. It is the only layer that still works when the user
    never signs in, the author vanishes, and this app or its server is down.
-   It needs the venue APIs verified live, as every venue fact here has been.
-   Bybit's position trading-stop and Binance's reduce-only `STOP_MARKET` are
-   the candidates.
+   Verified live on 2026-11-12 (`tasks.md`, SS.1):
+   - Bybit takes the stop on the opening order itself.
+   - Binance takes it as a `closePosition` algo order right after the fill.
+   - Both remove the stop when the position closes by other means.
 2. **Automatic closing of orphaned positions.** The app closes a subscriber's
    open position by itself, after a grace period, when its strategy:
    - is disabled or archived;
@@ -66,6 +67,24 @@ leave subscribers holding positions no signal will close.
   position closed because its strategy was disabled, archived or lost its
   author) and shows it in the panel. Delivery to other channels belongs to
   `notifications`, which must carry these events too.
+
+- D5 **decided** (owner, 2026-11-12, "% de precio"): the author fixes the stop
+  as a percentage of price from the entry, so every seat exits at the same
+  price as the strategy. The level caps the leverage a seat may choose, so
+  that the stop comes before liquidation.
+- D6 **decided** (owner, 2026-11-12, "Nivel por defecto", "10%"): strategies
+  that exist at deploy receive a level of 10%, which caps leverage at about
+  9x. Their authors may change it.
+- D7 **decided** (owner, 2026-11-12, "Cerrar al instante"): on Binance the stop
+  is a second call after the fill. If it fails definitively, the position is
+  closed at market at once. No position lives without its stop.
+- D8 **decided** (owner, 2026-11-12, "Sí, en este cambio"): layer 3, a
+  per-position "Close now" in the panel, is part of this change. Owner, the
+  same day: "El boton de cerrar ahora debe pedir confirmacion".
+
+The specs are under `specs/`: `protective-stop`, `safety-close` and
+`safety-events`. Each rule there that the owner has not decided is marked
+*Assumption*.
 
 ## Out of scope
 

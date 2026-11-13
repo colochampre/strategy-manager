@@ -125,7 +125,72 @@ Planning. Decisions made; nothing is built until the owner says to build. It goe
   - Not run, optional: Bybit `--mode cancel` on its own, which would show that
     `stopLoss: "0"` removes the stop while the position stays open. It
     matters only if a changed stop level ever moves stops already placed.
-- [ ] SS.2 Specs and tasks for the chosen layers.
+- [x] SS.2 Specs and tasks for the chosen layers.
+  - Owner decisions D5-D8 were taken on 2026-11-12 and are recorded in
+    `proposal.md`. The specs are `specs/protective-stop`, `specs/safety-close`
+    and `specs/safety-events`. Rules the owner did not decide are marked
+    *Assumption*:
+    - the 1-50 range;
+    - the leverage cap formula;
+    - `MarkPrice` as the trigger;
+    - the 30 s stop watcher;
+    - live Pionex openings refused;
+    - simulated openings without a stop;
+    - the seat staying ACTIVE after "Close now".
+  - The code map came from a read-only explorer:
+    - The author trades through a subscription of their own
+      (`register_strategy.py:215-218`), so no separate author path is needed.
+    - Disable is a bare PATCH through `UpdateStrategy`, with no exposure check
+      (`update_strategy.py:154-175`).
+    - `ArchiveStrategy` already refuses on exposure, through
+      `StrategyExposureAdapter`.
+    - `ClosePosition` raises `NothingRecordedYet` on a zero ledger net and
+      retries.
+    - Ledger rows have no cause. `ExecutionAttempt` has `origin` and
+      `signal_id`.
+    - No per-user event list exists.
+    - The next migration is 0040.
+
+Implementation, not started. Each task is planned as one PR, following the
+owner's preference.
+
+- [ ] SS.3 Migration 0040:
+  - `strategies.stop_loss_pct`, NOT NULL, with existing rows at 10, and a
+    CHECK of 1-50;
+  - a `protective_stops` table: allocation, venue ids (`orderId` / `algoId`
+    and `clientAlgoId`), level, status RESTING/FIRED/GONE/FAILED;
+  - a `safety_events` table;
+  - a cause on `execution_attempts`: SIGNAL / STOP / SAFETY_CLOSE / MANUAL.
+
+  Rehearsed on a restored backup. Risk: item 1.
+- [ ] SS.4 The stop level and the leverage cap:
+  - domain, `UpdateStrategy`, and the router field;
+  - the author's editor in the panel;
+  - `LEVERAGE_ABOVE_STOP_CAP` on subscribe and on a seat edit, and the
+    panel slider capped;
+  - an opening refused for a seat above the cap, with its event.
+
+  Risk: item 3, since it adds a field to the PATCH.
+- [ ] SS.5 Bybit: the stop attached to the opening order. The resting stop is
+  found by `parentOrderLinkId` and recorded. A failure closes the position at
+  once. Risk: item 6 (live venue behaviour) and item 4.
+- [ ] SS.6 Binance: the algo stop right after the fill, with `clientAlgoId`
+  recorded first, `-2013` retried, an unknown outcome resolved by reading
+  back, and a failure closing at once. Risk: items 4 and 6.
+- [ ] SS.7 The stop watcher job:
+  - fills booked under the allocation with cause STOP, plus `STOP_FIRED`;
+  - gone stops marked;
+  - `ALREADY_CLOSED_BY_STOP` and `ALREADY_FLAT` in `ClosePosition`;
+  - reconciliation stays quiet on a fired stop.
+
+  Risk: items 1 and 4.
+- [ ] SS.8 Disable refused on exposure, under the archive's locks, with the
+  lock-hold concurrency test on PostgreSQL. Plus the sweep's safety close of
+  stopped strategies with positions. Risk: items 3 and 4.
+- [ ] SS.9 "Close now": the API and the panel's confirmation dialog, cause
+  MANUAL, idempotent while in flight, with its event.
+- [ ] SS.10 The safety events API and the panel list, in EN and ES.
+- [ ] SS.11 Docs: CLAUDE.md's venue facts on stops, and the panel's help text.
 
 ## Log
 
