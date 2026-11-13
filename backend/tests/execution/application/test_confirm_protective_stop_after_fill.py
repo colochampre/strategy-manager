@@ -483,13 +483,48 @@ async def test_a_definitive_refusal_reading_the_stop_back_closes_the_position() 
 
 async def test_a_retry_whose_second_request_is_refused_closes_the_position() -> None:
     rig = Rig(
-        trigger=Decimal("0.059700"), found=[None], place_raises=ExchangeError("refused")
+        trigger=Decimal("0.059700"), found=[None, None], place_raises=ExchangeError("refused")
     )
 
     result = await rig.use_case.confirm(OWNER, ATTEMPT_ID)
 
     assert result.status == "CLOSING"
+    assert rig.exchange.finds == [(SYMBOL, CLIENT_STOP_ID), (SYMBOL, CLIENT_STOP_ID)]
     assert rig.stops.marked == [(OWNER, ATTEMPT_ID, StopStatus.FAILED, None)]
+
+
+async def test_a_resent_request_refused_because_the_stop_now_rests_keeps_the_position() -> None:
+    """The first request arrived but its read lagged past the retries, so it was sent again
+    under the same id and refused, perhaps as a duplicate. The stop is read once more
+    before anything is closed: a protected position is never closed for it."""
+    rig = Rig(
+        trigger=Decimal("0.059700"),
+        found=[None, RestingStop(venue_stop_id=ALGO_ID)],
+        place_raises=ExchangeError("duplicate clientAlgoId"),
+    )
+
+    result = await rig.use_case.confirm(OWNER, ATTEMPT_ID)
+
+    assert result.status == "RESTING"
+    assert rig.closer.commands == []
+    assert rig.stops.marked == [(OWNER, ATTEMPT_ID, StopStatus.RESTING, ALGO_ID)]
+    assert rig.log == [
+        "exchange.find_stop",
+        "exchange.place_stop",
+        "exchange.find_stop",
+        "stop.mark RESTING",
+        "commit",
+    ]
+
+
+async def test_a_first_request_refused_is_not_read_back() -> None:
+    """With no trigger recorded, no earlier request can have reached the venue."""
+    rig = Rig(place_raises=ExchangeError("refused"))
+
+    result = await rig.use_case.confirm(OWNER, ATTEMPT_ID)
+
+    assert result.status == "CLOSING"
+    assert rig.exchange.finds == []
 
 
 # ---- what is not this job's to do ----

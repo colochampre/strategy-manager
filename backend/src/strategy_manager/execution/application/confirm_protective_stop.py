@@ -151,20 +151,31 @@ class ConfirmProtectiveStop:
         lands on the read-back. An acknowledged stop is ``RESTING`` at once and is not read
         back: ``-2013`` is how a just-placed stop answers.
         """
+        client_stop_id = stop.client_stop_id or ""
         try:
             if stop.trigger_price is None:
                 trigger = await self._record_trigger(user_id, attempt_id, stop, attempt, exchange)
+                resent = False
             else:
-                found = await exchange.find_stop(attempt.symbol, stop.client_stop_id or "")
+                found = await exchange.find_stop(attempt.symbol, client_stop_id)
                 if found is not None:
                     return await self._rest(user_id, attempt_id, attempt, found.venue_stop_id)
                 trigger = stop.trigger_price
-            algo_id = await exchange.place_stop(
-                attempt.symbol,
-                stop.position_side,
-                trigger,
-                stop.client_stop_id or "",
-            )
+                resent = True
+            try:
+                algo_id = await exchange.place_stop(
+                    attempt.symbol, stop.position_side, trigger, client_stop_id
+                )
+            except ExchangeError:
+                if not resent:
+                    raise
+                # A request sent again may be refused because the first one did arrive and
+                # its read only lagged (a duplicate id). Read once more before closing, so a
+                # protected position is never closed for a stop that rests.
+                found = await exchange.find_stop(attempt.symbol, client_stop_id)
+                if found is None:
+                    raise
+                return await self._rest(user_id, attempt_id, attempt, found.venue_stop_id)
         except (ExchangeError, InvariantViolation) as exc:
             return await self._fail_and_close(
                 user_id,

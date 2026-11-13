@@ -1154,8 +1154,21 @@ async def test_a_stop_still_missing_after_five_reads_is_absent() -> None:
     assert sleep.waits == [2, 2, 2, 2]
 
 
-async def test_an_ambiguous_read_of_the_stop_is_not_retried_and_not_read_as_missing() -> None:
-    error = BinanceApiError("Send status unknown", code="-1007", http_status=400)
+@pytest.mark.parametrize(
+    ("code", "http_status"),
+    [
+        ("-1007", 400),
+        # A business code on an overloaded or throttled answer is still no decision: a
+        # read refused this way must not fail the stop and close a protected position.
+        ("-1008", 503),
+        ("-1003", 429),
+        ("-1000", 408),
+    ],
+)
+async def test_an_ambiguous_read_of_the_stop_is_not_retried_and_not_read_as_missing(
+    code: str, http_status: int
+) -> None:
+    error = BinanceApiError("Send status unknown", code=code, http_status=http_status)
     client = StopClient(algo_answers=[error])
     sleep = RecordingSleep()
 
