@@ -205,6 +205,9 @@ from strategy_manager.reconciliation.infrastructure.reconciled_users import (
 from strategy_manager.reconciliation.infrastructure.repository import (
     SqlAlchemyDiscrepancyRepository,
 )
+from strategy_manager.reconciliation.infrastructure.resting_stops_adapter import (
+    RestingStopsAdapter,
+)
 from strategy_manager.reconciliation.infrastructure.router import (
     router as reconciliation_router,
 )
@@ -2116,6 +2119,8 @@ def build_worker_runner(
                             clock=SystemClock(),
                             commit=session,
                             confirmations_required=settings.reconciliation_confirmations,
+                            # SS.7: a flat venue beside a RESTING stop is the stop watcher's.
+                            resting_stops=RestingStopsAdapter(session),
                         )
                     )
 

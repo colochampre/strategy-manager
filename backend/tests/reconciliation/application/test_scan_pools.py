@@ -162,6 +162,19 @@ class FakeDiscrepancyRepository:
         return len(symbols)
 
 
+class FakeRestingStops:
+    """``RestingStopsPort``: the RESTING stops of each ``(user, pool)``, by default none.
+    ``asked`` records every ``(user, pool)`` the scan asked about."""
+
+    def __init__(self, by_user_pool: dict[tuple[UUID, PoolKey], list[str]] | None = None) -> None:
+        self._by_user_pool = by_user_pool or {}
+        self.asked: list[tuple[UUID, PoolKey]] = []
+
+    async def resting_symbols(self, user_id: UUID, pool: PoolKey) -> list[str]:
+        self.asked.append((user_id, pool))
+        return list(self._by_user_pool.get((user_id, pool), []))
+
+
 class FrozenClock:
     def __init__(self, at: datetime) -> None:
         self._at = at
@@ -237,6 +250,7 @@ def _build(
         clock=FrozenClock(NOW),
         commit=commit,
         confirmations_required=confirmations_required,
+        resting_stops=FakeRestingStops(),
     )
     return use_case, registry, ledger, discrepancies, commit
 
@@ -290,6 +304,7 @@ async def test_a_pool_with_no_user_is_refused_loudly() -> None:
         clock=FrozenClock(NOW),
         commit=SpyCommit(),
         confirmations_required=2,
+        resting_stops=FakeRestingStops(),
     )
 
     with pytest.raises(InvariantViolation):

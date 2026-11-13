@@ -40,6 +40,16 @@ def test_the_composition_root_registers_a_handler_for_it() -> None:
     assert "JobKind.PROTECTIVE_STOP_WATCH: handle_protective_stop_watch" in source
 
 
+def test_the_reconciliation_scan_is_built_with_the_resting_stops_it_leaves_to_the_watcher() -> None:
+    from strategy_manager import main
+
+    source = inspect.getsource(main.build_worker_runner)
+    body = source[source.index("async def handle_reconciliation_scan") :]
+    body = body[: body.index("async def handle_reconciliation_prepare_booking")]
+
+    assert "resting_stops=RestingStopsAdapter(session)" in body
+
+
 def test_the_interval_is_thirty_seconds_and_belongs_to_the_settings() -> None:
     """Shorter than twice the reconciliation scan, so a fired stop is booked before two
     scans could confirm the position it closed."""

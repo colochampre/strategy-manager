@@ -66,6 +66,9 @@ from strategy_manager.reconciliation.infrastructure.booking_proposal_repository 
 from strategy_manager.reconciliation.infrastructure.repository import (
     SqlAlchemyDiscrepancyRepository,
 )
+from strategy_manager.reconciliation.infrastructure.resting_stops_adapter import (
+    RestingStopsAdapter,
+)
 from strategy_manager.reconciliation.infrastructure.system_order_ids_adapter import (
     SystemOrderIdsAdapter,
 )
@@ -305,6 +308,7 @@ async def _scan(
             clock=_FrozenClock(at),
             commit=_SessionCommit(session),
             confirmations_required=2,
+            resting_stops=RestingStopsAdapter(session),
         )
         await use_case.scan(scan_id)
 

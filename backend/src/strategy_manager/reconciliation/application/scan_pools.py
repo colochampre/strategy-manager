@@ -47,6 +47,7 @@ from strategy_manager.reconciliation.application.ports import (
     DiscrepancyRepositoryPort,
     LedgerSymbolPositionPort,
     PoolKey,
+    RestingStopsPort,
     VenuePositionReaderRegistryPort,
     VenuePositionReadError,
 )
@@ -89,6 +90,7 @@ class ScanPools:
         clock: ClockPort,
         commit: CommitPort,
         confirmations_required: int,
+        resting_stops: RestingStopsPort,
     ) -> None:
         """``pool_users`` names, per pool, the user whose pool it is: the
         ledger read, the open discrepancies read and every discrepancy written
@@ -103,6 +105,7 @@ class ScanPools:
         self._clock = clock
         self._commit = commit
         self._confirmations_required = confirmations_required
+        self._resting_stops = resting_stops
 
     async def scan(self, scan_id: UUID) -> ScanResult:
         """One pass over every configured pool.
@@ -197,6 +200,9 @@ class ScanPools:
         )
 
         opened = 0
+        # The market keys of the user's RESTING stops in this pool, read on the first symbol
+        # that needs them and not at all when nothing is flat-at-the-venue-but-held.
+        resting_markets: set[str] | None = None
         # Resolution names the spelling a row is STORED under, because the
         # repository matches ``symbol IN (...)`` literally. A row written before
         # keys were canonical may carry a marker spelling.
@@ -211,6 +217,33 @@ class ScanPools:
             if kind is None:
                 resolved_symbols.extend(record.symbol for record in prior_records)
                 continue
+
+            # The one narrow hold (subscriber-safety SS.7): the venue is flat while the
+            # ledger holds the market, and a protective stop for it is still RESTING. That is
+            # the stop having fired, and the stop watcher books its fills; until it has
+            # decided, this moment is not counted towards a confirmation and an open row is
+            # neither advanced nor resolved. Any other mismatch, and a stop the watcher read
+            # GONE, is classified and counted exactly as before.
+            if venue_position.net_base == _ZERO and ledger_position.net_base != _ZERO:
+                if resting_markets is None:
+                    resting_markets = {
+                        market_key(resting)
+                        for resting in await self._resting_stops.resting_symbols(user_id, pool)
+                    }
+                if symbol in resting_markets:
+                    exchange, venue, settlement_currency = pool
+                    logger.info(
+                        "reconciliation scan: %s in %s/%s/%s left to the stop watcher: the "
+                        "venue is flat, the ledger holds %s and a protective stop still rests "
+                        "(scan %s)",
+                        symbol,
+                        exchange,
+                        venue,
+                        settlement_currency,
+                        format(ledger_position.net_base, "f"),
+                        scan_id,
+                    )
+                    continue
 
             # The row stores the MARKET KEY, not either side's spelling: it
             # describes a disagreement about one market, and the two spellings
