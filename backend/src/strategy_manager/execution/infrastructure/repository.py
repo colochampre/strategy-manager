@@ -9,6 +9,7 @@ from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from strategy_manager.allocation.infrastructure.models import ReservationRow
+from strategy_manager.execution.application.ports import OwnedStop
 from strategy_manager.execution.domain.execution_attempt import (
     ExecutionAttempt,
     ExecutionCause,
@@ -143,6 +144,19 @@ class SqlAlchemyProtectiveStopRepository:
             )
             .values(trigger_price=trigger_price, updated_at=func.now())
         )
+
+    async def resting_of_every_user(self) -> list[OwnedStop]:
+        """Every RESTING stop, oldest first, with its owner (SS.7's watcher). Read past the
+        identity map so a stop another run of the same session just decided is not stale."""
+        rows = (
+            await self._session.execute(
+                select(ProtectiveStopRow)
+                .where(ProtectiveStopRow.status == StopStatus.RESTING.value)
+                .order_by(ProtectiveStopRow.created_at, ProtectiveStopRow.id)
+                .execution_options(populate_existing=True)
+            )
+        ).scalars()
+        return [OwnedStop(user_id=row.user_id, stop=_stop_to_domain(row)) for row in rows]
 
 
 def _stop_to_domain(row: ProtectiveStopRow) -> ProtectiveStop:

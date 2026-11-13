@@ -5,8 +5,8 @@ business logic, authentication and secrets; the frontend is a pure client.
 """
 
 import logging
-from collections.abc import AsyncIterator, Mapping, Sequence
-from contextlib import AsyncExitStack, asynccontextmanager
+from collections.abc import AsyncIterator, Callable, Mapping, Sequence
+from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager
 from dataclasses import replace
 from datetime import datetime
 from decimal import Decimal
@@ -96,7 +96,11 @@ from strategy_manager.execution.application.ports import (
     ExchangePort,
     ModeExchangesPort,
 )
+from strategy_manager.execution.application.protective_stop_watch_handler import (
+    ProtectiveStopWatchHandler,
+)
 from strategy_manager.execution.application.settle_execution import SettleExecution
+from strategy_manager.execution.application.watch_protective_stops import WatchProtectiveStops
 from strategy_manager.execution.infrastructure.binance_futures_exchange import (
     BinanceFuturesExchangeAdapter,
 )
@@ -748,6 +752,34 @@ def _build_confirm_protective_stop(
             ),
         ),
         commit=session,
+    )
+
+
+def _build_protective_stop_watch(
+    session: AsyncSession,
+    settings: Settings,
+    exchanges_for: Callable[[UUID], AbstractAsyncContextManager[ModeExchangesPort]],
+) -> ProtectiveStopWatchHandler:
+    """Composes the ``protective_stop.watch`` job (SS.7): every resting stop is read as the
+    user whose key placed it (``exchanges_for`` opens that user's exchanges), and the fills
+    of one that fired are booked through the same ports a close's settle uses."""
+    return ProtectiveStopWatchHandler(
+        watcher=WatchProtectiveStops(
+            stops=SqlAlchemyProtectiveStopRepository(session),
+            attempts=SqlAlchemyExecutionAttemptRepository(session),
+            reservations=ReservationGatewayAdapter(SqlAlchemyReservationRepository(session)),
+            held=ReadHeldBase(SqlAlchemyLedgerRepository(session)),
+            fill_recorder=RecordFill(SqlAlchemyLedgerRepository(session)),
+            usd_rates=FixedUsdRateProvider({Currency.USDT: Decimal("1")}),
+            pool_lock=PoolLockAdapter(session),
+            leaving=_end_leaving(session),
+            allocation_modes=SqlAlchemyAllocationMode(session),
+            exchanges_for=exchanges_for,
+            unit_of_work=session,
+        ),
+        queue=_job_queue(session, settings),
+        clock=SystemClock(),
+        interval_seconds=settings.protective_stop_watch_interval_seconds,
     )
 
 
@@ -1882,6 +1914,21 @@ def build_worker_runner(
                     owner, attempt_id
                 )
 
+    async def handle_protective_stop_watch(job: ClaimedJob) -> None:
+        """Reads every resting protective stop at its venue, as the user whose key placed
+        it, and books the fills of one that fired (SS.7). One session for the pass: each
+        stop is decided under its user's pool lock and committed on its own, and the
+        handler commits the successor it enqueues last. Runs under the DRY_RUN brake too,
+        because a resting stop belongs to a real position."""
+        async with factory() as session:
+            handler = _build_protective_stop_watch(
+                session,
+                settings,
+                lambda owner: exchanges_by_mode.for_job(session, owner),
+            )
+            await handler.handle(job)
+            await session.commit()
+
     async def handle_balance_sync(job: ClaimedJob) -> None:
         """One sync per exchange that has enabled pools AND an active vault
         credential right now.
@@ -2325,6 +2372,7 @@ def build_worker_runner(
         JobKind.BALANCE_SYNC: handle_balance_sync,
         JobKind.EXECUTION_SETTLE: handle_execution_settle,
         JobKind.PROTECTIVE_STOP_CONFIRM: handle_protective_stop_confirm,
+        JobKind.PROTECTIVE_STOP_WATCH: handle_protective_stop_watch,
         JobKind.RECONCILIATION_SCAN: handle_reconciliation_scan,
         JobKind.RECONCILIATION_PREPARE_BOOKING: handle_reconciliation_prepare_booking,
         JobKind.JOBS_PURGE: handle_jobs_purge,

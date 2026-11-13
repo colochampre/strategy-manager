@@ -449,6 +449,14 @@ class ExecutionAttemptRepositoryPort(Protocol):
     async def mark_failed(self, user_id: UUID, attempt_id: UUID, error: str) -> None: ...
 
 
+@dataclass(frozen=True, slots=True)
+class OwnedStop:
+    """A stop with the user it belongs to."""
+
+    user_id: UUID
+    stop: ProtectiveStop
+
+
 class ProtectiveStopRepositoryPort(Protocol):
     """The stop of each opening attempt (subscriber-safety SS.5). Every method names
     the user whose stop it is, like the attempt repository: another user's row under
@@ -478,6 +486,12 @@ class ProtectiveStopRepositoryPort(Protocol):
         """Records where a stop placed after the fill will rest (SS.6), worked out from
         the fills. Written before the request that places it, so a retry after an unknown
         outcome places the SAME stop and never works out a second price."""
+        ...
+
+    async def resting_of_every_user(self) -> Sequence[OwnedStop]:
+        """Every ``RESTING`` stop of every user, each with its owner. The one cross-user
+        read here, made by SS.7's watcher as a system query before it loops per user:
+        there is no row-level security, and the per-user reads that follow name the user."""
         ...
 
 
@@ -551,6 +565,16 @@ class CommitPort(Protocol):
     object with an async ``commit()`` satisfies it structurally."""
 
     async def commit(self) -> None: ...
+
+
+class UnitOfWorkPort(Protocol):
+    """``CommitPort`` plus the rollback a loop needs: a job that decides many independent
+    things in one session (SS.7's watcher) must end a failed one cleanly, releasing its
+    locks, before it starts the next."""
+
+    async def commit(self) -> None: ...
+
+    async def rollback(self) -> None: ...
 
 
 class OrderOutcomeRecorderPort(Protocol):
