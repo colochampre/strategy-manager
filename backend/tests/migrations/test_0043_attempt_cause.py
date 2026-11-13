@@ -4,8 +4,9 @@
 * ``execution_attempts.cause`` is ``SIGNAL``, ``STOP``, ``SAFETY_CLOSE`` or ``MANUAL``,
   checked by name, NOT NULL.
 * Rows written before it are backfilled by rule: a ``signal_id`` gives ``SIGNAL``, a
-  ``VENUE`` origin gives ``MANUAL``, a ``SYSTEM`` close with no signal gives
-  ``SAFETY_CLOSE`` (SS.5's confirm job), anything else gives ``SIGNAL``. The upgrade prints
+  ``VENUE`` origin gives ``MANUAL``, a ``SYSTEM`` close with no signal of an allocation
+  whose stop is ``FAILED`` gives ``SAFETY_CLOSE`` (SS.5's confirm job), anything else
+  (an orphan close included) gives ``SIGNAL``. The upgrade prints
   the count per cause, for the rehearsal.
 * ``ck_protective_stops_status`` gains ``FIRED``.
 * The downgrade refuses while a ``FIRED`` stop or a non-``SIGNAL`` cause exists, instead of
@@ -75,6 +76,18 @@ def _close(
     return attempt
 
 
+def _failed_stop(world: World, allocation: UUID, opening_attempt: UUID) -> None:
+    """The stop SS.5's confirm job marks FAILED before it closes the position itself."""
+    _query(
+        world.url,
+        "INSERT INTO protective_stops (id, user_id, execution_attempt_id, allocation_id, "
+        "exchange, venue, symbol, position_side, stop_loss_pct, trigger_price, status) "
+        "VALUES (:id, :u, :a, :r, 'bybit', 'usdt-m', 'DOGEUSDT.P', 'LONG', 10, NULL, "
+        "'FAILED')",
+        {"id": uuid4(), "u": world.user, "a": opening_attempt, "r": allocation},
+    )
+
+
 def _causes(url: str) -> dict[UUID, str]:
     return {row[0]: row[1] for row in _query(url, "SELECT id, cause FROM execution_attempts")}
 
@@ -102,18 +115,23 @@ def test_existing_attempts_are_backfilled_by_rule(at_0042: str) -> None:
         {"s": signal, "a": opening_attempt},
     )
     no_signal_open, no_signal_open_attempt = world.opening()
+    stopped, stopped_attempt = world.opening()
+    _failed_stop(world, stopped, stopped_attempt)
     signalled_close = _close(world, with_signal, signal=signal)
     venue_close = _close(world, no_signal_open, origin="VENUE")
-    safety_close = _close(world, no_signal_open)
+    orphan_close = _close(world, no_signal_open)
+    safety_close = _close(world, stopped)
 
     _alembic(at_0042, "upgrade", "0043")
 
     assert _causes(at_0042) == {
         opening_attempt: "SIGNAL",  # a signal_id
         no_signal_open_attempt: "SIGNAL",  # anything else
+        stopped_attempt: "SIGNAL",  # an opening is never a safety close
         signalled_close: "SIGNAL",  # a signal_id wins over everything
         venue_close: "MANUAL",  # a reconciliation booking of a trade done by hand
-        safety_close: "SAFETY_CLOSE",  # a SYSTEM close with no signal
+        orphan_close: "SIGNAL",  # a SYSTEM close with no signal and no failed stop
+        safety_close: "SAFETY_CLOSE",  # SS.5's close of a position whose stop FAILED
     }
 
 
@@ -131,7 +149,8 @@ def test_a_venue_attempt_with_a_signal_is_still_a_signal_by_the_rules_order(
 
 def test_the_upgrade_prints_the_count_per_cause(at_0042: str) -> None:
     world = World(at_0042)
-    allocation, _ = world.opening()
+    allocation, opening_attempt = world.opening()
+    _failed_stop(world, allocation, opening_attempt)
     _close(world, allocation)
     _close(world, allocation)
     _close(world, allocation, origin="VENUE")

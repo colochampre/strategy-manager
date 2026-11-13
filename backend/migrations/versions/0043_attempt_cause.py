@@ -12,8 +12,9 @@ Rows written before this migration are backfilled by rule, in this order:
 
 1. a ``signal_id`` gives ``SIGNAL``;
 2. origin ``VENUE`` gives ``MANUAL``;
-3. a ``SYSTEM`` close with no signal gives ``SAFETY_CLOSE`` (the only such close until now
-   is SS.5's confirm job);
+3. a ``SYSTEM`` close with no signal, of an allocation whose protective stop is ``FAILED``,
+   gives ``SAFETY_CLOSE``: that is SS.5's confirm job. ``CloseOrphans`` also closes with no
+   signal, and its closes stay ``SIGNAL``, as the code writes them from now on;
 4. anything else gives ``SIGNAL``.
 
 The upgrade prints the count per cause, which is what the rehearsal reads.
@@ -59,7 +60,9 @@ def upgrade() -> None:
             f"UPDATE {_ATTEMPTS} SET cause = CASE "  # noqa: S608
             "WHEN signal_id IS NOT NULL THEN 'SIGNAL' "
             "WHEN origin = 'VENUE' THEN 'MANUAL' "
-            "WHEN origin = 'SYSTEM' AND closes_allocation_id IS NOT NULL THEN 'SAFETY_CLOSE' "
+            "WHEN origin = 'SYSTEM' AND closes_allocation_id IN ("
+            "SELECT allocation_id FROM protective_stops WHERE status = 'FAILED'"
+            ") THEN 'SAFETY_CLOSE' "
             "ELSE 'SIGNAL' END"
         )
     )
