@@ -259,6 +259,35 @@ owner's preference.
         no signal. A ledger already flat (`NothingRecordedYet`) marks it
         `GONE` instead. The `STOP_FAILED_CLOSED` row comes with SS.10.
     - An opening that ends without fills marks its row `VOID`.
+  - Progress, 2026-11-13.
+    - The first writer was cut by the 5-hour usage limit with two tests in
+      RED. A fresh writer finished from the working tree: the `FAILED` mark
+      is staged, not committed, and rides `ClosePosition`'s own commit. A
+      close that cannot be built rolls it back, so the stop stays `PENDING`
+      and the job's retry looks again.
+    - Gate on `27c2ab0`: `ruff`, `mypy src` and the full `pytest`, exit 0.
+    - Independent verifier (items 1, 4 and 6), against `8db8988`: no
+      blockers.
+      - Every `ClosePosition` outcome commits the mark: PLACED, refused,
+        NOT_CLOSABLE, and an ambiguous place, whose retry then skips.
+      - A redelivered settle enqueues one confirm. `VOID` is set only on a
+        definitive refusal and on settle's no-order path.
+      - Binance, Pionex and the fake exchange build and send what they did.
+      - 15 hand mutations, 15 caught.
+    - Advisories, not fixed here:
+      - A FAILED stop whose close is refused, or is dust, leaves the
+        position open without a stop. Only `ClosePosition`'s ERROR line says
+        so. SS.10's `STOP_FAILED_CLOSED` event is where the user learns it.
+      - One empty read of `/v5/order/realtime` closes the position. Run 4
+        found the stop resting as soon as the fill exists, and the job runs
+        after settle, so no retry was added.
+      - That read takes the first page only (20 orders per symbol). One-way
+        mode holds one position per symbol, so a miss is unlikely.
+      - The confirm job stages its UPDATE on the stop row before it locks
+        the reservation row. No concurrent pair takes both today.
+      - A `SIMULATED` row records the level, with `trigger_price` NULL.
+    - The Binance DOGE example in the spec gave 0.059706 on a 0.000010 tick.
+      That is not a multiple of the tick: corrected to 0.059700 for SS.6.
 - [ ] SS.6 Binance: the algo stop right after the fill, with `clientAlgoId`
   recorded first, `-2013` retried, an unknown outcome resolved by reading
   back, and a failure closing at once. Risk: items 4 and 6.
