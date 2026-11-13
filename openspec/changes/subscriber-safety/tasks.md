@@ -340,6 +340,42 @@ owner's preference.
         rule) makes the job retry. A definitive refusal takes SS.5's path:
         `FAILED`, an ERROR line, and `ClosePosition` at once.
     - Bybit's path is unchanged.
+  - Progress, 2026-11-13.
+    - The writer built it as designed, plus three choices:
+      - The confirm job branches on the row (`client_stop_id` set) rather
+        than on the adapter.
+      - Empty fills raise `FillsNotPublishedYet`, so the job retries and
+        closes nothing.
+      - One mixin, `NoAfterFillStop`, gives Bybit, Pionex and the fake
+        exchange the flag set to false and refusing calls.
+    - This supersedes SS.5's "Binance writes no row until SS.6": a live
+      Binance opening now writes a `PENDING` row.
+    - Gate on `03ba6c7`: `ruff`, `mypy src` and the full `pytest`, exit 0.
+    - Independent verifier (items 4 and 6), against `75de478`: no blockers.
+      - Crash safety at each step leaves exactly one stop.
+      - Every ambiguous error retries.
+      - SIMULATED still wins over the after-fill flag.
+      - Bybit, Pionex and the fake exchange are untouched.
+      - 19 hand mutations: 18 caught, one survived.
+    - Fixed after the verifier:
+      - The surviving mutation: the read-back's ambiguity test now covers
+        503/-1008, 429/-1003 and 408. That rules the lax rule out on the
+        GET, as it already was on the POST; a mutation proved it.
+      - A POST sent again may be refused because the first request did
+        arrive and its read only lagged past the retries, for example as a
+        duplicate `clientAlgoId`. Binance's answer to a duplicate id is
+        unverified. The stop is now read once more before anything is
+        closed, so a protected position is not closed for it. A first POST
+        that is refused is not read back.
+    - Advisories, not fixed here:
+      - A stop the read never sees and Binance refuses again is `FAILED`
+        and closed. If it did rest, it is left at the venue: nothing cancels
+        it. A `closePosition` stop on a flat position cannot open one, and
+        SS.7's watcher reads it.
+      - `place_stop_order`'s own refusals, of an invalid id or a
+        non-positive trigger, carry no code, so they read as ambiguous and
+        would retry for ever. A UUID4 and a priced trigger cannot reach
+        them.
 - [ ] SS.7 The stop watcher job, with the migration adding a cause to
   `execution_attempts` (SIGNAL / STOP / SAFETY_CLOSE / MANUAL):
   - fills booked under the allocation with cause STOP, plus `STOP_FIRED`;
