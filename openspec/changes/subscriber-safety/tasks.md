@@ -226,7 +226,7 @@ owner's preference.
       `547beff6a81338b08a13398508c8c0ca84ea140623f3503056cdb2b3a7c0d6a2`. The
       owner's block printed `OK`, `readable`, and both `bundle` and `checkout`
       at `ec75f7e467d0`.
-- [ ] SS.5 Bybit: the stop attached to the opening order, with the migration
+- [x] SS.5 Bybit: the stop attached to the opening order, with the migration
   creating `protective_stops`. The resting stop is
   found by `parentOrderLinkId` and recorded. A failure closes the position at
   once. Risk: item 6 (live venue behaviour) and item 4.
@@ -288,6 +288,22 @@ owner's preference.
       - A `SIMULATED` row records the level, with `trigger_price` NULL.
     - The Binance DOGE example in the spec gave 0.059706 on a 0.000010 tick.
       That is not a multiple of the tick: corrected to 0.059700 for SS.6.
+  - Delivered, 2026-11-13: PR #107, merge `5d6931638709`, with the panel fix
+    for the stop level editor (`8db8988`). The owner ran the three steps from
+    Git Bash.
+    - Rehearsal on `sm_rehearsal_0041`, restored from a fresh backup: 0040 to
+      0041; `protective_stops` empty, with its 9 constraints and 4 indexes;
+      `execution_attempts` (50 rows) and `reservations` (26) hashed unchanged;
+      the downgrade dropped the table and the re-upgrade made it again. The
+      copy was dropped.
+    - Production: backup `pre-0041-deploy-20261113T144140Z.dump`, 0040 to
+      0041, `protective_stops` empty, both services `active`, and no ERROR
+      or Traceback line after the restart.
+    - Panel (pps.6): built by the assistant from a detached worktree of
+      `origin/main` at `5d6931638709`, 22 entries, SHA-256
+      `f05b56eb199c7b4a23e2eed5a05a55fdc2fd5d5fce4f1971fc1d2c340554732a`. The
+      owner's block printed `OK`, `readable`, and both `bundle` and `checkout`
+      at `5d6931638709`.
 - [ ] SS.6 Binance: the algo stop right after the fill, with `clientAlgoId`
   recorded first, `-2013` retried, an unknown outcome resolved by reading
   back, and a failure closing at once. Risk: items 4 and 6.
