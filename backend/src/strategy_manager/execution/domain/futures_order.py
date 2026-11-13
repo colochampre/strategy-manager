@@ -48,7 +48,7 @@ no leverage at all.
 """
 
 from dataclasses import dataclass
-from decimal import Decimal
+from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal
 
 from strategy_manager.execution.domain.order import OrderSide
 from strategy_manager.shared.domain.errors import InvariantViolation
@@ -73,6 +73,11 @@ class FuturesMarketOrder:
     turning a purely descriptive field into a way for a close to fail. A close
     that cannot be placed leaves a real position open; nothing descriptive is
     worth that.
+
+    ``stop_price`` is the level of the stop loss the opening order itself
+    carries (subscriber-safety SS.5), so the position never exists without it.
+    It is set by an adapter whose venue takes the stop on the order (Bybit),
+    ``None`` on every other opening and on every close.
     """
 
     client_order_id: str
@@ -81,12 +86,52 @@ class FuturesMarketOrder:
     base_size: Decimal
     leverage: Decimal | None = None
     reduce_only: bool = False
+    stop_price: Decimal | None = None
 
     def __post_init__(self) -> None:
         if self.base_size <= 0:
             raise InvariantViolation("FuturesMarketOrder.base_size must be positive")
         if self.leverage is not None and self.leverage <= 0:
             raise InvariantViolation("FuturesMarketOrder.leverage must be positive")
+        if self.stop_price is not None:
+            if self.reduce_only:
+                raise InvariantViolation(
+                    "a reduce-only order carries no stop: a stop rests on an opening"
+                )
+            if self.stop_price <= 0:
+                raise InvariantViolation("FuturesMarketOrder.stop_price must be positive")
+
+
+def protective_stop_price(
+    *, side: OrderSide, entry: Decimal, stop_loss_pct: Decimal, tick: Decimal
+) -> Decimal:
+    """Where the protective stop of an opening lies (subscriber-safety D5).
+
+    ``stop_loss_pct`` of the ``entry`` price away: BELOW it for a position
+    opened by a BUY (a LONG), ABOVE it for one opened by a SELL (a SHORT). The
+    level is rounded to the venue's ``tick`` AWAY from the entry, never towards
+    it: a LONG's rounds down and a SHORT's up, so the stop is never tighter
+    than the level its author chose. The result keeps the tick's scale, so it
+    prints the way the venue writes a price (``72.00`` on a 0.01 tick).
+
+    A level that rounds to zero or below (a tiny price on a coarse tick) is
+    refused: no venue would rest it.
+    """
+    if side is OrderSide.BUY:
+        raw = entry * (1 - stop_loss_pct / 100)
+        rounding = ROUND_FLOOR
+    else:
+        raw = entry * (1 + stop_loss_pct / 100)
+        rounding = ROUND_CEILING
+    # Quantised to the tick's own scale: the multiplication alone keeps whatever
+    # exponent the division left (72.0 for 72.00), and the venue is sent what is printed.
+    stop = ((raw / tick).to_integral_value(rounding=rounding) * tick).quantize(tick)
+    if stop <= 0:
+        raise InvariantViolation(
+            f"the stop price must be positive: {stop_loss_pct}% from {entry} on a tick of "
+            f"{tick} rounds to {stop}"
+        )
+    return stop
 
 
 def futures_position_size(

@@ -154,6 +154,7 @@ async def test_the_adapter_sizes_an_order_for_a_symbol_listed_only_on_page_two(
             side=OrderSide.BUY,
             granted=Decimal("100"),
             price=Decimal("2"),
+            stop_loss_pct=Decimal("10"),
             # The symbol already holds it, so the opening writes no setting.
             leverage=Leverage(3),
         )

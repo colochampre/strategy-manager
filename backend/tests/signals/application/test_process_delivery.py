@@ -594,6 +594,21 @@ async def test_a_seat_at_the_cap_opens() -> None:
     assert len(rig.place.calls) == 1
 
 
+async def test_the_order_is_placed_with_the_stop_level_the_cap_was_checked_against() -> None:
+    """Subscriber-safety SS.5: the command carries the level of the policy snapshot the
+    cap was checked for, so the stop placed is the one the cap allowed."""
+    rig = _rig(
+        _open_long_context(),
+        policy=_snapshot(author_id=AUTHOR, stop_loss_pct=Decimal("15")),
+        leverage=Leverage(6),
+    )
+
+    await rig.handler.handle(DELIVERY, "open")
+
+    [command] = rig.place.calls
+    assert command.stop_loss_pct == Decimal("15")
+
+
 async def test_a_simulated_opening_is_not_refused_as_a_key_refusal_is_not() -> None:
     """Like the key refusal, the cap guards what a venue would execute: a simulated
     opening places no stop and risks nothing."""

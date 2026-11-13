@@ -56,6 +56,10 @@ LEVERAGE_ALREADY_SET_CODE: Final = "110043"
 LINEAR = "linear"
 MARKET = "Market"
 
+# The price a protective stop is triggered by: the mark price, which is what
+# liquidation reads (subscriber-safety SS.5, an assumption open to the owner).
+STOP_TRIGGER_BY: Final = "MarkPrice"
+
 # One-way mode. Bybit's hedge mode uses 1 and 2 for the two sides, and there
 # ``reduceOnly`` no longer protects a close — the same trap the Pionex adapter
 # refuses a hedged account over.
@@ -222,6 +226,7 @@ class BybitTradeClient:
         side: str,
         qty: Decimal,
         reduce_only: bool,
+        stop_loss: Decimal | None = None,
     ) -> BybitOrderAck:
         """Places a market order for ``qty`` of the base coin.
 
@@ -244,6 +249,18 @@ class BybitTradeClient:
             "positionIdx": ONE_WAY_POSITION_IDX,
             "reduceOnly": reduce_only,
         }
+        if stop_loss is not None:
+            # The stop rides on the opening itself, so the position never exists without
+            # it (run 4). Written as the venue writes a price, never normalised: the
+            # level was rounded to the tick, and "72.00" is what the spec sends.
+            # ``MarkPrice`` is the price liquidation reads. A Market stop on the whole
+            # position (``Full``) fires as a market order the day it triggers.
+            payload |= {
+                "stopLoss": format(stop_loss, "f"),
+                "slTriggerBy": STOP_TRIGGER_BY,
+                "tpslMode": "Full",
+                "slOrderType": MARKET,
+            }
         data = await self._transport.post(CREATE_ORDER_PATH, payload)
 
         if not isinstance(data, dict):
@@ -277,6 +294,27 @@ class BybitTradeClient:
             EXECUTIONS_PATH, {"category": LINEAR, "orderLinkId": order_link_id}
         )
         return [_parse_execution(entry) for entry in _list_of(data, "list")]
+
+    async def resting_stop_for(self, symbol: str, parent_order_link_id: str) -> str | None:
+        """The venue id of the stop resting for the opening placed under
+        ``parent_order_link_id``, or ``None`` when none of the symbol's conditional
+        orders has it as its parent.
+
+        The stop is a conditional order (``orderFilter=StopOrder``) that carries the
+        opening's ``orderLinkId`` as its ``parentOrderLinkId`` (run 2), matched here
+        and not by position: a symbol can hold the stops of several openings. Its
+        ``orderId`` is the id its execution carries when it fires. A malformed answer
+        raises: reading it as "no stop" would close a position that is protected.
+        """
+        data = await self._read_result(
+            OPEN_ORDERS_PATH,
+            {"category": LINEAR, "symbol": symbol, "orderFilter": "StopOrder"},
+        )
+        for entry in _list_of(data, "list"):
+            fields = _object(entry, "conditional order")
+            if fields.get("parentOrderLinkId") == parent_order_link_id:
+                return _text(fields, "orderId")
+        return None
 
     async def order_exists(self, order_link_id: str) -> bool:
         """Whether Bybit has any record of this order.

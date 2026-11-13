@@ -230,6 +230,35 @@ owner's preference.
   creating `protective_stops`. The resting stop is
   found by `parentOrderLinkId` and recorded. A failure closes the position at
   once. Risk: item 6 (live venue behaviour) and item 4.
+  - Design, 2026-11-13, from a read-only code map.
+    - The level is carried in memory from the policy snapshot that the
+      cap was checked against (`process_signal.py`, `_handle_consumes`):
+      `PlaceCommand.stop_loss_pct`, then `OpenOrderSpec.stop_loss_pct`. The
+      strategy is never re-read for it, which closes the SS.3 advisory.
+    - `FuturesMarketOrder` gains `stop_price: Decimal | None`. The Bybit
+      `build_open_order` computes it from the mark price it already sizes
+      against, rounded to the tick away from the entry, by one domain helper
+      in `execution/domain/futures_order.py`. `place()` sends `stopLoss`,
+      `slTriggerBy: MarkPrice`, `tpslMode: Full` and `slOrderType: Market`.
+    - Migration 0041 creates `protective_stops`, one row per opening
+      attempt. It is written in the same transaction as the opening's
+      execution attempt, before the order is sent, so a crash leaves a trace.
+      Statuses: `PENDING`, `RESTING`, `FAILED`, `GONE`, `VOID`, `SIMULATED`.
+      SS.7 adds `FIRED`.
+    - A simulated opening writes a `SIMULATED` row with the level and places
+      nothing. Binance writes no row until SS.6.
+    - Settle enqueues a new job, `PROTECTIVE_STOP_CONFIRM`, in the same
+      transaction as the opening's fills. A failure after settle's commit
+      then cannot be lost to the `ALREADY_SETTLED` gate.
+    - The job finds the conditional order whose `parentOrderLinkId` is the
+      opening's `orderLinkId` (`/v5/order/realtime`, `orderFilter=StopOrder`,
+      matched client-side):
+      - found: `RESTING`, with its `orderId`;
+      - ambiguous error: the job retries;
+      - not found: `FAILED`, an ERROR line, and `ClosePosition` at once with
+        no signal. A ledger already flat (`NothingRecordedYet`) marks it
+        `GONE` instead. The `STOP_FAILED_CLOSED` row comes with SS.10.
+    - An opening that ends without fills marks its row `VOID`.
 - [ ] SS.6 Binance: the algo stop right after the fill, with `clientAlgoId`
   recorded first, `-2013` retried, an unknown outcome resolved by reading
   back, and a failure closing at once. Risk: items 4 and 6.

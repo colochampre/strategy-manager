@@ -130,6 +130,7 @@ async def test_each_simulated_exchange_fills_at_its_own_venues_mark_never_the_al
                 symbol="STXUSDT.P",
                 granted=Decimal("20"),
                 price=Decimal("0.04633"),
+                stop_loss_pct=Decimal("10"),
             )
         )
         await fake.place(order)

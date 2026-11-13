@@ -26,6 +26,7 @@ from strategy_manager.execution.application.ports import (
 )
 from strategy_manager.execution.domain.execution_attempt import ExecutionAttempt
 from strategy_manager.execution.domain.fill import Fill
+from strategy_manager.execution.domain.futures_order import FuturesMarketOrder
 from strategy_manager.execution.domain.order import (
     MarketBuy,
     MarketSell,
@@ -33,6 +34,11 @@ from strategy_manager.execution.domain.order import (
     market_order,
 )
 from strategy_manager.execution.domain.placeable import PlaceableOrder
+from strategy_manager.execution.domain.protective_stop import (
+    PositionSide,
+    ProtectiveStop,
+    StopStatus,
+)
 from strategy_manager.execution.infrastructure.exchange_registry import (
     VenueExchangeRegistry,
 )
@@ -197,6 +203,67 @@ class SpyCommit:
         self._log.append("commit")
 
 
+class SpyStops:
+    """``ProtectiveStopRepositoryPort``: what was written, as whom, in call order."""
+
+    def __init__(self, log: list[str]) -> None:
+        self.inserted: list[ProtectiveStop] = []
+        self.marked: list[tuple[UUID, StopStatus]] = []
+        self.users: list[UUID] = []
+        self._log = log
+
+    async def insert(self, user_id: UUID, stop: ProtectiveStop) -> None:
+        self.users.append(user_id)
+        self.inserted.append(stop)
+        self._log.append("stop.insert")
+
+    async def for_attempt(  # pragma: no cover - not used by PlaceOrder
+        self, user_id: UUID, attempt_id: UUID
+    ) -> ProtectiveStop | None:
+        raise NotImplementedError
+
+    async def mark(
+        self,
+        user_id: UUID,
+        attempt_id: UUID,
+        status: StopStatus,
+        venue_stop_id: str | None = None,
+    ) -> None:
+        self.users.append(user_id)
+        self.marked.append((attempt_id, status))
+        self._log.append(f"stop.mark {status.value}")
+
+
+class FuturesSpyExchange(SpyExchange):
+    """An adapter that builds a futures opening: with a stop on the order (a live Bybit),
+    or with none (a live Binance until SS.6, or a simulated exchange)."""
+
+    venues = frozenset({"spot"})
+
+    def __init__(
+        self,
+        log: list[str],
+        *,
+        stop_price: Decimal | None,
+        live: bool,
+        raises: Exception | None = None,
+    ) -> None:
+        super().__init__(log, raises)
+        self.is_live = live
+        self._stop_price = stop_price
+
+    async def build_open_order(self, spec: OpenOrderSpec) -> PlaceableOrder:
+        self.built.append(spec)
+        return FuturesMarketOrder(
+            client_order_id=spec.client_order_id,
+            symbol=spec.symbol,
+            side=spec.side,
+            base_size=Decimal("76"),
+            leverage=Decimal("3"),
+            stop_price=self._stop_price,
+        )
+
+
 def _build(
     *,
     expires_at: datetime = NOW + timedelta(seconds=30),
@@ -206,15 +273,28 @@ def _build(
     outcomes: RecordingOrderOutcomes | None = None,
     mode: Mode = Mode.LIVE,
     asked: list[Mode] | None = None,
+    stops: SpyStops | None = None,
+    log: list[str] | None = None,
+    futures: tuple[Decimal | None, bool] | None = None,
 ) -> tuple[PlaceOrder, FakeReservations, SpyAttempts, SpyQueue, SpyExchange, list[str]]:
-    log: list[str] = []
+    """``log`` lets a test share its own with a ``SpyStops``; ``futures`` is ``(the stop
+    price the adapter puts on the order, whether the adapter is live)`` for a venue that
+    builds a futures opening, and the default is the spot double every older test uses."""
+    log = log if log is not None else []
     outcomes = outcomes if outcomes is not None else RecordingOrderOutcomes()
     outcomes.log = log
     reservations = FakeReservations(expires_at, amount, mode)
     attempts = SpyAttempts(log)
     queue = SpyQueue(log)
-    exchange = SpyExchange(log, exchange_raises, build_open_raises)
+    exchange: SpyExchange
+    if futures is not None:
+        exchange = FuturesSpyExchange(
+            log, stop_price=futures[0], live=futures[1], raises=exchange_raises
+        )
+    else:
+        exchange = SpyExchange(log, exchange_raises, build_open_raises)
     use_case = PlaceOrder(
+        stops=stops if stops is not None else SpyStops(log),
         reservations=reservations,
         exchanges=OneRegistry(
             VenueExchangeRegistry([exchange]),  # type: ignore[list-item]
@@ -234,6 +314,7 @@ def _command(
     price: Decimal = Decimal("50"),
     side: OrderSide = OrderSide.BUY,
     leverage: Leverage = NEW_SEAT_LEVERAGE,
+    stop_loss_pct: Decimal = Decimal("10"),
 ) -> PlaceCommand:
     return PlaceCommand(
         user_id=OWNER,
@@ -242,6 +323,7 @@ def _command(
         symbol="BTC_USDT",
         side=side,
         price=price,
+        stop_loss_pct=stop_loss_pct,
         leverage=leverage,
     )
 
@@ -722,3 +804,153 @@ async def test_the_opening_attempt_is_linked_to_the_delivery_of_its_command() ->
 
     assert attempts.inserted[0].delivery_id == DELIVERY_ID
     assert attempts.inserted[0].signal_id == SIGNAL_ID
+
+
+# ---- the protective stop's row (subscriber-safety SS.5) ----------------------------
+
+
+async def test_a_live_opening_that_carries_a_stop_writes_a_pending_row_for_it() -> None:
+    log: list[str] = []
+    stops = SpyStops(log)
+    use_case, _, attempts, _, exchange, _ = _build(
+        stops=stops, log=log, futures=(Decimal("72.00"), True)
+    )
+
+    await use_case.place(_command(side=OrderSide.BUY, stop_loss_pct=Decimal("7.5")))
+
+    [stop] = stops.inserted
+    [attempt] = attempts.inserted
+    assert stop.status is StopStatus.PENDING
+    assert stop.execution_attempt_id == attempt.id
+    assert stop.allocation_id == RESERVATION_ID
+    assert (stop.exchange, stop.venue) == ("pionex", "spot")
+    assert stop.symbol == "BTC_USDT"
+    assert stop.position_side is PositionSide.LONG
+    assert stop.stop_loss_pct == Decimal("7.5")
+    assert stop.trigger_price == Decimal("72.00")
+    assert stop.venue_stop_id is None
+    assert stops.users == [OWNER]
+    # The adapter was asked to build at the very level the row records.
+    assert [spec.stop_loss_pct for spec in exchange.built] == [Decimal("7.5")]
+
+
+async def test_a_short_opening_records_a_short_position() -> None:
+    log: list[str] = []
+    stops = SpyStops(log)
+    use_case, *_ = _build(stops=stops, log=log, futures=(Decimal("88.00"), True))
+
+    await use_case.place(_command(side=OrderSide.SELL))
+
+    [stop] = stops.inserted
+    assert stop.position_side is PositionSide.SHORT
+
+
+async def test_the_stop_row_is_written_with_the_attempt_and_before_the_order_is_sent() -> None:
+    """A crash after the order reaches the venue leaves a trace of a stop that may exist
+    there: the row rides the same commit as the attempt and the settle job."""
+    log: list[str] = []
+    stops = SpyStops(log)
+    use_case, *_ = _build(stops=stops, log=log, futures=(Decimal("72.00"), True))
+
+    await use_case.place(_command())
+
+    first_commit = log.index("commit")
+    assert log.index("attempt.insert") < log.index("stop.insert") < first_commit
+    assert log.index("queue.enqueue") < first_commit < log.index("exchange.place")
+
+
+async def test_a_simulated_opening_records_the_level_and_no_trigger_price() -> None:
+    """The simulated venue places no stop and does not fire one, but the level the
+    opening would have used is recorded."""
+    log: list[str] = []
+    stops = SpyStops(log)
+    use_case, *_ = _build(
+        stops=stops, log=log, mode=Mode.SIMULATION, futures=(None, False)
+    )
+
+    await use_case.place(_command(stop_loss_pct=Decimal("12.5")))
+
+    [stop] = stops.inserted
+    assert stop.status is StopStatus.SIMULATED
+    assert stop.stop_loss_pct == Decimal("12.5")
+    assert stop.trigger_price is None
+    assert stop.venue_stop_id is None
+
+
+async def test_a_live_opening_on_a_venue_that_attaches_no_stop_writes_no_row() -> None:
+    """Binance, until SS.6: a PENDING row nobody would ever confirm would read as a
+    protected position."""
+    log: list[str] = []
+    stops = SpyStops(log)
+    use_case, *_ = _build(stops=stops, log=log, futures=(None, True))
+
+    await use_case.place(_command())
+
+    assert stops.inserted == []
+
+
+async def test_a_spot_opening_writes_no_stop_row() -> None:
+    log: list[str] = []
+    stops = SpyStops(log)
+    use_case, *_ = _build(stops=stops, log=log)
+
+    await use_case.place(_command())
+
+    assert stops.inserted == []
+    assert stops.marked == []
+
+
+async def test_a_definitive_refusal_voids_the_stop_on_the_same_commit_as_the_release() -> None:
+    """The opening ended without fills, so no stop ever mattered."""
+    log: list[str] = []
+    stops = SpyStops(log)
+    use_case, _, attempts, *_ = _build(
+        stops=stops,
+        log=log,
+        exchange_raises=ExchangeError("insufficient balance"),
+        futures=(Decimal("72.00"), True),
+    )
+
+    await use_case.place(_command())
+
+    [attempt] = attempts.inserted
+    assert stops.marked == [(attempt.id, StopStatus.VOID)]
+    assert stops.users == [OWNER, OWNER]  # insert, mark
+    refused_at = log.index("exchange.place")
+    assert refused_at < log.index("stop.mark VOID") < len(log) - 1 - log[::-1].index("commit")
+
+
+async def test_a_refused_opening_with_no_row_marks_nothing() -> None:
+    log: list[str] = []
+    stops = SpyStops(log)
+    use_case, *_ = _build(
+        stops=stops,
+        log=log,
+        exchange_raises=ExchangeError("insufficient balance"),
+        futures=(None, True),
+    )
+
+    await use_case.place(_command())
+
+    assert stops.marked == []
+
+
+async def test_an_opening_not_placeable_writes_no_stop_row() -> None:
+    """Built before every write: nothing was sent, nothing is protected, nothing to void."""
+    log: list[str] = []
+    stops = SpyStops(log)
+    use_case, *_ = _build(
+        stops=stops,
+        log=log,
+        build_open_raises=OrderNotPlaceable(
+            "too small",
+            symbol="BTC_USDT",
+            size=Decimal("0"),
+            minimum=Decimal("1"),
+            step=Decimal("1"),
+        ),
+    )
+
+    await use_case.place(_command())
+
+    assert stops.inserted == [] and stops.marked == []

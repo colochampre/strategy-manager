@@ -70,6 +70,7 @@ from strategy_manager.execution.infrastructure.fake_exchange import FakeExchange
 from strategy_manager.execution.infrastructure.models import ExecutionAttemptRow
 from strategy_manager.execution.infrastructure.repository import (
     SqlAlchemyExecutionAttemptRepository,
+    SqlAlchemyProtectiveStopRepository,
 )
 from strategy_manager.ledger.application.read_held_base import ReadHeldBase
 from strategy_manager.ledger.application.read_symbol_holdings import ReadSymbolHoldings
@@ -531,6 +532,7 @@ async def test_the_open_waits_for_the_close_to_settle_then_grants_the_freed_bala
             commit=session,
             settle_delay_seconds=0.0,
             outcomes=RecordingOrderOutcomes(),
+            stops=SqlAlchemyProtectiveStopRepository(session),
         )
 
         async def _open_now(this_delivery_id: UUID, this_poll: int) -> object:
@@ -595,6 +597,8 @@ async def test_the_open_waits_for_the_close_to_settle_then_grants_the_freed_bala
                 clock=clock,
                 commit=session,
                 outcomes=RecordingSettleOutcomes(),
+                stops=SqlAlchemyProtectiveStopRepository(session),
+                queue=PostgresJobQueue(session, clock=clock),
                 pool_lock=PoolLockAdapter(session),
                 leaving=EndLeavingSubscription(
                     SqlAlchemySubscriptionRepository(session),

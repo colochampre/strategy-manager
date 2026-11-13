@@ -43,6 +43,7 @@ from strategy_manager.execution.application.ports import (
     OpenOrderSpec,
     OrderNotFound,
     PlacedOrder,
+    RestingStop,
 )
 from strategy_manager.execution.domain.fill import Fill
 from strategy_manager.execution.domain.order import (
@@ -169,6 +170,12 @@ class PionexExchangeAdapter:
         return PlacedOrder(
             exchange_order_id=ack.order_id, client_order_id=ack.client_order_id
         )
+
+    async def find_resting_stop(
+        self, client_order_id: str, symbol: str
+    ) -> RestingStop | None:
+        """Never asked: spot is outside the protective stop (decision D9)."""
+        raise ExchangeError("the Pionex spot adapter rests no stop on an opening")
 
     async def fetch_fills(self, client_order_id: str, symbol: str) -> list[Fill]:
         """Two hops, hidden behind one intent (see ``trade_client``).

@@ -819,6 +819,9 @@ class ProcessDelivery:
                 symbol=context.symbol,
                 side=_consuming_side(context.position_size),
                 price=context.price,
+                # The level the cap above was checked against (SS.3 advisory): the strategy
+                # is not read again, so the stop placed is the one the cap allowed.
+                stop_loss_pct=policy.stop_loss_pct,
                 leverage=delivery.leverage,
             )
         )

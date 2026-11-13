@@ -48,6 +48,7 @@ async def test_fetch_fills_returns_the_fill_recorded_at_place_time() -> None:
             symbol="ETHUSDT.P",
             granted=Decimal("200"),
             price=Decimal("100"),
+            stop_loss_pct=Decimal("10"),
         )
     )
     await adapter.place(order)
@@ -78,6 +79,7 @@ async def test_a_buy_records_a_positive_delta_in_the_book() -> None:
             symbol="ETHUSDT.P",
             granted=Decimal("200"),
             price=Decimal("100"),
+            stop_loss_pct=Decimal("10"),
         )
     )
     await adapter.place(order)
@@ -123,6 +125,7 @@ async def test_fill_latency_polls_returns_no_fills_for_the_first_n_calls() -> No
             symbol="ETHUSDT.P",
             granted=Decimal("200"),
             price=Decimal("100"),
+            stop_loss_pct=Decimal("10"),
         )
     )
     await adapter.place(order)
@@ -153,6 +156,7 @@ async def test_fill_latency_polls_reveals_the_fill_past_the_nth_call() -> None:
             symbol="ETHUSDT.P",
             granted=Decimal("200"),
             price=Decimal("100"),
+            stop_loss_pct=Decimal("10"),
         )
     )
     await adapter.place(order)
@@ -185,6 +189,7 @@ async def test_default_fill_latency_reveals_immediately() -> None:
             symbol="ETHUSDT.P",
             granted=Decimal("200"),
             price=Decimal("100"),
+            stop_loss_pct=Decimal("10"),
         )
     )
     await adapter.place(order)
@@ -209,6 +214,7 @@ async def test_no_book_configured_leaves_fetch_fills_unaffected() -> None:
             symbol="ETHUSDT.P",
             granted=Decimal("200"),
             price=Decimal("100"),
+            stop_loss_pct=Decimal("10"),
         )
     )
     await adapter.place(order)
@@ -243,6 +249,7 @@ async def test_fake_fill_ids_use_the_named_rehearsal_prefix_constant(
                 symbol="ETHUSDT.P",
                 granted=Decimal("200"),
                 price=Decimal("100"),
+                stop_loss_pct=Decimal("10"),
             )
         )
         await adapter.place(order)
@@ -279,6 +286,7 @@ async def test_fake_order_ids_use_the_named_rehearsal_prefix_constant(
                 symbol="ETHUSDT.P",
                 granted=Decimal("200"),
                 price=Decimal("100"),
+                stop_loss_pct=Decimal("10"),
             )
         )
         return (await adapter.place(order)).exchange_order_id
@@ -331,6 +339,7 @@ async def _open_and_fill(
         symbol=symbol,
         granted=granted,
         price=price,
+        stop_loss_pct=Decimal("10"),
     )
     if leverage is not None:
         spec = replace(spec, leverage=leverage)
@@ -461,6 +470,7 @@ async def test_two_orders_built_before_either_is_placed_each_fill_at_their_own_p
             symbol=STX_PERP,
             granted=Decimal("564"),
             price=Decimal("0.4512"),
+            stop_loss_pct=Decimal("10"),
         )
     )
     order_y = await adapter.build_open_order(
@@ -470,6 +480,7 @@ async def test_two_orders_built_before_either_is_placed_each_fill_at_their_own_p
             symbol=STX_PERP,
             granted=Decimal("564"),
             price=Decimal("0.4633"),
+            stop_loss_pct=Decimal("10"),
         )
     )
 
@@ -542,6 +553,7 @@ async def test_a_simulated_opening_sizes_at_the_subscriptions_leverage() -> None
             symbol=STX_PERP,
             granted=Decimal("564"),
             price=Decimal("0.4512"),
+            stop_loss_pct=Decimal("10"),
             leverage=Leverage(3),
         )
     )
@@ -781,6 +793,7 @@ async def test_an_opening_order_with_a_non_positive_price_never_reaches_a_fill_i
                 symbol=symbol,
                 granted=Decimal("564"),
                 price=price,
+                stop_loss_pct=Decimal("10"),
             )
         )
     except Exception as exc:  # noqa: BLE001 - the type is exactly what is asserted
@@ -982,6 +995,7 @@ async def test_a_market_not_quoted_in_usdt_is_refused_in_place(symbol: str) -> N
             symbol=symbol,
             granted=Decimal("564"),
             price=Decimal("0.4512"),
+            stop_loss_pct=Decimal("10"),
         )
     )
 
@@ -1019,6 +1033,7 @@ async def test_a_refused_order_leaves_nothing_remembered() -> None:
             symbol="ETHBTC",
             granted=Decimal("564"),
             price=Decimal("0.4512"),
+            stop_loss_pct=Decimal("10"),
         )
     )
 
@@ -1143,6 +1158,7 @@ async def test_a_simulated_opening_is_sized_and_filled_at_the_venues_mark_not_th
             symbol="STXUSDT.P",
             granted=Decimal("20"),
             price=CRAFTED_ALERT_PRICE,
+            stop_loss_pct=Decimal("10"),
         )
     )
     await adapter.place(order)
@@ -1210,6 +1226,7 @@ async def test_an_unreadable_venue_price_refuses_the_build_with_the_venues_own_e
                     symbol="STXUSDT.P",
                     granted=Decimal("20"),
                     price=VENUE_MARK,
+                    stop_loss_pct=Decimal("10"),
                 )
             )
         else:

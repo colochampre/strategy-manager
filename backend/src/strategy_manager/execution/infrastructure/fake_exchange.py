@@ -23,6 +23,7 @@ from strategy_manager.execution.application.ports import (
     OpenOrderSpec,
     OrderNotFound,
     PlacedOrder,
+    RestingStop,
 )
 from strategy_manager.execution.domain.fill import (
     REHEARSAL_FILL_ID_PREFIX,
@@ -281,6 +282,13 @@ class FakeExchangeAdapter:
             exchange_order_id=exchange_order_id,
             client_order_id=order.client_order_id,
         )
+
+    async def find_resting_stop(
+        self, client_order_id: str, symbol: str
+    ) -> RestingStop | None:
+        """Never asked: a simulated opening records the level it would have used
+        and places no stop (the simulated venue does not fire stops)."""
+        raise ExchangeError("a simulated exchange rests no stop")
 
     async def fetch_fills(self, client_order_id: str, symbol: str) -> list[Fill]:
         fill = self._placed.get(client_order_id)

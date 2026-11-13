@@ -41,6 +41,7 @@ from strategy_manager.execution.infrastructure.fake_exchange import FakeExchange
 from strategy_manager.execution.infrastructure.models import ExecutionAttemptRow
 from strategy_manager.execution.infrastructure.repository import (
     SqlAlchemyExecutionAttemptRepository,
+    SqlAlchemyProtectiveStopRepository,
 )
 from strategy_manager.ledger.application.read_held_base import ReadHeldBase
 from strategy_manager.ledger.application.record_fill import RecordFill
@@ -127,6 +128,7 @@ def _place_order(
         outcomes=SignalOrderOutcomeRecorder(
             SqlAlchemyDeliveryOutcomeAdapter(session, _FixedClock())
         ),
+        stops=SqlAlchemyProtectiveStopRepository(session),
     )
 
 
@@ -238,6 +240,7 @@ async def _place_command(
         symbol=_TRADINGVIEW,
         side=OrderSide.BUY,
         price=Decimal("2"),
+        stop_loss_pct=Decimal("10"),
         leverage=NEW_SEAT_LEVERAGE,
     )
 

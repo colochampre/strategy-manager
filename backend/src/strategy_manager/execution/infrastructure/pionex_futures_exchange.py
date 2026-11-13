@@ -47,6 +47,7 @@ from strategy_manager.execution.application.ports import (
     OpenOrderSpec,
     OrderNotFound,
     PlacedOrder,
+    RestingStop,
 )
 from strategy_manager.execution.domain.fill import Fill
 from strategy_manager.execution.domain.futures_order import (
@@ -180,6 +181,13 @@ class PionexFuturesExchangeAdapter:
         return PlacedOrder(
             exchange_order_id=ack.order_id, client_order_id=ack.client_order_id
         )
+
+    async def find_resting_stop(
+        self, client_order_id: str, symbol: str
+    ) -> RestingStop | None:
+        """Never asked: this adapter attaches no stop to an opening (and cannot
+        run at all, Pionex offers no futures order placement)."""
+        raise ExchangeError("the Pionex futures adapter rests no stop on an opening")
 
     async def fetch_fills(self, client_order_id: str, symbol: str) -> list[Fill]:
         """Two hops, hidden behind one intent (see ``futures_trade_client``).

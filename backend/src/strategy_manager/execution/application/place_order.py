@@ -43,7 +43,9 @@ from strategy_manager.execution.application.ports import (
     OpenOrderSpec,
     OrderNotPlaceable,
     OrderOutcomeRecorderPort,
+    ProtectiveStopRepositoryPort,
     ReservationGatewayPort,
+    ReservationSnapshot,
 )
 from strategy_manager.execution.domain.execution_attempt import (
     ExecutionAttempt,
@@ -53,6 +55,11 @@ from strategy_manager.execution.domain.execution_attempt import (
 from strategy_manager.execution.domain.futures_order import FuturesMarketOrder
 from strategy_manager.execution.domain.order import MarketBuy, MarketSell, OrderSide
 from strategy_manager.execution.domain.placeable import PlaceableOrder
+from strategy_manager.execution.domain.protective_stop import (
+    ProtectiveStop,
+    StopStatus,
+    position_side_of,
+)
 from strategy_manager.shared.application.job import Job, JobKind
 from strategy_manager.shared.application.ports import ClockPort, JobQueuePort
 from strategy_manager.shared.domain.leverage import Leverage
@@ -87,6 +94,10 @@ class PlaceCommand:
     symbol: str
     side: OrderSide
     price: Decimal
+    # The strategy's stop level (subscriber-safety D5), carried from the policy snapshot the
+    # leverage cap was checked against and never re-read: the stop placed is the level the
+    # cap was checked for, even if the author changed it in between. REQUIRED, no default.
+    stop_loss_pct: Decimal
     # The subscription's own choice (decision 38): every opening of it is placed at
     # this leverage, a REVERSE's opening included.
     leverage: Leverage
@@ -114,7 +125,9 @@ class PlaceOrder:
         commit: CommitPort,
         settle_delay_seconds: float,
         outcomes: OrderOutcomeRecorderPort,
+        stops: ProtectiveStopRepositoryPort,
     ) -> None:
+        self._stops = stops
         self._reservations = reservations
         self._exchanges = exchanges
         self._attempts = attempts
@@ -174,6 +187,7 @@ class PlaceOrder:
                     side=command.side,
                     granted=reservation.amount,
                     price=command.price,
+                    stop_loss_pct=command.stop_loss_pct,
                     leverage=command.leverage,
                 )
             )
@@ -249,6 +263,15 @@ class PlaceOrder:
                 delivery_id=command.delivery_id,
             ),
         )
+        # The stop's row rides the attempt's own transaction and is written BEFORE the order
+        # is sent, so a crash after the venue accepts it leaves a trace of a stop that may
+        # exist there (SS.5). Its level is the command's, the one the cap was checked
+        # against, and it is the one the adapter was asked to build at.
+        stop_row = _stop_row(
+            order, reservation, attempt_id, command, exchange_is_live=exchange.is_live
+        )
+        if stop_row is not None:
+            await self._stops.insert(command.user_id, stop_row)
         await self._queue.enqueue(
             Job(
                 kind=JobKind.EXECUTION_SETTLE,
@@ -270,6 +293,10 @@ class PlaceOrder:
             # waiting for settlement to reach the same conclusion.
             await self._reservations.mark(command.user_id, reservation.id,RELEASED, now)
             await self._attempts.mark_failed(command.user_id, attempt_id, str(exc))
+            if stop_row is not None:
+                # The opening ended without fills: no stop ever mattered. Staged on this
+                # same commit as the release.
+                await self._stops.mark(command.user_id, attempt_id, StopStatus.VOID)
             # Row 11: staged on THIS commit (release + mark_failed, after the
             # network call), not the pre-network SUBMITTED one above, which
             # was written before the venue had said anything.
@@ -304,6 +331,45 @@ class PlaceOrder:
             execution_attempt_id=attempt_id,
             exchange_order_id=placed.exchange_order_id,
         )
+
+
+def _stop_row(
+    order: PlaceableOrder,
+    reservation: ReservationSnapshot,
+    attempt_id: UUID,
+    command: PlaceCommand,
+    *,
+    exchange_is_live: bool,
+) -> ProtectiveStop | None:
+    """The row an opening writes for its stop, or ``None`` when it has none to track.
+
+    ``PENDING`` when the order itself carries a stop (a live Bybit): the confirm job
+    finds it resting once the opening fills. ``SIMULATED`` for a futures opening a
+    simulated exchange builds, which records the level it would have used and places no
+    stop. Nothing for a live adapter that attaches none (Binance until SS.6): a
+    ``PENDING`` row nobody would confirm would read as a protected position. Nothing for
+    spot, which is outside the protective stop (D9).
+    """
+    if not isinstance(order, FuturesMarketOrder):
+        return None
+    if order.stop_price is not None:
+        status = StopStatus.PENDING
+    elif not exchange_is_live:
+        status = StopStatus.SIMULATED
+    else:
+        return None
+    return ProtectiveStop(
+        id=uuid4(),
+        execution_attempt_id=attempt_id,
+        allocation_id=reservation.id,
+        exchange=reservation.exchange,
+        venue=reservation.venue,
+        symbol=command.symbol,
+        position_side=position_side_of(order.side),
+        stop_loss_pct=command.stop_loss_pct,
+        trigger_price=order.stop_price,
+        status=status,
+    )
 
 
 def _sizes(

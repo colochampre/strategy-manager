@@ -27,9 +27,15 @@ from strategy_manager.execution.domain.execution_attempt import (
 )
 from strategy_manager.execution.domain.fill import Fill
 from strategy_manager.execution.domain.order import OrderSide
+from strategy_manager.execution.domain.protective_stop import (
+    PositionSide,
+    ProtectiveStop,
+    StopStatus,
+)
 from strategy_manager.execution.infrastructure.exchange_registry import (
     VenueExchangeRegistry,
 )
+from strategy_manager.shared.application.job import Job, JobKind
 from strategy_manager.shared.domain.mode import Mode
 from strategy_manager.shared.domain.money import Currency
 from tests.allocation.fakes import RecordedModes
@@ -269,6 +275,62 @@ class FakeLeaving:
         return False
 
 
+class FakeStops:
+    """``ProtectiveStopRepositoryPort`` holding at most one row, for the attempt under
+    settlement; ``log`` (optional) receives ``"stop.mark <status>"`` in call order."""
+
+    def __init__(
+        self, status: StopStatus | None = None, log: list[str] | None = None
+    ) -> None:
+        self._status = status
+        self._log = log
+        self.asked: list[tuple[UUID, UUID]] = []
+        self.marked: list[tuple[UUID, UUID, StopStatus]] = []
+
+    async def insert(self, user_id: UUID, stop: ProtectiveStop) -> None:  # pragma: no cover
+        raise NotImplementedError
+
+    async def for_attempt(self, user_id: UUID, attempt_id: UUID) -> ProtectiveStop | None:
+        self.asked.append((user_id, attempt_id))
+        if self._status is None:
+            return None
+        return ProtectiveStop(
+            id=uuid4(),
+            execution_attempt_id=attempt_id,
+            allocation_id=RESERVATION_ID,
+            exchange="pionex",
+            venue="spot",
+            symbol="BTC_USDT",
+            position_side=PositionSide.LONG,
+            stop_loss_pct=Decimal("10"),
+            trigger_price=Decimal("45"),
+            status=self._status,
+        )
+
+    async def mark(
+        self,
+        user_id: UUID,
+        attempt_id: UUID,
+        status: StopStatus,
+        venue_stop_id: str | None = None,
+    ) -> None:
+        self.marked.append((user_id, attempt_id, status))
+        if self._log is not None:
+            self._log.append(f"stop.mark {status.value}")
+
+
+class SpyQueue:
+    def __init__(self, log: list[str] | None = None) -> None:
+        self.enqueued: list[Job] = []
+        self._log = log
+
+    async def enqueue(self, job: Job) -> UUID:
+        self.enqueued.append(job)
+        if self._log is not None:
+            self._log.append("queue.enqueue")
+        return uuid4()
+
+
 def _build(
     exchange: FakeExchange,
     attempt: ExecutionAttempt | None = None,
@@ -279,6 +341,8 @@ def _build(
     leaving: FakeLeaving | None = None,
     modes: RecordedModes | None = None,
     asked: list[Mode] | None = None,
+    stops: FakeStops | None = None,
+    queue: SpyQueue | None = None,
 ) -> tuple[SettleExecution, FakeReservations, FakeAttempts, SpyLedger, StubUsdRate]:
     reservations = FakeReservations(log if trace_locks else None)
     attempts = FakeAttempts(attempt or _attempt())
@@ -301,6 +365,8 @@ def _build(
         outcomes=outcomes,
         pool_lock=lock or FakePoolLock(log if trace_locks else None),
         leaving=leaving or FakeLeaving(log if trace_locks else None),
+        stops=stops or FakeStops(log=log),
+        queue=queue or SpyQueue(log),  # type: ignore[arg-type]
     )
     return use_case, reservations, attempts, ledger, usd_rate
 
@@ -789,3 +855,107 @@ async def test_settle_writes_no_outcome_when_it_has_not_decided_anything() -> No
     await use_case.settle(OWNER, ATTEMPT_ID)
 
     assert retry.nothing and settled.nothing
+
+
+# ---- the protective stop's confirmation (subscriber-safety SS.5) -------------------
+
+
+async def test_a_filled_opening_with_a_pending_stop_enqueues_the_confirm_job() -> None:
+    """In the SAME transaction as the fills: a failure after settle's commit cannot then
+    be lost to the ``ALREADY_SETTLED`` gate."""
+    log: list[str] = []
+    queue = SpyQueue(log)
+    stops = FakeStops(StopStatus.PENDING, log)
+    use_case, *_ = _build(
+        FakeExchange(fills=[_fill("2", "50")]), log=log, stops=stops, queue=queue
+    )
+
+    await use_case.settle(OWNER, ATTEMPT_ID)
+
+    [job] = queue.enqueued
+    assert job.kind is JobKind.PROTECTIVE_STOP_CONFIRM
+    assert job.payload == {"execution_attempt_id": str(ATTEMPT_ID)}
+    assert stops.asked == [(OWNER, ATTEMPT_ID)]
+    assert log.index("ledger.record") < log.index("queue.enqueue") < log.index("commit")
+    assert log.count("commit") == 1
+
+
+@pytest.mark.parametrize(
+    "status",
+    [None, StopStatus.SIMULATED, StopStatus.RESTING, StopStatus.FAILED, StopStatus.VOID],
+)
+async def test_only_a_pending_stop_is_confirmed(status: StopStatus | None) -> None:
+    queue = SpyQueue()
+    use_case, *_ = _build(
+        FakeExchange(fills=[_fill("2", "50")]), stops=FakeStops(status), queue=queue
+    )
+
+    await use_case.settle(OWNER, ATTEMPT_ID)
+
+    assert queue.enqueued == []
+
+
+async def test_a_close_asks_for_no_stop_and_enqueues_no_confirm_job() -> None:
+    stops = FakeStops(StopStatus.PENDING)
+    queue = SpyQueue()
+    use_case, *_ = _build(
+        FakeExchange(fills=[_fill("2", "50")]),
+        attempt=_closing_attempt(),
+        stops=stops,
+        queue=queue,
+    )
+
+    await use_case.settle(OWNER, ATTEMPT_ID)
+
+    assert stops.asked == []
+    assert queue.enqueued == []
+
+
+async def test_an_opening_with_no_fills_yet_enqueues_nothing() -> None:
+    queue = SpyQueue()
+    use_case, *_ = _build(
+        FakeExchange(fills=[]), stops=FakeStops(StopStatus.PENDING), queue=queue
+    )
+
+    with pytest.raises(NotSettledYet):
+        await use_case.settle(OWNER, ATTEMPT_ID)
+
+    assert queue.enqueued == []
+
+
+async def test_an_opening_the_venue_never_saw_voids_its_stop_on_the_release_commit() -> None:
+    log: list[str] = []
+    stops = FakeStops(StopStatus.PENDING, log)
+    queue = SpyQueue(log)
+    use_case, *_ = _build(
+        FakeExchange(raises=OrderNotFound("no such order")), log=log, stops=stops, queue=queue
+    )
+
+    result = await use_case.settle(OWNER, ATTEMPT_ID)
+
+    assert result.status == "NEVER_PLACED"
+    assert stops.marked == [(OWNER, ATTEMPT_ID, StopStatus.VOID)]
+    assert queue.enqueued == []
+    assert log.index("stop.mark VOID") < log.index("commit")
+
+
+async def test_an_opening_the_venue_never_saw_with_no_stop_marks_nothing() -> None:
+    stops = FakeStops(None)
+    use_case, *_ = _build(FakeExchange(raises=OrderNotFound("no such order")), stops=stops)
+
+    await use_case.settle(OWNER, ATTEMPT_ID)
+
+    assert stops.marked == []
+
+
+async def test_a_close_the_venue_never_saw_asks_for_no_stop() -> None:
+    stops = FakeStops(StopStatus.PENDING)
+    use_case, *_ = _build(
+        FakeExchange(raises=OrderNotFound("no such order")),
+        attempt=_closing_attempt(),
+        stops=stops,
+    )
+
+    await use_case.settle(OWNER, ATTEMPT_ID)
+
+    assert stops.asked == [] and stops.marked == []

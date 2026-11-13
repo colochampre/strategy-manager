@@ -9,7 +9,16 @@ from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import DateTime, ForeignKey, Index, Numeric, Text, text
+from sqlalchemy import (
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Index,
+    Numeric,
+    Text,
+    UniqueConstraint,
+    text,
+)
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
@@ -114,6 +123,67 @@ class ExecutionAttemptRow(Base):
     client_order_id: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
     exchange_order_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class ProtectiveStopRow(Base):
+    """Mirrors the ``protective_stops`` table created by migration ``0041``
+    (subscriber-safety SS.5): one row per opening attempt, written with the attempt and
+    before the order is sent."""
+
+    __tablename__ = "protective_stops"
+    __table_args__ = (
+        UniqueConstraint("execution_attempt_id", name="uq_protective_stops_attempt"),
+        CheckConstraint(
+            "status IN ('PENDING', 'RESTING', 'FAILED', 'GONE', 'VOID', 'SIMULATED')",
+            name="ck_protective_stops_status",
+        ),
+        CheckConstraint(
+            "position_side IN ('LONG', 'SHORT')", name="ck_protective_stops_position_side"
+        ),
+        CheckConstraint(
+            "stop_loss_pct BETWEEN 1 AND 50", name="ck_protective_stops_stop_loss_pct_range"
+        ),
+        CheckConstraint(
+            "trigger_price IS NULL OR trigger_price > 0",
+            name="ck_protective_stops_trigger_price_positive",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    user_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("users.id", name="fk_protective_stops_user"),
+        nullable=False,
+        index=True,
+    )
+    execution_attempt_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("execution_attempts.id", name="fk_protective_stops_attempt"),
+        nullable=False,
+    )
+    # The reservation that funded the opening: the id its fills carry in the ledger.
+    allocation_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("reservations.id", name="fk_protective_stops_allocation"),
+        nullable=False,
+        index=True,
+    )
+    exchange: Mapped[str] = mapped_column(Text, nullable=False)
+    venue: Mapped[str] = mapped_column(Text, nullable=False)
+    symbol: Mapped[str] = mapped_column(Text, nullable=False)
+    position_side: Mapped[str] = mapped_column(Text, nullable=False)
+    stop_loss_pct: Mapped[Decimal] = mapped_column(Numeric(4, 2), nullable=False)
+    trigger_price: Mapped[Decimal | None] = mapped_column(Numeric(38, 18), nullable=True)
+    venue_stop_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

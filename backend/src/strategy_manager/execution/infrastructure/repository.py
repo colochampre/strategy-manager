@@ -15,7 +15,15 @@ from strategy_manager.execution.domain.execution_attempt import (
 )
 from strategy_manager.execution.domain.market_symbol import market_spellings
 from strategy_manager.execution.domain.order import OrderSide
-from strategy_manager.execution.infrastructure.models import ExecutionAttemptRow
+from strategy_manager.execution.domain.protective_stop import (
+    PositionSide,
+    ProtectiveStop,
+    StopStatus,
+)
+from strategy_manager.execution.infrastructure.models import (
+    ExecutionAttemptRow,
+    ProtectiveStopRow,
+)
 from strategy_manager.shared.domain.errors import InvariantViolation
 from strategy_manager.signals.infrastructure.models import SignalRow
 
@@ -52,6 +60,87 @@ def _to_domain(row: ExecutionAttemptRow) -> ExecutionAttempt:
         delivery_id=row.delivery_id,
         created_at=row.created_at,
         updated_at=row.updated_at,
+    )
+
+
+class SqlAlchemyProtectiveStopRepository:
+    """Implements ``execution.application.ports.ProtectiveStopRepositoryPort`` against
+    the ``protective_stops`` table (migration ``0041``)."""
+
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def insert(self, user_id: UUID, stop: ProtectiveStop) -> None:
+        """Writes ``stop`` as ``user_id``'s, the user of the attempt it protects. Flushed,
+        so the foreign key to the attempt is checked here and a later read of the same
+        transaction sees it."""
+        self._session.add(
+            ProtectiveStopRow(
+                id=stop.id,
+                user_id=user_id,
+                execution_attempt_id=stop.execution_attempt_id,
+                allocation_id=stop.allocation_id,
+                exchange=stop.exchange,
+                venue=stop.venue,
+                symbol=stop.symbol,
+                position_side=stop.position_side.value,
+                stop_loss_pct=stop.stop_loss_pct,
+                trigger_price=stop.trigger_price,
+                venue_stop_id=stop.venue_stop_id,
+                status=stop.status.value,
+            )
+        )
+        await self._session.flush()
+
+    async def for_attempt(self, user_id: UUID, attempt_id: UUID) -> ProtectiveStop | None:
+        """``user_id``'s stop for the attempt; another user's under the same attempt id
+        is not found (multi-user design AD8). Read past the session's identity map, so a
+        ``mark`` of this transaction is what comes back."""
+        row = (
+            await self._session.execute(
+                select(ProtectiveStopRow)
+                .where(
+                    ProtectiveStopRow.execution_attempt_id == attempt_id,
+                    ProtectiveStopRow.user_id == user_id,
+                )
+                .execution_options(populate_existing=True)
+            )
+        ).scalar_one_or_none()
+        return None if row is None else _stop_to_domain(row)
+
+    async def mark(
+        self,
+        user_id: UUID,
+        attempt_id: UUID,
+        status: StopStatus,
+        venue_stop_id: str | None = None,
+    ) -> None:
+        values: dict[str, object] = {"status": status.value, "updated_at": func.now()}
+        if venue_stop_id is not None:
+            values["venue_stop_id"] = venue_stop_id
+        await self._session.execute(
+            update(ProtectiveStopRow)
+            .where(
+                ProtectiveStopRow.execution_attempt_id == attempt_id,
+                ProtectiveStopRow.user_id == user_id,
+            )
+            .values(**values)
+        )
+
+
+def _stop_to_domain(row: ProtectiveStopRow) -> ProtectiveStop:
+    return ProtectiveStop(
+        id=row.id,
+        execution_attempt_id=row.execution_attempt_id,
+        allocation_id=row.allocation_id,
+        exchange=row.exchange,
+        venue=row.venue,
+        symbol=row.symbol,
+        position_side=PositionSide(row.position_side),
+        stop_loss_pct=row.stop_loss_pct,
+        trigger_price=row.trigger_price,
+        status=StopStatus(row.status),
+        venue_stop_id=row.venue_stop_id,
     )
 
 

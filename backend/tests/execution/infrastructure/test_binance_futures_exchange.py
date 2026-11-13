@@ -236,6 +236,7 @@ def _open(
         side=side,
         granted=Decimal(granted),
         price=PRICE,
+        stop_loss_pct=Decimal("10"),
         leverage=Leverage(leverage),
     )
 
