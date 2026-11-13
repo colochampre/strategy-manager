@@ -153,30 +153,34 @@ Planning. Decisions made; nothing is built until the owner says to build. It goe
 Implementation, not started. Each task is planned as one PR, following the
 owner's preference.
 
-- [ ] SS.3 Migration 0040:
-  - `strategies.stop_loss_pct`, NOT NULL, with existing rows at 10, and a
-    CHECK of 1-50;
-  - a `protective_stops` table: allocation, venue ids (`orderId` / `algoId`
-    and `clientAlgoId`), level, status RESTING/FIRED/GONE/FAILED;
-  - a `safety_events` table;
-  - a cause on `execution_attempts`: SIGNAL / STOP / SAFETY_CLOSE / MANUAL.
-
-  Rehearsed on a restored backup. Risk: item 1.
-- [ ] SS.4 The stop level and the leverage cap:
-  - domain, `UpdateStrategy`, and the router field;
-  - the author's editor in the panel;
-  - `LEVERAGE_ABOVE_STOP_CAP` on subscribe and on a seat edit, and the
-    panel slider capped;
-  - an opening refused for a seat above the cap, with its event.
-
-  Risk: item 3, since it adds a field to the PATCH.
-- [ ] SS.5 Bybit: the stop attached to the opening order. The resting stop is
+- [ ] SS.3 The stop level and the leverage cap. Route: one bounded writer,
+  for the context backstop of a long parent session. Branch
+  `feat/subscriber-safety-stop-level`. Each later task brings its own
+  migration with the code that uses it.
+  - Migration 0040 adds `strategies.stop_loss_pct`: NOT NULL, existing rows
+    at 10, CHECK 1-50, two decimals. It is rehearsed on a restored backup
+    before production.
+  - Domain and validation, `RegisterStrategy` and `UpdateStrategy`, and the
+    router fields.
+  - The panel: a field in the new-strategy dialog (10 offered) and an editor
+    on the strategy's page.
+  - `LEVERAGE_ABOVE_STOP_CAP` on subscribe, on a seat's leverage change and
+    at registration (the author's seat). The panel's leverage control is
+    capped.
+  - A live opening is refused for a seat above the cap, before any capital is
+    reserved. Its `OPENING_REFUSED_LEVERAGE_CAP` safety event comes with
+    SS.10, which creates the table.
+  - Risk: item 1 (migration) and item 3 (the strategy contract gains a
+    field).
+- [ ] SS.5 Bybit: the stop attached to the opening order, with the migration
+  creating `protective_stops`. The resting stop is
   found by `parentOrderLinkId` and recorded. A failure closes the position at
   once. Risk: item 6 (live venue behaviour) and item 4.
 - [ ] SS.6 Binance: the algo stop right after the fill, with `clientAlgoId`
   recorded first, `-2013` retried, an unknown outcome resolved by reading
   back, and a failure closing at once. Risk: items 4 and 6.
-- [ ] SS.7 The stop watcher job:
+- [ ] SS.7 The stop watcher job, with the migration adding a cause to
+  `execution_attempts` (SIGNAL / STOP / SAFETY_CLOSE / MANUAL):
   - fills booked under the allocation with cause STOP, plus `STOP_FIRED`;
   - gone stops marked;
   - `ALREADY_CLOSED_BY_STOP` and `ALREADY_FLAT` in `ClosePosition`;
@@ -188,7 +192,8 @@ owner's preference.
   stopped strategies with positions. Risk: items 3 and 4.
 - [ ] SS.9 "Close now": the API and the panel's confirmation dialog, cause
   MANUAL, idempotent while in flight, with its event.
-- [ ] SS.10 The safety events API and the panel list, in EN and ES.
+- [ ] SS.10 The `safety_events` table, its API and the panel list, in EN and
+  ES, and the `OPENING_REFUSED_LEVERAGE_CAP` event from SS.3's refusal.
 - [ ] SS.11 Docs: CLAUDE.md's venue facts on stops, and the panel's help text.
 
 ## Log

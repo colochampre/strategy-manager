@@ -22,6 +22,8 @@ after it only. A stop already at the exchange MUST stay where it was placed.
 *Assumption:* the accepted range is 1 to 50, with at most two decimals.
 
 Every strategy that exists when this change deploys MUST receive 10 (D6).
+A new strategy MUST be registered with a level. *Assumption:* the
+registration form offers 10, and the author may change it there.
 
 #### Scenario: Author sets the level
 - GIVEN a strategy whose author is signed in
