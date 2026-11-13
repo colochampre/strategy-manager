@@ -187,6 +187,24 @@ owner's preference.
         slider was not capped;
       - the frontend types were optional;
       - there was no RED evidence for the code written before its tests.
+    - Closed. The second writer added the level to the public and held-seat
+      views and made the panel types require it. It ran 30 mutations; 4 of
+      them went undetected and got new tests that now go red.
+    - Commit `01c111c`. Gate green on the full backend suite (ruff, mypy,
+      pytest exit 0) and the frontend (lint, 3878 tests).
+    - Independent verifier (item 1, the migration): no blockers. It verified
+      by reading, because DB-backed tests cannot reach PostgreSQL from a
+      scratch worktree that has no `.env`. The parent re-ran
+      `test_0040_strategy_stop_loss_pct.py` in the workspace: exit 0.
+      Advisories:
+      - `ChangeShare` refuses a request that re-sends the current leverage of
+        a seat already above the cap;
+      - a missing strategy on a leverage change now answers 404.
+    - Deploy notes:
+      - `POST /strategies` now requires `stop_loss_pct`, so a registration
+        from the old panel fails between the API deploy and the panel move.
+      - Count production seats above 9x before migrating: their live
+        openings are refused from the deploy on.
 - [ ] SS.5 Bybit: the stop attached to the opening order, with the migration
   creating `protective_stops`. The resting stop is
   found by `parentOrderLinkId` and recorded. A failure closes the position at
