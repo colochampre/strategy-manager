@@ -402,6 +402,84 @@ owner's preference.
   - reconciliation stays quiet on a fired stop.
 
   Risk: items 1 and 4.
+  - Design, 2026-11-13, from a read-only explorer's map. Route: one bounded
+    writer (Sonnet), for the context backstop. Branch
+    `feat/subscriber-safety-stop-watcher`.
+    - **Migration 0043.**
+      - `execution_attempts.cause`: text NOT NULL, with
+        `ck_execution_attempts_cause` IN ('SIGNAL','STOP','SAFETY_CLOSE','MANUAL').
+      - Existing rows are backfilled:
+        - a `signal_id` gives SIGNAL;
+        - origin VENUE (a reconciliation booking of a trade done by hand at
+          the venue) gives MANUAL;
+        - a SYSTEM close with no signal (SS.5's confirm job) gives
+          SAFETY_CLOSE;
+        - anything else gives SIGNAL.
+      - The rehearsal prints the count per cause.
+      - `ck_protective_stops_status` gains FIRED.
+      - The downgrade refuses while a FIRED stop or a non-SIGNAL cause exists,
+        instead of losing it.
+    - **Who sets the cause.**
+      - `PlaceOrder` sets SIGNAL.
+      - `ClosePosition` takes it from a new, required `CloseCommand.cause`:
+        the signal path passes SIGNAL, the confirm job SAFETY_CLOSE.
+      - The booking writer sets MANUAL.
+      - The watcher sets STOP.
+    - **The adapter port.** `read_stop(stop, parent_client_order_id)`
+      answers `StopRests`, `StopFired(exchange_order_id, fills)` or
+      `StopNotResting`.
+      - `NoAfterFillStop` keeps refusing for Pionex and the fake.
+      - **Bybit:** the realtime StopOrder read (as `find_resting_stop`) says
+        whether it still rests. If it does not, `/v5/execution/list` with
+        `orderId` = the recorded `venue_stop_id` gives its fills.
+      - **Binance:** the algo order is read by `clientAlgoId`.
+        - NEW means it rests.
+        - FINISHED with an `actualOrderId` means it fired, and its fills come
+          from `userTrades?orderId=`.
+        - EXPIRED, CANCELED or REJECTED means it no longer rests.
+        - Any other status (TRIGGERING) is read as still resting, for the
+          next tick.
+      - An ambiguous error propagates, so the stop stays RESTING and the
+        next tick asks again.
+    - **The job.** `WatchProtectiveStops` runs as `protective_stop.watch`, a
+      recurring kind every `protective_stop_watch_interval_seconds` = 30. It
+      reads every RESTING stop of a live allocation with one system query,
+      then each owner's exchange through the mode. Each stop is decided
+      under the pool lock and committed on its own, so one stop's failure
+      (logged with its user, symbol and attempt) does not stop the rest.
+      - **Fired:** the fills are booked the way a close's settle books
+        them, under the stop's allocation, on a new FILLED attempt.
+        - The attempt's fields:
+          - cause STOP and origin SYSTEM;
+          - `closes_allocation_id` set to the stop's allocation;
+          - `client_order_id` `stop-<stop id>`;
+          - `exchange_order_id` the stop's order;
+          - the fee in USDT, as reported.
+        - The stop is marked FIRED and the leaving subscription ends if
+          flat.
+        - A WARNING `protective stop fired` (the `STOP_FIRED` event comes
+          with SS.10's table, as SS.3's refusal did) is written, all in one
+          transaction.
+        - Fills summing to less than the ledger's net are not booked yet:
+          the rest is not published. That case logs a WARNING and waits.
+      - **Not resting with no fills:** the stop is marked GONE and nothing
+        is booked (runs 3, 4 and 6).
+    - **`ClosePosition`.**
+      - **`ALREADY_CLOSED_BY_STOP`:** a ledger net of zero whose allocation
+        stop is FIRED sends no order and returns this status, instead of
+        `NothingRecordedYet`. The delivery ends PROCESSED with that reason.
+      - **`ALREADY_FLAT`:** a reduce-only close the venue refuses because
+        the position is flat raises `PositionAlreadyFlat(ExchangeError)` in
+        the adapter (Bybit 110017, Binance -2022; *assumption*, unverified
+        live). The close attempt is marked FAILED with that error, the
+        delivery ends PROCESSED with reason ALREADY_FLAT, and the log line
+        is a WARNING, not an ERROR (no operator alert).
+    - **Reconciliation.** `ScanPools` does not advance confirmation on a
+      symbol whose venue position is flat while the ledger holds it AND a
+      RESTING stop exists for it: that is the watcher's until it decides.
+      Any other mismatch is untouched. A stop wrongly read GONE (fired,
+      fills not yet published) falls back to today's alert and booking
+      proposal, a recoverable path.
 - [ ] SS.8 Disable refused on exposure, under the archive's locks, with the
   lock-hold concurrency test on PostgreSQL. Plus the sweep's safety close of
   stopped strategies with positions. Risk: items 3 and 4.
