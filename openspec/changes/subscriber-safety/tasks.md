@@ -153,7 +153,7 @@ Planning. Decisions made; nothing is built until the owner says to build. It goe
 Implementation, not started. Each task is planned as one PR, following the
 owner's preference.
 
-- [ ] SS.3 The stop level and the leverage cap. Route: one bounded writer,
+- [x] SS.3 The stop level and the leverage cap. Route: one bounded writer,
   for the context backstop of a long parent session. Branch
   `feat/subscriber-safety-stop-level`. Each later task brings its own
   migration with the code that uses it.
@@ -206,6 +206,26 @@ owner's preference.
       - Count production seats above 9x before migrating: their live
         openings are refused from the deploy on.
         Counted on 2026-11-13: 0 seats that are not ENDED sit above 9x.
+  - **Delivered.** Merged as #106 (`ec75f7e`) and deployed by the owner on
+    2026-11-13 with three scripts piped over ssh from Git Bash (PowerShell has
+    no `<` redirection):
+    - Rehearsal on `sm_rehearsal_0040`, restored from
+      `pre-0040-rehearsal-20261113T032457Z.dump`:
+      - `0039 -> 0040`;
+      - all 7 strategies at `10.00`;
+      - `numeric(4,2)`, NOT NULL, default 10, and the CHECK present;
+      - every other column of every strategy unchanged (md5 over all rows);
+      - downgrade and re-upgrade clean;
+      - the copy dropped.
+    - API: 0 seats above 9x, then backup
+      `pre-0040-deploy-20261113T032611Z.dump` and production `0039 -> 0040`,
+      with 7 strategies at `10.00`. Both services `active`, and no ERROR or
+      Traceback line.
+    - Panel (pps.6): built by the assistant from a detached worktree of
+      `origin/main` at `ec75f7e467d0`, 22 entries, SHA-256
+      `547beff6a81338b08a13398508c8c0ca84ea140623f3503056cdb2b3a7c0d6a2`. The
+      owner's block printed `OK`, `readable`, and both `bundle` and `checkout`
+      at `ec75f7e467d0`.
 - [ ] SS.5 Bybit: the stop attached to the opening order, with the migration
   creating `protective_stops`. The resting stop is
   found by `parentOrderLinkId` and recorded. A failure closes the position at
