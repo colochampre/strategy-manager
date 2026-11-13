@@ -24,7 +24,7 @@ from strategy_manager.execution.application.ports import (
     PlacedOrder,
     ReservationSnapshot,
 )
-from strategy_manager.execution.domain.execution_attempt import ExecutionAttempt
+from strategy_manager.execution.domain.execution_attempt import ExecutionAttempt, ExecutionCause
 from strategy_manager.execution.domain.fill import Fill
 from strategy_manager.execution.domain.futures_order import FuturesMarketOrder
 from strategy_manager.execution.domain.order import (
@@ -468,6 +468,15 @@ async def test_the_attempt_records_the_size_that_actually_went_on_the_wire() -> 
     attempt = attempts.inserted[0]
     assert attempt.quantity is None
     assert attempt.quote_amount == Decimal("100")
+
+
+async def test_an_opening_attempt_is_caused_by_a_signal() -> None:
+    """Migration 0043: ``PlaceOrder`` names the cause itself, never by a default."""
+    use_case, _, attempts, _, _, _ = _build()
+
+    await use_case.place(_command())
+
+    assert attempts.inserted[0].cause is ExecutionCause.SIGNAL
 
 
 async def test_an_expired_reservation_places_nothing() -> None:

@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from strategy_manager.allocation.infrastructure.models import ReservationRow
 from strategy_manager.execution.domain.execution_attempt import (
     ExecutionAttempt,
+    ExecutionCause,
     ExecutionOrigin,
     ExecutionStatus,
 )
@@ -59,6 +60,7 @@ def _to_domain(row: ExecutionAttemptRow) -> ExecutionAttempt:
         error=row.error,
         signal_id=row.signal_id,
         delivery_id=row.delivery_id,
+        cause=ExecutionCause(row.cause),
         created_at=row.created_at,
         updated_at=row.updated_at,
     )
@@ -190,6 +192,7 @@ class SqlAlchemyExecutionAttemptRepository:
                 error=attempt.error,
                 signal_id=attempt.signal_id,
                 delivery_id=attempt.delivery_id,
+                cause=attempt.cause.value,
             )
         )
         await self._session.flush()

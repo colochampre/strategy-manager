@@ -27,6 +27,7 @@ import pytest
 from strategy_manager.execution.application.close_position import CloseCommand, CloseResult
 from strategy_manager.execution.domain.execution_attempt import (
     ExecutionAttempt,
+    ExecutionCause,
     ExecutionOrigin,
     ExecutionStatus,
 )
@@ -780,6 +781,7 @@ async def test_an_orphan_close_carries_no_signal_id_and_still_carries_the_price(
 
     [command] = close_position.calls
     assert command.signal_id is None
+    assert command.cause is ExecutionCause.SIGNAL
     assert command.reference_price == Decimal("0.4633")
 
 

@@ -37,6 +37,7 @@ from uuid import UUID, uuid4
 from strategy_manager.execution.application.ports import FillRecord
 from strategy_manager.execution.domain.execution_attempt import (
     ExecutionAttempt,
+    ExecutionCause,
     ExecutionOrigin,
     ExecutionStatus,
 )
@@ -321,6 +322,8 @@ def _build_write(
         leverage=None,
         status=ExecutionStatus.FILLED,
         origin=ExecutionOrigin.VENUE,
+        # A trade done by hand at the venue, which reconciliation is booking.
+        cause=ExecutionCause.MANUAL,
         client_order_id=proposal.client_order_id,
     )
     fill_records = [

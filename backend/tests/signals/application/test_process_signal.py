@@ -58,6 +58,7 @@ from strategy_manager.execution.application.close_position import (
 from strategy_manager.execution.application.place_order import PlaceCommand, PlaceResult
 from strategy_manager.execution.domain.execution_attempt import (
     ExecutionAttempt,
+    ExecutionCause,
     ExecutionOrigin,
     ExecutionStatus,
 )
@@ -3681,6 +3682,7 @@ async def test_a_closing_alerts_price_is_the_close_commands_reference_price() ->
 
     [command] = close_position.calls
     assert command.reference_price == Decimal("0.4633")
+    assert command.cause is ExecutionCause.SIGNAL
 
 
 async def test_a_reversing_alerts_price_prices_the_close_half() -> None:
@@ -3703,6 +3705,7 @@ async def test_a_reversing_alerts_price_prices_the_close_half() -> None:
     assert result.transition_kind == "reverse"
     [command] = close_position.calls
     assert command.reference_price == Decimal("0.4633")
+    assert command.cause is ExecutionCause.SIGNAL
 
 
 async def test_an_opening_alerts_price_is_handed_to_close_orphans() -> None:

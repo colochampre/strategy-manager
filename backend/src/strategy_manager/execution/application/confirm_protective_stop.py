@@ -44,7 +44,7 @@ from strategy_manager.execution.application.ports import (
     ProtectiveStopRepositoryPort,
     ReservationGatewayPort,
 )
-from strategy_manager.execution.domain.execution_attempt import ExecutionAttempt
+from strategy_manager.execution.domain.execution_attempt import ExecutionAttempt, ExecutionCause
 from strategy_manager.execution.domain.fill import average_fill_price
 from strategy_manager.execution.domain.order import OrderSide
 from strategy_manager.execution.domain.protective_stop import ProtectiveStop, StopStatus
@@ -256,6 +256,8 @@ class ConfirmProtectiveStop:
                     signal_id=None,
                     delivery_id=None,
                     reference_price=None,
+                    # The system closes by itself: no strategy asked for this.
+                    cause=ExecutionCause.SAFETY_CLOSE,
                 )
             )
         except NothingRecordedYet:

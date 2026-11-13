@@ -31,7 +31,7 @@ from strategy_manager.execution.application.ports import (
     OrderNotPlaceable,
     PlacedOrder,
 )
-from strategy_manager.execution.domain.execution_attempt import ExecutionAttempt
+from strategy_manager.execution.domain.execution_attempt import ExecutionAttempt, ExecutionCause
 from strategy_manager.execution.domain.fill import Fill
 from strategy_manager.execution.domain.order import (
     MarketSell,
@@ -227,6 +227,7 @@ def _command(
     side: OrderSide = OrderSide.SELL,
     signal_id: UUID | None = SIGNAL_ID,
     reference_price: Decimal | None = ALERT_PRICE,
+    cause: ExecutionCause = ExecutionCause.SIGNAL,
 ) -> CloseCommand:
     return CloseCommand(exchange="pionex",
         user_id=OWNER,
@@ -240,6 +241,7 @@ def _command(
         # The delivery travels with the signal: both set, or both None (an orphan).
         delivery_id=None if signal_id is None else DELIVERY_ID,
         reference_price=reference_price,
+        cause=cause,
     )
 
 
@@ -346,6 +348,18 @@ async def test_the_attempt_belongs_to_the_position_not_to_a_reservation() -> Non
     assert attempt.is_closing is True
     assert attempt.allocation_id == ALLOCATION_ID
     assert attempt.side is OrderSide.SELL
+
+
+@pytest.mark.parametrize("cause", [ExecutionCause.SIGNAL, ExecutionCause.SAFETY_CLOSE])
+async def test_the_closing_attempt_records_the_cause_the_command_names(
+    cause: ExecutionCause,
+) -> None:
+    """Migration 0043: the signal path passes SIGNAL, the confirm job SAFETY_CLOSE."""
+    use_case, attempts, _, _, _, _ = _build()
+
+    await use_case.close(_command(cause=cause))
+
+    assert attempts.inserted[0].cause is cause
 
 
 async def test_the_settle_job_names_the_closing_attempt() -> None:
@@ -506,6 +520,7 @@ async def test_a_symbol_the_pool_cannot_fund_is_refused_before_any_write() -> No
         signal_id=SIGNAL_ID,
         delivery_id=DELIVERY_ID,
         reference_price=ALERT_PRICE,
+        cause=ExecutionCause.SIGNAL,
     )
 
     with pytest.raises(InvariantViolation, match="cannot fund"):

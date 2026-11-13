@@ -26,6 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from strategy_manager.execution.application.close_position import CloseCommand
 from strategy_manager.execution.application.place_order import PlaceCommand
 from strategy_manager.execution.application.ports import OpenOrderSpec
+from strategy_manager.execution.domain.execution_attempt import ExecutionCause
 from strategy_manager.execution.domain.order import OrderSide
 from strategy_manager.execution.infrastructure.fake_exchange import FakeExchangeAdapter
 from strategy_manager.ledger.application.read_held_base import ReadHeldBase
@@ -83,6 +84,7 @@ async def _close_command(
         side=OrderSide.SELL,
         signal_id=signal_id,
         reference_price=reference_price,
+        cause=ExecutionCause.SIGNAL,
     )
 
 

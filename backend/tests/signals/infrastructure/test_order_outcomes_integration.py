@@ -35,6 +35,7 @@ from strategy_manager.allocation.infrastructure.reservation_gateway import (
 from strategy_manager.execution.application.close_position import CloseCommand, ClosePosition
 from strategy_manager.execution.application.place_order import PlaceCommand, PlaceOrder
 from strategy_manager.execution.application.ports import FillRecord, OrderNotPlaceable
+from strategy_manager.execution.domain.execution_attempt import ExecutionCause
 from strategy_manager.execution.domain.order import OrderSide
 from strategy_manager.execution.infrastructure.exchange_registry import VenueExchangeRegistry
 from strategy_manager.execution.infrastructure.fake_exchange import FakeExchangeAdapter
@@ -425,6 +426,7 @@ async def _close_command(
         side=OrderSide.SELL,
         signal_id=signal_id,
         reference_price=Decimal("0.4633"),
+        cause=ExecutionCause.SIGNAL,
     )
 
 

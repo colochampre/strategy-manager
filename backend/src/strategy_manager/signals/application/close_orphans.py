@@ -80,7 +80,11 @@ from typing import Protocol
 from uuid import UUID
 
 from strategy_manager.execution.application.close_position import CloseCommand, CloseResult
-from strategy_manager.execution.domain.execution_attempt import ExecutionAttempt, ExecutionStatus
+from strategy_manager.execution.domain.execution_attempt import (
+    ExecutionAttempt,
+    ExecutionCause,
+    ExecutionStatus,
+)
 from strategy_manager.execution.domain.order import OrderSide
 from strategy_manager.signals.application.ports import PoolKey
 from strategy_manager.signals.domain.holding import HeldAllocation
@@ -245,6 +249,8 @@ class CloseOrphans:
                     # separately from ``signal_id``: no signal id does not mean
                     # no alert.
                     reference_price=reference_price,
+                    # Still a strategy's signal that asked for it, one step removed.
+                    cause=ExecutionCause.SIGNAL,
                 )
             )
         if unsafe_allocation_ids:

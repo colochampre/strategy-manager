@@ -478,7 +478,7 @@ async def test_approval_writes_a_venue_execution_attempt_and_ledger_rows_and_net
         attempt_row = (
             await session.execute(
                 text(
-                    "SELECT origin, status, closes_allocation_id, reservation_id, "
+                    "SELECT origin, cause, status, closes_allocation_id, reservation_id, "
                     "client_order_id, symbol, quantity, side, exchange_order_id "
                     "FROM execution_attempts WHERE id = :id"
                 ),
@@ -486,6 +486,8 @@ async def test_approval_writes_a_venue_execution_attempt_and_ledger_rows_and_net
             )
         ).mappings().one()
     assert attempt_row["origin"] == "VENUE"
+    # Migration 0043: a trade done by hand at the venue, booked through reconciliation.
+    assert attempt_row["cause"] == "MANUAL"
     assert attempt_row["status"] == "FILLED"
     assert attempt_row["closes_allocation_id"] == scenario.allocation_id
     assert attempt_row["reservation_id"] is None

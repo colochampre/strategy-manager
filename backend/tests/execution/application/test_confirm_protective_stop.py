@@ -28,6 +28,7 @@ from strategy_manager.execution.application.ports import (
 )
 from strategy_manager.execution.domain.execution_attempt import (
     ExecutionAttempt,
+    ExecutionCause,
     ExecutionOrigin,
     ExecutionStatus,
 )
@@ -345,6 +346,7 @@ async def test_no_resting_stop_fails_the_stop_and_closes_the_position_at_once(
         signal_id=None,
         delivery_id=None,
         reference_price=None,
+        cause=ExecutionCause.SAFETY_CLOSE,
     )
     assert rig.stops.marked == [(OWNER, ATTEMPT_ID, StopStatus.FAILED, None)]
     [error] = _messages(caplog, logging.ERROR)

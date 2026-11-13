@@ -84,7 +84,11 @@ from strategy_manager.execution.application.close_position import (
     CloseResult,
 )
 from strategy_manager.execution.application.place_order import PlaceCommand, PlaceResult
-from strategy_manager.execution.domain.execution_attempt import ExecutionAttempt, ExecutionStatus
+from strategy_manager.execution.domain.execution_attempt import (
+    ExecutionAttempt,
+    ExecutionCause,
+    ExecutionStatus,
+)
 from strategy_manager.execution.domain.market_symbol import is_perpetual, market_key
 from strategy_manager.execution.domain.order import OrderSide
 from strategy_manager.shared.application.ports import AllocationModePort, CommitPort
@@ -1005,6 +1009,7 @@ class ProcessDelivery:
                 signal_id=signal_id,
                 delivery_id=delivery.delivery_id,
                 reference_price=context.price,
+                cause=ExecutionCause.SIGNAL,
             )
         )
         if close_result.status in ("FAILED", "NOT_CLOSABLE"):

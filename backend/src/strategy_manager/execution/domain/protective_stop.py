@@ -23,10 +23,12 @@ class StopStatus(StrEnum):
     ``GONE``: the position closed by other means, so there is nothing left to protect.
     ``VOID``: the opening ended without fills, so no stop ever mattered.
     ``SIMULATED``: a simulated opening, which records the level it would have used and
-    places no stop. (SS.7 adds ``FIRED``.)"""
+    places no stop. ``FIRED``: the stop triggered at the venue and the stop watcher booked
+    its fills."""
 
     PENDING = "PENDING"
     RESTING = "RESTING"
+    FIRED = "FIRED"
     FAILED = "FAILED"
     GONE = "GONE"
     VOID = "VOID"

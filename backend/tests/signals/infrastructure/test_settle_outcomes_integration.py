@@ -37,6 +37,7 @@ from strategy_manager.execution.application.close_position import CloseCommand, 
 from strategy_manager.execution.application.place_order import PlaceCommand, PlaceOrder
 from strategy_manager.execution.application.ports import FillRecord
 from strategy_manager.execution.application.settle_execution import SettleExecution
+from strategy_manager.execution.domain.execution_attempt import ExecutionCause
 from strategy_manager.execution.domain.order import OrderSide
 from strategy_manager.execution.infrastructure.exchange_registry import VenueExchangeRegistry
 from strategy_manager.execution.infrastructure.fake_exchange import FakeExchangeAdapter
@@ -411,6 +412,7 @@ async def _place_close(
                 signal_id=closing_signal_id,
                 delivery_id=delivery_id,
                 reference_price=Decimal("0.4633"),
+                cause=ExecutionCause.SIGNAL,
             )
         )
     assert result.status == "PLACED"

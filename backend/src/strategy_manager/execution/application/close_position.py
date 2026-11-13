@@ -52,6 +52,7 @@ from strategy_manager.execution.application.ports import (
 )
 from strategy_manager.execution.domain.execution_attempt import (
     ExecutionAttempt,
+    ExecutionCause,
     ExecutionOrigin,
     ExecutionStatus,
 )
@@ -110,6 +111,10 @@ class CloseCommand:
     signal_id: UUID | None
     delivery_id: UUID | None
     reference_price: Decimal | None
+    # What asks for this close (migration 0043), recorded on the closing attempt. REQUIRED
+    # with no default, like ``signal_id``: the signal path says SIGNAL, the confirm job
+    # SAFETY_CLOSE, and a caller that forgets does not compile.
+    cause: ExecutionCause
 
 
 @dataclass(frozen=True, slots=True)
@@ -251,6 +256,7 @@ class ClosePosition:
                 leverage=None,
                 status=ExecutionStatus.SUBMITTED,
                 origin=ExecutionOrigin.SYSTEM,
+                cause=command.cause,
                 client_order_id=client_order_id,
                 # Decision 25, 5c.3: the CLOSING signal. ``allocation_id``
                 # names the opening allocation, so this is the only route from

@@ -49,6 +49,7 @@ from strategy_manager.execution.application.ports import (
 )
 from strategy_manager.execution.domain.execution_attempt import (
     ExecutionAttempt,
+    ExecutionCause,
     ExecutionOrigin,
     ExecutionStatus,
 )
@@ -253,6 +254,7 @@ class PlaceOrder:
                 leverage=leverage,
                 status=ExecutionStatus.SUBMITTED,
                 origin=ExecutionOrigin.SYSTEM,
+                cause=ExecutionCause.SIGNAL,
                 client_order_id=client_order_id,
                 # Decision 25, row 16: settle reads the signal back from the
                 # reservation for an open, but the attempt carries it too so
