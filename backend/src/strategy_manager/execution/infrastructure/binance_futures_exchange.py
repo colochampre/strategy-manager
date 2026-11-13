@@ -67,6 +67,10 @@ from strategy_manager.execution.application.ports import (
     OrderNotPlaceable,
     PlacedOrder,
     RestingStop,
+    StopFired,
+    StopNotResting,
+    StopReading,
+    StopRests,
 )
 from strategy_manager.execution.domain.fill import Fill
 from strategy_manager.execution.domain.futures_order import (
@@ -78,7 +82,7 @@ from strategy_manager.execution.domain.futures_order import (
 from strategy_manager.execution.domain.market_symbol import strip_contract_marker
 from strategy_manager.execution.domain.order import OrderSide
 from strategy_manager.execution.domain.placeable import PlaceableOrder
-from strategy_manager.execution.domain.protective_stop import PositionSide
+from strategy_manager.execution.domain.protective_stop import PositionSide, ProtectiveStop
 from strategy_manager.shared.domain.money import Exchange, Venue
 from strategy_manager.shared.infrastructure.binance.errors import (
     BinanceApiError,
@@ -95,6 +99,10 @@ from strategy_manager.shared.infrastructure.binance.trade_client import (
 )
 
 _EPOCH = datetime.fromtimestamp(0, UTC)
+
+# ``algoStatus`` values that end a stop without it firing (SS.7). ``FINISHED`` is a stop that
+# fired; every other value is a stop still, or about to be, in force.
+_STOP_GONE_STATUSES = frozenset({"EXPIRED", "CANCELED", "REJECTED"})
 
 # HTTP statuses that mean the venue answered, but not with a decision about
 # this order. 408 is a timeout it reported itself and 429 is throttling; every
@@ -448,6 +456,57 @@ class BinanceFuturesExchangeAdapter:
                 raise
             return RestingStop(venue_stop_id=str(algo.algo_id))
         return None
+
+    async def read_stop(
+        self, stop: ProtectiveStop, parent_client_order_id: str
+    ) -> StopReading:
+        """What became of a stop found resting (SS.7): the algo order is read by its
+        ``clientAlgoId``, and its ``algoStatus`` says.
+
+        ``NEW`` rests. ``FINISHED`` fired: it names the ordinary order it created
+        (``actualOrderId``) and that order's fills come from ``userTrades``, an empty list
+        meaning not yet published. ``EXPIRED``, ``CANCELED`` and ``REJECTED`` are gone.
+        Every other status (``TRIGGERING``, ``TRIGGERED``, none) is the middle of firing,
+        read as still resting for the next tick.
+
+        A ``-2013`` is NOT read as gone: it is also how a stop answers for a moment after
+        it is placed, and the watcher never believes it, so the stop stays ``RESTING`` and
+        is read again. A ``FINISHED`` stop with no order named cannot have its fills found,
+        which is an ``ExchangeError``, never a stop that fired nothing. Other failures
+        follow ``find_stop``.
+        """
+        if stop.client_stop_id is None:
+            raise ExchangeError(
+                f"protective stop {stop.id} has no client stop id recorded, so what became "
+                "of it cannot be looked up"
+            )
+        market = _venue_symbol(stop.symbol)
+        try:
+            algo = await self._client.algo_order_for(stop.client_stop_id)
+            status = algo.status
+            if status in _STOP_GONE_STATUSES:
+                return StopNotResting()
+            if status != "FINISHED":
+                return StopRests()
+            if algo.actual_order_id is None:
+                raise ExchangeError(
+                    f"Binance reports stop {stop.client_stop_id} FINISHED with no "
+                    "actualOrderId, so its fills cannot be found"
+                )
+            executions = await self._client.fills_for(
+                symbol=market, order_id=algo.actual_order_id
+            )
+        except BinanceApiError as exc:
+            if _is_definitive_setting_refusal(exc):
+                raise ExchangeError(
+                    f"Binance refused to read the stop {stop.client_stop_id} "
+                    f"(code={exc.code}): {exc}"
+                ) from exc
+            raise
+        return StopFired(
+            exchange_order_id=str(algo.actual_order_id),
+            fills=[_to_domain_fill(execution) for execution in executions],
+        )
 
     async def fetch_fills(self, client_order_id: str, symbol: str) -> list[Fill]:
         """Two hops: our own id, then Binance's, then the fills.

@@ -949,3 +949,46 @@ async def test_a_leverage_outside_one_to_twenty_never_reaches_the_venue(
         await client.set_leverage(SYMBOL, leverage)
 
     assert recorded == []
+
+
+@pytest.mark.parametrize(
+    ("answered", "expected"),
+    [
+        ("105975543111", 105975543111),  # the shape the venue documents: a string
+        (105975543111, 105975543111),  # tolerated as an integer
+        ("", None),  # a stop that has not fired carries none
+        ("0", None),  # or the placeholder of none
+        (None, None),
+    ],
+)
+async def test_the_order_a_fired_stop_created_is_its_actual_order_id(
+    recorded: list[httpx.Request], answered: object, expected: int | None
+) -> None:
+    """SS.7: a FINISHED stop names the ordinary order it created, and its fills are read
+    from ``userTrades`` by that id."""
+    body = {**ALGO_ACK, "algoStatus": "FINISHED", "actualOrderId": answered}
+    client = _read_client(recorded, httpx.Response(200, json=body))
+
+    algo = await client.algo_order_for(CLIENT_STOP_ID)
+
+    assert algo.status == "FINISHED"
+    assert algo.actual_order_id == expected
+
+
+async def test_a_stop_that_never_fired_has_no_actual_order_id(
+    recorded: list[httpx.Request],
+) -> None:
+    client = _read_client(recorded, httpx.Response(200, json=ALGO_ACK))
+
+    assert (await client.algo_order_for(CLIENT_STOP_ID)).actual_order_id is None
+
+
+async def test_an_actual_order_id_that_is_not_an_id_is_an_error_not_a_missing_one(
+    recorded: list[httpx.Request],
+) -> None:
+    """A fired stop whose fills cannot be found would be read as gone and book nothing."""
+    body = {**ALGO_ACK, "algoStatus": "FINISHED", "actualOrderId": "abc"}
+    client = _read_client(recorded, httpx.Response(200, json=body))
+
+    with pytest.raises(BinanceApiError):
+        await client.algo_order_for(CLIENT_STOP_ID)

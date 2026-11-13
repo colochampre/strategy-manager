@@ -156,6 +156,30 @@ class RestingStop:
 
 
 @dataclass(frozen=True, slots=True)
+class StopRests:
+    """The venue still holds the stop and it has not triggered."""
+
+
+@dataclass(frozen=True, slots=True)
+class StopFired:
+    """The stop triggered at the venue. ``exchange_order_id`` is the order it created and
+    ``fills`` are that order's executions as the venue has published them so far: an empty
+    or partial list means the rest is not published yet, never that the stop did not fire."""
+
+    exchange_order_id: str
+    fills: Sequence[Fill]
+
+
+@dataclass(frozen=True, slots=True)
+class StopNotResting:
+    """The venue holds no such stop any more and shows no execution of it: it went with its
+    position (closed by other means) or was cancelled."""
+
+
+StopReading = StopRests | StopFired | StopNotResting
+
+
+@dataclass(frozen=True, slots=True)
 class OpenOrderSpec:
     """What an adapter needs to turn granted capital into an opening order.
 
@@ -322,6 +346,23 @@ class ExchangePort(Protocol):
         """The stop the venue holds under ``client_stop_id``, in any status, or ``None``
         when it positively holds none (after the adapter's own retries of a read that lags
         the placing). Failures follow ``place_stop``."""
+        ...
+
+    # ---- what became of a stop found resting (subscriber-safety SS.7) ----
+
+    async def read_stop(
+        self, stop: ProtectiveStop, parent_client_order_id: str
+    ) -> StopReading:
+        """What became of a stop that was found ``RESTING``.
+
+        ``StopRests``: still held and untriggered. ``StopFired``: triggered, with the order
+        it created and the fills the venue has published for it. ``StopNotResting``: held no
+        more and fired nothing the venue shows (its position closed by other means).
+        ``parent_client_order_id`` is the OPENING's client order id, how a venue that
+        carries the stop on the opening order (Bybit) finds it again. A failure whose
+        outcome is unknown propagates unchanged, so the stop stays ``RESTING`` and the next
+        tick asks again; a stop the venue cannot answer for (no id recorded, a state it does
+        not document) raises ``ExchangeError``."""
         ...
 
 

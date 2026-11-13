@@ -295,6 +295,19 @@ class BybitTradeClient:
         )
         return [_parse_execution(entry) for entry in _list_of(data, "list")]
 
+    async def fills_for_order(self, symbol: str, order_id: str) -> list[BybitExecution]:
+        """Every fill of one order by the VENUE's own id (subscriber-safety SS.7).
+
+        A stop that fires creates an order of its own, which carries none of our
+        ``orderLinkId``s: its executions are found by the ``orderId`` recorded when the
+        stop was found resting. An empty list is "no fill published", not proof the stop
+        did not fire; a malformed answer raises, because reading it as empty would book
+        nothing for a position that closed."""
+        data = await self._read_result(
+            EXECUTIONS_PATH, {"category": LINEAR, "symbol": symbol, "orderId": order_id}
+        )
+        return [_parse_execution(entry) for entry in _list_of(data, "list")]
+
     async def resting_stop_for(self, symbol: str, parent_order_link_id: str) -> str | None:
         """The venue id of the stop resting for the opening placed under
         ``parent_order_link_id``, or ``None`` when none of the symbol's conditional

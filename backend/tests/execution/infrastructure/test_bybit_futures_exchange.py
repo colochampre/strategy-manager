@@ -88,9 +88,14 @@ class FakeTradeClient:
         writes_apply: bool = True,
         resting_stop: str | None = "STOP-1",
         stop_raises: Exception | None = None,
+        stop_executions: list[BybitExecution] | None = None,
+        stop_executions_raise: Exception | None = None,
     ) -> None:
         self._resting_stop = resting_stop
         self._stop_raises = stop_raises
+        self._stop_executions = stop_executions or []
+        self._stop_executions_raise = stop_executions_raise
+        self.order_fill_reads: list[tuple[str, str]] = []
         self.stop_lookups: list[tuple[str, str]] = []
         # Every read or write of an account setting, in order: what proves
         # that nothing is written before the size is known to be placeable.
@@ -190,6 +195,12 @@ class FakeTradeClient:
 
     async def fills_for(self, order_link_id: str) -> list[BybitExecution]:
         return self._executions
+
+    async def fills_for_order(self, symbol: str, order_id: str) -> list[BybitExecution]:
+        self.order_fill_reads.append((symbol, order_id))
+        if self._stop_executions_raise is not None:
+            raise self._stop_executions_raise
+        return self._stop_executions
 
     async def assert_order_placed(self, order_link_id: str) -> None:
         self.existence_checks += 1
