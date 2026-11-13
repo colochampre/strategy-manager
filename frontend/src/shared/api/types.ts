@@ -63,6 +63,8 @@ export interface PublicStrategy {
   /** Whether the strategy takes openings now: its subscribers' business to know (tasks.md L.1). */
   enabled: boolean;
   uptime: StrategyUptime;
+  /** The stop level as a percentage of price (a string such as "10.00"): it caps the leverage a reader may choose. */
+  stop_loss_pct: string;
 }
 
 /** The three values that name one capital pool (`PoolRef` on the server). */
@@ -201,6 +203,11 @@ export interface Strategy {
   subscribers: number;
   live_subscribers: number;
   capital: string | null;
+  /**
+   * Where its positions are stopped, as a percentage of price from the entry (a string such as "10.00"). It caps
+   * every seat's leverage.
+   */
+  stop_loss_pct: string;
 }
 
 /**
@@ -218,6 +225,8 @@ export interface HeldSubscription extends Subscription {
   /** Whether the strategy takes openings now; every holder may know it. */
   strategy_enabled: boolean;
   strategy_uptime: StrategyUptime;
+  /** The strategy's stop level (a string such as "10.00"): it caps this seat's leverage. */
+  stop_loss_pct: string;
 }
 
 /**
@@ -255,6 +264,8 @@ export interface RegisterStrategyBody {
   leverage: number;
   visibility: Visibility;
   allowed_pairs: string[];
+  /** The stop level as a percentage of price, 1 to 50 with two decimals at most; the form offers 10. */
+  stop_loss_pct: string;
   /** Left out when the author wrote none; the server trims it and turns a blank one into null. */
   description?: string | null;
 }

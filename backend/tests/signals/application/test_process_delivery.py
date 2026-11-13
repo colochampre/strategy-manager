@@ -25,6 +25,7 @@ from strategy_manager.execution.domain.execution_attempt import (
 )
 from strategy_manager.execution.domain.order import OrderSide
 from strategy_manager.shared.domain.leverage import Leverage
+from strategy_manager.shared.domain.mode import Mode
 from strategy_manager.signals.application.fan_out_signal import DeliveryHalves
 from strategy_manager.signals.application.holding_guard import GuardOutcome
 from strategy_manager.signals.application.process_signal import (
@@ -120,6 +121,8 @@ def _rig(
     *,
     policy: StrategyPolicySnapshot | None = None,
     guard: object | None = None,
+    leverage: Leverage = SUBSCRIPTION_LEVERAGE,
+    mode: Mode = Mode.LIVE,
 ) -> Rig:
     from strategy_manager.signals.application.holding_guard import HoldingGuard
 
@@ -130,7 +133,7 @@ def _rig(
         subscription_id=SUBSCRIPTION,
         user_id=SUBSCRIBER,
         allocation_percent=SUBSCRIPTION_SHARE,
-        leverage=SUBSCRIPTION_LEVERAGE,
+        leverage=leverage,
     )
     deliveries = _Deliveries(delivery)
     balance = PoolBalance(total=POOL_TOTAL, available=POOL_TOTAL, min_order_size=Decimal("1"))
@@ -140,7 +143,7 @@ def _rig(
     in_flight = FakeInFlightWorkPort()
     closing = FakeClosingAttemptsPort()
     allocate = SpyAllocateCapital(
-        _allocate_capital(SpyAdvisoryLock(), policy=policy, pool_balance=balance)
+        _allocate_capital(SpyAdvisoryLock(), policy=policy, pool_balance=balance, mode=mode)
     )
     place = SpyPlaceOrder()
     close = SpyClosePosition()
@@ -172,7 +175,7 @@ def _rig(
         tradable_pools=in_both_modes(TRADABLE),
         outcomes=outcomes,
         trade_capability=capability,
-        user_mode=FixedUserMode(),
+        user_mode=FixedUserMode(mode=mode),
         allocation_modes=RecordedModes(),
         close_after_open=OpeningsSettled(),
     )
@@ -535,3 +538,85 @@ async def test_halves_the_signal_contradicts_run_nothing(
     assert rig.place.calls == []
     assert rig.close.calls == []
     assert len(rig.outcomes.calls) == 1
+
+
+# --- the stop level caps the leverage a seat opens at (subscriber-safety D5) ------
+
+
+async def test_a_live_opening_of_a_seat_above_the_cap_is_refused_before_any_capital_is_reserved(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The seat was set at 9x under a stop of 10. The author widened it to 15 (a cap of
+    6x): nothing is reserved, nothing is sent, and the seat is not changed."""
+    rig = _rig(
+        _open_long_context(),
+        policy=_snapshot(author_id=AUTHOR, stop_loss_pct=Decimal("15")),
+        leverage=Leverage(9),
+    )
+
+    with caplog.at_level(logging.WARNING):
+        result = await rig.handler.handle(DELIVERY, "open")
+
+    assert result.executed is False
+    assert result.refused is not None and "x6" in result.refused
+    assert rig.allocate.calls == []
+    assert rig.place.calls == []
+    [(row_id, outcome)] = rig.outcomes.calls
+    assert (row_id, outcome.reason) == (DELIVERY, "LEVERAGE_ABOVE_STOP_CAP")
+    assert any("LEVERAGE_ABOVE_STOP_CAP" in record.getMessage() for record in caplog.records)
+    assert (await rig.deliveries.load(DELIVERY)).leverage == Leverage(9)
+
+
+async def test_the_refusal_also_holds_for_the_open_half_of_a_continuation() -> None:
+    rig = _rig(
+        _open_long_context(),
+        policy=_snapshot(author_id=AUTHOR, stop_loss_pct=Decimal("15")),
+        leverage=Leverage(9),
+    )
+
+    result = await rig.handler.open_now(DELIVERY)
+
+    assert result.executed is False
+    assert rig.allocate.calls == [] and rig.place.calls == []
+    assert [outcome.reason for _, outcome in rig.outcomes.calls] == ["LEVERAGE_ABOVE_STOP_CAP"]
+
+
+async def test_a_seat_at_the_cap_opens() -> None:
+    rig = _rig(
+        _open_long_context(),
+        policy=_snapshot(author_id=AUTHOR, stop_loss_pct=Decimal("15")),
+        leverage=Leverage(6),
+    )
+
+    result = await rig.handler.handle(DELIVERY, "open")
+
+    assert result.executed is True
+    assert len(rig.place.calls) == 1
+
+
+async def test_a_simulated_opening_is_not_refused_as_a_key_refusal_is_not() -> None:
+    """Like the key refusal, the cap guards what a venue would execute: a simulated
+    opening places no stop and risks nothing."""
+    rig = _rig(
+        _open_long_context(),
+        policy=_snapshot(author_id=AUTHOR, stop_loss_pct=Decimal("15")),
+        leverage=Leverage(9),
+        mode=Mode.SIMULATION,
+    )
+
+    result = await rig.handler.handle(DELIVERY, "open")
+
+    assert result.executed is True
+
+
+async def test_a_close_is_never_refused_for_the_cap() -> None:
+    rig = _rig(
+        _close_context(),
+        policy=_snapshot(author_id=AUTHOR, stop_loss_pct=Decimal("15")),
+        leverage=Leverage(9),
+    )
+
+    result = await rig.handler.handle(DELIVERY, "close")
+
+    assert result.executed is True
+    assert [call.signal_id for call in rig.close.calls] == [SIGNAL]

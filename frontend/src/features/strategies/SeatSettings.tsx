@@ -1,11 +1,12 @@
 import { PoolShareEditor } from "@/features/strategies/PoolShareEditor";
 import { SubscriptionLeverageEditor } from "@/features/strategies/SubscriptionLeverageEditor";
+import { maxLeverage } from "@/features/strategies/stop-level";
 import { useLeverageDraft } from "@/features/strategies/useLeverageDraft";
 import type { Strategy } from "@/shared/api/types";
 
 interface SeatSettingsProps {
   /** Only what the editors read, so a subscriber's row, which holds no whole strategy, can use it. */
-  strategy: Pick<Strategy, "id" | "subscription" | "archived_at">;
+  strategy: Pick<Strategy, "id" | "subscription" | "archived_at" | "stop_loss_pct">;
 }
 
 /**
@@ -14,7 +15,8 @@ interface SeatSettingsProps {
  * follows the share. A draft that is not a value yet reads as the saved leverage.
  */
 export function SeatSettings({ strategy }: SeatSettingsProps) {
-  const draft = useLeverageDraft(strategy.subscription?.leverage ?? 1);
+  // The seat's leverage may not pass what the strategy's stop allows.
+  const draft = useLeverageDraft(strategy.subscription?.leverage ?? 1, undefined, maxLeverage(strategy.stop_loss_pct));
   return (
     <>
       <PoolShareEditor strategy={strategy} leverage={draft.reading.valid ? draft.reading.value : undefined} />

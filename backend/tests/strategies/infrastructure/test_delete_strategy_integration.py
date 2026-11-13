@@ -58,6 +58,7 @@ from strategy_manager.strategies.application.register_strategy import (
     RegisterStrategy,
 )
 from strategy_manager.strategies.domain.enablement import uptime
+from strategy_manager.strategies.domain.stop_loss import StopLossPct
 from strategy_manager.strategies.domain.strategy import FillMode
 from strategy_manager.strategies.infrastructure.author_subscription_adapter import (
     SqlAlchemyAuthorSubscription,
@@ -571,6 +572,7 @@ async def test_a_deleted_id_registers_again_with_no_event_and_zero_uptime(
                 allocation_percent=Decimal("100"),
                 allowed_pairs=["STXUSDT"],
                 author_id=OWNER_ID,
+                stop_loss_pct=StopLossPct(Decimal("10")),
             )
         )
 

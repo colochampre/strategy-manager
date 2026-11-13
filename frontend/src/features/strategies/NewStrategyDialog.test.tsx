@@ -417,6 +417,7 @@ describe("the new-strategy dialog", () => {
       fill_mode: "SKIP",
       allocation_percent: "100",
       leverage: 1,
+      stop_loss_pct: "10",
       visibility: "PRIVATE",
       allowed_pairs: ["STXUSDT"],
     });
@@ -433,8 +434,10 @@ describe("the new-strategy dialog", () => {
     const field = screen.getByRole("textbox", { name: en.strategies.leverage.label });
     expect(field).toHaveValue("1");
     expect(screen.getByRole("slider", { name: en.strategies.leverage.label })).toHaveValue("1");
-    fireEvent.click(screen.getByRole("button", { name: i18n.t("strategies.leverage.stop", { value: 15 }) }));
-    expect(field).toHaveValue("15");
+    // A stop of 10 caps leverage at 9x: the stop at 15 is not offered.
+    expect(screen.getByRole("button", { name: i18n.t("strategies.leverage.stop", { value: 15 }) })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: i18n.t("strategies.leverage.stop", { value: 5 }) }));
+    expect(field).toHaveValue("5");
     fireEvent.change(field, { target: { value: "4" } });
     fill("Delta");
     await choose(["STXUSDT"]);
@@ -445,7 +448,7 @@ describe("the new-strategy dialog", () => {
     expect(api.posted[0]?.body.allocation_percent).toBe("100");
   });
 
-  it.each(["0", "21", "2.5", ""])("refuses a leverage of %j in words, disables the submit and posts nothing", async (text) => {
+  it.each(["2.5", ""])("refuses a leverage of %j in words, disables the submit and posts nothing", async (text) => {
     const api = creationApi(created);
     stubApi(HEALTH, [], POOLS, {}, api.route);
     renderAt(<AppRoutes />, "/strategies/authored");
@@ -463,6 +466,56 @@ describe("the new-strategy dialog", () => {
     expect(submitButton()).toBeDisabled();
     fireEvent.submit(field.closest("form") as HTMLFormElement);
     // A request would leave on a later task, so the check waits for one to have had its chance.
+    await act(
+      () =>
+        new Promise<void>((resolve) => {
+          setTimeout(resolve, 0);
+        }),
+    );
+    expect(api.posted).toEqual([]);
+  });
+
+  it("offers the stop level at 10, posts the one typed, and caps the author's leverage by it", async () => {
+    const api = creationApi(created);
+    stubApi(HEALTH, [], POOLS, {}, api.route);
+    renderAt(<AppRoutes />, "/strategies/authored");
+    await screen.findByText(en.strategies.empty);
+    const dialog = openDialog();
+
+    const level = screen.getByRole("textbox", { name: en.strategies.stopLevel.label });
+    const leverage = screen.getByRole("textbox", { name: en.strategies.leverage.label });
+    expect(level).toHaveValue("10");
+    fireEvent.change(leverage, { target: { value: "12" } });
+    expect(within(dialog).getByText(i18n.t("strategies.leverage.aboveCap", { max: 9 }))).toBeInTheDocument();
+    expect(submitButton()).toBeDisabled();
+
+    // A tighter stop of 5 allows 16x: the same 12 is now taken.
+    fireEvent.change(level, { target: { value: "5" } });
+    expect(within(dialog).getByText(i18n.t("strategies.stopLevel.cap", { max: 16 }))).toBeInTheDocument();
+    fill("Delta");
+    await choose(["STXUSDT"]);
+    fireEvent.click(submitButton());
+
+    await waitFor(() => expect(api.posted).toHaveLength(1));
+    expect(api.posted[0]?.body.stop_loss_pct).toBe("5");
+    expect(api.posted[0]?.body.leverage).toBe(12);
+  });
+
+  it.each(["0.5", "60", "7.505", ""])("refuses a stop level of %j in the field, disables the submit and posts nothing", async (typed) => {
+    const api = creationApi(created);
+    stubApi(HEALTH, [], POOLS, {}, api.route);
+    renderAt(<AppRoutes />, "/strategies/authored");
+    await screen.findByText(en.strategies.empty);
+    openDialog();
+    fill("Delta");
+    await choose(["STXUSDT"]);
+
+    const level = screen.getByRole("textbox", { name: en.strategies.stopLevel.label });
+    fireEvent.change(level, { target: { value: typed } });
+
+    expect(level).toHaveAttribute("aria-invalid", "true");
+    expect(submitButton()).toBeDisabled();
+    fireEvent.submit(level.closest("form") as HTMLFormElement);
     await act(
       () =>
         new Promise<void>((resolve) => {

@@ -39,6 +39,7 @@ def _listing(strategy_id: UUID | None = None) -> PublicListing:
         created_at=T0,
         enabled=True,
         subscribers=0,
+        stop_loss_pct=Decimal("10"),
     )
 
 

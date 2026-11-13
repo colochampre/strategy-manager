@@ -25,6 +25,8 @@ export interface LeverageSliderProps {
   onText: (text: string) => void;
   onHandle: (step: number) => void;
   onStop: (stop: number) => void;
+  /** The most the strategy's stop level allows, 1 to 20; no stop above it can be pressed. Defaults to 20. */
+  max?: number | undefined;
   /** What sits on the field's own row, after it (the container's Save); the field takes the width that is left. */
   action?: ReactNode;
 }
@@ -58,6 +60,7 @@ export function LeverageSlider({
   disabled,
   invalid,
   describedBy,
+  max = LAST_LEVERAGE,
   onText,
   onHandle,
   onStop,
@@ -146,7 +149,7 @@ export function LeverageSlider({
             disabled={disabled}
             aria-labelledby={labelId}
             aria-valuetext={t("strategies.leverage.valueText", { value: value ?? String(handle) })}
-            onChange={(event) => onHandle(Number(event.target.value))}
+            onChange={(event) => onHandle(Math.min(Number(event.target.value), max))}
             className={RANGE_CLASS}
           />
         </div>
@@ -157,7 +160,7 @@ export function LeverageSlider({
             <button
               key={stop}
               type="button"
-              disabled={disabled}
+              disabled={disabled || stop > max}
               aria-label={t("strategies.leverage.stop", { value: stop })}
               aria-pressed={value === stop}
               onClick={() => onStop(stop)}

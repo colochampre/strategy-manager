@@ -221,3 +221,21 @@ describe("LeverageSlider, the track and the stops", () => {
     expect(view.container.querySelectorAll("[style]")).toHaveLength(0);
   });
 });
+
+describe("LeverageSlider, under the cap of a stop level", () => {
+  it("offers no stop above the cap and holds the handle at it", () => {
+    const { given } = renderSlider({ max: 9, handle: 5, value: 5, text: "5" });
+
+    expect(stopButton(5)).toBeEnabled();
+    for (const stop of [10, 15, 20]) expect(stopButton(stop)).toBeDisabled();
+
+    fireEvent.change(track(), { target: { value: "15" } });
+    expect(given.onHandle).toHaveBeenCalledWith(9);
+  });
+
+  it("offers every stop with no cap given, as it always did", () => {
+    renderSlider();
+
+    for (const stop of STOPS) expect(stopButton(stop)).toBeEnabled();
+  });
+});

@@ -34,6 +34,7 @@ async def strategy(
     visibility: str = "PUBLIC",
     author_id: UUID | None = None,
     named: bool = True,
+    stop_loss_pct: str | None = None,
 ) -> UUID:
     """A strategy of ``author_id`` (the owner by default). PUBLIC unless told
     otherwise, so a subscriber who is not its author may take a place in it; the
@@ -64,6 +65,12 @@ async def strategy(
             await session.execute(
                 text("UPDATE strategies SET archived_at = now() WHERE id = :id"),
                 {"id": strategy_id},
+            )
+        if stop_loss_pct is not None:
+            # Otherwise the column's server default, 10: a cap of 9x.
+            await session.execute(
+                text("UPDATE strategies SET stop_loss_pct = :level WHERE id = :id"),
+                {"id": strategy_id, "level": Decimal(stop_loss_pct)},
             )
         await session.commit()
     return strategy_id

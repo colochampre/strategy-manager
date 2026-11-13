@@ -63,6 +63,7 @@ VIEW_KEYS = {
     "subscribers",
     "live_subscribers",
     "capital",
+    "stop_loss_pct",
     "created_at",
 }
 

@@ -436,6 +436,22 @@
       "saveFailed": "No se guardó el apalancamiento. Inténtelo de nuevo.",
       "outOfRange": "El apalancamiento debe ser un número entero del 1 al 20.",
       "notActive": "Su suscripción a esta estrategia ya no está activa, así que su apalancamiento ya no se puede cambiar.",
+      "gone": "Esta estrategia ya no existe.",
+      "capNote": "El stop de esta estrategia permite un apalancamiento de hasta x{{max}}.",
+      "aboveCap": "El stop de esta estrategia permite como máximo x{{max}}. Ingrese un número entero del 1 al {{max}}.",
+      "aboveCapRefused": "Ese apalancamiento supera lo que permite el stop de esta estrategia. Redúzcalo e inténtelo de nuevo."
+    },
+    "stopLevel": {
+      "label": "Nivel de stop",
+      "info": "Acerca del nivel de stop",
+      "hint": "La distancia al precio de entrada, como porcentaje del precio, a la que se detiene una posición de esta estrategia. También limita el apalancamiento que cualquiera puede usar en ella, para que el stop llegue antes que la liquidación: un stop del 10% permite hasta x9, y uno del 5% hasta x16. Un cambio se aplica a las aperturas que se hagan después; una posición ya abierta conserva su stop. Un puesto que quede por encima del nuevo límite deja de abrir hasta que su usuario reduzca su apalancamiento.",
+      "unit": "% del precio",
+      "cap": "Permite un apalancamiento de hasta x{{max}}.",
+      "save": "Guardar",
+      "saving": "Guardando…",
+      "saveFailed": "No se guardó el nivel de stop. Inténtelo de nuevo.",
+      "invalid": "Ingrese un porcentaje del 1 al 50, con dos decimales como máximo.",
+      "archived": "Esta estrategia está archivada, así que su nivel de stop ya no se puede cambiar.",
       "gone": "Esta estrategia ya no existe."
     },
     "description": {

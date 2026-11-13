@@ -354,7 +354,9 @@ async def test_a_subscription_takes_the_leverage_it_is_sent(
     client_for: ClientFor,
     leverage: int,
 ) -> None:
-    strategy_id = await seeds.strategy(pg_session_factory)
+    strategy_id = await seeds.strategy(
+        pg_session_factory, stop_loss_pct="1"  # a cap of 20x
+    )
     user_id, _ = await seeds.user(pg_session_factory)
 
     response = await client_for(user_id).post(
@@ -818,7 +820,7 @@ async def test_changing_both_in_one_request(
     pg_session_factory: Factory,  # noqa: F811
     client_for: ClientFor,
 ) -> None:
-    strategy_id = await seeds.strategy(pg_session_factory)
+    strategy_id = await seeds.strategy(pg_session_factory, stop_loss_pct="1")
     user_id, pool_id = await seeds.user(pg_session_factory)
     assert pool_id is not None
     subscription_id = await seeds.subscription(pg_session_factory, user_id, strategy_id, pool_id)
@@ -967,3 +969,110 @@ async def test_an_unknown_subscription_is_a_404_on_leave_and_on_patch(
 
     assert left.status_code == 404
     assert patched.status_code == 404
+
+
+# -- the stop level caps the leverage (subscriber-safety D5) ------------------
+
+
+async def test_subscribing_above_the_cap_of_the_strategys_stop_is_refused_naming_the_maximum(
+    pg_session_factory: Factory,  # noqa: F811
+    client_for: ClientFor,
+) -> None:
+    """A strategy stopped at 10% caps leverage at 9x."""
+    strategy_id = await seeds.strategy(pg_session_factory, stop_loss_pct="10")
+    user_id, _ = await seeds.user(pg_session_factory)
+
+    response = await client_for(user_id).post(
+        "/api/subscriptions",
+        json={"strategy_id": str(strategy_id), "allocation_percent": "25", "leverage": 12},
+    )
+
+    assert response.status_code == 409
+    detail = response.json()["detail"]
+    assert detail["error"] == "LEVERAGE_ABOVE_STOP_CAP"
+    assert "x9" in detail["message"]
+    assert await seeds.rows(pg_session_factory) == []
+
+
+async def test_subscribing_at_the_cap_of_the_strategys_stop_is_taken(
+    pg_session_factory: Factory,  # noqa: F811
+    client_for: ClientFor,
+) -> None:
+    strategy_id = await seeds.strategy(pg_session_factory, stop_loss_pct="10")
+    user_id, _ = await seeds.user(pg_session_factory)
+
+    response = await client_for(user_id).post(
+        "/api/subscriptions",
+        json={"strategy_id": str(strategy_id), "allocation_percent": "25", "leverage": 9},
+    )
+
+    assert response.status_code == 201
+    stored = await seeds.row_of(pg_session_factory, UUID(response.json()["id"]))
+    assert stored.leverage == 9
+
+
+async def test_changing_the_leverage_above_the_cap_is_refused_and_changes_nothing(
+    pg_session_factory: Factory,  # noqa: F811
+    client_for: ClientFor,
+) -> None:
+    strategy_id = await seeds.strategy(pg_session_factory, stop_loss_pct="5")
+    user_id, pool_id = await seeds.user(pg_session_factory)
+    assert pool_id is not None
+    subscription_id = await seeds.subscription(
+        pg_session_factory, user_id, strategy_id, pool_id, share="30", leverage=2
+    )
+    before = await seeds.rows(pg_session_factory)
+
+    response = await client_for(user_id).patch(
+        f"/api/subscriptions/{subscription_id}",
+        json={"allocation_percent": "40", "leverage": 17},
+    )
+
+    assert response.status_code == 409
+    detail = response.json()["detail"]
+    assert detail["error"] == "LEVERAGE_ABOVE_STOP_CAP"
+    assert "x16" in detail["message"]
+    assert await seeds.rows(pg_session_factory) == before
+
+
+async def test_changing_the_leverage_to_the_cap_is_taken(
+    pg_session_factory: Factory,  # noqa: F811
+    client_for: ClientFor,
+) -> None:
+    strategy_id = await seeds.strategy(pg_session_factory, stop_loss_pct="5")
+    user_id, pool_id = await seeds.user(pg_session_factory)
+    assert pool_id is not None
+    subscription_id = await seeds.subscription(
+        pg_session_factory, user_id, strategy_id, pool_id, leverage=2
+    )
+
+    response = await client_for(user_id).patch(
+        f"/api/subscriptions/{subscription_id}", json={"leverage": 16}
+    )
+
+    assert response.status_code == 200
+    assert (await seeds.row_of(pg_session_factory, subscription_id)).leverage == 16
+
+
+async def test_a_seat_above_a_widened_cap_still_changes_its_share_and_lowers_its_leverage(
+    pg_session_factory: Factory,  # noqa: F811
+    client_for: ClientFor,
+) -> None:
+    """The author widened the stop to 15% (a cap of 6x) under a seat at 9x. The seat
+    is never changed for its user, who may still resize it and take it down to the cap."""
+    strategy_id = await seeds.strategy(pg_session_factory, stop_loss_pct="15")
+    user_id, pool_id = await seeds.user(pg_session_factory)
+    assert pool_id is not None
+    subscription_id = await seeds.subscription(
+        pg_session_factory, user_id, strategy_id, pool_id, share="30", leverage=9
+    )
+    api = client_for(user_id)
+
+    resized = await api.patch(
+        f"/api/subscriptions/{subscription_id}", json={"allocation_percent": "35"}
+    )
+    lowered = await api.patch(f"/api/subscriptions/{subscription_id}", json={"leverage": 6})
+
+    assert (resized.status_code, lowered.status_code) == (200, 200)
+    stored = await seeds.row_of(pg_session_factory, subscription_id)
+    assert (stored.allocation_percent, stored.leverage) == (Decimal("35"), 6)

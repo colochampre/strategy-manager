@@ -18,6 +18,7 @@ registers it for the integration tests). The constraints carry 0030's names.
 """
 
 from datetime import datetime
+from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import (
@@ -26,6 +27,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Index,
+    Numeric,
     Text,
     UniqueConstraint,
     text,
@@ -69,6 +71,9 @@ class StrategyRow(Base):
             "AND char_length(description) BETWEEN 1 AND 2000)",
             name="ck_strategies_description_shape",
         ),
+        CheckConstraint(
+            "stop_loss_pct BETWEEN 1 AND 50", name="ck_strategies_stop_loss_pct_range"
+        ),
         UniqueConstraint("author_id", "name", name="ux_strategies_author_name"),
         Index("ix_strategies_author_id", "author_id"),
     )
@@ -102,6 +107,11 @@ class StrategyRow(Base):
     # Migration ``0037`` (decision 38): what the author writes about how the strategy
     # trades and the configuration they recommend. Optional, trimmed, 1 to 2,000 chars.
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Migration ``0040`` (subscriber-safety D5): where its positions are stopped, as a
+    # percentage of price from the entry. Existing strategies got 10 (D6).
+    stop_loss_pct: Mapped[Decimal] = mapped_column(
+        Numeric(4, 2), nullable=False, server_default=text("10")
+    )
     # ``ck_strategies_allowed_pairs_no_null`` (migration 0024): entries are
     # market_key()-normalized symbols this strategy may OPEN on.
     allowed_pairs: Mapped[list[str]] = mapped_column(

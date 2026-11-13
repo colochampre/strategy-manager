@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 from strategy_manager.strategies.application.ports import StrategyStillReferenced
 from strategy_manager.strategies.domain.allowed_pairs import AllowedPairs
+from strategy_manager.strategies.domain.stop_loss import StopLossPct
 from strategy_manager.strategies.domain.strategy import (
     AllocationPolicy,
     FillMode,
@@ -52,6 +53,7 @@ class SqlAlchemyStrategyRepository:
                 webhook_secret_last4=secret_last4,
                 allowed_pairs=strategy.allowed_pairs.sorted(),
                 description=strategy.description,
+                stop_loss_pct=strategy.stop_loss_pct.value,
             )
         )
         await self._session.flush()
@@ -132,6 +134,7 @@ class SqlAlchemyStrategyRepository:
         row.fill_mode = strategy.policy.fill_mode.value
         row.allowed_pairs = strategy.allowed_pairs.sorted()
         row.description = strategy.description
+        row.stop_loss_pct = strategy.stop_loss_pct.value
         # Archive is terminal (design.md § 8): every OTHER caller of
         # ``update()`` (``UpdateStrategy``, ``ReplaceAllowedPairs``) reads
         # ``strategy`` from this same row first and only replaces unrelated
@@ -254,6 +257,7 @@ def _to_domain(row: StrategyRow) -> Strategy:
         share_token=row.share_token,
         allowed_pairs=AllowedPairs(frozenset(row.allowed_pairs)),
         description=row.description,
+        stop_loss_pct=StopLossPct(row.stop_loss_pct),
         archived_at=row.archived_at,
         created_at=row.created_at,
         updated_at=row.updated_at,

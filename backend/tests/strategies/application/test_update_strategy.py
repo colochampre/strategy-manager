@@ -6,7 +6,9 @@ holding open while the system believes it closed.
 """
 
 import logging
+from dataclasses import replace
 from datetime import UTC, datetime
+from decimal import Decimal
 from uuid import UUID, uuid4
 
 import pytest
@@ -18,6 +20,7 @@ from strategy_manager.strategies.application.update_strategy import (
     UpdateCommand,
     UpdateStrategy,
 )
+from strategy_manager.strategies.domain.stop_loss import StopLossPct
 from strategy_manager.strategies.domain.strategy import (
     AllocationPolicy,
     FillMode,
@@ -205,6 +208,29 @@ async def test_a_private_strategy_is_edited_with_no_name_at_all(command: UpdateC
 
     assert len(repository.updated) == 1
     assert commit.commits == 1
+
+
+async def test_the_author_changes_the_level_and_nothing_else_changes() -> None:
+    before = _strategy(name="kept", description="kept words")
+    use_case, repository, commit, log, _ = _build(before)
+
+    updated = await use_case.update(
+        UpdateCommand(strategy_id=STRATEGY_ID, stop_loss_pct=StopLossPct(Decimal("7.5")))
+    )
+
+    assert updated.stop_loss_pct == StopLossPct(Decimal("7.5"))
+    assert repository.updated == [updated]
+    assert updated == replace(before, stop_loss_pct=StopLossPct(Decimal("7.5")))
+    assert commit.commits == 1
+    assert log.calls == []
+
+
+async def test_an_update_that_names_no_level_leaves_the_level_as_it_is() -> None:
+    use_case, repository, _, _, _ = _build(_strategy(stop_loss_pct=StopLossPct(Decimal("15"))))
+
+    await use_case.update(UpdateCommand(strategy_id=STRATEGY_ID, name="renamed"))
+
+    assert repository.updated[0].stop_loss_pct == StopLossPct(Decimal("15"))
 
 
 async def test_enabling_is_a_single_field_change() -> None:

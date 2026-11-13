@@ -54,6 +54,7 @@ class SqlAlchemyStrategyLookup:
             author_named=await SqlAlchemyAuthorNames(self._session).has_display_name(
                 row.author_id
             ),
+            stop_loss_pct=row.stop_loss_pct,
             share_token=row.share_token,
         )
 

@@ -356,6 +356,7 @@ async def test_no_api_response_carries_a_secret_or_a_hash_except_the_two_that_is
             "fill_mode": "PARTIAL",
             "allocation_percent": "100",
             "allowed_pairs": ["ETHUSDT"],
+            "stop_loss_pct": "10",
         }
     elif body is None and method == "POST" and template == "/api/subscriptions":
         body = {"strategy_id": str(strategy_id), "allocation_percent": "30"}

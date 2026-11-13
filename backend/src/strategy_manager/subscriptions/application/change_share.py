@@ -4,14 +4,20 @@ leverage they trade it at, or both in one write (decision 38)."""
 import logging
 from uuid import UUID
 
-from strategy_manager.shared.domain.leverage import Leverage
+from strategy_manager.shared.domain.leverage import (
+    Leverage,
+    LeverageAboveStopCap,
+    refuse_above_stop_cap,
+)
 from strategy_manager.strategies.domain.strategy import AllocationPercent
 from strategy_manager.subscriptions.application.errors import (
+    StrategyNotFound,
     SubscriptionNotActive,
     SubscriptionNotFound,
 )
 from strategy_manager.subscriptions.application.ports import (
     CommitPort,
+    StrategyLookupPort,
     SubscriptionRepositoryPort,
 )
 from strategy_manager.subscriptions.domain.subscription import Subscription, SubscriptionStatus
@@ -20,9 +26,16 @@ logger = logging.getLogger(__name__)
 
 
 class ChangeShare:
-    def __init__(self, subscriptions: SubscriptionRepositoryPort, commit: CommitPort) -> None:
+    def __init__(
+        self,
+        subscriptions: SubscriptionRepositoryPort,
+        commit: CommitPort,
+        *,
+        strategies: StrategyLookupPort,
+    ) -> None:
         self._subscriptions = subscriptions
         self._commit = commit
+        self._strategies = strategies
 
     async def change(
         self,
@@ -43,6 +56,9 @@ class ChangeShare:
             raise SubscriptionNotActive(
                 f"subscription {subscription_id} is {subscription.status}, not ACTIVE"
             )
+
+        if leverage is not None:
+            await self._refuse_above_stop_cap(subscription, leverage)
 
         changed = subscription
         if allocation_percent is not None:
@@ -76,3 +92,23 @@ class ChangeShare:
                 changed.leverage.value,
             )
         return changed
+
+    async def _refuse_above_stop_cap(self, subscription: Subscription, leverage: Leverage) -> None:
+        """A seat is never taken above the cap of its strategy's stop level, and
+        one the author left above it (by widening the stop) is not changed for its
+        user: it may be lowered to the cap, or to anything under it."""
+        strategy = await self._strategies.find(subscription.strategy_id)
+        if strategy is None:
+            raise StrategyNotFound(f"no strategy registered under id {subscription.strategy_id}")
+        try:
+            refuse_above_stop_cap(leverage, strategy.stop_loss_pct)
+        except LeverageAboveStopCap as exc:
+            logger.warning(
+                "leverage change refused, %s: user=%s subscription=%s strategy=%s %s",
+                exc.reason_code,
+                subscription.user_id,
+                subscription.id,
+                strategy.id,
+                exc,
+            )
+            raise

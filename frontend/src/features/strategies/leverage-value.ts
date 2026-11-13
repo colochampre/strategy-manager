@@ -20,15 +20,16 @@ const WHOLE_NUMBER = /^\d+$/;
  * What the field's text reads as. Surrounding spaces are ignored; what is left must be digits only, so a
  * sign, a decimal point, an exponent or the "x" of the display never reads as a value. A leading zero is
  * harmless ("05" is 5). The range is checked on the digits' length first, so a long run of digits is
- * refused as out of range and never rounded by a float.
+ * refused as out of range and never rounded by a float. `max` is the most the strategy's stop level allows
+ * (`maxLeverage`); a value above it is out of range like one above 20.
  */
-export function parseLeverage(text: string): LeverageReading {
+export function parseLeverage(text: string, max: number = LAST_LEVERAGE): LeverageReading {
   const trimmed = text.trim();
   if (!WHOLE_NUMBER.test(trimmed)) return { valid: false, refusal: "not-a-whole-number" };
   const digits = trimmed.replace(/^0+(?=\d)/, "");
   if (digits.length > String(LAST_LEVERAGE).length) return { valid: false, refusal: "out-of-range" };
   const value = Number(digits);
-  if (value < FIRST_LEVERAGE || value > LAST_LEVERAGE) return { valid: false, refusal: "out-of-range" };
+  if (value < FIRST_LEVERAGE || value > max) return { valid: false, refusal: "out-of-range" };
   return { valid: true, value };
 }
 

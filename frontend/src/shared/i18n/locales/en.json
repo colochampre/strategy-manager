@@ -436,6 +436,22 @@
       "saveFailed": "The leverage was not saved. Try again.",
       "outOfRange": "The leverage must be a whole number from 1 to 20.",
       "notActive": "Your subscription to this strategy is no longer active, so its leverage can no longer be changed.",
+      "gone": "This strategy no longer exists.",
+      "capNote": "This strategy's stop allows a leverage of up to x{{max}}.",
+      "aboveCap": "This strategy's stop allows at most x{{max}}. Enter a whole number from 1 to {{max}}.",
+      "aboveCapRefused": "That leverage is above what this strategy's stop allows. Lower it and try again."
+    },
+    "stopLevel": {
+      "label": "Stop level",
+      "info": "About the stop level",
+      "hint": "The distance from the entry price, as a percentage of price, at which a position of this strategy is stopped. It also limits the leverage anyone may use on it, so that the stop comes before liquidation: a stop of 10% allows up to x9, and one of 5% up to x16. A change applies to openings made after it; a position already open keeps its stop. A seat left above the new limit stops opening until its user lowers its leverage.",
+      "unit": "% of price",
+      "cap": "Allows a leverage of up to x{{max}}.",
+      "save": "Save",
+      "saving": "Saving…",
+      "saveFailed": "The stop level was not saved. Try again.",
+      "invalid": "Enter a percentage from 1 to 50, with at most two decimals.",
+      "archived": "This strategy is archived, so its stop level can no longer be changed.",
       "gone": "This strategy no longer exists."
     },
     "description": {

@@ -156,6 +156,7 @@ async def _post_create(
         "fill_mode": "PARTIAL",
         "allocation_percent": "100",
         "allowed_pairs": ["ETHUSDT"],
+        "stop_loss_pct": "10",
     }
     if visibility is not None:
         body["visibility"] = visibility

@@ -9,6 +9,7 @@ import { DeleteStrategyControl } from "@/features/strategies/DeleteStrategyContr
 import { EnablementHistory } from "@/features/strategies/EnablementHistory";
 import { EnableToggle } from "@/features/strategies/EnableToggle";
 import { SeatSettings } from "@/features/strategies/SeatSettings";
+import { StopLevelEditor } from "@/features/strategies/StopLevelEditor";
 import { StrategyDescriptionEditor } from "@/features/strategies/StrategyDescriptionEditor";
 import { BackToStrategies, StrategyHeader } from "@/features/strategies/StrategyHeader";
 import { StrategyPerformance } from "@/features/strategies/StrategyPerformance";
@@ -88,6 +89,7 @@ export function StrategyDetailPage() {
           <Fragment key={subject.id}>
             <StrategySharing strategy={subject} />
             <SeatSettings strategy={subject} />
+            <StopLevelEditor strategy={subject} />
             <StrategyDescriptionEditor strategy={subject} />
           </Fragment>
           <AllowedPairsEditor strategy={subject} />

@@ -79,6 +79,8 @@ describe("fetchHeldSubscriptions", () => {
   it.each([
     ["an enabled flag that is missing", [heldSubscription({ strategy_enabled: undefined })]],
     ["an enabled flag that is a string", [heldSubscription({ strategy_enabled: "yes" })]],
+    ["a stop level that is missing", [heldSubscription({ stop_loss_pct: undefined })]],
+    ["a stop level that is a number", [heldSubscription({ stop_loss_pct: 10 })]],
     ["an uptime that is missing", [heldSubscription({ strategy_uptime: undefined })]],
     ["an uptime whose seconds are text", [heldSubscription({ strategy_uptime: { seconds: "5", first_enabled_at: null, baseline: false } })]],
   ])("refuses a row with %s", async (_name, body) => {

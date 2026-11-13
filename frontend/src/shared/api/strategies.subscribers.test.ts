@@ -25,6 +25,7 @@ function strategy(overrides: Record<string, unknown> = {}) {
     live_subscribers: 2,
     created_at: null,
     capital: "300",
+    stop_loss_pct: "10.00",
     ...overrides,
   };
 }

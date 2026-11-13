@@ -105,6 +105,7 @@ def _columns() -> Select[Any]:
             StrategyRow.created_at,
             StrategyRow.description,
             StrategyRow.enabled,
+            StrategyRow.stop_loss_pct,
             _active_seats().label("subscribers"),
         )
         .join(UserRow, UserRow.id == StrategyRow.author_id)
@@ -137,6 +138,7 @@ def _listing(row: Row[Any]) -> PublicListing:
         created_at=row.created_at,
         enabled=row.enabled,
         subscribers=row.subscribers,
+        stop_loss_pct=row.stop_loss_pct,
         description=row.description,
     )
 

@@ -324,6 +324,7 @@ export function publicStrategy(overrides: Record<string, unknown> = {}) {
     win_rate: "0.6",
     enabled: true,
     uptime: { seconds: 12 * 86_400 + 3600, first_enabled_at: "2026-09-18T10:00:00Z", baseline: false },
+    stop_loss_pct: "10.00",
     ...overrides,
   };
 }
@@ -389,6 +390,7 @@ export function heldSubscription(overrides: Record<string, unknown> = {}) {
     settlement_currency: "USDT",
     strategy_enabled: true,
     strategy_uptime: { seconds: 12 * 86_400 + 3600, first_enabled_at: "2026-09-18T10:00:00Z", baseline: false },
+    stop_loss_pct: "10.00",
     ...overrides,
   };
 }
@@ -431,6 +433,7 @@ export function strategyRoute(id: string, name: string, overrides: Record<string
     subscribers: 1,
     live_subscribers: 0,
     capital: null,
+    stop_loss_pct: "10.00",
     ...overrides,
   };
   return (url) => {

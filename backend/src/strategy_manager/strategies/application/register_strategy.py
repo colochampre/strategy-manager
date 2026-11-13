@@ -32,7 +32,12 @@ from uuid import UUID
 from strategy_manager.execution.domain.market_symbol import market_key
 from strategy_manager.shared.application.ports import ClockPort
 from strategy_manager.shared.domain.errors import DomainError, InvariantViolation
-from strategy_manager.shared.domain.leverage import NEW_SEAT_LEVERAGE, Leverage
+from strategy_manager.shared.domain.leverage import (
+    NEW_SEAT_LEVERAGE,
+    Leverage,
+    LeverageAboveStopCap,
+    refuse_above_stop_cap,
+)
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 from strategy_manager.strategies.application.ports import (
     AuthorHasNoDisplayName,
@@ -52,6 +57,7 @@ from strategy_manager.strategies.domain.pair_catalog import (
     unknown_pairs,
 )
 from strategy_manager.strategies.domain.share_token import new_share_token
+from strategy_manager.strategies.domain.stop_loss import StopLossPct
 from strategy_manager.strategies.domain.strategy import (
     NEEDS_A_NAMED_AUTHOR,
     AllocationPercent,
@@ -106,6 +112,8 @@ class RegisterCommand:
     allocation_percent: Decimal
     allowed_pairs: list[str]
     author_id: UUID
+    # Where the strategy's positions are stopped (D5): the registrant always names one.
+    stop_loss_pct: StopLossPct
     visibility: Visibility = Visibility.PRIVATE
     # In its stored shape (``description_of``), or None (decision 38).
     description: str | None = None
@@ -185,6 +193,20 @@ class RegisterStrategy:
                 "allowed_pairs must contain at least one pair"
             )
 
+        # The author's own seat is under the stop's cap like anyone's. Asked before
+        # the venue read below, so a request refused anyway never costs one.
+        try:
+            refuse_above_stop_cap(command.leverage, command.stop_loss_pct.value)
+        except LeverageAboveStopCap as exc:
+            logger.warning(
+                "registration refused, %s: strategy=%s author=%s %s",
+                exc.reason_code,
+                command.strategy_id,
+                command.author_id,
+                exc,
+            )
+            raise
+
         await self._assert_pairs_listed(command, allowed_pairs.pairs)
 
         # Validated here, before anything is written: the share goes to the
@@ -202,6 +224,7 @@ class RegisterStrategy:
             author_id=command.author_id,
             allowed_pairs=allowed_pairs,
             description=command.description,
+            stop_loss_pct=command.stop_loss_pct,
             # Registered, not armed. Enabling is a separate, deliberate call.
             enabled=False,
         ).with_visibility(command.visibility, new_share_token)

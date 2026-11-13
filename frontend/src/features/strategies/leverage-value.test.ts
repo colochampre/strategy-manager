@@ -22,6 +22,20 @@ describe("parseLeverage", () => {
   });
 });
 
+describe("parseLeverage under the cap of a stop level", () => {
+  it.each([["9", 9], ["1", 1]])("%j is taken under a cap of 9", (text, value) => {
+    expect(parseLeverage(text, 9)).toEqual({ valid: true, value });
+  });
+
+  it.each(["10", "12", "20"])("%j is out of range under a cap of 9", (text) => {
+    expect(parseLeverage(text, 9)).toEqual({ valid: false, refusal: "out-of-range" });
+  });
+
+  it("keeps every whole number to 20 when no cap is given", () => {
+    expect(parseLeverage("20")).toEqual({ valid: true, value: 20 });
+  });
+});
+
 describe("leveragePosition", () => {
   it.each([
     [1, "0%"],

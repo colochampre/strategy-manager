@@ -49,6 +49,9 @@ class StrategyPolicySnapshot:
     name: str = ""
     archived: bool = False
     allowed_pairs: frozenset[str] = frozenset()
+    # Where the strategy stops its positions, as a percentage of price (D5): it caps
+    # the leverage a seat may open at. Defaults to the level every old strategy got.
+    stop_loss_pct: Decimal = Decimal("10")
 
 
 @dataclass(frozen=True, slots=True)

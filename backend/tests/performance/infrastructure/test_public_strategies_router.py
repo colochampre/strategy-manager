@@ -69,6 +69,7 @@ BODY_KEYS = {
     "win_rate",
     "enabled",
     "uptime",
+    "stop_loss_pct",
 }
 
 Factory = async_sessionmaker[AsyncSession]
@@ -323,6 +324,25 @@ async def test_a_public_strategy_shows_exactly_the_listed_fields(
     assert listed["settlement_currency"] == "USDT"
     assert listed["created_at"] == "2026-09-01T12:00:00Z"
     assert listed["description"] is None
+
+
+async def test_the_list_and_the_page_carry_the_stop_level_that_caps_leverage(
+    pg_session_factory: Factory, api: _Api
+) -> None:
+    author = await _new_user(pg_session_factory)
+    strategy_id = await _strategy(pg_session_factory, author)
+    async with pg_session_factory() as session:
+        await session.execute(
+            text("UPDATE strategies SET stop_loss_pct = 12.5 WHERE id = :id"),
+            {"id": strategy_id},
+        )
+        await session.commit()
+
+    [listed] = await api.listed()
+    page = await api.page(strategy_id)
+
+    assert listed["stop_loss_pct"] == "12.50"
+    assert page["stop_loss_pct"] == "12.50"
 
 
 async def test_a_public_strategy_shows_its_authors_description_on_the_list_and_the_page(

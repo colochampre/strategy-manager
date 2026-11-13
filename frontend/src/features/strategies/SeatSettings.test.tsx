@@ -10,10 +10,11 @@ import { jsonResponse, subscriptionOf } from "@/test/harness";
 const ID = "11111111-1111-4111-8111-111111111111";
 const SUBSCRIPTION_ID = "33333333-3333-4333-8333-333333333333";
 
-function strategy(leverage: number): Pick<Strategy, "id" | "subscription" | "archived_at"> {
+function strategy(leverage: number): Pick<Strategy, "id" | "subscription" | "archived_at" | "stop_loss_pct"> {
   return {
     id: ID,
     archived_at: null,
+    stop_loss_pct: "1.00",
     subscription: subscriptionOf(ID, "30", { id: SUBSCRIPTION_ID, leverage }),
   };
 }

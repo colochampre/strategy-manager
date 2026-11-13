@@ -161,6 +161,7 @@ async def _register(client: AsyncClient, **overrides: Any) -> UUID:
         "fill_mode": "PARTIAL",
         "allocation_percent": overrides.pop("allocation_percent", "100"),
         "allowed_pairs": overrides.pop("allowed_pairs", ["ETHUSDT"]),
+        "stop_loss_pct": "10",
     }
     body.update(overrides)
     response = await client.post("/strategies", json=body, headers=ADMIN_HEADERS)
@@ -350,6 +351,7 @@ async def test_post_strategies_requires_min_one_pair_422(client: AsyncClient) ->
         "fill_mode": "PARTIAL",
         "allocation_percent": "100",
         "allowed_pairs": [],
+        "stop_loss_pct": "10",
     }
 
     response = await client.post("/strategies", json=body, headers=ADMIN_HEADERS)
@@ -565,6 +567,7 @@ def _post_body(**overrides: Any) -> dict[str, Any]:
         "fill_mode": "PARTIAL",
         "allocation_percent": "100",
         "allowed_pairs": ["ETHUSDT"],
+        "stop_loss_pct": "10",
     }
     body.update(overrides)
     return body
@@ -1274,6 +1277,7 @@ async def test_a_registration_with_a_leverage_out_of_range_is_refused(
         "fill_mode": "PARTIAL",
         "allocation_percent": "100",
         "allowed_pairs": ["ETHUSDT"],
+        "stop_loss_pct": "10",
         "leverage": leverage,
     }
 
@@ -1465,6 +1469,7 @@ async def test_a_description_given_at_registration_is_stored_trimmed_and_shown(
             "fill_mode": "PARTIAL",
             "allocation_percent": "100",
             "allowed_pairs": ["ETHUSDT"],
+            "stop_loss_pct": "10",
             "description": "  Trades the 4h close.\n\nRecommended: x3, isolated.\n",
         },
         headers=ADMIN_HEADERS,
@@ -1509,6 +1514,7 @@ async def test_an_unacceptable_description_at_registration_is_a_422_and_writes_n
             "fill_mode": "PARTIAL",
             "allocation_percent": "100",
             "allowed_pairs": ["ETHUSDT"],
+            "stop_loss_pct": "10",
             "description": description,
         },
         headers=ADMIN_HEADERS,
@@ -1617,3 +1623,140 @@ async def test_an_archived_strategys_description_cannot_be_changed(
 
     assert patched.status_code == 409
     assert await _stored_description(pg_session_factory, strategy_id) == "Recommended: x2."
+
+
+# -- the stop level (subscriber-safety D5 and D6) ----------------------------
+
+
+async def _stored_stop_level(
+    pg_session_factory: async_sessionmaker[AsyncSession], strategy_id: UUID
+) -> Decimal:
+    async with pg_session_factory() as session:
+        value = await session.scalar(
+            text("SELECT stop_loss_pct FROM strategies WHERE id = :id"), {"id": strategy_id}
+        )
+    assert isinstance(value, Decimal)
+    return value
+
+
+async def test_a_strategy_is_registered_with_the_level_sent_and_says_it(
+    client: AsyncClient, pg_session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    strategy_id = uuid4()
+    body = _post_body(id=str(strategy_id), stop_loss_pct="7.5")
+
+    created = await client.post("/strategies", json=body, headers=ADMIN_HEADERS)
+    read = await client.get(f"/strategies/{strategy_id}", headers=ADMIN_HEADERS)
+
+    assert created.status_code == 201
+    assert Decimal(created.json()["stop_loss_pct"]) == Decimal("7.5")
+    assert Decimal(read.json()["stop_loss_pct"]) == Decimal("7.5")
+    assert await _stored_stop_level(pg_session_factory, strategy_id) == Decimal("7.5")
+
+
+async def test_a_registration_without_a_level_is_refused_naming_the_field(
+    client: AsyncClient, pg_session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    body = _post_body()
+    del body["stop_loss_pct"]
+
+    response = await client.post("/strategies", json=body, headers=ADMIN_HEADERS)
+
+    assert response.status_code == 422
+    assert [error["loc"] for error in response.json()["detail"]] == [["body", "stop_loss_pct"]]
+    assert await _stored_strategy_count(pg_session_factory) == 0
+
+
+@pytest.mark.parametrize("level", ["0.5", "60", "0", "50.01", "7.505", "NaN", "abc", None])
+async def test_a_registration_with_a_level_out_of_range_is_refused_naming_the_field(
+    client: AsyncClient, pg_session_factory: async_sessionmaker[AsyncSession], level: Any
+) -> None:
+    response = await client.post(
+        "/strategies", json=_post_body(stop_loss_pct=level), headers=ADMIN_HEADERS
+    )
+
+    assert response.status_code == 422
+    assert [error["loc"] for error in response.json()["detail"]] == [["body", "stop_loss_pct"]]
+    assert await _stored_strategy_count(pg_session_factory) == 0
+
+
+async def test_the_authors_seat_above_the_cap_of_the_level_is_refused_and_nothing_is_written(
+    client: AsyncClient, pg_session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """A stop of 10 caps leverage at 9x; the seat the registration makes is no exception."""
+    response = await client.post(
+        "/strategies",
+        json=_post_body(stop_loss_pct="10", leverage=12),
+        headers=ADMIN_HEADERS,
+    )
+
+    assert response.status_code == 409
+    detail = response.json()["detail"]
+    assert detail["error"] == "LEVERAGE_ABOVE_STOP_CAP"
+    assert "x9" in detail["message"]
+    assert await _stored_strategy_count(pg_session_factory) == 0
+
+
+async def test_the_author_changes_the_level_and_the_strategy_says_it(
+    client: AsyncClient, pg_session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    strategy_id = await _register(client)
+
+    response = await client.patch(
+        f"/strategies/{strategy_id}", json={"stop_loss_pct": "7.5"}, headers=ADMIN_HEADERS
+    )
+
+    assert response.status_code == 200
+    assert Decimal(response.json()["stop_loss_pct"]) == Decimal("7.5")
+    assert await _stored_stop_level(pg_session_factory, strategy_id) == Decimal("7.5")
+
+
+@pytest.mark.parametrize("level", ["0.5", "60", "7.505"])
+async def test_a_level_out_of_range_is_refused_with_a_field_error_and_the_level_is_unchanged(
+    client: AsyncClient, pg_session_factory: async_sessionmaker[AsyncSession], level: Any
+) -> None:
+    strategy_id = await _register(client, stop_loss_pct="12")
+
+    response = await client.patch(
+        f"/strategies/{strategy_id}", json={"stop_loss_pct": level}, headers=ADMIN_HEADERS
+    )
+
+    assert response.status_code == 422
+    assert [error["loc"] for error in response.json()["detail"]] == [["body", "stop_loss_pct"]]
+    assert await _stored_stop_level(pg_session_factory, strategy_id) == Decimal("12")
+
+
+async def test_an_update_that_names_no_level_leaves_the_level_alone(
+    client: AsyncClient, pg_session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    strategy_id = await _register(client, stop_loss_pct="12")
+
+    response = await client.patch(
+        f"/strategies/{strategy_id}", json={"name": "renamed"}, headers=ADMIN_HEADERS
+    )
+
+    assert response.status_code == 200
+    assert Decimal(response.json()["stop_loss_pct"]) == Decimal("12")
+    assert await _stored_stop_level(pg_session_factory, strategy_id) == Decimal("12")
+
+
+async def test_widening_the_level_leaves_the_authors_seat_where_it_was(
+    client: AsyncClient, pg_session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """A stop of 15 caps leverage at 6x under a seat at 9x. The seat is not changed
+    for its user: its openings are refused instead."""
+    strategy_id = await _register(client, stop_loss_pct="10", leverage=9)
+
+    response = await client.patch(
+        f"/strategies/{strategy_id}", json={"stop_loss_pct": "15"}, headers=ADMIN_HEADERS
+    )
+
+    assert response.status_code == 200
+    assert await _stored_seat_leverage(pg_session_factory, strategy_id) == 9
+
+
+async def _stored_strategy_count(pg_session_factory: async_sessionmaker[AsyncSession]) -> int:
+    async with pg_session_factory() as session:
+        value = await session.scalar(text("SELECT count(*) FROM strategies"))
+    assert isinstance(value, int)
+    return value

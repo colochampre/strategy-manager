@@ -175,6 +175,9 @@ class PublicListing:
     # Every ACTIVE seat, the author's included, live or not: the count the author's
     # own list shows (tasks.md F.5 and L.1).
     subscribers: int
+    # Where its positions are stopped, as a percentage of price: it caps the leverage a
+    # reader may choose (subscriber-safety D5), so the panel needs it before a seat exists.
+    stop_loss_pct: Decimal
     # The author's own words, written for anyone reading the strategy (decision 38).
     description: str | None = None
 

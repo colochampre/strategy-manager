@@ -10,7 +10,11 @@ from uuid import UUID, uuid4
 import pytest
 
 from strategy_manager.shared.domain.errors import DomainError
-from strategy_manager.shared.domain.leverage import NEW_SEAT_LEVERAGE, Leverage
+from strategy_manager.shared.domain.leverage import (
+    NEW_SEAT_LEVERAGE,
+    Leverage,
+    LeverageAboveStopCap,
+)
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 from strategy_manager.strategies.application.ports import AuthorHasNoDisplayName, PoolKey
 from strategy_manager.strategies.application.register_strategy import (
@@ -29,6 +33,7 @@ from strategy_manager.strategies.domain.pair_catalog import (
     PairCatalogUnavailable,
     UnknownPairs,
 )
+from strategy_manager.strategies.domain.stop_loss import StopLossPct
 from strategy_manager.strategies.domain.strategy import (
     AllocationPercent,
     FillMode,
@@ -168,6 +173,7 @@ def _command(**overrides: object) -> RegisterCommand:
         "allocation_percent": Decimal("100"),
         "allowed_pairs": ["ETHUSDT"],
         "author_id": AUTHOR_ID,
+        "stop_loss_pct": StopLossPct(Decimal("10")),
     }
     fields.update(overrides)
     return RegisterCommand(exchange=Exchange.PIONEX, **fields)  # type: ignore[arg-type]
@@ -438,6 +444,47 @@ async def test_a_registration_that_names_no_leverage_seats_the_author_at_1x() ->
 
     [spy] = spies
     assert spy.leverages == [NEW_SEAT_LEVERAGE]
+
+
+async def test_the_level_registered_is_the_strategys() -> None:
+    use_case, repository, _, _, _ = _build()
+
+    registration = await use_case.register(_command(stop_loss_pct=StopLossPct(Decimal("7.5"))))
+
+    assert registration.strategy.stop_loss_pct == StopLossPct(Decimal("7.5"))
+    assert repository.inserted[0].stop_loss_pct == StopLossPct(Decimal("7.5"))
+
+
+async def test_the_authors_seat_above_the_cap_of_the_level_is_refused_naming_the_maximum(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A stop of 10 caps leverage at 9x: the author's own seat is no exception."""
+    spies: list[SpyAuthorSubscriptions] = []
+    use_case, repository, commit, _, _ = _build(subscriptions=spies)
+
+    with (
+        caplog.at_level(logging.WARNING, logger="strategy_manager.strategies.application"),
+        pytest.raises(LeverageAboveStopCap) as refused,
+    ):
+        await use_case.register(_command(leverage=Leverage(12)))
+
+    assert refused.value.reason_code == "LEVERAGE_ABOVE_STOP_CAP"
+    assert refused.value.maximum == 9
+    assert "x9" in str(refused.value)
+    assert repository.inserted == []
+    assert spies[0].calls == []
+    assert commit.commits == 0
+    assert any("LEVERAGE_ABOVE_STOP_CAP" in record.getMessage() for record in caplog.records)
+
+
+async def test_the_authors_seat_at_the_cap_of_the_level_is_registered() -> None:
+    spies: list[SpyAuthorSubscriptions] = []
+    use_case, repository, _, _, _ = _build(subscriptions=spies)
+
+    await use_case.register(_command(leverage=Leverage(9)))
+
+    assert len(repository.inserted) == 1
+    assert spies[0].leverages == [Leverage(9)]
 
 
 async def _registered() -> Strategy:
