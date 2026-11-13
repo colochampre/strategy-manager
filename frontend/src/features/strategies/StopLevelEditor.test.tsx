@@ -102,13 +102,20 @@ async function ready() {
 }
 
 describe("StopLevelEditor", () => {
-  it("shows the stored level as the server writes it, what it caps, and Save off", async () => {
+  it("shows the stored level as the server writes it, and Save off", async () => {
     setup(strategy());
     await ready();
 
     expect(field().value).toBe("10");
-    expect(screen.getByText("Allows a leverage of up to x9.")).toBeInTheDocument();
     expect(saveButton()).toBeDisabled();
+  });
+
+  // The leverage section on the same page already says what the level caps; the editor does not say it again.
+  it("does not repeat what the level caps the leverage at", async () => {
+    setup(strategy());
+    await ready();
+
+    expect(screen.queryByText(/Allows a leverage of up to/)).not.toBeInTheDocument();
   });
 
   it("sends nothing while it is edited, and Save sends exactly the level typed", async () => {
@@ -117,7 +124,6 @@ describe("StopLevelEditor", () => {
 
     fireEvent.change(field(), { target: { value: "7.5" } });
     await nextTask();
-    expect(screen.getByText("Allows a leverage of up to x11.")).toBeInTheDocument();
     expect(patches()).toHaveLength(0);
 
     fireEvent.click(saveButton());
@@ -176,6 +182,45 @@ describe("StopLevelEditor", () => {
     setup(strategy());
 
     expect(await screen.findByRole("textbox", { name: "Nivel de stop" })).toBeInTheDocument();
-    expect(screen.getByText("Permite un apalancamiento de hasta x9.")).toBeInTheDocument();
+    expect(screen.getByText("% del precio")).toBeInTheDocument();
+  });
+});
+
+/** The class tokens of an element, so a test names a class and not a substring of the whole attribute. */
+const classesOf = (element: Element) => element.className.split(/\s+/);
+
+describe("StopLevelEditor layout, as Share and Leverage", () => {
+  it("puts Save on the field's row: the field takes the width left, Save keeps its own", async () => {
+    setup(strategy());
+    await ready();
+
+    let row: HTMLElement | null = saveButton().parentElement;
+    while (row !== null && !row.contains(field())) row = row.parentElement;
+    const holding = (node: Element) => Array.from(row!.children).find((child) => child.contains(node)) as HTMLElement;
+
+    expect(classesOf(row!)).toEqual(expect.arrayContaining(["flex", "items-start"]));
+    expect(classesOf(row!)).not.toContain("flex-col");
+    expect(row!.children).toHaveLength(2);
+    expect(classesOf(holding(field()))).toEqual(expect.arrayContaining(["min-w-0", "flex-1"]));
+    expect(classesOf(holding(saveButton()))).toContain("shrink-0");
+  });
+
+  it("writes the unit right after the value, the input as wide as its text", async () => {
+    setup(strategy());
+    await ready();
+
+    expect(field().nextElementSibling).toHaveTextContent("% of price");
+    expect(classesOf(field())).toContain("field-sizing-content");
+    expect(classesOf(field())).not.toContain("flex-1");
+  });
+
+  it("names the section at the size of the Share and Leverage names", async () => {
+    setup(strategy());
+    await ready();
+
+    const name = screen.getByText("Stop level", { selector: "label" });
+    expect(classesOf(name)).toEqual(expect.arrayContaining(["text-sm", "leading-5", "text-ink-2"]));
+    expect(classesOf(name)).not.toContain("text-xs");
+    expect(classesOf(name)).not.toContain("font-semibold");
   });
 });

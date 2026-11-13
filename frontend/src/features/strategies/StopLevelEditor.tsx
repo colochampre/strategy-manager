@@ -68,20 +68,26 @@ export function StopLevelEditor({ strategy }: StopLevelEditorProps) {
           setSaved(false);
         }}
         disabled={readOnly || busy}
+        look="section"
+        // The leverage section on this page already says what the level caps.
+        showCap={false}
+        // Save is on the field's row, as wide as its own text needs, as for Share and Leverage.
+        action={
+          <div className="flex shrink-0 items-start">
+            <StatusButton
+              texts={[saveText, savingText, savedText]}
+              shown={busy ? savingText : saved ? savedText : saveText}
+              message={saved ? savedText : null}
+              onClick={handleSave}
+              disabled={readOnly || busy || !reading.valid || !changed || saved}
+              icon={Save}
+              iconOnly
+              busy={busy}
+              look="primary"
+            />
+          </div>
+        }
       />
-      <div className="flex items-start justify-end">
-        <StatusButton
-          texts={[saveText, savingText, savedText]}
-          shown={busy ? savingText : saved ? savedText : saveText}
-          message={saved ? savedText : null}
-          onClick={handleSave}
-          disabled={readOnly || busy || !reading.valid || !changed || saved}
-          icon={Save}
-          iconOnly
-          busy={busy}
-          look="primary"
-        />
-      </div>
       {save.status === "error" && (
         <p role="alert" className="text-sm text-loss">
           {t(saveRefusal(save.error))}

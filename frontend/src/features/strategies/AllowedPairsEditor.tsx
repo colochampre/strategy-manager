@@ -119,6 +119,7 @@ export function AllowedPairsEditor({ strategy }: AllowedPairsEditorProps) {
         status={status}
         onRetry={() => void catalogue.refetch()}
         info={{ label: t("strategies.detail.pairs.info"), text: t("strategies.detail.pairs.hint") }}
+        look="section"
         // Save sits on the search field's row, which takes the width that is left.
         action={
           <div className="flex shrink-0 items-start">
