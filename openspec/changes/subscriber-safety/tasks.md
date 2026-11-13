@@ -205,6 +205,7 @@ owner's preference.
         from the old panel fails between the API deploy and the panel move.
       - Count production seats above 9x before migrating: their live
         openings are refused from the deploy on.
+        Counted on 2026-11-13: 0 seats that are not ENDED sit above 9x.
 - [ ] SS.5 Bybit: the stop attached to the opening order, with the migration
   creating `protective_stops`. The resting stop is
   found by `parentOrderLinkId` and recorded. A failure closes the position at
