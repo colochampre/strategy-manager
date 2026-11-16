@@ -574,6 +574,45 @@ owner's preference.
 - [ ] SS.8 Disable refused on exposure, under the archive's locks, with the
   lock-hold concurrency test on PostgreSQL. Plus the sweep's safety close of
   stopped strategies with positions. Risk: items 3 and 4.
+  - Design, 2026-11-16, from a read-only map of the code. Two units, built in
+    parallel by two writers with disjoint edit surfaces; the parent owns git
+    and this file.
+  - SS.8a, the disable guard:
+    - `UpdateStrategy` gains archive's machinery when a request turns
+      `enabled` from true to false: `SubscriberLocks.acquire` (every live
+      subscriber's pool lock, ascending), then `get_by_id_for_update`, then
+      `confirm`, then `StrategyExposureAdapter.exposure`. Non-empty exposure
+      raises `OpenPosition`, which the router maps to the same 409
+      `OPEN_POSITION` body as archive.
+    - Any other update (enabling included) keeps today's path: the row lock
+      only, no exposure read.
+    - The opening side needs nothing: `AllocateCapital` re-reads `enabled`
+      inside the pool lock already.
+    - The panel's enable dialog shows the refusal and its reasons, reusing
+      archive's reason rendering (extracted from `ArchiveDialog.tsx`), with a
+      disable wording in EN and ES.
+    - Tests: the refusal through the public interface, the flat case, the
+      enable case, and a lock-hold test on PostgreSQL in both orders (the
+      disable holds the pool lock and the opening waits and then skips as
+      disabled; the opening holds it and the disable waits and then refuses).
+  - SS.8b, the sweep's safety close:
+    - Each reservation sweep lists every allocation with a non-zero ledger
+      net whose strategy is disabled or archived, for every user.
+    - For each one, under that user's pool lock, it closes through
+      `ClosePosition` with no signal, no delivery and cause `SAFETY_CLOSE`,
+      on the user's own exchanges (`exchanges_by_mode.for_job`). An
+      allocation whose latest close is SUBMITTED is skipped. A FAILED one is
+      tried again on the next run.
+    - Every close sent logs a WARNING naming the user, allocation, strategy
+      and symbol. A refusal logs an ERROR, and one allocation's failure never
+      stops the others.
+    - "Authorless" cannot happen yet: `strategies.author_id` is NOT NULL and
+      account deletion is not built. Its leg comes with account deletion.
+    - The `STRATEGY_STOPPED_CLOSED` event comes with SS.10, which creates
+      the table, as the other events did.
+    - Deploy note: on its first run in production the sweep closes, at
+      market, any position already held on a disabled or archived strategy.
+      A read-only query lists them before the deploy.
 - [ ] SS.9 "Close now": the API and the panel's confirmation dialog, cause
   MANUAL, idempotent while in flight, with its event.
 - [ ] SS.10 The `safety_events` table, its API and the panel list, in EN and
