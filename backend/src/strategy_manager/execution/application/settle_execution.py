@@ -8,7 +8,10 @@ crash landed:
 
 - fills exist        -> record them, the reservation is FILLED
 - no such order      -> the order never reached the exchange, release the
-                        reservation; the capital was never spent
+                        reservation; the capital was never spent. Unless the
+                        venue acknowledged it (a venue order id is recorded) or
+                        it is younger than ``NOT_FOUND_GRACE_SECONDS``: a lookup
+                        can lag the write, so those are asked again
 - order but no fills -> not settled yet, raise so the queue retries
 
 That last case is the one to be careful with. An unfilled market order and an
@@ -55,6 +58,11 @@ logger = logging.getLogger(__name__)
 
 RELEASED = "RELEASED"
 FILLED = "FILLED"
+
+# How long a "no such order" may still be the venue lagging its own write, for an order
+# whose placing answer never came back. The settle job retries at about 30 s and 90 s
+# after the first ask, so an order still unknown on the third ask is released.
+NOT_FOUND_GRACE_SECONDS = 60.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -129,7 +137,35 @@ class SettleExecution:
             fills = await exchanges.for_pool(
                 attempt.exchange, attempt.venue
             ).fetch_fills(attempt.client_order_id, attempt.symbol)
-        except OrderNotFound:
+        except OrderNotFound as exc:
+            # A venue's lookup can lag its own write: Binance answered "no such order"
+            # two seconds after it had acknowledged one (STXUSDT, 2026-11-14), and the
+            # release that followed left a real position with no ledger and no stop.
+            if attempt.exchange_order_id is not None:
+                logger.warning(
+                    "execution attempt %s: the venue acknowledged order %s but its "
+                    "lookup says no such order (%s); asking again, never releasing",
+                    attempt.id,
+                    attempt.exchange_order_id,
+                    exc,
+                )
+                raise NotSettledYet(
+                    f"order {attempt.exchange_order_id} was acknowledged but is not "
+                    "found yet"
+                ) from exc
+            if (
+                attempt.created_at is not None
+                and (now - attempt.created_at).total_seconds() < NOT_FOUND_GRACE_SECONDS
+            ):
+                logger.info(
+                    "execution attempt %s: no such order yet, %ss after placing; "
+                    "asking again before concluding it never reached the venue",
+                    attempt.id,
+                    int((now - attempt.created_at).total_seconds()),
+                )
+                raise NotSettledYet(
+                    f"client order {attempt.client_order_id} is not found yet"
+                ) from exc
             return await self._release_never_placed(user_id, attempt, now)
 
         if not fills:

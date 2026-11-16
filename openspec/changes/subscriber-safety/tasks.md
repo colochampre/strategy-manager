@@ -394,7 +394,7 @@ owner's preference.
       No live opening had come since SS.5's deploy, so the first one on each
       venue is the first real confirmation. Watch its `protective stop
       resting` INFO line and its row.
-- [ ] SS.7 The stop watcher job, with the migration adding a cause to
+- [x] SS.7 The stop watcher job, with the migration adding a cause to
   `execution_attempts` (SIGNAL / STOP / SAFETY_CLOSE / MANUAL):
   - fills booked under the allocation with cause STOP, plus `STOP_FIRED`;
   - gone stops marked;
@@ -528,6 +528,25 @@ owner's preference.
       - A fired stop whose position was already booked by hand is refused
         every tick (loud, not self-healing).
       - The `STOP_FIRED` event waits for SS.10's table.
+  - Delivered, 2026-11-16: PR #109, merge `e3df242993e1`.
+    - Rehearsal on a copy restored from
+      `pre-0043-rehearsal-20261116T150956Z.dump`:
+      - the backfill gave SIGNAL=54 STOP=0 SAFETY_CLOSE=0 MANUAL=0 (no
+        FAILED stop and no VENUE attempt existed);
+      - the attempts' other columns and the protective stops were
+        unchanged;
+      - both CHECKs read as designed, and the downgrade and re-upgrade
+        worked.
+    - Production, with the backup `pre-0043-deploy-20261116T151216Z.dump`:
+      - 0042 to 0043, the same backfill;
+      - both services `active`;
+      - after 75 s the watcher's chain showed 3 runs DONE and 1 PENDING;
+      - the one live stop (Binance STXUSDT, opened 2026-11-15 05:00) stayed
+        RESTING at 0.2552;
+      - no ERROR or Traceback line.
+    - That stop is the first live confirmation of SS.6: 6 fills near
+      0.2686, a trigger of 0.2552 (5% under the VWAP, rounded away from
+      the entry), confirmed 1.5 s after the settle.
 - [ ] SS.8 Disable refused on exposure, under the archive's locks, with the
   lock-hold concurrency test on PostgreSQL. Plus the sweep's safety close of
   stopped strategies with positions. Risk: items 3 and 4.

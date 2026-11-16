@@ -258,6 +258,25 @@ What that settled, none of which a read could:
   `closedSize` says whether an execution closed rather than opened, and
   `execFeeV2` mirrored `execFee` exactly on both legs.
 
+## Binance: a lookup lags the write (2026-11-14)
+
+An opening of 2549 STXUSDT was placed and acknowledged with Binance's own
+order id. Two seconds later `GET /fapi/v1/order?origClientOrderId=` answered
+that no such order existed. Settle read that as "never reached the exchange":
+- it released the reservation and voided the protective stop;
+- it booked nothing;
+- it left a real position with no ledger rows and no stop.
+
+The strategy's close then found nothing to close. Reconciliation flagged the
+position within a minute (`NO_MATCHING_ALLOCATION`), and the owner closed it by
+hand. The algo-order read showed the same lag in SS.1's run 5 (`-2013`).
+
+So a "no such order" from a lookup is not a fact about the order:
+- An attempt carrying the venue's order id is never released on it.
+- One without an id is released only after `NOT_FOUND_GRACE_SECONDS`.
+
+Both rules live in `settle_execution.py`.
+
 ## Open risks
 
 - **SETTLED — Pionex does not offer futures order placement over the API.**

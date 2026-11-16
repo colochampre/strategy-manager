@@ -77,6 +77,7 @@ from tests.allocation.fakes import RecordedModes
 from tests.execution.fakes import OneRegistry
 from tests.owner import OWNER_ID, ensure_delivery
 from tests.signals.infrastructure.conftest import (
+    never_reached_the_venue,
     seed_execution_attempt,
     seed_reservation,
     seed_signal_row,
@@ -680,6 +681,8 @@ async def test_a_never_placed_open_rejects_its_signal_in_the_commit_that_release
         delivery_id=await _delivery_of(pg_session_factory, signal_id),
     )
 
+    await never_reached_the_venue(pg_session_factory, attempt_id)
+
     async with pg_session_factory() as session:
         commit = _FaultyCommit(session, fail_on=None)
         result = await _settle(session, commit, FakeExchangeAdapter(
@@ -717,6 +720,8 @@ async def test_a_failed_release_commit_loses_the_release_and_the_rejection_toget
         delivery_id=await _delivery_of(pg_session_factory, signal_id),
     )
 
+    await never_reached_the_venue(pg_session_factory, attempt_id)
+
     async with pg_session_factory() as session:
         commit = _FaultyCommit(session, fail_on=1)
         with pytest.raises(RuntimeError, match="injected commit failure"):
@@ -752,6 +757,8 @@ async def test_a_never_placed_close_rejects_the_closing_signal_only(
         )
         await session.commit()
 
+    await never_reached_the_venue(pg_session_factory, attempt_id)
+
     async with pg_session_factory() as session:
         commit = _FaultyCommit(session, fail_on=None)
         result = await _settle(session, commit, FakeExchangeAdapter(
@@ -786,6 +793,8 @@ async def test_a_never_placed_close_with_no_link_rejects_nothing(
             OWNER_ID, _submitted_close(attempt_id, allocation_id, None, None)
         )
         await session.commit()
+
+    await never_reached_the_venue(pg_session_factory, attempt_id)
 
     async with pg_session_factory() as session:
         result = await _settle(
