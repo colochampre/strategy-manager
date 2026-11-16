@@ -571,7 +571,7 @@ owner's preference.
     - Open: an acknowledged order that never appears exhausts the settle
       job (about 7 minutes) and leaves the attempt SUBMITTED. Whether that
       exhaustion logs an ERROR was not verified.
-- [ ] SS.8 Disable refused on exposure, under the archive's locks, with the
+- [x] SS.8 Disable refused on exposure, under the archive's locks, with the
   lock-hold concurrency test on PostgreSQL. Plus the sweep's safety close of
   stopped strategies with positions. Risk: items 3 and 4.
   - Design, 2026-11-16, from a read-only map of the code. Two units, built in
@@ -631,6 +631,18 @@ owner's preference.
         instant between the sweep's re-check and its close is still closed;
       - disabling an already disabled strategy takes the pool locks for
         nothing.
+  - Delivered 2026-11-16 as PR #111 (merge `b5184a52a863`).
+    - Before the merge, the owner ran the read-only listing of open positions
+      on disabled or archived strategies. It returned 0 rows, so the first
+      sweep had nothing to close.
+    - The API step reported checkout `b5184a52a863`, database `0043` (no
+      migration), both services `active`, and no ERROR line after the
+      restart.
+    - The panel (pps.6) was built from a clean worktree of `origin/main`:
+      22 entries, SHA-256
+      `3a2c274cb1768b0ed71a6adfab6e6ca5f3a716958a2ab1a55d709ba78615f46d`.
+      The VPS printed `OK`, `readable`, and bundle and checkout
+      `b5184a52a863`.
 - [ ] SS.9 "Close now": the API and the panel's confirmation dialog, cause
   MANUAL, idempotent while in flight, with its event.
 - [ ] SS.10 The `safety_events` table, its API and the panel list, in EN and
