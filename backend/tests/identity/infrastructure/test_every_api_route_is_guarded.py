@@ -46,6 +46,8 @@ SCOPED_TO_THE_SIGNED_IN_USER = {
     ("GET", "/api/performance/strategies/{strategy_id}/trades"),
     ("GET", "/api/performance/strategies/{strategy_id}/trades/{allocation_id}/fills"),
     ("GET", "/api/positions/open"),
+    # Close now (SS.9): only the signed-in user's own allocation; any other is 404.
+    ("POST", "/api/positions/{allocation_id}/close"),
     ("POST", "/api/subscriptions"),
     ("GET", "/api/subscriptions"),
     ("GET", "/api/subscriptions/held"),
