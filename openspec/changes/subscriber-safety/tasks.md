@@ -675,6 +675,15 @@ owner's preference.
     sends the request, and cancelling sends nothing. EN and ES.
   - Risk: item 2. A route that sends real orders must never act on another
     user's allocation.
+  - Two corrections to the design, made while building it:
+    - The worker reads the user-scoped ledger, not the reservation. The
+      reservation holds no symbol, and the close needs the symbol and the net
+      from the ledger. A foreign or vanished allocation still sends nothing.
+    - A finished job keeps its dedupe key until the purge, seven days later.
+      One that ended without an attempt (no key could sign, or the ledger was
+      not settled yet) would have left the button dead that long. So the API
+      releases the key of a DONE or FAILED job before enqueueing, and only a
+      job still waiting or running dedupes.
 - [ ] SS.10 The `safety_events` table, its API and the panel list, in EN and
   ES, and the `OPENING_REFUSED_LEVERAGE_CAP` event from SS.3's refusal.
 - [ ] SS.11 Docs: CLAUDE.md's venue facts on stops, and the panel's help text.

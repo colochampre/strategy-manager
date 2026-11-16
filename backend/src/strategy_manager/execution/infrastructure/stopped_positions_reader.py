@@ -17,7 +17,7 @@ from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import ColumnElement, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from strategy_manager.execution.application.ports import StoppedPosition
@@ -55,8 +55,26 @@ class SqlAlchemyStoppedPositionsReader:
         self._session = session
 
     async def stopped_positions(self) -> Sequence[StoppedPosition]:
+        return await self._positions(stopped_only=True, keep_flat=False)
+
+    async def position_of(self, user_id: UUID, allocation_id: UUID) -> StoppedPosition | None:
+        """One allocation as ``user_id``'s ledger holds it (SS.9), whatever state its strategy
+        is in. ``None`` when that user has no ledger row under the id, which is how another
+        user's allocation, an unknown id and one that never filled all read. A flat one is
+        returned with a zero net."""
+        found = await self._positions(
+            LedgerEntryRow.user_id == user_id,
+            LedgerEntryRow.allocation_id == allocation_id,
+            stopped_only=False,
+            keep_flat=True,
+        )
+        return found[0] if found else None
+
+    async def _positions(
+        self, *conditions: ColumnElement[bool], stopped_only: bool, keep_flat: bool
+    ) -> Sequence[StoppedPosition]:
         fee_currency = func.upper(LedgerEntryRow.fee_currency).label("fee_currency")
-        result = await self._session.execute(
+        query = (
             select(
                 LedgerEntryRow.allocation_id,
                 LedgerEntryRow.user_id,
@@ -71,8 +89,7 @@ class SqlAlchemyStoppedPositionsReader:
                 func.sum(LedgerEntryRow.fee),
                 func.min(LedgerEntryRow.filled_at),
             )
-            .join(StrategyRow, StrategyRow.id == LedgerEntryRow.strategy_id)
-            .where(_STOPPED)
+            .where(*conditions)
             .group_by(
                 LedgerEntryRow.allocation_id,
                 LedgerEntryRow.user_id,
@@ -85,6 +102,11 @@ class SqlAlchemyStoppedPositionsReader:
                 fee_currency,
             )
         )
+        if stopped_only:
+            query = query.join(StrategyRow, StrategyRow.id == LedgerEntryRow.strategy_id).where(
+                _STOPPED
+            )
+        result = await self._session.execute(query)
 
         by_allocation: dict[UUID, list[_Group]] = defaultdict(list)
         for row in result.all():
@@ -109,6 +131,10 @@ class SqlAlchemyStoppedPositionsReader:
             try:
                 net = _net_base(groups)
             except InvariantViolation:
+                if not stopped_only:
+                    # A close asked for by one user: the caller sees the failure, and the
+                    # job that asked is retried and logged.
+                    raise
                 # A symbol whose base cannot be split from the pool's currency cannot be
                 # sized, and a close would refuse the same way. It is not flat: say so, so
                 # it is never one more position nobody looks at.
@@ -119,7 +145,7 @@ class SqlAlchemyStoppedPositionsReader:
                     ", ".join(sorted({group.symbol for group in groups})),
                 )
                 continue
-            if net == 0:
+            if net == 0 and not keep_flat:
                 continue
             opening = min(groups, key=lambda group: group.first_filled_at)
             positions.append(

@@ -50,6 +50,10 @@ class JobKind(StrEnum):
     # fired (subscriber-safety SS.7). A recurring chain like the reconciliation scan, seeded
     # and watched through ``RECURRING_KINDS``.
     PROTECTIVE_STOP_WATCH = "protective_stop.watch"
+    # A user's own position, closed at market because they asked for it from the panel
+    # (subscriber-safety SS.9). Enqueued by the API, which never opens a key, with
+    # ``{"user_id", "allocation_id"}``; the worker closes it with that user's key.
+    MANUAL_CLOSE = "execution.manual_close"
 
 
 @dataclass(frozen=True, slots=True)

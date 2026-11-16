@@ -1,11 +1,21 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { renderHook } from "@testing-library/react";
+import { act, renderHook } from "@testing-library/react";
 import { createElement } from "react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ApiError } from "@/shared/api/client";
-import { fetchOpenPositions, notShown, ofExchange, ofPool, ofStrategy, unmatched, useOpenPositions } from "@/shared/api/positions";
+import {
+  closePosition,
+  fetchOpenPositions,
+  notShown,
+  ofExchange,
+  ofPool,
+  ofStrategy,
+  unmatched,
+  useCloseNow,
+  useOpenPositions,
+} from "@/shared/api/positions";
 import { lock, openOrder, openPosition, openState, unlock } from "@/test/harness";
 
 function respond(body: unknown, status = 200) {
@@ -268,6 +278,43 @@ describe("ofStrategy", () => {
     expect(ofStrategy(STATE, "").positions).toEqual([]);
     expect(ofStrategy(STATE, "null").positions).toEqual([]);
     expect(ofStrategy(STATE, ALPHA).positions.some((position) => position.strategy_id === null)).toBe(false);
+  });
+});
+
+describe("closePosition and useCloseNow (SS.9)", () => {
+  const ALLOCATION = "aaaaaaaa-0000-4000-8000-000000000001";
+
+  it("asks POST /positions/{allocation_id}/close with no body, and returns the 202's status", async () => {
+    const fetchMock = respond({ status: "QUEUED" }, 202);
+
+    const answer = await closePosition(ALLOCATION);
+
+    expect(answer).toEqual({ status: "QUEUED" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toMatch(new RegExp(`/positions/${ALLOCATION}/close$`));
+    expect(init.method).toBe("POST");
+    expect(init.body).toBeUndefined();
+  });
+
+  it("throws the refusal as an ApiError, a 404 included", async () => {
+    respond({ detail: "position not found" }, 404);
+
+    await expect(closePosition(ALLOCATION)).rejects.toMatchObject({ status: 404 });
+  });
+
+  it("reads the open positions again whatever the outcome", async () => {
+    respond({ detail: "position not found" }, 404);
+    const queryClient = new QueryClient();
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    const wrapper = ({ children }: { children: ReactNode }) => createElement(QueryClientProvider, { client: queryClient }, children);
+    const { result } = renderHook(() => useCloseNow(), { wrapper });
+
+    await act(async () => {
+      await result.current.mutateAsync(ALLOCATION).catch(() => undefined);
+    });
+
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["positions", "open"] });
   });
 });
 

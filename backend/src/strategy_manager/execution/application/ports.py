@@ -750,6 +750,18 @@ class StoppedPositionsReaderPort(Protocol):
         ...
 
 
+class OwnPositionReaderPort(Protocol):
+    """What a close the user asked for reads about the position (subscriber-safety SS.9)."""
+
+    async def position_of(self, user_id: UUID, allocation_id: UUID) -> StoppedPosition | None:
+        """The allocation as ``user_id``'s ledger holds it, or ``None`` when that user has no
+        ledger row under that id: an allocation of another user, an unknown id and one that
+        never filled all read the same. Unlike ``stopped_positions``, ``net_base`` here may be
+        zero: a flat allocation is still the user's, and the caller says so. A plain read, with
+        no lock."""
+        ...
+
+
 class TradeCapableKeysPort(Protocol):
     """Who can place an order where, for the startup guard's refusal of a real
     position nothing can close (multi-user design AD7)."""

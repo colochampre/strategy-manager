@@ -263,3 +263,97 @@ async def test_a_strategy_is_stopped_when_disabled_or_archived_and_not_when_runn
         assert await reader.is_stopped(disabled) is True
         assert await reader.is_stopped(archived) is True
         assert await reader.is_stopped(running) is False
+
+
+async def _position_of(
+    factory: Factory, user_id: UUID, allocation_id: UUID
+) -> StoppedPosition | None:
+    async with factory() as session:
+        return await SqlAlchemyStoppedPositionsReader(session).position_of(
+            user_id, allocation_id
+        )
+
+
+async def test_position_of_reads_a_users_own_allocation_whatever_its_strategys_state(
+    pg_session_factory: Factory,
+) -> None:
+    """SS.9: the panel closes any of the user's open positions, on a running strategy too,
+    under the spelling it OPENED with (the closing fill's bare name is the latest row)."""
+    running = await _strategy(pg_session_factory, enabled=True)
+    allocation = await _allocation(
+        pg_session_factory,
+        OWNER_ID,
+        running,
+        [
+            ("BUY", "DOGEUSDT.P", "100", "0.0825", "USDT"),
+            ("SELL", "DOGEUSDT", "24", "0.0165", "USDT"),
+        ],
+    )
+
+    found = await _position_of(pg_session_factory, OWNER_ID, allocation)
+
+    assert found == StoppedPosition(
+        user_id=OWNER_ID,
+        allocation_id=allocation,
+        strategy_id=running,
+        exchange="bybit",
+        venue="usdt-m",
+        settlement_currency="USDT",
+        symbol="DOGEUSDT.P",
+        net_base=Decimal("76"),
+    )
+
+
+async def test_position_of_reports_a_short_with_its_sign(pg_session_factory: Factory) -> None:
+    running = await _strategy(pg_session_factory, enabled=True)
+    allocation = await _allocation(
+        pg_session_factory, OWNER_ID, running, [("SELL", "ETHUSDT", "0.3", "0.02", "USDT")]
+    )
+
+    found = await _position_of(pg_session_factory, OWNER_ID, allocation)
+
+    assert found is not None
+    assert found.net_base == Decimal("-0.3")
+
+
+async def test_position_of_reads_another_users_allocation_as_nothing(
+    pg_session_factory: Factory,
+) -> None:
+    async with pg_session_factory() as session:
+        other = await seed_other_user(session)
+        await session.commit()
+    running = await _strategy(pg_session_factory, enabled=True)
+    theirs = await _allocation(
+        pg_session_factory, other, running, [("BUY", "DOGEUSDT.P", "76", "0.1", "USDT")]
+    )
+
+    assert await _position_of(pg_session_factory, OWNER_ID, theirs) is None
+    assert await _position_of(pg_session_factory, other, theirs) is not None
+
+
+async def test_position_of_reads_an_unknown_allocation_as_nothing(
+    pg_session_factory: Factory,
+) -> None:
+    assert await _position_of(pg_session_factory, OWNER_ID, uuid4()) is None
+
+
+async def test_position_of_keeps_a_flat_allocation_with_a_zero_net(
+    pg_session_factory: Factory,
+) -> None:
+    """Flat is still the user's: the worker says so, and the listing above leaves it out."""
+    running = await _strategy(pg_session_factory, enabled=True)
+    allocation = await _allocation(
+        pg_session_factory,
+        OWNER_ID,
+        running,
+        [
+            ("BUY", "SOLUSDT.P", "1", "0.0825", "USDT"),
+            ("SELL", "SOLUSDT", "1", "0.0825", "USDT"),
+        ],
+    )
+
+    found = await _position_of(pg_session_factory, OWNER_ID, allocation)
+
+    assert found is not None
+    assert found.net_base == Decimal("0")
+    assert await _stopped(pg_session_factory) == []

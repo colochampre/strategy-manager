@@ -819,6 +819,18 @@
       "unmatched_one": "{{count}} open position or order could not be matched to a strategy. The Strategies page names it.",
       "unmatched_other": "{{count}} open positions or orders could not be matched to a strategy. The Strategies page names them."
     },
+    "closeNow": {
+      "label": "Close now",
+      "confirmTitle": "Close {{pair}} now?",
+      "confirmBody": "This sends a market order that closes your {{size}} position on {{pair}} at once. It cannot be undone, and the position leaves this list once the fill is recorded.",
+      "cancel": "Cancel",
+      "confirm": "Close position",
+      "pending": "Sending…",
+      "errors": {
+        "gone": "This position is no longer open.",
+        "generic": "The close could not be sent. Try again."
+      }
+    },
     "reason": {
       "UNRESOLVED_SYMBOL": "The pair's base currency cannot be told from the pool's currency, so the side and the size are not derived.",
       "SEVERAL_MARKETS": "The fills of this position name more than one pair.",

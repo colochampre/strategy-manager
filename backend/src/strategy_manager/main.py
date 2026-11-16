@@ -87,6 +87,7 @@ from strategy_manager.allocation.infrastructure.user_mode import SqlAlchemyUserM
 from strategy_manager.execution.application.assert_mode_matches_ledger import (
     assert_mode_matches_ledger,
 )
+from strategy_manager.execution.application.close_by_hand import CloseByHand
 from strategy_manager.execution.application.close_position import ClosePosition
 from strategy_manager.execution.application.close_stopped_positions import (
     CloseStoppedPositions,
@@ -115,6 +116,9 @@ from strategy_manager.execution.infrastructure.dry_run_invariant import assert_d
 from strategy_manager.execution.infrastructure.exchanges_by_mode import ExchangesByMode
 from strategy_manager.execution.infrastructure.fake_exchange import FakeExchangeAdapter
 from strategy_manager.execution.infrastructure.fake_venue_book import FakeVenueBook
+from strategy_manager.execution.infrastructure.manual_close_router import (
+    router as manual_close_router,
+)
 from strategy_manager.execution.infrastructure.mode_origin_reader import (
     SqlAlchemyModeOriginReader,
 )
@@ -810,6 +814,39 @@ def _build_close_stopped_positions(
     disabled or archived strategy is closed through ``ClosePosition``, with no signal, as the
     user who holds it (``exchanges_for`` opens that user's exchanges, so another user's key
     never signs it). Each is decided under its holder's pool lock and committed on its own."""
+    return CloseStoppedPositions(
+        stopped=SqlAlchemyStoppedPositionsReader(session),
+        closing_attempts=SqlAlchemyExecutionAttemptRepository(session),
+        pool_lock=PoolLockAdapter(session),
+        closer_for=_closer_for(session, settings, exchanges_for),
+        unit_of_work=session,
+    )
+
+
+def _build_close_by_hand(
+    session: AsyncSession,
+    settings: Settings,
+    exchanges_for: Callable[[UUID], AbstractAsyncContextManager[ModeExchangesPort]],
+) -> CloseByHand:
+    """Composes the ``execution.manual_close`` job's use case (SS.9): one position the user
+    asked to close from the panel, closed through ``ClosePosition`` with no signal, as that
+    user (``exchanges_for`` opens their exchanges, so another user's key never signs it)."""
+    return CloseByHand(
+        positions=SqlAlchemyStoppedPositionsReader(session),
+        closing_attempts=SqlAlchemyExecutionAttemptRepository(session),
+        pool_lock=PoolLockAdapter(session),
+        closer_for=_closer_for(session, settings, exchanges_for),
+        unit_of_work=session,
+    )
+
+
+def _closer_for(
+    session: AsyncSession,
+    settings: Settings,
+    exchanges_for: Callable[[UUID], AbstractAsyncContextManager[ModeExchangesPort]],
+) -> Callable[[UUID], AbstractAsyncContextManager[PositionCloserPort]]:
+    """``ClosePosition`` over one user's own exchanges, shared by every close the system
+    sends without a signal: the sweep's safety close and the user's close from the panel."""
     allocation_modes = SqlAlchemyAllocationMode(session)
     attempts = SqlAlchemyExecutionAttemptRepository(session)
 
@@ -832,13 +869,7 @@ def _build_close_stopped_positions(
                 stops=SqlAlchemyProtectiveStopRepository(session),
             )
 
-    return CloseStoppedPositions(
-        stopped=SqlAlchemyStoppedPositionsReader(session),
-        closing_attempts=attempts,
-        pool_lock=PoolLockAdapter(session),
-        closer_for=closer_for,
-        unit_of_work=session,
-    )
+    return closer_for
 
 
 def _end_leaving(session: AsyncSession) -> EndLeavingSubscription:
@@ -1972,6 +2003,20 @@ def build_worker_runner(
                     owner, attempt_id
                 )
 
+    async def handle_manual_close(job: ClaimedJob) -> None:
+        """Closes one position the user asked to close from the panel (SS.9), with that
+        user's own key. The job names the user, because the API checked the allocation was
+        theirs: the use case reads it again scoped by that user, so a payload naming another
+        user's allocation sends nothing."""
+        owner = UUID(str(job.payload["user_id"]))
+        allocation_id = UUID(str(job.payload["allocation_id"]))
+        async with factory() as session:
+            await _build_close_by_hand(
+                session,
+                settings,
+                lambda user_id: exchanges_by_mode.for_job(session, user_id),
+            ).close(owner, allocation_id)
+
     async def handle_protective_stop_watch(job: ClaimedJob) -> None:
         """Reads every resting protective stop at its venue, as the user whose key placed
         it, and books the fills of one that fired (SS.7). One session for the pass: each
@@ -2438,6 +2483,7 @@ def build_worker_runner(
         JobKind.EXECUTION_SETTLE: handle_execution_settle,
         JobKind.PROTECTIVE_STOP_CONFIRM: handle_protective_stop_confirm,
         JobKind.PROTECTIVE_STOP_WATCH: handle_protective_stop_watch,
+        JobKind.MANUAL_CLOSE: handle_manual_close,
         JobKind.RECONCILIATION_SCAN: handle_reconciliation_scan,
         JobKind.RECONCILIATION_PREPARE_BOOKING: handle_reconciliation_prepare_booking,
         JobKind.JOBS_PURGE: handle_jobs_purge,
@@ -2516,6 +2562,7 @@ def create_app() -> FastAPI:
     api_router.include_router(pools_router)
     api_router.include_router(performance_router)
     api_router.include_router(open_positions_router)
+    api_router.include_router(manual_close_router)
     api_router.include_router(public_strategies_router)
     api_router.include_router(invite_lookup_router)
     api_router.include_router(webhook_origin_router)
