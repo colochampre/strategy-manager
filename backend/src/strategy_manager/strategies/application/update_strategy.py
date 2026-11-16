@@ -114,19 +114,21 @@ async def refuse_if_exposed(
     pool: tuple[str, str, str],
     subscribers: Sequence[SubscriberPool],
     action: str,
+    log: logging.Logger,
 ) -> None:
     """Raises ``OpenPosition`` when anyone still holds exposure on ``strategy``.
 
     The one reading and the one refusal archive and disable share, so the two can
     never answer differently. The caller holds every subscriber's pool lock and the
-    row lock; the read is meaningless without them."""
+    row lock; the read is meaningless without them. ``log`` is the caller's logger,
+    so each refusal is still logged under the use case that refused it."""
     exposure = await exposure_port.exposure(strategy.id, pool)
     if exposure.is_empty():
         return
     holders = holder_names(
         await subscribers_port.holders(strategy.id, subscribers), strategy.author_id
     )
-    logger.warning(
+    log.warning(
         "strategy %s refused, it still holds exposure: id=%s name=%r held_by=%s",
         action,
         strategy.id,
@@ -254,6 +256,7 @@ class UpdateStrategy:
                     pool=pool,
                     subscribers=subscribers,
                     action="disable",
+                    log=logger,
                 )
 
         # On turning public or LINK, not on being so: a strategy made public before

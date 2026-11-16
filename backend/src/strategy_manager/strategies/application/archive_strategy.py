@@ -207,6 +207,7 @@ class ArchiveStrategy:
             pool=pool,
             subscribers=subscribers,
             action="archive",
+            log=logger,
         )
 
         now = self._clock.now()
