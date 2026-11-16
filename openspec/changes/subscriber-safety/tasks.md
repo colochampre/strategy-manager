@@ -684,6 +684,21 @@ owner's preference.
       not settled yet) would have left the button dead that long. So the API
       releases the key of a DONE or FAILED job before enqueueing, and only a
       job still waiting or running dedupes.
+  - Progress, 2026-11-16. Built by a Sonnet writer as `ef9e56d`, and the
+    route registries were updated in `14b01f6`.
+    - The dead-button fix was written by the parent, with a RED test and a
+      mutation.
+    - The first full backend suite failed only on the two route registries
+      (the guarded-routes test and the secret sweep), now fixed. The 150
+      frontend test files are green, with lint.
+    - An independent verifier found no blockers. It probed a cross-user
+      close, the dedupe after a released key and a CLAIMED job, and SS.8b's
+      sweep after the reader refactor.
+    - Open advisories:
+      - an unsizeable symbol in the ledger answers a bare 500 from the
+        route;
+      - a request deduped against a live job answers `QUEUED`, not a status
+        of its own.
 - [ ] SS.10 The `safety_events` table, its API and the panel list, in EN and
   ES, and the `OPENING_REFUSED_LEVERAGE_CAP` event from SS.3's refusal.
 - [ ] SS.11 Docs: CLAUDE.md's venue facts on stops, and the panel's help text.
