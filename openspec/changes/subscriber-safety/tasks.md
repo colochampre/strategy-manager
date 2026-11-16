@@ -645,6 +645,36 @@ owner's preference.
       `b5184a52a863`.
 - [ ] SS.9 "Close now": the API and the panel's confirmation dialog, cause
   MANUAL, idempotent while in flight, with its event.
+  - Design, 2026-11-16, from a read-only map of the code. The API never opens
+    a key, so it never places the order: it checks, enqueues one job and
+    answers 202, and the worker closes.
+  - API, `POST /api/positions/{allocation_id}/close`:
+    - The allocation must be the signed-in user's own. Another user's id, or
+      an unknown one, answers 404 and enqueues nothing.
+    - If the latest close of that allocation is SUBMITTED, it answers 202
+      `ALREADY_IN_FLIGHT` and enqueues nothing.
+    - Otherwise it enqueues a `MANUAL_CLOSE` job with `enqueue_unique`. The
+      dedupe key is the allocation plus the id of its latest close attempt
+      (or none), so a double click before the job runs enqueues once, and a
+      retry after a FAILED close is still possible. It answers 202 `QUEUED`.
+  - Worker, the `MANUAL_CLOSE` handler, on that user's own exchanges
+    (`exchanges_by_mode.for_job`):
+    - It takes the user's pool lock and reads the reservation scoped by user.
+      If the latest close is SUBMITTED it sends nothing.
+    - It closes through `ClosePosition`, with the side opposite the ledger
+      net, no signal, no delivery and cause `MANUAL`, in the mode the
+      reservation records.
+    - A flat ledger is logged at INFO and sends nothing. A refused close is
+      an ERROR.
+    - `ExecutionCause.MANUAL`'s docstring grows to cover a close asked for
+      from the panel.
+  - The seat is left as it is.
+  - The `MANUAL_CLOSE` event comes with SS.10, which creates the table.
+  - Panel: each open position (the table and the mobile card) gets "Close
+    now". It opens a dialog naming the symbol and the size; only confirming
+    sends the request, and cancelling sends nothing. EN and ES.
+  - Risk: item 2. A route that sends real orders must never act on another
+    user's allocation.
 - [ ] SS.10 The `safety_events` table, its API and the panel list, in EN and
   ES, and the `OPENING_REFUSED_LEVERAGE_CAP` event from SS.3's refusal.
 - [ ] SS.11 Docs: CLAUDE.md's venue facts on stops, and the panel's help text.
