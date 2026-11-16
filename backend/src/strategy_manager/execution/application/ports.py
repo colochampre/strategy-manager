@@ -718,6 +718,38 @@ class ModeOriginReaderPort(Protocol):
         ...
 
 
+@dataclass(frozen=True, slots=True)
+class StoppedPosition:
+    """One open allocation whose strategy is disabled or archived (subscriber-safety SS.8b).
+
+    ``net_base`` is the ledger's net of the allocation, signed: positive is long, negative
+    short. It is never zero. ``symbol`` is the spelling the allocation OPENED with, the one
+    the venue adapter already served for that opening."""
+
+    user_id: UUID
+    allocation_id: UUID
+    strategy_id: UUID
+    exchange: str
+    venue: str
+    settlement_currency: str
+    symbol: str
+    net_base: Decimal
+
+
+class StoppedPositionsReaderPort(Protocol):
+    """What the sweep's safety close reads about strategies that are no longer running."""
+
+    async def stopped_positions(self) -> Sequence[StoppedPosition]:
+        """Every allocation of every user whose ledger net is not exactly zero and whose
+        strategy is disabled or archived. A plain read, with no lock."""
+        ...
+
+    async def is_stopped(self, strategy_id: UUID) -> bool:
+        """Whether the strategy is disabled or archived right now. Read again under the
+        pool lock, before a close is sent."""
+        ...
+
+
 class TradeCapableKeysPort(Protocol):
     """Who can place an order where, for the startup guard's refusal of a real
     position nothing can close (multi-user design AD7)."""

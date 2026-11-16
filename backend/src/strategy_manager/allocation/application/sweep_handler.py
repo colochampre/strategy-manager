@@ -27,12 +27,15 @@ seconds — 43,200 job rows a day, more than everything else combined. The
 parameter is named for what it is so the substitution is not invited back.
 """
 
+import logging
 from datetime import timedelta
 from typing import Protocol
 
 from strategy_manager.allocation.application.expire_reservations import SweepResult
 from strategy_manager.shared.application.job import ClaimedJob, Job, JobKind
 from strategy_manager.shared.application.ports import ClockPort, JobQueuePort
+
+logger = logging.getLogger(__name__)
 
 
 class SweepPort(Protocol):
@@ -49,17 +52,26 @@ class EndFlatLeavingPort(Protocol):
     async def sweep(self) -> int: ...
 
 
+class CloseStoppedPositionsPort(Protocol):
+    """Closes, at market, the positions still open on disabled or archived strategies
+    (subscriber-safety SS.8b), declared here for the same reason."""
+
+    async def sweep(self) -> int: ...
+
+
 class SweepHandler:
     def __init__(
         self,
         expire_reservations: SweepPort,
         end_flat_leaving: EndFlatLeavingPort,
+        close_stopped_positions: CloseStoppedPositionsPort,
         queue: JobQueuePort,
         clock: ClockPort,
         interval_seconds: float,
     ) -> None:
         self._expire_reservations = expire_reservations
         self._end_flat_leaving = end_flat_leaving
+        self._close_stopped_positions = close_stopped_positions
         self._queue = queue
         self._clock = clock
         self._interval_seconds = interval_seconds
@@ -70,6 +82,18 @@ class SweepHandler:
         # After the expiry, so a reservation expired just now ends its subscription
         # in this run. Before the successor, for reason 1 above.
         await self._end_flat_leaving.sweep()
+        # The backstop of the disable guard (SS.8b): a position still open on a strategy
+        # nobody runs has no signal left that would close it. Last of the steps, and fenced:
+        # whatever it cannot close is listed again by the next run, and without a successor
+        # no run would ever come.
+        try:
+            await self._close_stopped_positions.sweep()
+        except Exception:
+            logger.error(
+                "the safety close of positions on stopped strategies failed, the sweep goes "
+                "on and the next run looks again",
+                exc_info=True,
+            )
         await self._queue.enqueue(
             Job(
                 kind=JobKind.RESERVATION_SWEEP,

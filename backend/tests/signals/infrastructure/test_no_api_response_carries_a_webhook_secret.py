@@ -234,7 +234,8 @@ async def test_no_api_response_carries_a_secret_or_a_hash_except_the_two_that_is
         await session.execute(
             text(
                 "UPDATE strategies SET webhook_secret_hash = :hash, "
-                "webhook_secret_last4 = :last4, visibility = 'PUBLIC' WHERE id = :id"
+                "webhook_secret_last4 = :last4, visibility = 'PUBLIC', enabled = false "
+                "WHERE id = :id"
             ),
             {"hash": STORED_HASH, "last4": STRATEGY_SECRET[-4:], "id": strategy_id},
         )
@@ -367,9 +368,10 @@ async def test_no_api_response_carries_a_secret_or_a_hash_except_the_two_that_is
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as api:
         # One real state change first, so the strategy has an enablement event
-        # for ``.../events`` to list.
+        # for ``.../events`` to list. It is an ENABLE: the seed holds a position,
+        # and a disable is refused while anyone holds one (SS.8).
         toggled = await api.patch(
-            f"/api/strategies/{strategy_id}", json={"enabled": False}, headers=ADMIN_HEADERS
+            f"/api/strategies/{strategy_id}", json={"enabled": True}, headers=ADMIN_HEADERS
         )
         assert toggled.status_code == 200
         response = await api.request(

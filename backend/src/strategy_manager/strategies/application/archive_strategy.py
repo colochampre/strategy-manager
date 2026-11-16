@@ -89,13 +89,18 @@ from strategy_manager.shared.domain.errors import DomainError
 from strategy_manager.strategies.application.ports import (
     CommitPort,
     PoolLockPort,
-    StrategyExposure,
     StrategyExposurePort,
     StrategyRepositoryPort,
     StrategySubscribersPort,
 )
 from strategy_manager.strategies.application.subscriber_locks import SubscriberLocks
-from strategy_manager.strategies.application.update_strategy import UnknownStrategy
+from strategy_manager.strategies.application.update_strategy import (
+    OpenPosition as OpenPosition,  # re-exported: it moved next to the disable that shares it
+)
+from strategy_manager.strategies.application.update_strategy import (
+    UnknownStrategy,
+    refuse_if_exposed,
+)
 from strategy_manager.strategies.domain.strategy import Strategy
 
 logger = logging.getLogger(__name__)
@@ -106,23 +111,6 @@ class StillEnabled(DomainError):
     before it can be archived. Raised BEFORE the pool lock is ever taken and
     before any write is attempted -- refused in the application, never
     surfaced as a database ``IntegrityError``."""
-
-
-class OpenPosition(DomainError):
-    """The strategy still holds exposure on its pool: a non-zero ledger net
-    on some allocation, a live reservation, or a SUBMITTED execution
-    attempt (see ``StrategyExposure``'s own docstring for exactly what is
-    checked). Archiving now would make every future signal for it refused
-    (decision 11) while the position it opened could never be closed again
-    -- exactly what decision 14 exists to prevent.
-
-    ``exposure`` carries the same detail the 409 response names: symbols,
-    allocations, live reservations and in-flight attempts.
-    """
-
-    def __init__(self, message: str, exposure: StrategyExposure) -> None:
-        super().__init__(message)
-        self.exposure = exposure
 
 
 @dataclass(frozen=True, slots=True)
@@ -212,26 +200,15 @@ class ArchiveStrategy:
                 "disable it first (PATCH enabled=false), then archive it"
             )
 
-        exposure = await self._exposure.exposure(strategy_id, pool)
-        if not exposure.is_empty():
-            holders = _holder_names(
-                await self._subscribers.holders(strategy_id, subscribers), strategy.author_id
-            )
-            logger.warning(
-                "strategy archive refused, it still holds exposure: id=%s name=%r held_by=%s",
-                strategy_id,
-                strategy.name,
-                holders,
-            )
-            raise OpenPosition(
-                f"strategy {strategy_id} ({strategy.name!r}) still holds exposure "
-                f"on {pool}: symbols={sorted(exposure.symbols)}, "
-                f"allocations={[str(a) for a in exposure.allocations]}, "
-                f"live_reservations={[str(r) for r in exposure.live_reservations]}, "
-                f"in_flight_attempts={[str(a) for a in exposure.in_flight_attempts]}, "
-                f"held_by={holders}",
-                exposure,
-            )
+        await refuse_if_exposed(
+            exposure_port=self._exposure,
+            subscribers_port=self._subscribers,
+            strategy=strategy,
+            pool=pool,
+            subscribers=subscribers,
+            action="archive",
+            log=logger,
+        )
 
         now = self._clock.now()
         updated = replace(strategy, archived_at=now)
@@ -246,14 +223,3 @@ class ArchiveStrategy:
             ended,
         )
         return ArchiveResult(strategy=updated, already_archived=False)
-
-
-def _holder_names(holders: list[UUID], author_id: UUID) -> list[str]:
-    """Who still holds exposure, for the refusal and its log: the author as
-    ``author``, anyone else by the first eight characters of their id and never by
-    e-mail. An empty list means exposure no live subscriber holds: it belongs to a
-    subscription that has ended."""
-    return [
-        "author" if holder == author_id else f"user {str(holder)[:8]}"
-        for holder in sorted(holders, key=str)
-    ]

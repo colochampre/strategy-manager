@@ -2,6 +2,7 @@ import { type KeyboardEvent, type SyntheticEvent, useId, useLayoutEffect, useRef
 import { Archive } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
+import { OpenPositionReasonList, openPositionReasons, type Reason } from "@/features/strategies/openPositionReasons";
 import { ApiError } from "@/shared/api/client";
 
 interface ArchiveDialogProps {
@@ -11,33 +12,6 @@ interface ArchiveDialogProps {
   error: unknown;
   onConfirm: () => void;
   onCancel: () => void;
-}
-
-interface Reason {
-  key: string;
-  values: Record<string, string | number>;
-}
-
-function isStrings(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every((item) => typeof item === "string");
-}
-
-/**
- * What an `OPEN_POSITION` refusal says still holds the strategy: the symbols it
- * holds, and how many allocations, live reservations and in-flight attempts it
- * has (the ids themselves tell the owner nothing). A body in which any of the
- * four is missing or is not a list of strings yields no lines at all: the main
- * sentence is then shown alone, never a half-trusted list.
- */
-function openPositionReasons(error: ApiError): Reason[] {
-  const { symbols, allocations, live_reservations: reservations, in_flight_attempts: attempts } = error.fields ?? {};
-  if (!isStrings(symbols) || !isStrings(allocations) || !isStrings(reservations) || !isStrings(attempts)) return [];
-  const reasons: Reason[] = [];
-  if (symbols.length > 0) reasons.push({ key: "symbols", values: { symbols: symbols.join(", ") } });
-  if (allocations.length > 0) reasons.push({ key: "allocations", values: { count: allocations.length } });
-  if (reservations.length > 0) reasons.push({ key: "liveReservations", values: { count: reservations.length } });
-  if (attempts.length > 0) reasons.push({ key: "inFlightAttempts", values: { count: attempts.length } });
-  return reasons;
 }
 
 /**
@@ -109,13 +83,7 @@ export function ArchiveDialog({ name, pending, error, onConfirm, onCancel }: Arc
         {refusal !== null && (
           <div role="alert" className="flex flex-col gap-1 text-sm text-loss">
             <p>{refusal.text}</p>
-            {refusal.reasons.length > 0 && (
-              <ul className="list-disc pl-5 text-xs">
-                {refusal.reasons.map((reason) => (
-                  <li key={reason.key}>{t(`strategies.archive.reasons.${reason.key}`, reason.values)}</li>
-                ))}
-              </ul>
-            )}
+            <OpenPositionReasonList reasons={refusal.reasons} />
           </div>
         )}
 

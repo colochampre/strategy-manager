@@ -2,6 +2,8 @@ import { type KeyboardEvent, type ReactNode, type SyntheticEvent, useId, useLayo
 import { Power, PowerOff } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
+import { OpenPositionReasonList, openPositionReasons } from "@/features/strategies/openPositionReasons";
+import { ApiError } from "@/shared/api/client";
 import { useSetStrategyEnabled } from "@/shared/api/strategies";
 import type { Strategy } from "@/shared/api/types";
 
@@ -10,7 +12,8 @@ interface EnableDialogProps {
   /** What the question asks for: true to enable the strategy, false to disable it. */
   enabling: boolean;
   pending: boolean;
-  failed: boolean;
+  /** The mutation's error, if any: an `ApiError` with a refusal code, or anything else. */
+  error: unknown;
   onConfirm: () => void;
   onCancel: () => void;
 }
@@ -21,7 +24,7 @@ interface EnableDialogProps {
  * it, so a position already open still closes. A native `<dialog>`, with Escape and the browser's `cancel` event
  * routed to one handler, as `LeaveDialog` does; it holds while the change is on its way.
  */
-function EnableDialog({ name, enabling, pending, failed, onConfirm, onCancel }: EnableDialogProps) {
+function EnableDialog({ name, enabling, pending, error, onConfirm, onCancel }: EnableDialogProps) {
   const { t } = useTranslation();
   const titleId = useId();
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -67,10 +70,17 @@ function EnableDialog({ name, enabling, pending, failed, onConfirm, onCancel }: 
         <p className="text-xs text-ink-2">
           {t(enabling ? "strategies.enableDialog.enableBody" : "strategies.enableDialog.disableBody", { name })}
         </p>
-        {failed && (
-          <p role="alert" className="text-sm text-loss">
-            {t("strategies.row.toggleError")}
-          </p>
+        {error !== null && error !== undefined && (
+          <div role="alert" className="flex flex-col gap-1 text-sm text-loss">
+            {error instanceof ApiError && error.code === "OPEN_POSITION" ? (
+              <>
+                <p>{t("strategies.enableDialog.openPosition")}</p>
+                <OpenPositionReasonList reasons={openPositionReasons(error)} />
+              </>
+            ) : (
+              <p>{t("strategies.row.toggleError")}</p>
+            )}
+          </div>
         )}
         <div className="flex justify-end gap-2">
           <button
@@ -127,7 +137,7 @@ export function useEnableQuestion(strategy: Strategy): EnableQuestion {
         name={strategy.name}
         enabling={target}
         pending={toggle.isPending}
-        failed={toggle.isError}
+        error={toggle.error}
         onConfirm={() => toggle.mutate(target, { onSuccess: () => setTarget(null) })}
         onCancel={() => setTarget(null)}
       />

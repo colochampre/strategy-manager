@@ -41,6 +41,7 @@ from strategy_manager.strategies.domain.strategy import (
     Visibility,
 )
 from tests.strategies.author_names import FixedAuthorNames
+from tests.strategies.fakes import disable_guard
 
 FIXED_NOW = datetime(2026, 9, 25, 12, 0, 0, tzinfo=UTC)
 
@@ -554,6 +555,7 @@ async def test_creation_writes_no_event_and_first_enable_writes_the_first_one() 
         enablement_log=log,  # type: ignore[arg-type]
         clock=clock,  # type: ignore[arg-type]
         author_names=FixedAuthorNames(),
+        **disable_guard(strategy),
     )
     await update_use_case.update(UpdateCommand(strategy_id=strategy.id, enabled=True))
 

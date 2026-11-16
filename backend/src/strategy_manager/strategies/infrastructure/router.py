@@ -1056,6 +1056,9 @@ async def update_strategy(
         enablement_log=SqlAlchemyEnablementLog(session),
         clock=SystemClock(),
         author_names=SqlAlchemyAuthorNames(session),
+        pool_lock=PoolLockAdapter(session),
+        subscribers=_subscribers(session),
+        exposure=_exposure(session),
     )
     try:
         strategy = await use_case.update(
@@ -1082,6 +1085,10 @@ async def update_strategy(
         ) from exc
     except AuthorHasNoDisplayName as exc:
         raise _no_display_name(exc) from exc
+    except SubscribersChanged as exc:
+        raise await _subscribers_changed(session, exc) from exc
+    except OpenPosition as exc:
+        raise _open_position(exc) from exc
     except IntegrityError as exc:
         if not is_name_conflict(exc):
             raise
@@ -1092,6 +1099,43 @@ async def update_strategy(
 
     events = await SqlAlchemyEnablementLog(session).list_for(strategy_id)
     return await _view(session, user, strategy, events)
+
+
+def _exposure(session: AsyncSession) -> StrategyExposureAdapter:
+    return StrategyExposureAdapter(
+        ledger=SqlAlchemyLedgerRepository(session),
+        symbol_holdings=ReadSymbolHoldings(SqlAlchemyLedgerRepository(session)),
+        reservations=SqlAlchemyReservationRepository(session),
+        attempts=SqlAlchemyExecutionAttemptRepository(session),
+    )
+
+
+def _open_position(exc: OpenPosition) -> HTTPException:
+    """The 409 archive and disable both answer, so the panel reads one shape.
+
+    ``HTTPException.detail`` is serialized by Starlette's plain ``json.dumps``, not
+    ``jsonable_encoder`` -- a raw ``UUID`` in the dict raises ``TypeError`` at
+    response-render time, well after the handler returns, so every id is
+    stringified explicitly here."""
+    return HTTPException(
+        status_code=409,
+        detail={
+            "error": "OPEN_POSITION",
+            "message": str(exc),
+            "symbols": sorted(exc.exposure.symbols),
+            "allocations": [str(a) for a in exc.exposure.allocations],
+            "live_reservations": [str(r) for r in exc.exposure.live_reservations],
+            "in_flight_attempts": [str(a) for a in exc.exposure.in_flight_attempts],
+        },
+    )
+
+
+async def _subscribers_changed(session: AsyncSession, exc: SubscribersChanged) -> HTTPException:
+    """Nothing was written, but the pool locks are still held: end the transaction."""
+    await session.rollback()
+    return HTTPException(
+        status_code=409, detail={"error": "SUBSCRIBERS_CHANGED", "message": str(exc)}
+    )
 
 
 @router.post("/{strategy_id}/archive", response_model=StrategyView)
@@ -1106,12 +1150,7 @@ async def archive_strategy(
         repository=_own(session, user),
         pool_lock=PoolLockAdapter(session),
         subscribers=_subscribers(session),
-        exposure=StrategyExposureAdapter(
-            ledger=SqlAlchemyLedgerRepository(session),
-            symbol_holdings=ReadSymbolHoldings(SqlAlchemyLedgerRepository(session)),
-            reservations=SqlAlchemyReservationRepository(session),
-            attempts=SqlAlchemyExecutionAttemptRepository(session),
-        ),
+        exposure=_exposure(session),
         commit=session,
         clock=SystemClock(),
     )
@@ -1124,26 +1163,9 @@ async def archive_strategy(
             status_code=409, detail={"error": "STILL_ENABLED", "message": str(exc)}
         ) from exc
     except SubscribersChanged as exc:
-        await session.rollback()
-        raise HTTPException(
-            status_code=409, detail={"error": "SUBSCRIBERS_CHANGED", "message": str(exc)}
-        ) from exc
+        raise await _subscribers_changed(session, exc) from exc
     except OpenPosition as exc:
-        # ``HTTPException.detail`` is serialized by Starlette's plain
-        # ``json.dumps``, not ``jsonable_encoder`` -- a raw ``UUID`` in the
-        # dict raises ``TypeError`` at response-render time, well after this
-        # handler returns, so every id is stringified explicitly here.
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "error": "OPEN_POSITION",
-                "message": str(exc),
-                "symbols": sorted(exc.exposure.symbols),
-                "allocations": [str(a) for a in exc.exposure.allocations],
-                "live_reservations": [str(r) for r in exc.exposure.live_reservations],
-                "in_flight_attempts": [str(a) for a in exc.exposure.in_flight_attempts],
-            },
-        ) from exc
+        raise _open_position(exc) from exc
 
     events = await SqlAlchemyEnablementLog(session).list_for(strategy_id)
     return await _view(session, user, result.strategy, events)

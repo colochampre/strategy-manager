@@ -547,9 +547,90 @@ owner's preference.
     - That stop is the first live confirmation of SS.6: 6 fills near
       0.2686, a trigger of 0.2552 (5% under the VWAP, rounded away from
       the entry), confirmed 1.5 s after the settle.
+  - Incident, 2026-11-14 09:00, found by the owner and diagnosed
+    2026-11-16. A Binance STXUSDT opening of 2549 at x2 got no stop, and it
+    was not a stop defect.
+    - Binance acknowledged the order with its own id. Two seconds later
+      settle's lookup by client order id said no such order, the same lag as
+      SS.1's run 5.
+    - Settle released the reservation and voided the stop row, and booked
+      nothing. The confirm job is enqueued with the fills, so it never ran.
+    - The strategy's close (21:17) made no delivery, because no allocation
+      held the position.
+    - Reconciliation confirmed `NO_MATCHING_ALLOCATION` at 09:01, with the
+      ERROR "need the owner". The owner closed the position by hand, at a
+      loss of about 12%.
+    - Fixed by PR #110 (merge `7376808171dc`), deployed 2026-11-16 with no
+      migration:
+      - settle never releases an attempt carrying the venue's order id on a
+        not-found;
+      - an attempt without an id is released only once it is older than
+        `NOT_FOUND_GRACE_SECONDS` (60 s).
+      - Both services `active`, and no ERROR line after the restart.
+      - The venue fact is in CLAUDE.md.
+    - Open: an acknowledged order that never appears exhausts the settle
+      job (about 7 minutes) and leaves the attempt SUBMITTED. Whether that
+      exhaustion logs an ERROR was not verified.
 - [ ] SS.8 Disable refused on exposure, under the archive's locks, with the
   lock-hold concurrency test on PostgreSQL. Plus the sweep's safety close of
   stopped strategies with positions. Risk: items 3 and 4.
+  - Design, 2026-11-16, from a read-only map of the code. Two units, built in
+    parallel by two writers with disjoint edit surfaces; the parent owns git
+    and this file.
+  - SS.8a, the disable guard:
+    - `UpdateStrategy` gains archive's machinery when a request turns
+      `enabled` from true to false: `SubscriberLocks.acquire` (every live
+      subscriber's pool lock, ascending), then `get_by_id_for_update`, then
+      `confirm`, then `StrategyExposureAdapter.exposure`. Non-empty exposure
+      raises `OpenPosition`, which the router maps to the same 409
+      `OPEN_POSITION` body as archive.
+    - Any other update (enabling included) keeps today's path: the row lock
+      only, no exposure read.
+    - The opening side needs nothing: `AllocateCapital` re-reads `enabled`
+      inside the pool lock already.
+    - The panel's enable dialog shows the refusal and its reasons, reusing
+      archive's reason rendering (extracted from `ArchiveDialog.tsx`), with a
+      disable wording in EN and ES.
+    - Tests: the refusal through the public interface, the flat case, the
+      enable case, and a lock-hold test on PostgreSQL in both orders (the
+      disable holds the pool lock and the opening waits and then skips as
+      disabled; the opening holds it and the disable waits and then refuses).
+  - SS.8b, the sweep's safety close:
+    - Each reservation sweep lists every allocation with a non-zero ledger
+      net whose strategy is disabled or archived, for every user.
+    - For each one, under that user's pool lock, it closes through
+      `ClosePosition` with no signal, no delivery and cause `SAFETY_CLOSE`,
+      on the user's own exchanges (`exchanges_by_mode.for_job`). An
+      allocation whose latest close is SUBMITTED is skipped. A FAILED one is
+      tried again on the next run.
+    - Every close sent logs a WARNING naming the user, allocation, strategy
+      and symbol. A refusal logs an ERROR, and one allocation's failure never
+      stops the others.
+    - "Authorless" cannot happen yet: `strategies.author_id` is NOT NULL and
+      account deletion is not built. Its leg comes with account deletion.
+    - The `STRATEGY_STOPPED_CLOSED` event comes with SS.10, which creates
+      the table, as the other events did.
+    - Deploy note: on its first run in production the sweep closes, at
+      market, any position already held on a disabled or archived strategy.
+      A read-only query lists them before the deploy.
+  - Progress, 2026-11-16. Built by two Sonnet writers, one after the other
+    (two pytest runs at once contend on the test database).
+    - SS.8a is `17412ce` and SS.8b is `cb6def7`.
+    - The first full suite caught two SS.8a regressions, fixed in `1556a45`:
+      - archive's refusal WARNING had moved to `update_strategy`'s logger,
+        and the caller now passes its own;
+      - the route-wide secret sweep disabled a strategy that held a
+        position, and now enables it instead.
+    - Full backend suite green, and the frontend has 149 test files green
+      with lint.
+    - An independent verifier found no blockers. Its advisories are open:
+      - dust on a stopped strategy logs a WARNING every sweep;
+      - a close the venue keeps refusing is retried every sweep, with no
+        backoff;
+      - the enable path takes no pool lock, so a strategy re-enabled in the
+        instant between the sweep's re-check and its close is still closed;
+      - disabling an already disabled strategy takes the pool locks for
+        nothing.
 - [ ] SS.9 "Close now": the API and the panel's confirmation dialog, cause
   MANUAL, idempotent while in flight, with its event.
 - [ ] SS.10 The `safety_events` table, its API and the panel list, in EN and

@@ -33,6 +33,7 @@ once, at registration, and ``process_signal`` keeps sizing from it until C.6.
 """
 
 import logging
+from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from uuid import UUID
 
@@ -43,8 +44,14 @@ from strategy_manager.strategies.application.ports import (
     AuthorNamesPort,
     CommitPort,
     EnablementLogPort,
+    PoolLockPort,
+    StrategyExposure,
+    StrategyExposurePort,
     StrategyRepositoryPort,
+    StrategySubscribersPort,
+    SubscriberPool,
 )
+from strategy_manager.strategies.application.subscriber_locks import SubscriberLocks
 from strategy_manager.strategies.domain.share_token import new_share_token
 from strategy_manager.strategies.domain.stop_loss import StopLossPct
 from strategy_manager.strategies.domain.strategy import (
@@ -77,6 +84,77 @@ class StrategyArchived(DomainError):
     precedent (design.md § 8, "Archived strategies are read-only"). This is
     stricter than merely refusing to re-enable one: EVERY field is frozen,
     so a client cannot rename or re-scope a retired strategy either."""
+
+
+class OpenPosition(DomainError):
+    """The strategy still holds exposure on its pool: a non-zero ledger net
+    on some allocation, a live reservation, or a SUBMITTED execution
+    attempt (see ``StrategyExposure``'s own docstring for exactly what is
+    checked). Archiving or disabling it now would make every future signal for
+    it refused (decision 11) while the position it opened could never be closed
+    again -- exactly what decision 14 exists to prevent.
+
+    It lives here, next to ``UpdateStrategy``, because both ``ArchiveStrategy``
+    and a disable raise it and ``archive_strategy`` already imports this module.
+
+    ``exposure`` carries the same detail the 409 response names: symbols,
+    allocations, live reservations and in-flight attempts.
+    """
+
+    def __init__(self, message: str, exposure: StrategyExposure) -> None:
+        super().__init__(message)
+        self.exposure = exposure
+
+
+async def refuse_if_exposed(
+    *,
+    exposure_port: StrategyExposurePort,
+    subscribers_port: StrategySubscribersPort,
+    strategy: Strategy,
+    pool: tuple[str, str, str],
+    subscribers: Sequence[SubscriberPool],
+    action: str,
+    log: logging.Logger,
+) -> None:
+    """Raises ``OpenPosition`` when anyone still holds exposure on ``strategy``.
+
+    The one reading and the one refusal archive and disable share, so the two can
+    never answer differently. The caller holds every subscriber's pool lock and the
+    row lock; the read is meaningless without them. ``log`` is the caller's logger,
+    so each refusal is still logged under the use case that refused it."""
+    exposure = await exposure_port.exposure(strategy.id, pool)
+    if exposure.is_empty():
+        return
+    holders = holder_names(
+        await subscribers_port.holders(strategy.id, subscribers), strategy.author_id
+    )
+    log.warning(
+        "strategy %s refused, it still holds exposure: id=%s name=%r held_by=%s",
+        action,
+        strategy.id,
+        strategy.name,
+        holders,
+    )
+    raise OpenPosition(
+        f"strategy {strategy.id} ({strategy.name!r}) still holds exposure "
+        f"on {pool}: symbols={sorted(exposure.symbols)}, "
+        f"allocations={[str(a) for a in exposure.allocations]}, "
+        f"live_reservations={[str(r) for r in exposure.live_reservations]}, "
+        f"in_flight_attempts={[str(a) for a in exposure.in_flight_attempts]}, "
+        f"held_by={holders}",
+        exposure,
+    )
+
+
+def holder_names(holders: list[UUID], author_id: UUID) -> list[str]:
+    """Who still holds exposure, for the refusal and its log: the author as
+    ``author``, anyone else by the first eight characters of their id and never by
+    e-mail. An empty list means exposure no live subscriber holds: it belongs to a
+    subscription that has ended."""
+    return [
+        "author" if holder == author_id else f"user {str(holder)[:8]}"
+        for holder in sorted(holders, key=str)
+    ]
 
 
 @dataclass(frozen=True, slots=True)
@@ -118,14 +196,42 @@ class UpdateStrategy:
         enablement_log: EnablementLogPort,
         clock: ClockPort,
         author_names: AuthorNamesPort,
+        pool_lock: PoolLockPort,
+        subscribers: StrategySubscribersPort,
+        exposure: StrategyExposurePort,
     ) -> None:
         self._repository = repository
         self._commit = commit
         self._enablement_log = enablement_log
         self._clock = clock
         self._author_names = author_names
+        self._locks = SubscriberLocks(subscribers, pool_lock)
+        self._subscribers = subscribers
+        self._exposure = exposure
 
     async def update(self, command: UpdateCommand) -> Strategy:
+        # A request that turns the strategy OFF takes archive's path: every
+        # subscriber's pool lock first, the row lock second (the order archive's
+        # docstring proves against a reachable deadlock), then the exposure read.
+        # Any other update keeps the row lock alone. ``enabled=False`` is judged
+        # from the request, not from an unlocked read of the row: a read taken
+        # before the locks could be stale, and a disable that missed its locks
+        # would be the race this guard exists to close.
+        disabling = command.enabled is False
+        locked: frozenset[int] = frozenset()
+        pool: tuple[str, str, str] | None = None
+        if disabling:
+            unlocked = await self._repository.get_by_id(command.strategy_id)
+            if unlocked is None:
+                raise UnknownStrategy(f"no strategy registered under id {command.strategy_id}")
+            # A strategy's pool is immutable (see this module's docstring).
+            pool = (
+                unlocked.policy.exchange.value,
+                unlocked.policy.venue.value,
+                unlocked.policy.settlement_currency.value,
+            )
+            locked = await self._locks.acquire(command.strategy_id)
+
         strategy = await self._repository.get_by_id_for_update(command.strategy_id)
         if strategy is None:
             raise UnknownStrategy(
@@ -136,6 +242,22 @@ class UpdateStrategy:
                 f"strategy {command.strategy_id} ({strategy.name!r}) is archived "
                 "and read-only; nothing about it may be edited"
             )
+        if pool is not None:
+            # The subscribers again, under the row lock: one who joined after the
+            # read has a pool no lock covers (``SubscriberLocks``).
+            subscribers = await self._locks.confirm(
+                command.strategy_id, locked, action="disable"
+            )
+            if strategy.enabled:
+                await refuse_if_exposed(
+                    exposure_port=self._exposure,
+                    subscribers_port=self._subscribers,
+                    strategy=strategy,
+                    pool=pool,
+                    subscribers=subscribers,
+                    action="disable",
+                    log=logger,
+                )
 
         # On turning public or LINK, not on being so: a strategy made public before
         # names existed stays editable (decisions 27 and 41).
