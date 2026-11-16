@@ -5,7 +5,9 @@ where money is lost or kept: an order the exchange never saw must release its
 reservation, while an order whose fills have not been published yet must not.
 """
 
-from datetime import UTC, datetime
+import logging
+from dataclasses import replace
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from uuid import UUID, uuid4
 
@@ -17,6 +19,7 @@ from strategy_manager.execution.application.ports import (
     ReservationSnapshot,
 )
 from strategy_manager.execution.application.settle_execution import (
+    NOT_FOUND_GRACE_SECONDS,
     NotSettledYet,
     SettleExecution,
 )
@@ -505,6 +508,71 @@ async def test_an_order_the_exchange_never_saw_releases_the_reservation() -> Non
     assert reservations.marks == [(RESERVATION_ID, "RELEASED")]
     assert attempts.failed[0][0] == ATTEMPT_ID
     assert ledger.records == []
+
+
+async def test_an_order_the_venue_acknowledged_is_never_released_on_a_not_found(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Production, 2026-11-14 09:00 (Binance STXUSDT): the venue answered the order with
+    its own id, and two seconds later its lookup by our client order id said no such
+    order, a read that lags the write. Settle released the reservation and voided the
+    stop of a position that existed. An acknowledged order is retried, never released."""
+    stops = FakeStops(StopStatus.PENDING)
+    # Older than the grace, so only the venue's acknowledgement keeps it from release.
+    acknowledged = replace(
+        _attempt(),
+        exchange_order_id="BN-7731",
+        created_at=NOW - timedelta(seconds=NOT_FOUND_GRACE_SECONDS + 1),
+    )
+    use_case, reservations, attempts, ledger, _ = _build(
+        FakeExchange(raises=OrderNotFound("no such client order id")),
+        attempt=acknowledged,
+        stops=stops,
+    )
+
+    with caplog.at_level(logging.INFO), pytest.raises(NotSettledYet):
+        await use_case.settle(OWNER, ATTEMPT_ID)
+
+    assert reservations.marks == []
+    assert attempts.failed == []
+    assert ledger.records == []
+    assert stops.marked == []
+    [line] = [r for r in caplog.records if "acknowledged" in r.getMessage()]
+    assert line.levelno == logging.WARNING
+    assert str(ATTEMPT_ID) in line.getMessage() and "BN-7731" in line.getMessage()
+
+
+async def test_a_young_order_with_no_venue_id_is_retried_on_a_not_found() -> None:
+    """No venue id came back (the placing answer was lost), and the order is seconds old:
+    a not-found may still be the venue's lag, so it is asked again, not released."""
+    young = replace(_attempt(), created_at=NOW - timedelta(seconds=5))
+    use_case, reservations, attempts, ledger, _ = _build(
+        FakeExchange(raises=OrderNotFound("no such client order id")), attempt=young
+    )
+
+    with pytest.raises(NotSettledYet):
+        await use_case.settle(OWNER, ATTEMPT_ID)
+
+    assert reservations.marks == []
+    assert attempts.failed == []
+    assert ledger.records == []
+
+
+async def test_an_old_order_with_no_venue_id_is_released_on_a_not_found() -> None:
+    """Past the grace, a venue that still has no such order and never acknowledged one
+    means it never got there: the reservation is released, as before."""
+    old = replace(
+        _attempt(), created_at=NOW - timedelta(seconds=NOT_FOUND_GRACE_SECONDS + 1)
+    )
+    use_case, reservations, attempts, _, _ = _build(
+        FakeExchange(raises=OrderNotFound("no such client order id")), attempt=old
+    )
+
+    result = await use_case.settle(OWNER, ATTEMPT_ID)
+
+    assert result.status == "NEVER_PLACED"
+    assert reservations.marks == [(RESERVATION_ID, "RELEASED")]
+    assert attempts.failed[0][0] == ATTEMPT_ID
 
 
 async def test_an_order_with_no_fills_yet_is_retried_not_released() -> None:

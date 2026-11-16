@@ -31,6 +31,7 @@ from strategy_manager.signals.infrastructure.delivery_adapters import SqlAlchemy
 from strategy_manager.signals.infrastructure.models import SignalDeliveryRow
 from tests.owner import OWNER_ID, ensure_pool
 from tests.signals.infrastructure.conftest import (  # noqa: F401
+    never_reached_the_venue,
     pg_engine,
     pg_session_factory,
     seed_strategy,
@@ -144,6 +145,7 @@ async def _opening_never_placed(world: World) -> None:
     for an order that never landed. The attempts end ``FAILED``, nothing booked."""
     for venue in world.venues.values():
         venue.forget_orders()
+    await never_reached_the_venue(world.factory)
     await _settle_all(world)
 
 

@@ -236,6 +236,25 @@ async def seed_reservation(
         await session.commit()
 
 
+async def never_reached_the_venue(
+    session_factory: async_sessionmaker[AsyncSession], attempt_id: UUID | None = None
+) -> None:
+    """Makes a SUBMITTED attempt (one, or every one) look like an order that never got
+    to the venue: no venue order id came back, and it was placed long ago. Settle
+    releases only such an order on a not-found; an acknowledged or young one is a
+    lookup lagging the write, and is asked again (Binance STXUSDT, 2026-11-14)."""
+    where = "id = :id" if attempt_id is not None else "status = 'SUBMITTED'"
+    async with session_factory() as session:
+        await session.execute(
+            text(
+                "UPDATE execution_attempts SET exchange_order_id = NULL, "
+                f"created_at = TIMESTAMPTZ '2000-01-01 00:00:00+00' WHERE {where}"
+            ),
+            {"id": attempt_id} if attempt_id is not None else {},
+        )
+        await session.commit()
+
+
 async def seed_execution_attempt(
     session_factory: async_sessionmaker[AsyncSession],
     *,
