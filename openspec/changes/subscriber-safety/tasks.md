@@ -613,6 +613,24 @@ owner's preference.
     - Deploy note: on its first run in production the sweep closes, at
       market, any position already held on a disabled or archived strategy.
       A read-only query lists them before the deploy.
+  - Progress, 2026-11-16. Built by two Sonnet writers, one after the other
+    (two pytest runs at once contend on the test database).
+    - SS.8a is `17412ce` and SS.8b is `cb6def7`.
+    - The first full suite caught two SS.8a regressions, fixed in `1556a45`:
+      - archive's refusal WARNING had moved to `update_strategy`'s logger,
+        and the caller now passes its own;
+      - the route-wide secret sweep disabled a strategy that held a
+        position, and now enables it instead.
+    - Full backend suite green, and the frontend has 149 test files green
+      with lint.
+    - An independent verifier found no blockers. Its advisories are open:
+      - dust on a stopped strategy logs a WARNING every sweep;
+      - a close the venue keeps refusing is retried every sweep, with no
+        backoff;
+      - the enable path takes no pool lock, so a strategy re-enabled in the
+        instant between the sweep's re-check and its close is still closed;
+      - disabling an already disabled strategy takes the pool locks for
+        nothing.
 - [ ] SS.9 "Close now": the API and the panel's confirmation dialog, cause
   MANUAL, idempotent while in flight, with its event.
 - [ ] SS.10 The `safety_events` table, its API and the panel list, in EN and
