@@ -2,9 +2,10 @@
 
 from collections.abc import Sequence
 from datetime import datetime
+from typing import TypedDict
 from uuid import UUID
 
-from strategy_manager.strategies.application.ports import SubscriberPool
+from strategy_manager.strategies.application.ports import StrategyExposure, SubscriberPool
 from strategy_manager.strategies.domain.strategy import Strategy
 
 
@@ -21,6 +22,53 @@ def author_pool(strategy: Strategy, pool_id: int = 1) -> SubscriberPool:
             policy.settlement_currency.value,
         ),
     )
+
+
+class RecordingPoolLock:
+    """``PoolLockPort`` that only records, so a unit test reads which pools a use
+    case locked and in what order. What a lock serializes is proven on real
+    PostgreSQL."""
+
+    def __init__(self, events: list[str] | None = None) -> None:
+        self.acquired: list[tuple[UUID, str, str, str]] = []
+        self._events = events
+
+    async def acquire(
+        self, user_id: UUID, exchange: str, venue: str, settlement_currency: str
+    ) -> None:
+        if self._events is not None:
+            self._events.append("pool_lock")
+        self.acquired.append((user_id, exchange, venue, settlement_currency))
+
+
+class FixedExposure:
+    """``StrategyExposurePort`` that answers one exposure, flat by default, and
+    counts how often it was asked."""
+
+    def __init__(self, answer: StrategyExposure | None = None) -> None:
+        self.answer = answer or StrategyExposure(frozenset(), (), (), ())
+        self.asked = 0
+
+    async def exposure(self, strategy_id: UUID, pool: tuple[str, str, str]) -> StrategyExposure:
+        self.asked += 1
+        return self.answer
+
+
+class DisableGuard(TypedDict):
+    """The three keyword arguments ``UpdateStrategy`` takes for the disable guard."""
+
+    pool_lock: RecordingPoolLock
+    subscribers: "FakeSubscribers"
+    exposure: FixedExposure
+
+
+def disable_guard(strategy: Strategy, answer: StrategyExposure | None = None) -> DisableGuard:
+    """A guard for a strategy only its author subscribes to, flat unless told."""
+    return {
+        "pool_lock": RecordingPoolLock(),
+        "subscribers": FakeSubscribers.sole_author(strategy),
+        "exposure": FixedExposure(answer),
+    }
 
 
 class FakeSubscribers:

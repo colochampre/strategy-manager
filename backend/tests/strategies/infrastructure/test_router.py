@@ -456,16 +456,11 @@ async def test_archive_endpoint_unknown_strategy_404(client: AsyncClient) -> Non
     assert response.status_code == 404
 
 
-async def test_archive_endpoint_refuses_open_position_409_names_symbols(
-    client: AsyncClient, pg_session_factory: async_sessionmaker[AsyncSession]
-) -> None:
-    """A lightweight, router-level check that the 409 ``OPEN_POSITION`` body
-    is wired through with the structured fields design.md specifies --
-    ``test_archive_strategy_integration.py`` already covers the exposure
-    logic itself in depth; this only proves the endpoint doesn't lose it in
-    translation. Seeds a live PENDING reservation directly by SQL, which is
-    enough exposure to refuse without needing a full ledger fill."""
-    strategy_id = await _register(client)
+async def _seed_live_reservation(
+    pg_session_factory: async_sessionmaker[AsyncSession], strategy_id: UUID
+) -> UUID:
+    """A live PENDING reservation seeded directly by SQL: enough exposure to refuse
+    without needing a full ledger fill. Returns its id."""
     signal_id = uuid4()
     reservation_id = uuid4()
     async with pg_session_factory() as session:
@@ -495,6 +490,19 @@ async def test_archive_endpoint_refuses_open_position_409_names_symbols(
             user_id=await _author_of(session, strategy_id),
         )
         await session.commit()
+    return reservation_id
+
+
+async def test_archive_endpoint_refuses_open_position_409_names_symbols(
+    client: AsyncClient, pg_session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """A lightweight, router-level check that the 409 ``OPEN_POSITION`` body
+    is wired through with the structured fields design.md specifies --
+    ``test_archive_strategy_integration.py`` already covers the exposure
+    logic itself in depth; this only proves the endpoint doesn't lose it in
+    translation."""
+    strategy_id = await _register(client)
+    reservation_id = await _seed_live_reservation(pg_session_factory, strategy_id)
 
     response = await client.post(f"/strategies/{strategy_id}/archive", headers=ADMIN_HEADERS)
 
@@ -502,6 +510,50 @@ async def test_archive_endpoint_refuses_open_position_409_names_symbols(
     body = response.json()["detail"]
     assert body["error"] == "OPEN_POSITION"
     assert body["live_reservations"] == [str(reservation_id)]
+
+
+async def test_disable_endpoint_refuses_open_position_with_the_archive_body(
+    client: AsyncClient, pg_session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """SS.8a: a PATCH turning an enabled strategy off answers the SAME 409 body
+    archive does, and the strategy stays enabled."""
+    strategy_id = await _register(client)
+    await client.patch(f"/strategies/{strategy_id}", json={"enabled": True}, headers=ADMIN_HEADERS)
+    reservation_id = await _seed_live_reservation(pg_session_factory, strategy_id)
+
+    refused = await client.patch(
+        f"/strategies/{strategy_id}", json={"enabled": False}, headers=ADMIN_HEADERS
+    )
+
+    assert refused.status_code == 409
+    body = refused.json()["detail"]
+    assert body["error"] == "OPEN_POSITION"
+    assert body["live_reservations"] == [str(reservation_id)]
+    # The shape the archive answers, which the panel reads for both.
+    assert set(body) == {
+        "error",
+        "message",
+        "symbols",
+        "allocations",
+        "live_reservations",
+        "in_flight_attempts",
+    }
+    after = await client.get(f"/strategies/{strategy_id}", headers=ADMIN_HEADERS)
+    assert after.json()["enabled"] is True
+    events = await client.get(f"/strategies/{strategy_id}/events", headers=ADMIN_HEADERS)
+    assert [event["enabled"] for event in events.json()] == [True]  # only the enable
+
+
+async def test_disable_endpoint_succeeds_on_a_flat_strategy(client: AsyncClient) -> None:
+    strategy_id = await _register(client)
+    await client.patch(f"/strategies/{strategy_id}", json={"enabled": True}, headers=ADMIN_HEADERS)
+
+    response = await client.patch(
+        f"/strategies/{strategy_id}", json={"enabled": False}, headers=ADMIN_HEADERS
+    )
+
+    assert response.status_code == 200
+    assert response.json()["enabled"] is False
 
 
 async def test_archived_strategy_patch_refused_409_at_http_layer(client: AsyncClient) -> None:

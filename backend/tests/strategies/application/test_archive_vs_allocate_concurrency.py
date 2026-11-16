@@ -73,6 +73,8 @@ from strategy_manager.shared.domain.money import Currency, Exchange, Money, Venu
 from strategy_manager.signals.infrastructure.models import SignalRow
 from strategy_manager.strategies.application.archive_strategy import ArchiveStrategy, OpenPosition
 from strategy_manager.strategies.application.policy_adapter import StrategyPolicyAdapter
+from strategy_manager.strategies.application.update_strategy import UpdateCommand, UpdateStrategy
+from strategy_manager.strategies.infrastructure.enablement_log import SqlAlchemyEnablementLog
 from strategy_manager.strategies.infrastructure.exposure_adapter import StrategyExposureAdapter
 from strategy_manager.strategies.infrastructure.models import StrategyRow
 from strategy_manager.strategies.infrastructure.pool_lock_adapter import PoolLockAdapter
@@ -85,7 +87,8 @@ from tests.allocation.fakes import (
     RecordingSkipRecorder,
 )
 from tests.owner import OWNER_ID, allocate_command, ensure_author_subscription, secret_hash
-from tests.strategies.wiring import real_subscribers
+from tests.strategies.author_names import FixedAuthorNames
+from tests.strategies.wiring import real_disable_guard, real_subscribers
 
 pytestmark = pytest.mark.integration
 
@@ -588,3 +591,183 @@ def _seeded_balance_source() -> FakeBalanceSource:
     source = FakeBalanceSource()
     source.set_balance(*POOL, POOL_BALANCE)
     return source
+
+
+# --------------------------------------------------------------------------
+# SS.8a -- the same two orders for a DISABLE (UpdateStrategy enabled=False)
+# --------------------------------------------------------------------------
+
+
+def _build_disable_strategy(session: AsyncSession, pool_lock: object) -> UpdateStrategy:
+    guard = real_disable_guard(session)
+    return UpdateStrategy(
+        repository=SqlAlchemyStrategyRepository(session),
+        commit=session,  # type: ignore[arg-type]
+        enablement_log=SqlAlchemyEnablementLog(session),
+        clock=FixedClock(),  # type: ignore[arg-type]
+        author_names=FixedAuthorNames(),
+        pool_lock=pool_lock,  # type: ignore[arg-type]
+        subscribers=guard["subscribers"],
+        exposure=guard["exposure"],
+    )
+
+
+async def _is_enabled(
+    session_factory: async_sessionmaker[AsyncSession], strategy_id: UUID
+) -> bool:
+    async with session_factory() as session:
+        row = await session.get(StrategyRow, strategy_id)
+        assert row is not None
+        return row.enabled
+
+
+async def test_disable_wins_lock_first_allocation_in_lock_reread_sees_disabled_skips(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """The disable reaches the pool's advisory lock first and holds it open
+    (``_PausingPoolLock``) on an enabled, flat strategy. AllocateCapital's
+    pre-lock read (paused until the disable holds the lock) still sees
+    ``enabled=True`` and must genuinely BLOCK on the SAME key. Once the disable
+    commits, the in-lock re-read sees ``enabled=False`` and skips: no
+    reservation is taken."""
+    strategy_id = uuid4()
+    signal_id = uuid4()
+    await _seed_strategy(pg_session_factory, strategy_id=strategy_id)
+    await _seed_signal(pg_session_factory, signal_id=signal_id, strategy_id=strategy_id)
+    command = await allocate_command(
+        pg_session_factory,
+        signal_id=signal_id,
+        strategy_id=strategy_id,
+        requested=Money(amount=REQUEST_AMOUNT, currency=Currency.USDT),
+    )
+
+    resume_policy = asyncio.Event()
+    allocate_result: dict[str, AllocationResult] = {}
+
+    async def run_allocate() -> None:
+        async with pg_session_factory() as session:
+            real_policy = StrategyPolicyAdapter(SqlAlchemyStrategyRepository(session))
+            paused_policy: object = _PausingPolicyAfterFirstCall(real_policy, resume_policy)
+            use_case = AllocateCapital(
+                strategy_policy=paused_policy,  # type: ignore[arg-type]
+                pool_balance=PoolBalanceAdapter(_POOL_CONFIG, _seeded_balance_source()),
+                lock=PgAdvisoryLockAdapter(session),  # type: ignore[arg-type]
+                reservations=SqlAlchemyReservationRepository(session),
+                commit=session,  # type: ignore[arg-type]
+                clock=FixedClock(),  # type: ignore[arg-type]
+                reservation_ttl_seconds=30,
+                skip_recorder=RecordingSkipRecorder(),
+                pool_status=AlwaysEnabledPool(),
+                user_mode=FixedUserMode(),
+                trade_capability=AnyKeyTrades(),
+                subscription_state=ActiveSubscription(),
+            )
+            allocate_result["value"] = await use_case.allocate(command)
+
+    task_allocate = asyncio.create_task(run_allocate())
+    await asyncio.sleep(0.2)  # the pre-lock read (enabled=True) ran; paused before the lock
+
+    resume_disable = asyncio.Event()
+    disable_done = asyncio.Event()
+
+    async def run_disable() -> None:
+        async with pg_session_factory() as session:
+            use_case = _build_disable_strategy(
+                session, _PausingPoolLock(PoolLockAdapter(session), resume_disable)
+            )
+            await use_case.update(UpdateCommand(strategy_id=strategy_id, enabled=False))
+            disable_done.set()
+
+    task_disable = asyncio.create_task(run_disable())
+    await asyncio.sleep(0.2)  # the disable holds the lock, paused
+
+    resume_policy.set()
+    await asyncio.sleep(0.3)  # the allocation should now be blocked behind the disable
+    assert not task_allocate.done(), (
+        "AllocateCapital completed without waiting for the disable's held pool lock "
+        "-- the two are not serializing on the same key"
+    )
+    assert not disable_done.is_set()
+
+    resume_disable.set()
+    await asyncio.gather(task_allocate, task_disable)
+
+    result = allocate_result["value"]
+    assert result.outcome.value == "SKIP"
+    assert result.skip_reason == "STRATEGY_DISABLED"
+    assert result.reservation_id is None
+    assert await _reservation_ids_for(pg_session_factory, strategy_id) == []
+    assert await _is_enabled(pg_session_factory, strategy_id) is False
+
+
+async def test_allocation_wins_lock_first_disable_waits_then_is_refused_and_stays_enabled(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """AllocateCapital holds the pool lock (its commit is paused after the
+    reservation insert). A disable of the still-enabled strategy must genuinely
+    BLOCK on the SAME lock, and once the reservation commits it reads that live
+    reservation and is refused with ``OpenPosition``; the strategy stays enabled
+    and no enablement event is written."""
+    strategy_id = uuid4()
+    signal_id = uuid4()
+    await _seed_strategy(pg_session_factory, strategy_id=strategy_id)
+    await _seed_signal(pg_session_factory, signal_id=signal_id, strategy_id=strategy_id)
+    command = await allocate_command(
+        pg_session_factory,
+        signal_id=signal_id,
+        strategy_id=strategy_id,
+        requested=Money(amount=REQUEST_AMOUNT, currency=Currency.USDT),
+    )
+
+    resume_allocate_commit = asyncio.Event()
+    allocate_result: dict[str, AllocationResult] = {}
+
+    async def run_allocate() -> None:
+        async with pg_session_factory() as session:
+            use_case = AllocateCapital(
+                strategy_policy=StrategyPolicyAdapter(SqlAlchemyStrategyRepository(session)),
+                pool_balance=PoolBalanceAdapter(_POOL_CONFIG, _seeded_balance_source()),
+                lock=PgAdvisoryLockAdapter(session),
+                reservations=SqlAlchemyReservationRepository(session),
+                commit=_PausingCommit(session, resume_allocate_commit),  # type: ignore[arg-type]
+                clock=FixedClock(),  # type: ignore[arg-type]
+                reservation_ttl_seconds=30,
+                skip_recorder=RecordingSkipRecorder(),
+                pool_status=AlwaysEnabledPool(),
+                user_mode=FixedUserMode(),
+                trade_capability=AnyKeyTrades(),
+                subscription_state=ActiveSubscription(),
+            )
+            allocate_result["value"] = await use_case.allocate(command)
+
+    task_allocate = asyncio.create_task(run_allocate())
+    await asyncio.sleep(0.2)  # the whole body ran; paused before commit, lock held
+
+    disable_exc: dict[str, BaseException] = {}
+
+    async def run_disable() -> None:
+        async with pg_session_factory() as session:
+            use_case = _build_disable_strategy(session, PoolLockAdapter(session))
+            try:
+                await use_case.update(UpdateCommand(strategy_id=strategy_id, enabled=False))
+            except BaseException as exc:  # noqa: BLE001 -- captured for the assertion below
+                disable_exc["value"] = exc
+
+    task_disable = asyncio.create_task(run_disable())
+    await asyncio.sleep(0.3)
+    assert not task_disable.done(), (
+        "the disable completed without waiting for AllocateCapital's held pool lock "
+        "-- the two are not serializing on the same key"
+    )
+
+    resume_allocate_commit.set()
+    await asyncio.gather(task_allocate, task_disable)
+
+    result = allocate_result["value"]
+    assert result.reservation_id is not None
+    refused = disable_exc.get("value")
+    assert isinstance(refused, OpenPosition)
+    assert refused.exposure.live_reservations == (result.reservation_id,)
+    assert await _is_enabled(pg_session_factory, strategy_id) is True
+    async with pg_session_factory() as session:
+        assert await SqlAlchemyEnablementLog(session).list_for(strategy_id) == []

@@ -14,8 +14,14 @@ from uuid import UUID, uuid4
 import pytest
 
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
-from strategy_manager.strategies.application.ports import AuthorHasNoDisplayName
+from strategy_manager.strategies.application.ports import (
+    AuthorHasNoDisplayName,
+    StrategyExposure,
+    SubscriberPool,
+)
+from strategy_manager.strategies.application.subscriber_locks import SubscribersChanged
 from strategy_manager.strategies.application.update_strategy import (
+    OpenPosition,
     UnknownStrategy,
     UpdateCommand,
     UpdateStrategy,
@@ -29,6 +35,7 @@ from strategy_manager.strategies.domain.strategy import (
 )
 from tests.owner import OWNER_ID
 from tests.strategies.author_names import FixedAuthorNames
+from tests.strategies.fakes import DisableGuard, FakeSubscribers, author_pool, disable_guard
 
 STRATEGY_ID = UUID("7256917a-9937-4a6c-b6d3-9cb2b4a9cedd")
 FIXED_NOW = datetime(2026, 9, 25, 12, 0, 0, tzinfo=UTC)
@@ -112,8 +119,10 @@ class FixedClock:
 def _build(
     existing: Strategy | None = None,
     author_names: FixedAuthorNames | None = None,
+    guard: DisableGuard | None = None,
 ) -> tuple[UpdateStrategy, FakeRepository, SpyCommit, SpyEnablementLog, FixedClock]:
     repository = FakeRepository(_strategy() if existing is None else existing)
+    guard = guard or disable_guard(repository.existing)  # type: ignore[arg-type]
     commit = SpyCommit()
     log = SpyEnablementLog()
     clock = FixedClock(FIXED_NOW)
@@ -124,6 +133,7 @@ def _build(
             enablement_log=log,  # type: ignore[arg-type]
             clock=clock,  # type: ignore[arg-type]
             author_names=author_names or FixedAuthorNames(),
+            **guard,
         ),
         repository,
         commit,
@@ -389,3 +399,122 @@ async def test_an_update_that_neither_makes_nor_kills_a_link_says_nothing_of_one
         await use_case.update(command)
 
     assert [each for each in caplog.records if each.name == LOGGER] == []
+
+
+# --- the disable guard (subscriber-safety SS.8a) ---------------------------------
+
+HELD = StrategyExposure(
+    symbols=frozenset({"STXUSDT"}),
+    allocations=(UUID("11111111-1111-4111-8111-111111111111"),),
+    live_reservations=(),
+    in_flight_attempts=(),
+)
+
+
+async def test_disabling_a_strategy_that_holds_exposure_is_refused_and_writes_nothing() -> None:
+    guard = disable_guard(_strategy(enabled=True), HELD)
+    use_case, repository, commit, log, _ = _build(_strategy(enabled=True), guard=guard)
+
+    with pytest.raises(OpenPosition, match="STXUSDT") as refused:
+        await use_case.update(UpdateCommand(strategy_id=STRATEGY_ID, enabled=False))
+
+    assert refused.value.exposure == HELD
+    assert repository.updated == []  # the strategy stays enabled
+    assert repository.existing is not None and repository.existing.enabled is True
+    assert log.calls == []  # no event for a disable that did not happen
+    assert commit.commits == 0
+
+
+async def test_disabling_a_flat_strategy_takes_the_subscribers_pool_locks_first() -> None:
+    strategy = _strategy(enabled=True)
+    guard = disable_guard(strategy)
+    use_case, _, commit, log, clock = _build(strategy, guard=guard)
+
+    updated = await use_case.update(UpdateCommand(strategy_id=STRATEGY_ID, enabled=False))
+
+    assert updated.enabled is False
+    assert log.calls == [(STRATEGY_ID, False, clock.now())]
+    assert commit.commits == 1
+    assert guard["exposure"].asked == 1
+    assert guard["pool_lock"].acquired == [(OWNER_ID, "pionex", "spot", "USDT")]
+
+
+async def test_enabling_never_asks_for_exposure_nor_takes_a_pool_lock() -> None:
+    guard = disable_guard(_strategy(), HELD)
+    use_case, repository, _, _, _ = _build(guard=guard)
+
+    await use_case.update(UpdateCommand(strategy_id=STRATEGY_ID, enabled=True))
+
+    assert repository.updated[0].enabled is True
+    assert guard["exposure"].asked == 0
+    assert guard["pool_lock"].acquired == []
+
+
+async def test_editing_other_fields_of_an_enabled_strategy_takes_today_s_path() -> None:
+    guard = disable_guard(_strategy(enabled=True), HELD)
+    use_case, repository, _, log, _ = _build(_strategy(enabled=True), guard=guard)
+
+    await use_case.update(UpdateCommand(strategy_id=STRATEGY_ID, name="renamed"))
+
+    assert repository.updated[0].name == "renamed"
+    assert log.calls == []
+    assert guard["exposure"].asked == 0
+    assert guard["pool_lock"].acquired == []
+
+
+async def test_editing_a_disabled_strategy_that_still_holds_exposure_is_allowed() -> None:
+    """Exposure on a stopped strategy is the sweep's business (SS.8b), not a
+    reason to freeze its other fields."""
+    guard = disable_guard(_strategy(), HELD)
+    use_case, repository, _, _, _ = _build(guard=guard)
+
+    await use_case.update(UpdateCommand(strategy_id=STRATEGY_ID, name="renamed"))
+
+    assert repository.updated[0].name == "renamed"
+    assert guard["exposure"].asked == 0
+
+
+async def test_disabling_an_already_disabled_strategy_is_not_refused_for_exposure() -> None:
+    """Nothing is turned off, so there is nothing to refuse: the exposure is read
+    only when the row under the lock is still enabled."""
+    guard = disable_guard(_strategy(), HELD)
+    use_case, _, _, log, _ = _build(guard=guard)
+
+    updated = await use_case.update(UpdateCommand(strategy_id=STRATEGY_ID, enabled=False))
+
+    assert updated.enabled is False
+    assert log.calls == []
+    assert guard["exposure"].asked == 0
+
+
+async def test_a_refused_disable_is_logged_naming_who_holds_it(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    guard = disable_guard(_strategy(enabled=True), HELD)
+    use_case, _, _, _, _ = _build(_strategy(enabled=True), guard=guard)
+
+    with caplog.at_level(logging.WARNING, logger=LOGGER), pytest.raises(OpenPosition):
+        await use_case.update(UpdateCommand(strategy_id=STRATEGY_ID, enabled=False))
+
+    assert [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING] == [
+        f"strategy disable refused, it still holds exposure: id={STRATEGY_ID} "
+        "name='BAT - RSI Divergences v1.3' held_by=[]"
+    ]
+
+
+async def test_a_subscriber_who_joins_during_a_disable_refuses_it_and_writes_nothing() -> None:
+    strategy = _strategy(enabled=True)
+    joined = SubscriberPool(
+        pool_id=2, user_id=uuid4(), pool=("pionex", "spot", "USDT")
+    )
+    guard = disable_guard(strategy)
+    guard["subscribers"] = FakeSubscribers([author_pool(strategy)], [author_pool(strategy), joined])
+    use_case, repository, commit, log, _ = _build(strategy, guard=guard)
+
+    with pytest.raises(SubscribersChanged, match="while it was being disabled"):
+        await use_case.update(UpdateCommand(strategy_id=STRATEGY_ID, enabled=False))
+
+    assert repository.updated == []
+    assert log.calls == []
+    assert commit.commits == 0
+    assert guard["exposure"].asked == 0

@@ -52,6 +52,7 @@ from strategy_manager.strategies.infrastructure.repository import (
 )
 from tests.owner import OWNER_ID, secret_hash
 from tests.strategies.author_names import FixedAuthorNames
+from tests.strategies.wiring import real_disable_guard
 
 pytestmark = pytest.mark.integration
 
@@ -161,6 +162,7 @@ async def test_update_strategy_takes_for_update_lock_on_strategy_row(
                 enablement_log=SqlAlchemyEnablementLog(session),
                 clock=SystemClock(),
                 author_names=FixedAuthorNames(),
+                **real_disable_guard(session),
             )
             await use_case.update(UpdateCommand(strategy_id=strategy_id, enabled=True))
 
@@ -172,6 +174,7 @@ async def test_update_strategy_takes_for_update_lock_on_strategy_row(
                 enablement_log=SqlAlchemyEnablementLog(session),
                 clock=SystemClock(),
                 author_names=FixedAuthorNames(),
+                **real_disable_guard(session),
             )
             await use_case.update(UpdateCommand(strategy_id=strategy_id, enabled=True))
 
@@ -215,6 +218,7 @@ async def test_event_append_failure_rolls_back_the_enabled_write_too(
             enablement_log=_RaisingEnablementLog(),
             clock=SystemClock(),
             author_names=FixedAuthorNames(),
+            **real_disable_guard(session),
         )
         with pytest.raises(RuntimeError, match="simulated event append failure"):
             await use_case.update(UpdateCommand(strategy_id=strategy_id, enabled=True))
@@ -275,6 +279,7 @@ async def test_replace_allowed_pairs_and_update_strategy_serialize_on_the_same_r
                 enablement_log=SqlAlchemyEnablementLog(session),
                 clock=SystemClock(),
                 author_names=FixedAuthorNames(),
+                **real_disable_guard(session),
             )
             await use_case.update(UpdateCommand(strategy_id=strategy_id, enabled=True))
 

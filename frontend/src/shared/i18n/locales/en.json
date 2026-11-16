@@ -261,7 +261,8 @@
       "cancel": "Cancel",
       "enable": "Enable",
       "disable": "Disable",
-      "pending": "Saving…"
+      "pending": "Saving…",
+      "openPosition": "This strategy still has an open position or live capital, so it cannot be disabled yet. Close it first."
     },
     "leave": {
       "confirmTitle": "Leave {{name}}?",

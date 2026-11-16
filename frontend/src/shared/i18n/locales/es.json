@@ -261,7 +261,8 @@
       "cancel": "Cancelar",
       "enable": "Activar",
       "disable": "Desactivar",
-      "pending": "Guardando…"
+      "pending": "Guardando…",
+      "openPosition": "Esta estrategia todavía tiene una posición abierta o capital en uso, por lo que aún no se puede desactivar. Ciérrela primero."
     },
     "leave": {
       "confirmTitle": "¿Salir de {{name}}?",
