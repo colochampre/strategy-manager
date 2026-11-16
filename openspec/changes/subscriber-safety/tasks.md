@@ -547,6 +547,30 @@ owner's preference.
     - That stop is the first live confirmation of SS.6: 6 fills near
       0.2686, a trigger of 0.2552 (5% under the VWAP, rounded away from
       the entry), confirmed 1.5 s after the settle.
+  - Incident, 2026-11-14 09:00, found by the owner and diagnosed
+    2026-11-16. A Binance STXUSDT opening of 2549 at x2 got no stop, and it
+    was not a stop defect.
+    - Binance acknowledged the order with its own id. Two seconds later
+      settle's lookup by client order id said no such order, the same lag as
+      SS.1's run 5.
+    - Settle released the reservation and voided the stop row, and booked
+      nothing. The confirm job is enqueued with the fills, so it never ran.
+    - The strategy's close (21:17) made no delivery, because no allocation
+      held the position.
+    - Reconciliation confirmed `NO_MATCHING_ALLOCATION` at 09:01, with the
+      ERROR "need the owner". The owner closed the position by hand, at a
+      loss of about 12%.
+    - Fixed by PR #110 (merge `7376808171dc`), deployed 2026-11-16 with no
+      migration:
+      - settle never releases an attempt carrying the venue's order id on a
+        not-found;
+      - an attempt without an id is released only once it is older than
+        `NOT_FOUND_GRACE_SECONDS` (60 s).
+      - Both services `active`, and no ERROR line after the restart.
+      - The venue fact is in CLAUDE.md.
+    - Open: an acknowledged order that never appears exhausts the settle
+      job (about 7 minutes) and leaves the attempt SUBMITTED. Whether that
+      exhaustion logs an ERROR was not verified.
 - [ ] SS.8 Disable refused on exposure, under the archive's locks, with the
   lock-hold concurrency test on PostgreSQL. Plus the sweep's safety close of
   stopped strategies with positions. Risk: items 3 and 4.
