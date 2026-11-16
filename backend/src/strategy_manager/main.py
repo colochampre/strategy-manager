@@ -88,6 +88,10 @@ from strategy_manager.execution.application.assert_mode_matches_ledger import (
     assert_mode_matches_ledger,
 )
 from strategy_manager.execution.application.close_position import ClosePosition
+from strategy_manager.execution.application.close_stopped_positions import (
+    CloseStoppedPositions,
+    PositionCloserPort,
+)
 from strategy_manager.execution.application.confirm_protective_stop import (
     ConfirmProtectiveStop,
 )
@@ -122,6 +126,9 @@ from strategy_manager.execution.infrastructure.simulated_fee_rates import (
     SIMULATED_TAKER_FEE_RATES,
 )
 from strategy_manager.execution.infrastructure.simulated_venues import SimulatedVenues
+from strategy_manager.execution.infrastructure.stopped_positions_reader import (
+    SqlAlchemyStoppedPositionsReader,
+)
 from strategy_manager.execution.infrastructure.venue_mark_prices import public_mark_prices
 from strategy_manager.execution.infrastructure.venue_support import (
     describe_unserved,
@@ -791,6 +798,46 @@ def _build_protective_stop_watch(
         queue=_job_queue(session, settings),
         clock=SystemClock(),
         interval_seconds=settings.protective_stop_watch_interval_seconds,
+    )
+
+
+def _build_close_stopped_positions(
+    session: AsyncSession,
+    settings: Settings,
+    exchanges_for: Callable[[UUID], AbstractAsyncContextManager[ModeExchangesPort]],
+) -> CloseStoppedPositions:
+    """Composes the reservation sweep's safety close (SS.8b): every open position on a
+    disabled or archived strategy is closed through ``ClosePosition``, with no signal, as the
+    user who holds it (``exchanges_for`` opens that user's exchanges, so another user's key
+    never signs it). Each is decided under its holder's pool lock and committed on its own."""
+    allocation_modes = SqlAlchemyAllocationMode(session)
+    attempts = SqlAlchemyExecutionAttemptRepository(session)
+
+    @asynccontextmanager
+    async def closer_for(owner: UUID) -> AsyncIterator[PositionCloserPort]:
+        async with exchanges_for(owner) as exchanges:
+            yield ClosePosition(
+                exchanges=exchanges,
+                allocation_modes=allocation_modes,
+                attempts=attempts,
+                held=ReadHeldBase(SqlAlchemyLedgerRepository(session)),
+                queue=_job_queue(session, settings),
+                clock=SystemClock(),
+                commit=session,
+                settle_delay_seconds=settings.execution_settle_delay_seconds,
+                outcomes=SignalOrderOutcomeRecorder(
+                    SqlAlchemyDeliveryOutcomeAdapter(session, SystemClock()),
+                    SqlAlchemySignalRepository(session),
+                ),
+                stops=SqlAlchemyProtectiveStopRepository(session),
+            )
+
+    return CloseStoppedPositions(
+        stopped=SqlAlchemyStoppedPositionsReader(session),
+        closing_attempts=attempts,
+        pool_lock=PoolLockAdapter(session),
+        closer_for=closer_for,
+        unit_of_work=session,
     )
 
 
@@ -2049,6 +2096,11 @@ def build_worker_runner(
                     PoolLockAdapter(session),
                     _end_leaving(session),
                     session,
+                ),
+                close_stopped_positions=_build_close_stopped_positions(
+                    session,
+                    settings,
+                    lambda owner: exchanges_by_mode.for_job(session, owner),
                 ),
                 queue=_job_queue(session, settings),
                 clock=SystemClock(),

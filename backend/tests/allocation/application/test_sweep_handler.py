@@ -7,6 +7,7 @@ it is ever skipped, the sweeper stops permanently and nothing raises, so these
 tests pin exactly when it happens.
 """
 
+import logging
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
@@ -69,6 +70,18 @@ class StubEndFlatLeaving:
         return 0
 
 
+class StubCloseStoppedPositions:
+    def __init__(self, raises: Exception | None = None) -> None:
+        self._raises = raises
+        self.sweeps = 0
+
+    async def sweep(self) -> int:
+        self.sweeps += 1
+        if self._raises is not None:
+            raise self._raises
+        return 0
+
+
 def _claimed_job() -> ClaimedJob:
     return ClaimedJob(
         id=uuid4(), kind=JobKind.RESERVATION_SWEEP, payload={}, attempts=1, max_attempts=5
@@ -78,11 +91,13 @@ def _claimed_job() -> ClaimedJob:
 def _build(
     expire: StubExpireReservations,
     leaving: StubEndFlatLeaving | None = None,
+    stopped: StubCloseStoppedPositions | None = None,
 ) -> tuple[SweepHandler, SpyQueue]:
     queue = SpyQueue()
     handler = SweepHandler(
         expire_reservations=expire,  # type: ignore[arg-type]
         end_flat_leaving=leaving if leaving is not None else StubEndFlatLeaving(),
+        close_stopped_positions=stopped if stopped is not None else StubCloseStoppedPositions(),
         queue=queue,
         clock=FrozenClock(NOW),
         interval_seconds=INTERVAL,
@@ -153,6 +168,11 @@ async def test_leaving_subscriptions_are_ended_after_the_expiry_and_before_the_s
             order.append("leaving")
             return await super().sweep()
 
+    class Stopped(StubCloseStoppedPositions):
+        async def sweep(self) -> int:
+            order.append("stopped")
+            return await super().sweep()
+
     class Queue(SpyQueue):
         async def enqueue(self, job: Job) -> object:
             order.append("successor")
@@ -161,6 +181,7 @@ async def test_leaving_subscriptions_are_ended_after_the_expiry_and_before_the_s
     handler = SweepHandler(
         expire_reservations=Expire(),  # type: ignore[arg-type]
         end_flat_leaving=Leaving(),
+        close_stopped_positions=Stopped(),
         queue=Queue(),
         clock=FrozenClock(NOW),
         interval_seconds=INTERVAL,
@@ -168,7 +189,7 @@ async def test_leaving_subscriptions_are_ended_after_the_expiry_and_before_the_s
 
     await handler.handle(_claimed_job())
 
-    assert order == ["expire", "leaving", "successor"]
+    assert order == ["expire", "leaving", "stopped", "successor"]
 
 
 async def test_a_failing_leaving_sweep_does_not_re_enqueue() -> None:
@@ -180,6 +201,34 @@ async def test_a_failing_leaving_sweep_does_not_re_enqueue() -> None:
 
     assert leaving.sweeps == 1
     assert queue.enqueued == []
+
+
+async def test_positions_on_stopped_strategies_are_closed_on_every_run() -> None:
+    """The backstop of the disable guard (SS.8b): an idle run still looks."""
+    stopped = StubCloseStoppedPositions()
+    handler, _ = _build(StubExpireReservations(expired=0), stopped=stopped)
+
+    await handler.handle(_claimed_job())
+    await handler.handle(_claimed_job())
+
+    assert stopped.sweeps == 2
+
+
+async def test_a_failing_safety_close_does_not_stop_the_successor_or_the_sweep(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A position that cannot be closed must not stop the bookkeeping chain: the next run
+    looks again, and without a successor nothing ever would."""
+    stopped = StubCloseStoppedPositions(raises=RuntimeError("venue down"))
+    handler, queue = _build(StubExpireReservations(expired=2), stopped=stopped)
+
+    with caplog.at_level(logging.ERROR):
+        result = await handler.handle(_claimed_job())
+
+    assert result.expired == 2
+    assert stopped.sweeps == 1
+    assert len(queue.enqueued) == 1
+    assert [r.levelno for r in caplog.records] == [logging.ERROR]
 
 
 async def test_ExpireReservations_satisfies_the_handler_port() -> None:
