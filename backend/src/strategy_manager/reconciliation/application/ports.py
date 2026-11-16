@@ -596,6 +596,21 @@ class ApprovePort(Protocol):
     async def approve(self, proposal_id: UUID, decided_by: str) -> "ApproveResult": ...
 
 
+class RestingStopsPort(Protocol):
+    """Which markets of a user's pool have a protective stop that is still ``RESTING``
+    (subscriber-safety SS.7). A venue position that is flat while the ledger holds it, beside
+    such a stop, is the stop having fired: it is the stop watcher's to book until it decides,
+    and the scan does not count it towards a confirmation meanwhile.
+
+    Implemented by ``RestingStopsAdapter``; the consumer declares the port, the provider owns
+    the adapter."""
+
+    async def resting_symbols(self, user_id: UUID, pool: PoolKey) -> Sequence[str]:
+        """The symbols, in the spelling the stop records (TradingView's), of ``user_id``'s
+        RESTING stops in ``pool``. Only that user's, and only that pool's."""
+        ...
+
+
 class SystemOrderIdsPort(Protocol):
     """Owner decision 66 Q2 (2026-10-16): whether any of a set of venue order
     ids is the ``exchange_order_id`` of an ``execution_attempts`` row of the

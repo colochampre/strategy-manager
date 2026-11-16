@@ -41,6 +41,29 @@ class ExecutionOrigin(StrEnum):
     VENUE = "VENUE"
 
 
+class ExecutionCause(StrEnum):
+    """Mirrors the ``execution_attempts.cause`` CHECK constraint (migration ``0043``):
+    what asked for the attempt.
+
+    ``SIGNAL``: a strategy's signal, an opening or the close it asked for. ``STOP``: a
+    protective stop that fired at the venue, booked by the stop watcher. ``SAFETY_CLOSE``:
+    the system closed a position by itself, SS.5's confirm job when a stop cannot be shown
+    to rest. ``MANUAL``: a trade done by hand at the venue, booked through reconciliation.
+    """
+
+    SIGNAL = "SIGNAL"
+    STOP = "STOP"
+    SAFETY_CLOSE = "SAFETY_CLOSE"
+    MANUAL = "MANUAL"
+
+
+ALREADY_FLAT = "ALREADY_FLAT"
+"""The mark that opens the error of a close the venue refused because its position was
+already flat (SS.7): the stop most likely fired while the close was in flight, so the
+close is FAILED but nothing went wrong, and a reverse's continuation waits for the stop's
+booking instead of abandoning."""
+
+
 @dataclass(frozen=True, slots=True)
 class ExecutionAttempt:
     """One attempt to submit an order, either opening a position or closing
@@ -96,6 +119,11 @@ class ExecutionAttempt:
     # on. It is written beside ``signal_id``, never instead of it. ``None`` for the
     # same attempts ``signal_id`` is, and nothing is recorded for those at settle.
     delivery_id: UUID | None = None
+    # ``execution_attempts.cause`` (migration ``0043``). Every production writer names it:
+    # ``PlaceOrder`` SIGNAL, ``ClosePosition`` the command's, the booking writer MANUAL, the
+    # stop watcher STOP. The default exists only so the many test fixtures of an ordinary
+    # signal attempt stay as they were.
+    cause: ExecutionCause = ExecutionCause.SIGNAL
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
@@ -143,3 +171,12 @@ class ExecutionAttempt:
     @property
     def is_closing(self) -> bool:
         return self.closes_allocation_id is not None
+
+    @property
+    def refused_as_already_flat(self) -> bool:
+        """A FAILED close the venue refused because the position was already flat."""
+        return (
+            self.status is ExecutionStatus.FAILED
+            and self.error is not None
+            and self.error.startswith(f"{ALREADY_FLAT}:")
+        )

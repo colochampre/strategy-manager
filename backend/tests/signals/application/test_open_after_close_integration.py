@@ -61,6 +61,7 @@ from strategy_manager.execution.application.ports import FillRecord
 from strategy_manager.execution.application.settle_execution import SettleExecution
 from strategy_manager.execution.domain.execution_attempt import (
     ExecutionAttempt,
+    ExecutionCause,
     ExecutionOrigin,
     ExecutionStatus,
 )
@@ -399,6 +400,7 @@ async def test_the_open_waits_for_the_close_to_settle_then_grants_the_freed_bala
             commit=session,
             settle_delay_seconds=0.0,
             outcomes=RecordingOrderOutcomes(),
+            stops=SqlAlchemyProtectiveStopRepository(session),
         )
         close_result = await close_position.close(
             CloseCommand(
@@ -413,6 +415,7 @@ async def test_the_open_waits_for_the_close_to_settle_then_grants_the_freed_bala
                 signal_id=None,
                 delivery_id=None,
                 reference_price=Decimal("0.4633"),
+                cause=ExecutionCause.SIGNAL,
             )
         )
     assert close_result.status == "PLACED"

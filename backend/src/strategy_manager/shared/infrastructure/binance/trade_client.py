@@ -129,11 +129,14 @@ class BinanceOrderAck:
 @dataclass(frozen=True, slots=True)
 class BinanceAlgoOrder:
     """A conditional (algo) order as ``GET /fapi/v1/algoOrder`` reports it. ``status`` is
-    the venue's ``algoStatus``, read for SS.7's watcher and not interpreted here."""
+    the venue's ``algoStatus``, read by SS.7's watcher and not interpreted here.
+    ``actual_order_id`` is the ordinary order a FIRED stop created (``actualOrderId``),
+    whose fills ``userTrades`` returns; ``None`` while the stop has not fired."""
 
     algo_id: int
     client_algo_id: str
     status: str | None
+    actual_order_id: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -481,7 +484,26 @@ class BinanceTradeClient:
             algo_id=_integer(data, "algoId"),
             client_algo_id=client_stop_id,
             status=status if isinstance(status, str) and status else None,
+            actual_order_id=_actual_order_id(data),
         )
+
+
+def _actual_order_id(fields: Mapping[str, Any]) -> int | None:
+    """The order a fired algo order created, or ``None`` when it has none yet.
+
+    The venue documents ``actualOrderId`` as a string that is empty until the stop fires; an
+    integer is tolerated. Anything else that is not an id raises: a fired stop whose fills
+    cannot be found would be read as gone, and its fills would go unbooked."""
+    value = fields.get("actualOrderId")
+    if value is None or value == "":
+        return None
+    if isinstance(value, bool) or not isinstance(value, str | int):
+        raise BinanceApiError(f"actualOrderId must be an id, got {type(value).__name__}")
+    try:
+        # 0 is an order that does not exist: the placeholder of a stop that has not fired.
+        return int(value) or None
+    except ValueError:
+        raise BinanceApiError(f"actualOrderId must be an integer id, got {value!r}") from None
 
 
 def _plain(value: Decimal) -> str:

@@ -46,6 +46,10 @@ class JobKind(StrEnum):
     # closes the position at once when none does (subscriber-safety SS.5). Enqueued
     # by ``SettleExecution`` in the transaction that records the fills.
     PROTECTIVE_STOP_CONFIRM = "protective_stop.confirm"
+    # Reads every resting protective stop at the venue and books the fills of one that
+    # fired (subscriber-safety SS.7). A recurring chain like the reconciliation scan, seeded
+    # and watched through ``RECURRING_KINDS``.
+    PROTECTIVE_STOP_WATCH = "protective_stop.watch"
 
 
 @dataclass(frozen=True, slots=True)

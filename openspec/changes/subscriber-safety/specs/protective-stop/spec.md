@@ -215,6 +215,12 @@ refused because the venue position is already flat MUST be classified as
 - THEN the close ends `ALREADY_FLAT` with no operator alert
 - AND the stop's fill is booked by the stop watcher
 
+#### Scenario: A reverse whose close finds the stop already fired
+- GIVEN a reverse whose close the venue refuses because the stop flattened the position
+- WHEN the stop watcher books the stop's fill
+- THEN the reverse's new side is opened, as after any settled close (owner decision, 2026-11-13)
+- AND if no booking comes within the settle timeout, the continuation ends `CONTINUATION_TIMED_OUT`
+
 ### Requirement: Resting a stop is part of a live adapter's contract
 
 A live FUTURES adapter MUST be able to rest a stop, as described above,

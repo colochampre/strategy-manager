@@ -44,6 +44,9 @@ from strategy_manager.reconciliation.infrastructure.booking_proposal_repository 
 from strategy_manager.reconciliation.infrastructure.repository import (
     SqlAlchemyDiscrepancyRepository,
 )
+from strategy_manager.reconciliation.infrastructure.resting_stops_adapter import (
+    RestingStopsAdapter,
+)
 from strategy_manager.reconciliation.infrastructure.router import (
     router as reconciliation_router,
 )
@@ -428,6 +431,7 @@ async def test_a_discrepancy_resolved_by_the_scan_is_in_no_list_and_the_scan_cou
                 clock=FrozenClock(_PAST_THE_GRACE),
                 commit=SessionCommit(session),
                 confirmations_required=2,
+                resting_stops=RestingStopsAdapter(session),
             ).scan(scan_id)
 
     assert result.discrepancies_resolved == 1

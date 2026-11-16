@@ -106,6 +106,11 @@ class _Commit:
         self.commits += 1
 
 
+class _NoRestingStops:
+    async def resting_symbols(self, user_id: UUID, pool: PoolKey) -> list[str]:
+        return []
+
+
 def _scan_of(
     user: UUID, reader: _UserReader, ledger: _Ledger, discrepancies: _Discrepancies
 ) -> ScanPools:
@@ -118,6 +123,7 @@ def _scan_of(
         clock=_Clock(),
         commit=_Commit(),
         confirmations_required=2,
+        resting_stops=_NoRestingStops(),
     )
 
 

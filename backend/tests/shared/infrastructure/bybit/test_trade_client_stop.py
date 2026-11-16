@@ -17,6 +17,7 @@ from strategy_manager.shared.infrastructure.bybit.errors import BybitApiError
 from strategy_manager.shared.infrastructure.bybit.signer import BybitSigner
 from strategy_manager.shared.infrastructure.bybit.trade_client import (
     CREATE_ORDER_PATH,
+    EXECUTIONS_PATH,
     OPEN_ORDERS_PATH,
     BybitTradeClient,
 )
@@ -163,3 +164,63 @@ async def test_an_answer_with_no_list_is_an_error_not_an_absent_stop(
 
     with pytest.raises(BybitApiError):
         await client.resting_stop_for(SYMBOL, OPENING)
+
+
+def _execution(order_id: str) -> dict[str, str]:
+    return {
+        "execId": "EX-1",
+        "orderId": order_id,
+        "orderLinkId": "",
+        "symbol": SYMBOL,
+        "side": "Sell",
+        "execPrice": "0.0597",
+        "execQty": "76",
+        "execFee": "0.0025",
+        "feeCurrency": "USDT",
+        "execTime": "1700000000000",
+    }
+
+
+async def test_the_fills_of_a_fired_stop_are_read_by_the_stops_own_order_id(
+    signer: BybitSigner, recorded: list[httpx.Request]
+) -> None:
+    """A stop that fires creates an order of its own, which carries no ``orderLinkId`` of
+    ours: its executions are found by the ``orderId`` recorded when the stop was found
+    resting (SS.7)."""
+    client = _client(signer, {"list": [_execution("STOP-1")]}, recorded)
+
+    fills = await client.fills_for_order(SYMBOL, "STOP-1")
+
+    [request] = recorded
+    assert request.method == "GET"
+    assert request.url.path == EXECUTIONS_PATH
+    assert dict(request.url.params) == {
+        "category": "linear",
+        "symbol": SYMBOL,
+        "orderId": "STOP-1",
+    }
+    [fill] = fills
+    assert (fill.exec_id, fill.order_id, fill.price, fill.qty, fill.fee_currency) == (
+        "EX-1",
+        "STOP-1",
+        Decimal("0.0597"),
+        Decimal("76"),
+        "USDT",
+    )
+
+
+async def test_a_stop_with_no_executions_yet_reads_an_empty_list(
+    signer: BybitSigner, recorded: list[httpx.Request]
+) -> None:
+    client = _client(signer, {"list": []}, recorded)
+
+    assert await client.fills_for_order(SYMBOL, "STOP-1") == []
+
+
+async def test_an_executions_answer_with_no_list_is_an_error_not_an_empty_one(
+    signer: BybitSigner, recorded: list[httpx.Request]
+) -> None:
+    client = _client(signer, {}, recorded)
+
+    with pytest.raises(BybitApiError):
+        await client.fills_for_order(SYMBOL, "STOP-1")

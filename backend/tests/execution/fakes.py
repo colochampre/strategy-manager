@@ -30,6 +30,8 @@ class RecordingOrderOutcomes:
 
     processing: list[UUID] = field(default_factory=list)
     rejected: list[tuple[UUID, str, str]] = field(default_factory=list)
+    processed: list[tuple[UUID, str, str]] = field(default_factory=list)
+    already_flat: list[tuple[UUID, UUID, str]] = field(default_factory=list)
     log: list[str] | None = None
 
     async def record_processing(self, delivery_id: UUID) -> None:
@@ -41,6 +43,18 @@ class RecordingOrderOutcomes:
         self.rejected.append((delivery_id, reason, detail))
         if self.log is not None:
             self.log.append("outcome.rejected")
+
+    async def record_processed(self, delivery_id: UUID, reason: str, detail: str) -> None:
+        self.processed.append((delivery_id, reason, detail))
+        if self.log is not None:
+            self.log.append("outcome.processed")
+
+    async def record_close_already_flat(
+        self, delivery_id: UUID, signal_id: UUID, detail: str
+    ) -> None:
+        self.already_flat.append((delivery_id, signal_id, detail))
+        if self.log is not None:
+            self.log.append("outcome.already_flat")
 
 
 @dataclass

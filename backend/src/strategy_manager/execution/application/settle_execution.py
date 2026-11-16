@@ -23,10 +23,10 @@ from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
 
+from strategy_manager.execution.application.fill_record import fill_record_of
 from strategy_manager.execution.application.ports import (
     CommitPort,
     ExecutionAttemptRepositoryPort,
-    FillRecord,
     FillRecorderPort,
     LeavingSubscriptionPort,
     ModeExchangesPort,
@@ -283,24 +283,5 @@ class SettleExecution:
         rate *at fill time*, not a different rate per row.
         """
         await self._fill_recorder.record(
-            FillRecord(
-                user_id=user_id,
-                strategy_id=strategy_id,
-                allocation_id=attempt.allocation_id,
-                execution_attempt_id=attempt.id,
-                exchange=attempt.exchange,
-                venue=attempt.venue,
-                settlement_currency=attempt.settlement_currency,
-                symbol=attempt.symbol,
-                side=attempt.side.value,
-                quantity=fill.quantity,
-                price=fill.price,
-                fee=fill.fee,
-                fee_currency=fill.fee_currency,
-                notional=fill.quantity * fill.price,
-                exchange_order_id=fill.exchange_order_id,
-                exchange_fill_id=fill.exchange_fill_id,
-                filled_at=fill.filled_at,
-                usd_rate_at_fill=usd_rate,
-            )
+            fill_record_of(user_id, attempt, strategy_id, usd_rate, fill)
         )

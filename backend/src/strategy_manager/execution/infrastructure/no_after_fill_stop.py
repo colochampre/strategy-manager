@@ -12,8 +12,12 @@ stop invented for a venue that holds none is the failure this prevents.
 
 from decimal import Decimal
 
-from strategy_manager.execution.application.ports import ExchangeError, RestingStop
-from strategy_manager.execution.domain.protective_stop import PositionSide
+from strategy_manager.execution.application.ports import (
+    ExchangeError,
+    RestingStop,
+    StopReading,
+)
+from strategy_manager.execution.domain.protective_stop import PositionSide, ProtectiveStop
 
 
 class NoAfterFillStop:
@@ -39,3 +43,10 @@ class NoAfterFillStop:
 
     async def find_stop(self, symbol: str, client_stop_id: str) -> RestingStop | None:
         raise ExchangeError("this adapter places no stop after the fill")
+
+    async def read_stop(
+        self, stop: ProtectiveStop, parent_client_order_id: str
+    ) -> StopReading:
+        """Refuses, for the adapters that carry no stop of their own to read (Pionex, the
+        simulated exchange). Bybit overrides it: its stop rides the opening order."""
+        raise ExchangeError("this adapter has no stop to read")

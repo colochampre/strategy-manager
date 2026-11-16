@@ -61,7 +61,12 @@ from strategy_manager.execution.application.ports import (
     OrderNotFound,
     OrderNotPlaceable,
     PlacedOrder,
+    PositionAlreadyFlat,
     RestingStop,
+    StopFired,
+    StopNotResting,
+    StopReading,
+    StopRests,
 )
 from strategy_manager.execution.domain.fill import Fill
 from strategy_manager.execution.domain.futures_order import (
@@ -72,6 +77,7 @@ from strategy_manager.execution.domain.futures_order import (
 )
 from strategy_manager.execution.domain.market_symbol import strip_contract_marker
 from strategy_manager.execution.domain.placeable import PlaceableOrder
+from strategy_manager.execution.domain.protective_stop import ProtectiveStop
 from strategy_manager.execution.infrastructure.no_after_fill_stop import NoAfterFillStop
 from strategy_manager.shared.domain.errors import InvariantViolation
 from strategy_manager.shared.domain.money import Exchange, Venue
@@ -325,6 +331,8 @@ class BybitFuturesExchangeAdapter(NoAfterFillStop):
             )
         except BybitApiError as exc:
             if _is_definitive_rejection(exc):
+                if order.reduce_only and exc.code == _POSITION_ALREADY_FLAT_CODE:
+                    raise PositionAlreadyFlat(str(exc)) from exc
                 raise ExchangeError(str(exc)) from exc
             # Ambiguous: re-raised as-is so PlaceOrder does NOT release the
             # reservation. This branch is the difference between retrying and
@@ -356,6 +364,43 @@ class BybitFuturesExchangeAdapter(NoAfterFillStop):
                 raise ExchangeError(str(exc)) from exc
             raise
         return None if stop_id is None else RestingStop(venue_stop_id=stop_id)
+
+    async def read_stop(
+        self, stop: ProtectiveStop, parent_client_order_id: str
+    ) -> StopReading:
+        """What became of a stop found resting (SS.7).
+
+        The stop still rests while a conditional order has the opening as its parent (the
+        read ``find_resting_stop`` makes). When none does, the stop either fired or went
+        with its position: the executions of the ORDER the venue gave it, recorded when it
+        was found, tell which. No execution is ``StopNotResting``; an empty list could also
+        be a fill not yet published, and the cost of reading that as gone is bounded
+        (reconciliation's alert and booking proposal, today's recoverable path).
+
+        Failures follow ``find_resting_stop``: a refusal the venue decided is an
+        ``ExchangeError`` and a failure whose outcome is unknown propagates, so the stop
+        stays ``RESTING`` and the next tick asks again.
+        """
+        if stop.venue_stop_id is None:
+            raise ExchangeError(
+                f"protective stop {stop.id} has no venue stop id recorded, so what became "
+                "of it cannot be looked up"
+            )
+        symbol = _venue_symbol(stop.symbol)
+        try:
+            if await self._client.resting_stop_for(symbol, parent_client_order_id) is not None:
+                return StopRests()
+            executions = await self._client.fills_for_order(symbol, stop.venue_stop_id)
+        except BybitApiError as exc:
+            if _is_definitive_rejection(exc):
+                raise ExchangeError(str(exc)) from exc
+            raise
+        if not executions:
+            return StopNotResting()
+        return StopFired(
+            exchange_order_id=stop.venue_stop_id,
+            fills=[_to_domain_fill(execution) for execution in executions],
+        )
 
     async def fetch_fills(self, client_order_id: str, symbol: str) -> list[Fill]:
         """One hop: Bybit's execution endpoint takes our own id.
@@ -405,6 +450,11 @@ def _bybit_side(order: FuturesMarketOrder) -> str:
     ``BUY``/``SELL``. Translated at the boundary rather than by storing
     Bybit's spelling in the domain."""
     return order.side.value.capitalize()
+
+
+# The refusal of a reduce-only order whose position is zero. *Assumption* (SS.7), unverified
+# live, and read only on a reduce-only order.
+_POSITION_ALREADY_FLAT_CODE = "110017"
 
 
 def _is_definitive_rejection(error: BybitApiError) -> bool:

@@ -59,6 +59,11 @@ RECURRING_KINDS: tuple[JobKind, ...] = (
     # what both the seeder and the watchdog read (``main.py`` wires the
     # SAME ``RECURRING_KINDS`` into ``Watchdog``'s own constructor).
     JobKind.RECONCILIATION_PREPARE_BOOKING,
+    # Reads every resting protective stop and books the fills of one that fired
+    # (subscriber-safety SS.7). A dead chain is silent: a fired stop would go unbooked
+    # until reconciliation raised it as a discrepancy, which is the failure this job
+    # exists to prevent, so it is seeded, revived and watched like the others.
+    JobKind.PROTECTIVE_STOP_WATCH,
 )
 
 LIVE_STATUSES: tuple[str, ...] = ("PENDING", "CLAIMED")

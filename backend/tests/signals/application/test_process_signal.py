@@ -58,6 +58,7 @@ from strategy_manager.execution.application.close_position import (
 from strategy_manager.execution.application.place_order import PlaceCommand, PlaceResult
 from strategy_manager.execution.domain.execution_attempt import (
     ExecutionAttempt,
+    ExecutionCause,
     ExecutionOrigin,
     ExecutionStatus,
 )
@@ -76,6 +77,7 @@ from strategy_manager.signals.application.ports import (
 )
 from strategy_manager.signals.application.process_signal import Delivery, SignalContext
 from strategy_manager.signals.domain.holding import HeldAllocation
+from strategy_manager.signals.domain.signal import SignalStatus
 from strategy_manager.strategies.infrastructure.pool_lock_adapter import PoolLockAdapter
 from tests.accounts.fakes import BYBIT_KEY, BYBIT_SECRET, TickingClock
 from tests.allocation.fakes import (
@@ -784,6 +786,39 @@ async def test_a_dust_residual_close_is_reported_as_not_executed_without_retryin
 
     assert result.executed is False
     assert result.failed == "BTC_USDT residual is dust no order can close"
+
+
+@pytest.mark.parametrize("status", ["ALREADY_CLOSED_BY_STOP", "ALREADY_FLAT"])
+async def test_a_close_that_found_its_position_already_gone_ends_the_job_without_a_retry(
+    status: str,
+) -> None:
+    """SS.7. ``ClosePosition`` ends the DELIVERY itself (PROCESSED with the reason), so the
+    handler has nothing to record and nothing to retry: it returns, and the job ends DONE.
+    Reporting it as a failure would send the same close round again."""
+    close_position = SpyClosePosition(
+        result=CloseResult(status=status, execution_attempt_id=None, base_size=Decimal("0"))
+    )
+    context = SignalContext(
+        strategy_id=uuid4(),
+        symbol="BTC_USDT",
+        price=Decimal("50000"),
+        position_size=Decimal("0"),
+        prior_position_size=Decimal("1"),  # close long -> RELEASES
+        prior_reservation_id=uuid4(),
+        settlement_currency="USDT",
+    )
+    handler = _process_signal_handler(
+        context=context,
+        allocate_capital=_allocate_capital(SpyAdvisoryLock()),
+        place_order=SpyPlaceOrder(),
+        close_position=close_position,
+    )
+
+    result = await handler.handle(uuid4())
+
+    assert len(close_position.calls) == 1
+    assert result.failed is None
+    assert result.executed is True
 
 
 async def test_releases_signal_with_no_prior_reservation_is_a_safe_no_op() -> None:
@@ -2314,6 +2349,45 @@ async def test_a_retried_reverse_after_a_failed_close_does_not_place_a_new_one()
     assert result.failed == "rejected by venue"
 
 
+async def test_a_retried_reverse_whose_close_was_refused_as_already_flat_is_not_a_failure() -> None:
+    """SS.7, owner decision 2026-11-13 (A): the venue refused the reverse's close because
+    its stop had already flattened the position. Its continuation waits for the stop's
+    booking and then opens, so a replay neither places a new close nor reports a failure."""
+    close_position = SpyClosePosition()
+    prior_reservation_id = uuid4()
+    context = _holdable_reverse_context(prior_reservation_id=prior_reservation_id)
+    flat_close = ExecutionAttempt(
+        id=uuid4(),
+        reservation_id=None,
+        closes_allocation_id=prior_reservation_id,
+        exchange="bybit",
+        venue="usdt-m",
+        settlement_currency="USDT",
+        symbol="ETHUSDT.P",
+        side=OrderSide.SELL,
+        quantity=Decimal("1"),
+        quote_amount=None,
+        leverage=None,
+        status=ExecutionStatus.FAILED,
+        origin=ExecutionOrigin.SYSTEM,
+        client_order_id="client-1",
+        error="ALREADY_FLAT: current position is zero",
+    )
+    handler = _process_signal_handler(
+        context=context,
+        allocate_capital=_allocate_capital(SpyAdvisoryLock()),
+        place_order=SpyPlaceOrder(),
+        close_position=close_position,
+        closing_attempts=FakeClosingAttemptsPort(latest=flat_close),
+    )
+
+    result = await handler.handle(uuid4())
+
+    assert close_position.calls == []
+    assert result.executed is True
+    assert result.failed is None
+
+
 async def test_a_plain_close_retried_after_a_committed_close_does_not_place_a_second() -> None:
     """The idempotent release half generalised to EVERY close path (spec:
     trade-execution § "A retried close is not re-sent"; design.md § S6) --
@@ -2429,6 +2503,56 @@ async def test_a_plain_close_whose_allocation_another_delivery_closed_is_refused
     assert len(warnings) == 1
     assert "which is not this delivery's" in warnings[0]
     assert result.refused == warnings[0]
+
+
+async def test_a_plain_close_after_the_stop_fired_and_was_booked_ends_already_closed_by_stop(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """SS.7 verifier, blocker 1: the stop watcher books a fired stop on a FILLED attempt
+    of cause STOP with no delivery, the same shape as another delivery's close. The
+    strategy's close that arrives afterwards sends no order, is not refused, and its
+    delivery ends PROCESSED with ``ALREADY_CLOSED_BY_STOP`` and no warning."""
+    caplog.set_level(logging.INFO, logger="strategy_manager.signals.application.process_signal")
+    close_position = SpyClosePosition()
+    outcomes = RecordingSignalOutcomes()
+    prior_reservation_id = uuid4()
+    signal_id = uuid4()
+    context = SignalContext(
+        strategy_id=uuid4(),
+        symbol="ETHUSDT.P",
+        price=Decimal("2000"),
+        position_size=Decimal("0"),
+        prior_position_size=Decimal("1"),
+        prior_reservation_id=prior_reservation_id,
+        settlement_currency="USDT",
+    )
+    stop_booking = replace(
+        _another_deliverys_close(prior_reservation_id),
+        cause=ExecutionCause.STOP,
+        delivery_id=None,
+        client_order_id="stop-1",
+    )
+    handler = _process_signal_handler(
+        context=context,
+        allocate_capital=_allocate_capital(SpyAdvisoryLock()),
+        place_order=SpyPlaceOrder(),
+        close_position=close_position,
+        closing_attempts=FakeClosingAttemptsPort(latest=stop_booking),
+        outcomes=outcomes,
+    )
+
+    result = await handler.handle(signal_id)
+
+    assert close_position.calls == []
+    assert result.executed is True
+    assert result.refused is None
+    assert result.failed is None
+    assert [
+        (row, outcome.status, outcome.reason) for row, outcome in outcomes.calls
+    ] == [(signal_id, SignalStatus.PROCESSED, "ALREADY_CLOSED_BY_STOP")]
+    assert [r for r in caplog.records if r.levelno >= logging.WARNING] == []
+    infos = [r.getMessage() for r in caplog.records if r.levelno == logging.INFO]
+    assert any("already closed by its protective stop" in m for m in infos)
 
 
 async def test_a_reverse_whose_allocation_another_delivery_closed_waits_for_it_and_opens(
@@ -3681,6 +3805,7 @@ async def test_a_closing_alerts_price_is_the_close_commands_reference_price() ->
 
     [command] = close_position.calls
     assert command.reference_price == Decimal("0.4633")
+    assert command.cause is ExecutionCause.SIGNAL
 
 
 async def test_a_reversing_alerts_price_prices_the_close_half() -> None:
@@ -3703,6 +3828,7 @@ async def test_a_reversing_alerts_price_prices_the_close_half() -> None:
     assert result.transition_kind == "reverse"
     [command] = close_position.calls
     assert command.reference_price == Decimal("0.4633")
+    assert command.cause is ExecutionCause.SIGNAL
 
 
 async def test_an_opening_alerts_price_is_handed_to_close_orphans() -> None:

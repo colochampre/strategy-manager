@@ -7,6 +7,7 @@ allocation id(s) whose closing attempt is currently SUBMITTED for a strategy
 and symbol, what the rewired Existing-Position Guard in-flight branch awaits.
 """
 
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from uuid import UUID, uuid4
@@ -17,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from strategy_manager.execution.domain.execution_attempt import (
     ExecutionAttempt,
+    ExecutionCause,
     ExecutionOrigin,
     ExecutionStatus,
 )
@@ -312,6 +314,26 @@ async def test_insert_writes_the_attempt_as_the_given_user(
         await session.commit()
 
     assert (await _row(pg_session_factory, attempt.id)).user_id == other
+
+
+@pytest.mark.parametrize("cause", list(ExecutionCause))
+async def test_the_cause_of_an_attempt_is_written_and_read_back(
+    pg_session_factory: async_sessionmaker[AsyncSession], cause: ExecutionCause
+) -> None:
+    """Migration 0043: the row keeps what asked for the attempt, whichever it is."""
+    allocation_id = await _seed_allocation(pg_session_factory)
+    attempt = replace(
+        _attempt(reservation_id=None, closes_allocation_id=allocation_id), cause=cause
+    )
+
+    async with pg_session_factory() as session:
+        repository = SqlAlchemyExecutionAttemptRepository(session)
+        await repository.insert(OWNER_ID, attempt)
+        await session.commit()
+        read = await repository.get(OWNER_ID, attempt.id)
+
+    assert (await _row(pg_session_factory, attempt.id)).cause == cause.value
+    assert read.cause is cause
 
 
 async def test_get_never_returns_another_users_attempt(

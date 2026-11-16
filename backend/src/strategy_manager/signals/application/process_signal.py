@@ -84,7 +84,11 @@ from strategy_manager.execution.application.close_position import (
     CloseResult,
 )
 from strategy_manager.execution.application.place_order import PlaceCommand, PlaceResult
-from strategy_manager.execution.domain.execution_attempt import ExecutionAttempt, ExecutionStatus
+from strategy_manager.execution.domain.execution_attempt import (
+    ExecutionAttempt,
+    ExecutionCause,
+    ExecutionStatus,
+)
 from strategy_manager.execution.domain.market_symbol import is_perpetual, market_key
 from strategy_manager.execution.domain.order import OrderSide
 from strategy_manager.shared.application.ports import AllocationModePort, CommitPort
@@ -910,6 +914,31 @@ class ProcessDelivery:
         )
         if (
             existing_close is not None
+            and existing_close.cause is ExecutionCause.STOP
+            and not is_reverse_wiring
+        ):
+            # The allocation's protective stop fired at the venue and the stop watcher
+            # booked it (SS.7). The strategy's close finds the position already gone:
+            # nothing to send and nothing to refuse, so the delivery ends PROCESSED.
+            # A reverse is not here: it seeds below and opens on that close.
+            logger.info(
+                "signal %s for strategy %s asks to %s %s, but the position "
+                "(%s) was already closed by its protective stop (attempt %s); "
+                "nothing was sent",
+                signal_id,
+                context.strategy_id,
+                transition.kind.value,
+                context.symbol,
+                context.prior_reservation_id,
+                existing_close.id,
+            )
+            await self._outcomes.record(
+                delivery.delivery_id, SignalOutcome.processed("ALREADY_CLOSED_BY_STOP")
+            )
+            await self._commit.commit()
+            return ProcessSignalResult(transition.kind.value, context.prior_reservation_id, True)
+        if (
+            existing_close is not None
             and existing_close.status is not ExecutionStatus.FAILED
             and existing_close.delivery_id != delivery.delivery_id
             and not is_reverse_wiring
@@ -947,6 +976,14 @@ class ProcessDelivery:
                         replay_expected=True,
                     )
                     await self._commit.commit()
+                return ProcessSignalResult(
+                    transition.kind.value, context.prior_reservation_id, True
+                )
+            if is_reverse_wiring and existing_close.refused_as_already_flat:
+                # SS.7, owner decision 2026-11-13 (A): the venue refused the close
+                # because the stop had already flattened the position. Not a failure:
+                # the continuation this close seeded waits for the stop's booking and
+                # then opens. No new close, and nothing to report.
                 return ProcessSignalResult(
                     transition.kind.value, context.prior_reservation_id, True
                 )
@@ -1005,6 +1042,7 @@ class ProcessDelivery:
                 signal_id=signal_id,
                 delivery_id=delivery.delivery_id,
                 reference_price=context.price,
+                cause=ExecutionCause.SIGNAL,
             )
         )
         if close_result.status in ("FAILED", "NOT_CLOSABLE"):

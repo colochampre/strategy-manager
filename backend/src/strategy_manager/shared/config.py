@@ -318,6 +318,14 @@ class Settings(BaseSettings):
     # any settlement window.
     reconciliation_scan_interval_seconds: float = Field(default=30.0)
 
+    # How often ``protective_stop.watch`` reads every resting protective stop at the venue
+    # (subscriber-safety SS.7). Shorter than the reconciliation scan on purpose: a fired
+    # stop must be booked before two consecutive scans could confirm the position it closed
+    # as a discrepancy, which is roughly twice ``reconciliation_scan_interval_seconds``.
+    # *Assumption:* 30 seconds, the spec's own figure. One read per resting stop per tick,
+    # against the 2400/min Binance weight ceiling measured above.
+    protective_stop_watch_interval_seconds: float = Field(default=30.0)
+
     # How many consecutive scans must see the same discrepancy before it is
     # confirmed rather than dismissed as a transient read (e.g. a fill still
     # settling on the venue). Chosen in design, not measured like the

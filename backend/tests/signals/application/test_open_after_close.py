@@ -14,6 +14,7 @@ returns) or reschedules (``enqueue_unique``) -- ``poll()`` never raises, so
 ``WorkerRunner`` always acks this job.
 """
 
+import logging
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -24,6 +25,7 @@ import pytest
 from strategy_manager.allocation.application.ports import PoolBalance
 from strategy_manager.execution.domain.execution_attempt import (
     ExecutionAttempt,
+    ExecutionCause,
     ExecutionOrigin,
     ExecutionStatus,
 )
@@ -447,6 +449,75 @@ async def test_an_awaited_close_that_failed_abandons_with_an_error(
 
     assert queue.enqueued == []
     assert open_now.calls == []
+    assert any(record.levelname == "ERROR" for record in caplog.records)
+
+
+def _refused_as_flat(allocation_id: UUID, created_at: datetime) -> ExecutionAttempt:
+    """The close ``ClosePosition`` marks FAILED when the venue answers that the position
+    is already flat: the stop fired while the close was in flight (SS.7)."""
+    return replace(
+        _attempt(allocation_id=allocation_id, status=ExecutionStatus.FAILED, created_at=created_at),
+        error="ALREADY_FLAT: current position is zero",
+    )
+
+
+async def test_a_close_refused_as_already_flat_waits_for_the_stop_and_then_opens(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """SS.7, owner decision 2026-11-13 (A): the stop fired while the reverse's close was in
+    flight. The continuation does not abandon: it waits, and once the stop watcher books
+    the stop (a FILLED close of cause STOP, the allocation's latest), the open is placed."""
+    signal = _signal(received_at=NOW - timedelta(seconds=10))
+    allocation_id = uuid4()
+    attempts = FakeClosingAttemptsPort(closes={allocation_id: _refused_as_flat(allocation_id, NOW)})
+    outcomes = RecordingSignalOutcomes()
+    continuation, _, queue, open_now = _continuation(
+        signals=FakeSignalLookupPort(signal=signal), attempts=attempts, outcomes=outcomes
+    )
+
+    with caplog.at_level("INFO"):
+        await continuation.poll(_job(signal.id, [allocation_id], poll=1), OWNER)
+
+    assert open_now.calls == []
+    assert [job.payload["poll"] for job in queue.enqueued] == [2]
+    assert outcomes.unless_terminal_calls == [] and outcomes.calls == []
+    assert [r for r in caplog.records if r.levelno >= logging.WARNING] == []
+
+    attempts.closes[allocation_id] = replace(
+        _attempt(allocation_id=allocation_id, status=ExecutionStatus.FILLED, created_at=NOW),
+        cause=ExecutionCause.STOP,
+        client_order_id="stop-1",
+    )
+    await continuation.poll(_claimed_from(queue.enqueued[-1]), OWNER)
+
+    assert open_now.calls == [(signal.id, 2)]
+
+
+async def test_a_close_refused_as_already_flat_whose_stop_is_never_booked_times_out(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The wait is bounded: past the settle timeout with no booking (a stop read GONE,
+    say), the continuation ends as any close that never settled does, with an ERROR."""
+    signal = _signal(received_at=NOW - timedelta(seconds=10))
+    allocation_id = uuid4()
+    attempts = FakeClosingAttemptsPort(
+        closes={
+            allocation_id: _refused_as_flat(
+                allocation_id, NOW - timedelta(seconds=SETTLE_TIMEOUT_SECONDS + 1)
+            )
+        }
+    )
+    outcomes = RecordingSignalOutcomes()
+    continuation, _, queue, open_now = _continuation(
+        signals=FakeSignalLookupPort(signal=signal), attempts=attempts, outcomes=outcomes
+    )
+
+    with caplog.at_level("ERROR"):
+        await continuation.poll(_job(signal.id, [allocation_id]), OWNER)
+
+    assert open_now.calls == [] and queue.enqueued == []
+    [(_, outcome)] = outcomes.unless_terminal_calls
+    assert outcome.reason == "CONTINUATION_TIMED_OUT"
     assert any(record.levelname == "ERROR" for record in caplog.records)
 
 

@@ -116,6 +116,17 @@ class LeverageConflict(OpeningSettingRefused):
     reason_code: ClassVar[str] = "LEVERAGE_CONFLICT"
 
 
+class PositionAlreadyFlat(ExchangeError):
+    """A reduce-only close the venue refused because the position it would reduce is flat
+    (subscriber-safety SS.7).
+
+    Definitive, and not a failure of the close: the position is gone, most likely because its
+    protective stop fired while the close was in flight, and the stop watcher books the stop's
+    fill. ``ClosePosition`` ends the close ``ALREADY_FLAT`` with a WARNING and no operator
+    alert, instead of the ERROR a refused close raises. A subclass of ``ExchangeError`` so a
+    caller that knows nothing of it still reads a definitive refusal."""
+
+
 class OrderNotFound(DomainError):
     """The exchange has no order under this ``client_order_id``.
 
@@ -153,6 +164,30 @@ class RestingStop:
     execution carries when it fires (subscriber-safety, protective-stop spec)."""
 
     venue_stop_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class StopRests:
+    """The venue still holds the stop and it has not triggered."""
+
+
+@dataclass(frozen=True, slots=True)
+class StopFired:
+    """The stop triggered at the venue. ``exchange_order_id`` is the order it created and
+    ``fills`` are that order's executions as the venue has published them so far: an empty
+    or partial list means the rest is not published yet, never that the stop did not fire."""
+
+    exchange_order_id: str
+    fills: Sequence[Fill]
+
+
+@dataclass(frozen=True, slots=True)
+class StopNotResting:
+    """The venue holds no such stop any more and shows no execution of it: it went with its
+    position (closed by other means) or was cancelled."""
+
+
+StopReading = StopRests | StopFired | StopNotResting
 
 
 @dataclass(frozen=True, slots=True)
@@ -324,6 +359,23 @@ class ExchangePort(Protocol):
         the placing). Failures follow ``place_stop``."""
         ...
 
+    # ---- what became of a stop found resting (subscriber-safety SS.7) ----
+
+    async def read_stop(
+        self, stop: ProtectiveStop, parent_client_order_id: str
+    ) -> StopReading:
+        """What became of a stop that was found ``RESTING``.
+
+        ``StopRests``: still held and untriggered. ``StopFired``: triggered, with the order
+        it created and the fills the venue has published for it. ``StopNotResting``: held no
+        more and fired nothing the venue shows (its position closed by other means).
+        ``parent_client_order_id`` is the OPENING's client order id, how a venue that
+        carries the stop on the opening order (Bybit) finds it again. A failure whose
+        outcome is unknown propagates unchanged, so the stop stays ``RESTING`` and the next
+        tick asks again; a stop the venue cannot answer for (no id recorded, a state it does
+        not document) raises ``ExchangeError``."""
+        ...
+
 
 class ExchangeRegistryPort(Protocol):
     """Which adapter trades a given pool.
@@ -408,6 +460,14 @@ class ExecutionAttemptRepositoryPort(Protocol):
     async def mark_failed(self, user_id: UUID, attempt_id: UUID, error: str) -> None: ...
 
 
+@dataclass(frozen=True, slots=True)
+class OwnedStop:
+    """A stop with the user it belongs to."""
+
+    user_id: UUID
+    stop: ProtectiveStop
+
+
 class ProtectiveStopRepositoryPort(Protocol):
     """The stop of each opening attempt (subscriber-safety SS.5). Every method names
     the user whose stop it is, like the attempt repository: another user's row under
@@ -418,6 +478,12 @@ class ProtectiveStopRepositoryPort(Protocol):
     async def for_attempt(self, user_id: UUID, attempt_id: UUID) -> ProtectiveStop | None:
         """``None`` for an attempt that has no stop: a close, a spot opening, or a
         venue that attaches none."""
+        ...
+
+    async def for_allocation(self, user_id: UUID, allocation_id: UUID) -> ProtectiveStop | None:
+        """The stop of the opening the allocation was funded for, in any status, or ``None``
+        when the allocation has none (SS.7: ``ClosePosition`` asks whether a stop already
+        closed what it was told to close). An allocation has one opening, so one stop."""
         ...
 
     async def mark(
@@ -437,6 +503,12 @@ class ProtectiveStopRepositoryPort(Protocol):
         """Records where a stop placed after the fill will rest (SS.6), worked out from
         the fills. Written before the request that places it, so a retry after an unknown
         outcome places the SAME stop and never works out a second price."""
+        ...
+
+    async def resting_of_every_user(self) -> Sequence[OwnedStop]:
+        """Every ``RESTING`` stop of every user, each with its owner. The one cross-user
+        read here, made by SS.7's watcher as a system query before it loops per user:
+        there is no row-level security, and the per-user reads that follow name the user."""
         ...
 
 
@@ -512,6 +584,16 @@ class CommitPort(Protocol):
     async def commit(self) -> None: ...
 
 
+class UnitOfWorkPort(Protocol):
+    """``CommitPort`` plus the rollback a loop needs: a job that decides many independent
+    things in one session (SS.7's watcher) must end a failed one cleanly, releasing its
+    locks, before it starts the next."""
+
+    async def commit(self) -> None: ...
+
+    async def rollback(self) -> None: ...
+
+
 class OrderOutcomeRecorderPort(Protocol):
     """Records, on the caller's own session, what became of the DELIVERY an
     order or close was placed for (decision 25, design.md "Addendum: signal
@@ -533,6 +615,22 @@ class OrderOutcomeRecorderPort(Protocol):
     async def record_processing(self, delivery_id: UUID) -> None: ...
 
     async def record_rejected(self, delivery_id: UUID, reason: str, detail: str) -> None: ...
+
+    async def record_close_already_flat(
+        self, delivery_id: UUID, signal_id: UUID, detail: str
+    ) -> None:
+        """A close the venue refused because its position was already flat (SS.7). A plain
+        close's delivery ends ``PROCESSED`` with ``ALREADY_FLAT``; a reverse's writes nothing,
+        because its open half still follows once the stop watcher books the stop and
+        decides the outcome (owner decision, 2026-11-13). Only ``signals`` knows which
+        kind of signal a delivery carries."""
+        ...
+
+    async def record_processed(self, delivery_id: UUID, reason: str, detail: str) -> None:
+        """Ends the delivery ``PROCESSED`` with a ``reason`` (SS.7): a close that did nothing
+        because there was nothing left to close, ``ALREADY_CLOSED_BY_STOP``. Not a
+        rejection, so no operator is told."""
+        ...
 
 
 class PoolLockPort(Protocol):

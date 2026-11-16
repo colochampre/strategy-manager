@@ -49,14 +49,19 @@ from strategy_manager.execution.application.ports import (
     ModeExchangesPort,
     OrderNotPlaceable,
     OrderOutcomeRecorderPort,
+    PositionAlreadyFlat,
+    ProtectiveStopRepositoryPort,
 )
 from strategy_manager.execution.domain.execution_attempt import (
+    ALREADY_FLAT,
     ExecutionAttempt,
+    ExecutionCause,
     ExecutionOrigin,
     ExecutionStatus,
 )
 from strategy_manager.execution.domain.market_symbol import base_currency_of
 from strategy_manager.execution.domain.order import OrderSide
+from strategy_manager.execution.domain.protective_stop import StopStatus
 from strategy_manager.shared.application.job import Job, JobKind
 from strategy_manager.shared.application.ports import (
     AllocationModePort,
@@ -110,11 +115,16 @@ class CloseCommand:
     signal_id: UUID | None
     delivery_id: UUID | None
     reference_price: Decimal | None
+    # What asks for this close (migration 0043), recorded on the closing attempt. REQUIRED
+    # with no default, like ``signal_id``: the signal path says SIGNAL, the confirm job
+    # SAFETY_CLOSE, and a caller that forgets does not compile.
+    cause: ExecutionCause
 
 
 @dataclass(frozen=True, slots=True)
 class CloseResult:
-    status: str  # 'PLACED' | 'FAILED' | 'NOT_CLOSABLE'
+    # 'PLACED' | 'FAILED' | 'NOT_CLOSABLE' | 'ALREADY_CLOSED_BY_STOP' | 'ALREADY_FLAT'
+    status: str
     execution_attempt_id: UUID | None
     base_size: Decimal
     exchange_order_id: str | None = None
@@ -150,7 +160,9 @@ class ClosePosition:
         commit: CommitPort,
         settle_delay_seconds: float,
         outcomes: OrderOutcomeRecorderPort,
+        stops: ProtectiveStopRepositoryPort,
     ) -> None:
+        self._stops = stops
         self._exchanges = exchanges
         self._allocation_modes = allocation_modes
         self._attempts = attempts
@@ -170,6 +182,9 @@ class ClosePosition:
         base_currency = base_currency_of(command.symbol, command.settlement_currency)
         net = await self._held.net_base(command.user_id, command.allocation_id, base_currency)
         if net == 0:
+            stop = await self._stops.for_allocation(command.user_id, command.allocation_id)
+            if stop is not None and stop.status is StopStatus.FIRED:
+                return await self._already_closed_by_stop(command, base_currency)
             raise NothingRecordedYet(
                 f"the ledger holds no {base_currency} position for allocation "
                 f"{command.allocation_id}; the opening fills have most likely "
@@ -251,6 +266,7 @@ class ClosePosition:
                 leverage=None,
                 status=ExecutionStatus.SUBMITTED,
                 origin=ExecutionOrigin.SYSTEM,
+                cause=command.cause,
                 client_order_id=client_order_id,
                 # Decision 25, 5c.3: the CLOSING signal. ``allocation_id``
                 # names the opening allocation, so this is the only route from
@@ -276,6 +292,34 @@ class ClosePosition:
 
         try:
             placed = await exchange.place(order)
+        except PositionAlreadyFlat as exc:
+            # The venue's position is already flat: the stop most likely fired while this
+            # close was in flight, and the stop watcher books its fill. Not a failure the
+            # operator can act on, so a WARNING, never an ERROR. The mark opens the error, so
+            # a reverse's continuation waits for the stop's booking and then opens; the
+            # signals side ends a plain close's delivery PROCESSED.
+            await self._attempts.mark_failed(
+                command.user_id, attempt_id, f"{ALREADY_FLAT}: {exc}"
+            )
+            flat = (
+                "close refused because the venue position is already flat, so nothing was "
+                f"closed by this order: strategy={command.strategy_id} "
+                f"symbol={command.symbol} allocation={command.allocation_id} "
+                f"attempt={attempt_id} pool={command.exchange}/{command.venue}/"
+                f"{command.settlement_currency} venue_said={exc}"
+            )
+            if command.delivery_id is not None and command.signal_id is not None:
+                await self._outcomes.record_close_already_flat(
+                    command.delivery_id, command.signal_id, flat
+                )
+            await self._commit.commit()
+            logger.warning("%s", flat)
+            return CloseResult(
+                status="ALREADY_FLAT",
+                execution_attempt_id=attempt_id,
+                base_size=base_size,
+                error=str(exc),
+            )
         except ExchangeError as exc:
             # Definitive rejection. There is no reservation to release — the
             # capital was already spent and is sitting in the base currency,
@@ -314,6 +358,29 @@ class ClosePosition:
             execution_attempt_id=attempt_id,
             base_size=base_size,
             exchange_order_id=placed.exchange_order_id,
+        )
+
+    async def _already_closed_by_stop(
+        self, command: CloseCommand, base_currency: str
+    ) -> CloseResult:
+        """The ledger is flat because the allocation's protective stop fired and its fills
+        are booked (SS.7): there is nothing to close, and no order is built, sent or
+        retried. The delivery that asked for the close ends PROCESSED with the reason, on
+        the one commit; an orphan close, with no delivery, just commits."""
+        closed = (
+            f"nothing to close, the position was already closed by its stop: "
+            f"strategy={command.strategy_id} symbol={command.symbol} "
+            f"allocation={command.allocation_id} pool={command.exchange}/{command.venue}/"
+            f"{command.settlement_currency} ledger_{base_currency}=0"
+        )
+        if command.delivery_id is not None:
+            await self._outcomes.record_processed(
+                command.delivery_id, "ALREADY_CLOSED_BY_STOP", closed
+            )
+        await self._commit.commit()
+        logger.info("%s", closed)
+        return CloseResult(
+            status="ALREADY_CLOSED_BY_STOP", execution_attempt_id=None, base_size=Decimal(0)
         )
 
 

@@ -28,7 +28,7 @@ from strategy_manager.execution.application.confirm_protective_stop import (
     FillsNotPublishedYet,
 )
 from strategy_manager.execution.application.ports import ExchangeError, RestingStop
-from strategy_manager.execution.domain.execution_attempt import ExecutionAttempt
+from strategy_manager.execution.domain.execution_attempt import ExecutionAttempt, ExecutionCause
 from strategy_manager.execution.domain.fill import Fill
 from strategy_manager.execution.domain.futures_order import protective_stop_price
 from strategy_manager.execution.domain.order import OrderSide
@@ -373,6 +373,7 @@ async def test_a_definitive_refusal_fails_the_stop_and_closes_the_position_at_on
         signal_id=None,
         delivery_id=None,
         reference_price=None,
+        cause=ExecutionCause.SAFETY_CLOSE,
     )
     assert rig.stops.marked == [(OWNER, ATTEMPT_ID, StopStatus.FAILED, None)]
     # The trigger was committed; the FAILED mark rides the close's own commit.

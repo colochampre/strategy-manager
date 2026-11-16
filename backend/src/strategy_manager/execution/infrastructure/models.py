@@ -53,6 +53,10 @@ class ExecutionAttemptRow(Base):
         # filter on it, so a plain index replaces the lookup the UNIQUE
         # used to provide as a side effect.
         Index("ix_execution_attempts_closes_allocation", "closes_allocation_id"),
+        CheckConstraint(
+            "cause IN ('SIGNAL', 'STOP', 'SAFETY_CLOSE', 'MANUAL')",
+            name="ck_execution_attempts_cause",
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(
@@ -120,6 +124,9 @@ class ExecutionAttemptRow(Base):
     # the ORM ``Mapped`` type carries no default of its own on purpose, so
     # every constructor names it (design.md § 2).
     origin: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'SYSTEM'"))
+    # Migration ``0043``: what asked for the attempt (SIGNAL, STOP, SAFETY_CLOSE, MANUAL).
+    # The DB default only lets an older raw INSERT land; every writer names it.
+    cause: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'SIGNAL'"))
     client_order_id: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
     exchange_order_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -141,7 +148,7 @@ class ProtectiveStopRow(Base):
         UniqueConstraint("execution_attempt_id", name="uq_protective_stops_attempt"),
         UniqueConstraint("client_stop_id", name="uq_protective_stops_client_stop_id"),
         CheckConstraint(
-            "status IN ('PENDING', 'RESTING', 'FAILED', 'GONE', 'VOID', 'SIMULATED')",
+            "status IN ('PENDING', 'RESTING', 'FIRED', 'FAILED', 'GONE', 'VOID', 'SIMULATED')",
             name="ck_protective_stops_status",
         ),
         CheckConstraint(

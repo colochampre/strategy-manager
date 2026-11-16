@@ -976,8 +976,9 @@ class StopClient(FakeTradeClient):
         *,
         algo_answers: list[BinanceAlgoOrder | Exception] | None = None,
         stop_raises: Exception | None = None,
+        executions: list[BinanceExecution] | None = None,
     ) -> None:
-        super().__init__(rules=DOGE_RULES)
+        super().__init__(rules=DOGE_RULES, executions=executions)
         self.stops: list[dict[str, object]] = []
         self.algo_reads: list[str] = []
         self._algo_answers = list(algo_answers or [])

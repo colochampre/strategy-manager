@@ -62,6 +62,9 @@ from strategy_manager.reconciliation.domain.positions import (
 from strategy_manager.reconciliation.infrastructure.repository import (
     SqlAlchemyDiscrepancyRepository,
 )
+from strategy_manager.reconciliation.infrastructure.resting_stops_adapter import (
+    RestingStopsAdapter,
+)
 from strategy_manager.shared.config import get_settings
 from tests.ledger.infrastructure.conftest import (
     seed_execution_attempt,
@@ -334,6 +337,7 @@ async def _scan(
             clock=_FrozenClock(at),
             commit=_SessionCommit(session),
             confirmations_required=confirmations_required,
+            resting_stops=RestingStopsAdapter(session),
         )
         await use_case.scan(scan_id)
 
