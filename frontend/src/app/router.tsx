@@ -2,6 +2,7 @@ import { Route, Routes } from "react-router";
 
 import { DiscrepanciesPage } from "@/features/discrepancies/DiscrepanciesPage";
 import { OverviewPage } from "@/features/overview/OverviewPage";
+import { SafetyEventsPage } from "@/features/safety-events/SafetyEventsPage";
 import { SettingsPage } from "@/features/settings/SettingsPage";
 import { ExplorePage } from "@/features/strategies/ExplorePage";
 import { MySubscriptionsPage } from "@/features/strategies/MySubscriptionsPage";
@@ -35,6 +36,7 @@ export function AppRoutes() {
           <Route path="discrepancies" element={<DiscrepanciesPage />} />
           <Route path="users" element={<UsersPage />} />
         </Route>
+        <Route path="safety-events" element={<SafetyEventsPage />} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="*" element={<NotFoundPage />} />
       </Route>

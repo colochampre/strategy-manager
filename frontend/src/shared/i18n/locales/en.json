@@ -9,7 +9,34 @@
     "strategies": "Strategies",
     "discrepancies": "Discrepancies",
     "users": "Users",
+    "safetyEvents": "Safety events",
     "settings": "Settings"
+  },
+  "safetyEvents": {
+    "title": "Safety events",
+    "intro": "What the safety net did for your positions: stops that fired, closes made for you, and openings refused.",
+    "loading": "Reading safety events…",
+    "error": "The safety events could not be read.",
+    "empty": "Nothing has needed the safety net yet.",
+    "listLabel": "Safety events, newest first",
+    "unknownStrategy": "Unknown strategy",
+    "kind": {
+      "STOP_FIRED": "Stop fired",
+      "STOP_FAILED_CLOSED": "Closed after a failed stop",
+      "STRATEGY_STOPPED_CLOSED": "Closed after the strategy stopped",
+      "MANUAL_CLOSE": "Closed by you",
+      "OPENING_REFUSED_LEVERAGE_CAP": "Opening refused: leverage cap",
+      "unknown": "Safety event"
+    },
+    "detail": {
+      "STOP_FIRED": "The stop was triggered at {{trigger_price}} and closed {{quantity}}.",
+      "STOP_FAILED_CLOSED": "The stop could not be kept in place, so the position was closed: {{quantity}} at {{price}}.",
+      "STRATEGY_STOPPED_CLOSED": "The strategy stopped, so the position was closed: {{quantity}} at {{price}}.",
+      "MANUAL_CLOSE": "You closed the position: {{quantity}} at {{price}}.",
+      "OPENING_REFUSED_LEVERAGE_CAP": "The opening asked for {{requested_leverage}}x, above the {{max_leverage}}x allowed with a {{stop_loss_pct}}% stop, so nothing was opened.",
+      "unknown": "No details are available for this event.",
+      "missing": "n/a"
+    }
   },
   "users": {
     "title": "Users",

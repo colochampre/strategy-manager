@@ -69,6 +69,7 @@ describe("what the navigation offers", () => {
         "/strategies",
         "/discrepancies",
         "/users",
+        "/safety-events",
         "/settings",
       ]);
     }
@@ -84,6 +85,7 @@ describe("what the navigation offers", () => {
       expect(within(nav).getAllByRole("link").map((link) => link.getAttribute("href"))).toEqual([
         "/",
         "/strategies",
+        "/safety-events",
         "/settings",
       ]);
     }
@@ -98,6 +100,7 @@ describe("what the navigation offers", () => {
       expect(within(nav).getAllByRole("link").map((link) => link.getAttribute("href"))).toEqual([
         "/",
         "/strategies",
+        "/safety-events",
         "/settings",
       ]);
     }
