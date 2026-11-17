@@ -69,6 +69,8 @@ interface Options {
   pools?: unknown[];
   strategyAnswer?: () => Response;
   patch?: (body: unknown) => Response;
+  /** Added to who is signed in: a `display_name`, for one. */
+  me?: Record<string, unknown>;
 }
 
 function renderPage(subject: Strategy = strategy(), options: Options = {}) {
@@ -80,6 +82,11 @@ function renderPage(subject: Strategy = strategy(), options: Options = {}) {
     {},
     (url, init) => {
       const method = init?.method ?? "GET";
+      if (url.endsWith("/api/me") && options.me !== undefined) {
+        return Promise.resolve(
+          jsonResponse({ email: "owner@example.com", is_admin: true, mode: "SIMULATION", dry_run_brake: true, ...options.me }),
+        );
+      }
       if (url.includes(`/performance/strategies/${ID}/trades`)) {
         return Promise.resolve(jsonResponse({ trades: options.trades ?? [], next_cursor: null }));
       }
@@ -124,35 +131,6 @@ afterEach(async () => {
 });
 
 describe("StrategyDetailPage", () => {
-  it("test_shows_active_x_days_since_first_activation_date", async () => {
-    renderPage(
-      strategy({ enabled: true, uptime: { seconds: 10 * DAY + 3_600, first_enabled_at: "2026-08-12T10:00:00+00:00", baseline: false } }),
-    );
-
-    await heading("ETH Breakout");
-
-    expect(screen.getByText("active 10 days since Aug 12, 2026")).toBeInTheDocument();
-  });
-
-  it("says 'at least' when the first activation was written by a migration baseline", async () => {
-    renderPage(
-      strategy({ enabled: true, uptime: { seconds: 1 * DAY, first_enabled_at: "2026-08-12T10:00:00+00:00", baseline: true } }),
-    );
-
-    await heading("ETH Breakout");
-
-    expect(screen.getByText("active at least 1 day, since at least Aug 12, 2026")).toBeInTheDocument();
-  });
-
-  it("test_never_enabled_shows_no_activation_date", async () => {
-    renderPage(strategy());
-
-    await heading("ETH Breakout");
-
-    expect(screen.getByText(i18n.t("strategies.row.neverEnabled"))).toBeInTheDocument();
-    expect(screen.queryByText(/since/)).toBeNull();
-  });
-
   it("test_the_delete_control_is_rendered_below_the_archive_control_for_the_loaded_strategy", async () => {
     renderPage();
     await heading("ETH Breakout");
@@ -537,7 +515,20 @@ describe("StrategyDetailPage", () => {
     expect(within(leverageRegion).getByRole("button", { name: en.strategies.leverage.save })).toBeDisabled();
   });
 
-  it("puts the description editor in the settings column after the leverage, and saves only the description", async () => {
+  it("shows the description where the public page does, above Performance, and no editor in the settings column", async () => {
+    renderPage(strategy({ description: "Runs at 3x\nNever above 5x" }));
+    await heading("ETH Breakout");
+
+    const section = screen.getByTestId("strategy-description");
+    expect(within(section).getByRole("heading", { level: 2, name: en.strategies.description.publicHeading })).toBeInTheDocument();
+    expect(section).toHaveTextContent("Runs at 3x");
+    const performance = screen.getByRole("heading", { level: 2, name: en.strategies.report.title });
+    expect(section.compareDocumentPosition(performance) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const settings = screen.getByRole("complementary", { name: en.strategies.detail.settings });
+    expect(within(settings).queryByRole("textbox", { name: en.strategies.description.label })).not.toBeInTheDocument();
+  });
+
+  it("edits the description in place from its pencil, as the name: Save sends only the description and closes", async () => {
     const patched: unknown[] = [];
     renderPage(strategy({ description: "Runs at 3x" }), {
       patch: (body) => {
@@ -547,26 +538,55 @@ describe("StrategyDetailPage", () => {
     });
     await heading("ETH Breakout");
 
-    const settings = screen.getByRole("complementary", { name: en.strategies.detail.settings });
-    const description = within(settings).getByRole("textbox", { name: en.strategies.description.label });
-    expect(description).toHaveValue("Runs at 3x");
-    const leverage = within(settings).getByRole("slider", { name: en.strategies.leverage.label });
-    expect(leverage.compareDocumentPosition(description) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-
-    fireEvent.change(description, { target: { value: "Runs at 5x" } });
-    const descriptionRegion = within(settings).getByRole("region", { name: en.strategies.description.label });
-    fireEvent.click(within(descriptionRegion).getByRole("button", { name: en.strategies.description.save }));
+    const section = screen.getByTestId("strategy-description");
+    fireEvent.click(within(section).getByRole("button", { name: en.strategies.description.edit }));
+    const field = within(section).getByRole("textbox", { name: en.strategies.description.label });
+    expect(field).toHaveValue("Runs at 3x");
+    expect(field).toHaveFocus();
+    fireEvent.change(field, { target: { value: "Runs at 5x" } });
+    fireEvent.click(within(section).getByRole("button", { name: en.strategies.description.save }));
 
     await waitFor(() => expect(patched).toEqual([{ description: "Runs at 5x" }]));
+    await waitFor(() => expect(within(section).queryByRole("textbox")).not.toBeInTheDocument());
+    expect(within(section).getByRole("button", { name: en.strategies.description.edit })).toHaveFocus();
   });
 
-  it("shows the description editor read-only on an archived strategy", async () => {
+  it("leaves the description as it was on Cancel, and sends nothing", async () => {
+    const patched: unknown[] = [];
+    renderPage(strategy({ description: "Runs at 3x" }), {
+      patch: (body) => {
+        patched.push(body);
+        return jsonResponse(strategy());
+      },
+    });
+    await heading("ETH Breakout");
+
+    const section = screen.getByTestId("strategy-description");
+    fireEvent.click(within(section).getByRole("button", { name: en.strategies.description.edit }));
+    fireEvent.change(within(section).getByRole("textbox"), { target: { value: "Something else" } });
+    fireEvent.click(within(section).getByRole("button", { name: en.strategies.detail.name.cancel }));
+
+    expect(within(section).queryByRole("textbox")).not.toBeInTheDocument();
+    expect(section).toHaveTextContent("Runs at 3x");
+    expect(patched).toEqual([]);
+  });
+
+  it("invites a description where there is none, from the same pencil", async () => {
+    renderPage(strategy({ description: null }));
+    await heading("ETH Breakout");
+
+    const section = screen.getByTestId("strategy-description");
+    expect(section).toHaveTextContent(en.strategies.description.none);
+    expect(within(section).getByRole("button", { name: en.strategies.description.edit })).toBeInTheDocument();
+  });
+
+  it("offers no pencil on an archived strategy, whose description cannot change", async () => {
     renderPage(strategy({ archived_at: "2026-09-01T00:00:00+00:00", description: "Runs at 3x" }));
     await heading("ETH Breakout");
 
-    const description = screen.getByRole("textbox", { name: en.strategies.description.label });
-    expect(description).toBeDisabled();
-    expect(description).toHaveValue("Runs at 3x");
+    const section = screen.getByTestId("strategy-description");
+    expect(section).toHaveTextContent("Runs at 3x");
+    expect(within(section).queryByRole("button", { name: en.strategies.description.edit })).not.toBeInTheDocument();
   });
 
   it("test_an_archived_strategy_shows_the_leverage_control_read_only", async () => {
@@ -712,16 +732,93 @@ describe("StrategyDetailPage", () => {
 
   it("renders in Spanish and has the same keys in both locales", async () => {
     await i18n.changeLanguage("es");
-    renderPage(strategy({ uptime: { seconds: 2 * DAY, first_enabled_at: "2026-08-12T10:00:00+00:00", baseline: false } }));
+    renderPage(strategy({ created_at: "2026-08-12T10:00:00+00:00" }));
 
     expect(await screen.findByRole("link", { name: es.strategies.detail.back })).toBeInTheDocument();
-    expect(screen.getByText("activa 2 días desde el 12 ago 2026")).toBeInTheDocument();
+    expect(screen.getByTestId("strategy-age")).toHaveTextContent(/^12 ago 2026 – /);
+    expect(screen.getByTestId("strategy-origin")).toHaveTextContent(es.strategies.subscriptions.yours);
 
     const keys = (node: unknown, prefix = ""): string[] =>
       typeof node === "object" && node !== null
         ? Object.entries(node).flatMap(([key, value]) => keys(value, `${prefix}${key}.`))
         : [prefix];
     expect(keys(es.strategies).sort()).toEqual(keys(en.strategies).sort());
+  });
+});
+
+describe("the own page reads like another author's (owner, 2026-11-17)", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("draws the title as the public page does: the same size, in a row as tall as its pencil", async () => {
+    renderPage();
+
+    const title = await heading("ETH Breakout");
+    expect(title).toHaveClass("font-display", "text-2xl", "font-bold", "text-ink");
+    expect(title.parentElement).toHaveClass("min-h-11");
+  });
+
+  it("names its author and dates it on the market line, as the cards do, and says nothing more under the title", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-11-17T12:00:00Z"));
+    renderPage(
+      strategy({
+        created_at: "2026-10-12T09:00:00Z",
+        enabled: true,
+        uptime: { seconds: 3 * DAY, first_enabled_at: "2026-11-14T00:00:00Z", baseline: false },
+        subscribers: 3,
+        live_subscribers: 2,
+        capital: "300",
+      }),
+      { me: { display_name: "Ana" } },
+    );
+
+    const header = (await heading("ETH Breakout")).closest("header") as HTMLElement;
+    await waitFor(() => expect(within(header).getByTestId("strategy-origin")).toHaveTextContent(/^by Ana$/));
+    const market = within(header).getByTestId("strategy-market");
+    expect(market).toHaveTextContent(/^bybit · usdt-m · USDT/);
+    expect(within(market).getByTestId("strategy-age")).toHaveTextContent(/^Oct 12, 2026 – Nov 17, 2026$/);
+    expect(within(market).getByRole("img", { name: en.strategies.card.age })).toBeInTheDocument();
+    // The days active, the subscribers and the capital lines are gone: the last two are AuM's, in the figures.
+    expect(header).not.toHaveTextContent(/active/i);
+    expect(within(header).queryByTestId("strategy-subscribers")).not.toBeInTheDocument();
+    expect(within(header).queryByTestId("strategy-capital")).not.toBeInTheDocument();
+    const aum = screen.getByTestId("strategy-group-aum");
+    expect(within(aum).getByTestId("strategy-subscribers")).toHaveTextContent(/^2$/);
+    expect(within(aum).getByTestId("strategy-capital")).toHaveTextContent(/^300\.00USDT$/);
+  });
+
+  it("says the strategy is the reader's own while they have chosen no author name", async () => {
+    renderPage();
+
+    await heading("ETH Breakout");
+    expect(screen.getByTestId("strategy-origin")).toHaveTextContent(en.strategies.subscriptions.yours);
+  });
+
+  it("draws its figures under Performance, grouped as the cards, in place of the Overview's ledger line", async () => {
+    renderPage(strategy(), {
+      reportAnswer: () =>
+        jsonResponse({
+          ...emptyPerformance("bybit", "usdt-m", "USDT"),
+          strategy_id: ID,
+          trade_count: 3,
+          by_pair: TWO_PAIRS,
+        }),
+    });
+    await heading("ETH Breakout");
+
+    const performance = screen.getByRole("region", { name: en.strategies.report.title });
+    expect(within(performance).getByRole("heading", { level: 2, name: en.strategies.report.title })).toBeInTheDocument();
+    const pnl = await within(performance).findByTestId("strategy-group-pnl");
+    expect(within(pnl).getByTestId("strategy-pnl")).toBeInTheDocument();
+    expect(within(pnl).getByTestId("strategy-return")).toBeInTheDocument();
+    expect(within(performance).getByTestId("strategy-group-drawdown")).toBeInTheDocument();
+    // 2 of 3 trades won across the two pairs.
+    await waitFor(() => expect(within(performance).getByTestId("strategy-wins")).toHaveTextContent(/^2\/3$/));
+    expect(within(performance).getByTestId("strategy-group-aum")).toBeInTheDocument();
+    expect(within(performance).queryByTestId("strategy-group-setup")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("ledger-line")).not.toBeInTheDocument();
   });
 });
 

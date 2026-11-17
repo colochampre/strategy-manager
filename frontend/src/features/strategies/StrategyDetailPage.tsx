@@ -9,8 +9,9 @@ import { DeleteStrategyControl } from "@/features/strategies/DeleteStrategyContr
 import { EnablementHistory } from "@/features/strategies/EnablementHistory";
 import { EnableToggle } from "@/features/strategies/EnableToggle";
 import { SeatSettings } from "@/features/strategies/SeatSettings";
+import { AuthorFigures } from "@/features/strategies/RecordFigures";
 import { StopLevelEditor } from "@/features/strategies/StopLevelEditor";
-import { StrategyDescriptionEditor } from "@/features/strategies/StrategyDescriptionEditor";
+import { AuthorDescription } from "@/features/strategies/StrategyDescription";
 import { BackToStrategies, StrategyHeader } from "@/features/strategies/StrategyHeader";
 import { StrategyPerformance } from "@/features/strategies/StrategyPerformance";
 import { StrategySharing } from "@/features/strategies/StrategySharing";
@@ -72,9 +73,16 @@ export function StrategyDetailPage() {
   return (
     <div className="flex flex-col gap-4">
       <div className="grid gap-9 lg:grid-cols-[minmax(0,1fr)_25rem]">
+        {/* The header, the description and Performance as another author's page draws them (owner, 2026-11-17). */}
         <div className="flex min-w-0 flex-col gap-4">
           <StrategyHeader strategy={subject} />
-          <StrategyPerformance key={subject.id} strategyId={subject.id} />
+          <AuthorDescription key={`description-${subject.id}`} strategy={subject} />
+          <section aria-label={t("strategies.report.title")} className="flex min-w-0 flex-col gap-4">
+            <h2 className="font-display text-base font-semibold text-ink">{t("strategies.report.title")}</h2>
+            <AuthorFigures strategy={subject} />
+            {/* Its PnL, return and drawdown are in the figures above, so the report draws no second line of them. */}
+            <StrategyPerformance key={subject.id} strategyId={subject.id} ledger={false} />
+          </section>
         </div>
         <aside
           aria-label={t("strategies.detail.settings")}
@@ -90,7 +98,6 @@ export function StrategyDetailPage() {
             <StrategySharing strategy={subject} />
             <SeatSettings strategy={subject} />
             <StopLevelEditor strategy={subject} />
-            <StrategyDescriptionEditor strategy={subject} />
           </Fragment>
           <AllowedPairsEditor strategy={subject} />
           <div className="flex flex-col gap-2 border-t border-rule pt-4">

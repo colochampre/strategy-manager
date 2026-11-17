@@ -318,24 +318,16 @@
     "card": {
       "age": "Antigüedad",
       "subscribed": "Tiempo suscrito",
-      "uptime": "Días activa",
-      "uptimeAtLeast": "Días activa, como mínimo",
-      "neverEnabled": "Nunca activada",
-      "trades": "Operaciones cerradas",
-      "return": "Rendimiento",
-      "deepest": "Caída máxima",
-      "winRate": "Tasa de aciertos",
       "subscribers": "Suscriptores en vivo",
-      "capital": "Capital",
-      "pnl": "PnL",
       "yourPnl": "Su PnL",
       "share": "Parte del pool",
       "leverage": "Apalancamiento",
       "totalPnl": "PnL total",
+      "totalPnlRange": "PnL total · {{range}}",
       "maxDrawdown": "Caída máxima",
       "profitableTrades": "Operaciones ganadoras",
       "aum": "AuM",
-      "aumHint": "Activos bajo gestión: los suscriptores que operan la estrategia en vivo y el capital que tienen detrás.",
+      "aumHint": "Activos bajo gestión: suscriptores en vivo y capital",
       "setup": "Configuración"
     },
     "sort": {
@@ -383,8 +375,6 @@
       "record": "Historial de la estrategia",
       "mine": "Mis resultados",
       "recordChartTitle": "Historial de la estrategia",
-      "recordReturn": "Rendimiento",
-      "recordReturnRange": "Rendimiento, {{range}}",
       "joined": "Usted se suscribió el {{date}}",
       "recordLoading": "Cargando el historial de la estrategia…",
       "recordError": "No se pudo cargar el historial de la estrategia.",
@@ -413,13 +403,8 @@
       }
     },
     "row": {
-      "subscribers_one": "{{count}} suscriptor, {{live}} en vivo",
-      "subscribers_other": "{{count}} suscriptores, {{live}} en vivo",
-      "capital": "Capital: {{amount}} {{currency}}",
       "archived": "Archivada",
       "enable": "Activar {{name}}",
-      "neverEnabled": "nunca activada",
-      "daysAtLeast": "≥{{count}}",
       "toggleError": "El cambio no se guardó. Inténtelo de nuevo.",
       "performanceError": "No se pudieron cargar las cifras de esta estrategia."
     },
@@ -505,7 +490,11 @@
       "invalid": "La descripción es demasiado larga o contiene un carácter que no se puede conservar.",
       "archived": "Esta estrategia está archivada, así que su descripción ya no se puede cambiar.",
       "gone": "Esta estrategia ya no existe.",
-      "publicHeading": "Acerca de esta estrategia"
+      "publicHeading": "Acerca de esta estrategia",
+      "edit": "Editar descripción",
+      "none": "Todavía no hay descripción.",
+      "more": "Mostrar más",
+      "less": "Mostrar menos"
     },
     "new": {
       "open": "Nueva estrategia",
@@ -567,12 +556,6 @@
       "disabled": "Desactivada",
       "enable": "Activar estrategia",
       "disable": "Desactivar estrategia",
-      "uptime": {
-        "active_one": "activa {{count}} día desde el {{date}}",
-        "active_other": "activa {{count}} días desde el {{date}}",
-        "activeAtLeast_one": "activa al menos {{count}} día, desde al menos el {{date}}",
-        "activeAtLeast_other": "activa al menos {{count}} días, desde al menos el {{date}}"
-      },
       "history": {
         "title": "Historial de activación",
         "enabled": "Activada",

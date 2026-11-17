@@ -318,24 +318,16 @@
     "card": {
       "age": "Age",
       "subscribed": "Time subscribed",
-      "uptime": "Days active",
-      "uptimeAtLeast": "Days active, at least",
-      "neverEnabled": "Never enabled",
-      "trades": "Closed trades",
-      "return": "Return",
-      "deepest": "Drawdown",
-      "winRate": "Win rate",
       "subscribers": "Live subscribers",
-      "capital": "Capital",
-      "pnl": "PnL",
       "yourPnl": "Your PnL",
       "share": "Share",
       "leverage": "Leverage",
       "totalPnl": "Total PnL",
+      "totalPnlRange": "Total PnL · {{range}}",
       "maxDrawdown": "Max drawdown",
       "profitableTrades": "Profitable trades",
       "aum": "AuM",
-      "aumHint": "Assets under management: the subscribers trading the strategy live, and the capital they have behind it.",
+      "aumHint": "Assets under management: live subscribers and capital",
       "setup": "Settings"
     },
     "sort": {
@@ -383,8 +375,6 @@
       "record": "Strategy record",
       "mine": "My results",
       "recordChartTitle": "Strategy record",
-      "recordReturn": "Return",
-      "recordReturnRange": "Return, {{range}}",
       "joined": "You joined on {{date}}",
       "recordLoading": "Loading the strategy's record…",
       "recordError": "The strategy's record could not be loaded.",
@@ -413,13 +403,8 @@
       }
     },
     "row": {
-      "subscribers_one": "{{count}} subscriber, {{live}} live",
-      "subscribers_other": "{{count}} subscribers, {{live}} live",
-      "capital": "Capital: {{amount}} {{currency}}",
       "archived": "Archived",
       "enable": "Enable {{name}}",
-      "neverEnabled": "never enabled",
-      "daysAtLeast": "≥{{count}}",
       "toggleError": "The change was not saved. Try again.",
       "performanceError": "This strategy's figures could not be loaded."
     },
@@ -505,7 +490,11 @@
       "invalid": "The description is too long or holds a character that cannot be kept.",
       "archived": "This strategy is archived, so its description can no longer be changed.",
       "gone": "This strategy no longer exists.",
-      "publicHeading": "About this strategy"
+      "publicHeading": "About this strategy",
+      "edit": "Edit description",
+      "none": "No description yet.",
+      "more": "Show more",
+      "less": "Show less"
     },
     "new": {
       "open": "New strategy",
@@ -567,12 +556,6 @@
       "disabled": "Disabled",
       "enable": "Enable strategy",
       "disable": "Disable strategy",
-      "uptime": {
-        "active_one": "active {{count}} day since {{date}}",
-        "active_other": "active {{count}} days since {{date}}",
-        "activeAtLeast_one": "active at least {{count}} day, since at least {{date}}",
-        "activeAtLeast_other": "active at least {{count}} days, since at least {{date}}"
-      },
       "history": {
         "title": "Enable history",
         "enabled": "Enabled",

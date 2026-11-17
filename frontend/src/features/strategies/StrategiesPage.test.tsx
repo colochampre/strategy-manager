@@ -242,7 +242,6 @@ describe("the strategies list", () => {
 
     const row = await screen.findByTestId("strategy-row");
     expect(within(row).getByRole("switch")).toHaveAttribute("aria-checked", "false");
-    expect(within(row).queryByRole("img", { name: en.strategies.card.neverEnabled })).not.toBeInTheDocument();
   });
 
   it("lists only the selected exchange's strategies, and follows a tab switch", async () => {
@@ -724,12 +723,8 @@ describe("copy", () => {
       expect(locale.strategies.scopeLoading).toBeTruthy();
       expect(locale.strategies.scopeError).toBeTruthy();
       expect(locale.strategies.row.archived).toBeTruthy();
-      expect(locale.strategies.row.neverEnabled).toBeTruthy();
       expect(locale.strategies.row.toggleError).toBeTruthy();
       expect(locale.strategies.row.performanceError).toBeTruthy();
-      expect(locale.strategies.card.uptime).toBeTruthy();
-      expect(locale.strategies.card.uptimeAtLeast).toBeTruthy();
-      expect(locale.strategies.card.neverEnabled).toBeTruthy();
     }
   });
 });

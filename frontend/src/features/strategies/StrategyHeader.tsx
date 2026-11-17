@@ -3,11 +3,11 @@ import { Webhook } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router";
 
-import { AuthorCapital } from "@/features/strategies/AuthorCapital";
 import { EnabledBadge } from "@/features/strategies/StrategyCard";
+import { StrategyPageHeader } from "@/features/strategies/StrategyPageHeader";
 import { StrategyTitle } from "@/features/strategies/StrategyTitle";
-import { UptimeSummary } from "@/features/strategies/UptimeSummary";
 import { WebhookMessage } from "@/features/strategies/WebhookMessage";
+import { useMe } from "@/shared/api/me";
 import type { Strategy } from "@/shared/api/types";
 
 interface StrategyHeaderProps {
@@ -26,26 +26,29 @@ export function BackToStrategies() {
 }
 
 /**
- * The way back to the list, the strategy's name and status, its pool and its
- * uptime, and the button that opens "Connect a TradingView alert". The block
- * opens as a panel under the header, in the page flow (the JSON is long and has
- * to be selected, so it is not a popover). It is closed by default and, closed,
- * UNMOUNTED: a regenerated secret that was on screen then leaves the mutation
- * cache, and opening it again starts from the placeholder.
+ * The header another author's page draws (owner, 2026-11-17): the way back, the name with its pencil, the status, who
+ * wrote it and its dated market; and here the button that opens "Connect a TradingView alert". Its subscribers and
+ * capital are AuM's, in the figures under Performance. The block opens as a panel under the header, in the page flow
+ * (the JSON is long and has to be selected, so it is not a popover). It is closed by default and, closed,
+ * UNMOUNTED: a regenerated secret that was on screen then leaves the mutation cache, and opening it again starts
+ * from the placeholder.
  */
 export function StrategyHeader({ strategy }: StrategyHeaderProps) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const panelId = useId();
+  const me = useMe();
   const archived = strategy.archived_at !== null;
+  // The name the public page signs it with; the reader's own words while they have chosen none.
+  const name = me.data?.displayName ?? null;
 
   return (
-    // The title steps 6 to the page below it, whose blocks stack 4 apart (L.13).
-    <header className="mb-2 flex flex-col gap-1.5">
-      <BackToStrategies />
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        <StrategyTitle strategy={strategy} />
-        <EnabledBadge enabled={strategy.enabled} archived={archived} testId="strategy-status" />
+    <StrategyPageHeader
+      prefix="strategy"
+      back={<BackToStrategies />}
+      title={<StrategyTitle strategy={strategy} />}
+      status={<EnabledBadge enabled={strategy.enabled} archived={archived} testId="strategy-status" />}
+      action={
         <button
           type="button"
           aria-expanded={open}
@@ -56,18 +59,15 @@ export function StrategyHeader({ strategy }: StrategyHeaderProps) {
           <Webhook aria-hidden="true" className="size-4 shrink-0" />
           {t("strategies.webhook.open")}
         </button>
-      </div>
-      <p className="font-mono text-xs text-ink-2">
-        {`${strategy.exchange} · ${strategy.venue} · ${strategy.settlement_currency} · `}
-        <UptimeSummary uptime={strategy.uptime} />
-      </p>
-      <p data-testid="strategy-subscribers" className="font-mono text-xs text-ink-2">
-        {t("strategies.row.subscribers", { count: strategy.subscribers, live: strategy.live_subscribers })}
-      </p>
-      <AuthorCapital strategy={strategy} className="font-mono text-xs text-ink-2" />
-      <div id={panelId} className="mt-2">
+      }
+      byline={name === null ? t("strategies.subscriptions.yours") : t("strategies.public.by", { name })}
+      market={`${strategy.exchange} · ${strategy.venue} · ${strategy.settlement_currency}`}
+      since={strategy.created_at}
+    >
+      {/* Closed, it takes no room, so the page under the header starts where another author's does. */}
+      <div id={panelId} className={open ? "mt-2" : "hidden"}>
         {open && <WebhookMessage strategyId={strategy.id} secretLast4={strategy.secret_last4} archived={archived} />}
       </div>
-    </header>
+    </StrategyPageHeader>
   );
 }

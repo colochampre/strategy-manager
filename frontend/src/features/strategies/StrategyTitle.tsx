@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { Pencil, Save, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
+import { STRATEGY_TITLE } from "@/features/strategies/StrategyPageHeader";
 import { StatusButton } from "@/shared/ui/StatusButton";
 
 import { ApiError } from "@/shared/api/client";
@@ -68,7 +69,7 @@ export function StrategyTitle({ strategy }: StrategyTitleProps) {
   if (draft === null) {
     return (
       <>
-        <h1 className="font-display text-3xl font-bold text-ink">{strategy.name}</h1>
+        <h1 className={STRATEGY_TITLE}>{strategy.name}</h1>
         {strategy.archived_at === null && (
           <button
             ref={pencil}
