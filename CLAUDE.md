@@ -277,6 +277,64 @@ So a "no such order" from a lookup is not a fact about the order:
 
 Both rules live in `settle_execution.py`.
 
+## Protective stops (verified live 2026-11-12)
+
+Every LIVE opening carries a stop at the exchange, at the strategy's stop
+level (`stop_loss_pct`, a distance from the entry). A simulated opening has
+none. Pionex has no stop path: no futures adapter is registered there.
+
+**Bybit puts the stop on the opening order itself.** `stopLoss` travels on
+`/v5/order/create`, so the stop exists as soon as the fill does.
+- It rests as a conditional order (`orderFilter=StopOrder`, `stopOrderType:
+  StopLoss`, `reduceOnly`, `closeOnTrigger`) over the whole position, with
+  `parentOrderLinkId` set to the opening's `orderLinkId`.
+- On that order `stopLoss` reads empty: the level is in `triggerPrice`, and the
+  position object reports it as `stopLoss`.
+- A fired stop's execution carries the resting stop's own `orderId` and fills at
+  the trigger price, with the fee in USDT.
+- Setting the stop after the fill (`/v5/position/trading-stop`) left the
+  position bare for about a second, which is why it is not done that way.
+
+**Binance places it after the fill, in a second call.** `POST
+/fapi/v1/algoOrder` (`algoType: CONDITIONAL`, `STOP_MARKET`,
+`closePosition: true`, a UUID `clientAlgoId`) is acknowledged with an
+`algoId`.
+- It goes in a second or more after the fill, every time, and the position is
+  bare until then.
+- A fired stop reads `FINISHED` with an `actualOrderId`, and its fill comes from
+  `userTrades?orderId=`. The trade names no `clientAlgoId`.
+- A lookup right after creation can answer `-2013`, the lag described above.
+- `openAlgoOrders` formats numbers differently from the single GET.
+
+**On both venues a normal close removes the stop**: Bybit's no longer rests,
+and Binance's `closePosition` stop turns `EXPIRED` milliseconds later. There is
+nothing to cancel. A stop that stops resting without a fill is GONE, and
+nothing is booked for it.
+
+**When the stop cannot be confirmed** (not found, or refused), the position is
+closed at once at market (`SAFETY_CLOSE`) and the stop is marked FAILED. A
+fired stop is found by the stop watcher, which books its fills.
+
+**Not verified live:**
+- the stop trigger: production sends `MarkPrice` / `MARK_PRICE`, the price
+  liquidation reads, while the live runs used the last price;
+- `110017` (Bybit) and `-2022` (Binance) read as "the position is already
+  flat";
+- Binance's answer to a duplicate `clientAlgoId`;
+- removing a Bybit stop with `stopLoss: "0"` while the position stays open.
+
+**The rest of the safety net** (`openspec/changes/subscriber-safety/`):
+- The stop caps the leverage: `max_leverage = min(20, floor(100 / (stop + 1)))`,
+  so the stop comes before liquidation. A live opening above it is refused.
+- A strategy cannot be disabled while anyone holds a position on it. Positions
+  left on a disabled or archived strategy are closed by the reservation sweep.
+- A user can close their own position from the panel ("Close now"). The API
+  only enqueues the job; the worker sends the order.
+- A fired stop, the close of a failed stop, the close of a stopped strategy, a
+  close now and an opening refused by the cap are each recorded as a safety
+  event. The close events are written on the commit that books the close's
+  fills, and the panel's Safety events page lists them.
+
 ## Open risks
 
 - **SETTLED — Pionex does not offer futures order placement over the API.**
@@ -308,7 +366,8 @@ Both rules live in `settle_execution.py`.
   reconstruct positions from bot state instead of fills. Signal bots cannot be
   created over the API at all — only `futures_grid` and `spot_grid` can.
 - Leverage and margin mode ARE writable on Pionex, verified 2026-08-25.
-  Each subscription chooses a leverage from 1 to 20 (decision 38), and the
+  Each subscription chooses a leverage from 1 to 20 (decision 38), never above
+  what the strategy's stop allows (see "Protective stops"), and the
   system SETS it before every live opening, then reads it back; a mismatch
   refuses the opening (`LEVERAGE_NOT_APPLIED`). On Binance the pair is made
   ISOLATED first (`MARGIN_NOT_ISOLATED` if that fails). On Bybit the margin

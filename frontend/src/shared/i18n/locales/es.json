@@ -284,7 +284,7 @@
       "enableTitle": "¿Activar {{name}}?",
       "enableBody": "{{name}} vuelve a abrir posiciones con sus próximas señales, para usted y para todos los que la operan.",
       "disableTitle": "¿Desactivar {{name}}?",
-      "disableBody": "{{name}} no abre nada más, ni para usted ni para nadie que la opere. Una posición ya abierta se cierra igual con el próximo cierre de la estrategia.",
+      "disableBody": "{{name}} no abre nada más, ni para usted ni para nadie que la opere. No se puede deshabilitar mientras alguien tenga una posición en ella, y una posición que se encuentre en ella después se cierra a mercado.",
       "cancel": "Cancelar",
       "enable": "Activar",
       "disable": "Desactivar",
@@ -293,7 +293,7 @@
     },
     "leave": {
       "confirmTitle": "¿Salir de {{name}}?",
-      "confirmBody": "{{name}} ya no abrirá nada más para usted. Una posición que tenga abierta sigue abierta y se cierra con el próximo cierre de la estrategia, y entonces termina su suscripción.",
+      "confirmBody": "{{name}} ya no abrirá nada más para usted. Una posición que tenga abierta sigue abierta, protegida por su stop en el exchange, y se cierra con el próximo cierre de la estrategia, y entonces termina su suscripción. También puede cerrarla usted mismo con Cerrar ahora.",
       "privateNote": "Si esta estrategia es privada, no podrá volver a suscribirse mientras siga siéndolo.",
       "cancel": "Cancelar",
       "confirm": "Salir",
@@ -455,7 +455,7 @@
     "leverage": {
       "label": "Apalancamiento",
       "info": "Acerca del apalancamiento",
-      "hint": "El sistema fija este apalancamiento en el exchange antes de cada apertura, así que se aplica desde la próxima apertura. Una posición que ya está abierta conserva el apalancamiento con el que se abrió. Cuanto mayor es, más mueve el mismo margen, tanto en ganancias como en pérdidas.",
+      "hint": "El sistema fija este apalancamiento en el exchange antes de cada apertura, así que se aplica desde la próxima apertura. Una posición que ya está abierta conserva el apalancamiento con el que se abrió. Cuanto mayor es, más mueve el mismo margen, tanto en ganancias como en pérdidas. Cada apertura en vivo lleva además un stop en el exchange, al nivel de stop de la estrategia, y ese stop limita el apalancamiento que puede elegir para que llegue antes que la liquidación.",
       "valueText": "x{{value}}",
       "stop": "Fijar el apalancamiento en x{{value}}",
       "invalid": "Ingrese un número entero del 1 al 20.",
@@ -472,7 +472,7 @@
     "stopLevel": {
       "label": "Nivel de stop",
       "info": "Acerca del nivel de stop",
-      "hint": "La distancia al precio de entrada, como porcentaje del precio, a la que se detiene una posición de esta estrategia. También limita el apalancamiento que cualquiera puede usar en ella, para que el stop llegue antes que la liquidación: un stop del 10% permite hasta x9, y uno del 5% hasta x16. Un cambio se aplica a las aperturas que se hagan después; una posición ya abierta conserva su stop. Un puesto que quede por encima del nuevo límite deja de abrir hasta que su usuario reduzca su apalancamiento.",
+      "hint": "La distancia al precio de entrada, como porcentaje del precio, a la que se detiene una posición de esta estrategia. El sistema coloca ese stop en el exchange con cada apertura en vivo; una apertura simulada no lo lleva. También limita el apalancamiento que cualquiera puede usar en ella, para que el stop llegue antes que la liquidación: un stop del 10% permite hasta x9, y uno del 5% hasta x16. Un cambio se aplica a las aperturas que se hagan después; una posición ya abierta conserva su stop. Un puesto que quede por encima del nuevo límite deja de abrir hasta que su usuario reduzca su apalancamiento.",
       "unit": "% del precio",
       "cap": "Permite un apalancamiento de hasta x{{max}}.",
       "save": "Guardar",
@@ -485,7 +485,7 @@
     "description": {
       "label": "Descripción",
       "info": "Acerca de la descripción",
-      "hint": "Opcional. Quien abra esta estrategia la verá en su página pública y antes de suscribirse, como texto sin formato. Es un buen lugar para indicar qué apalancamiento recomienda. Hasta 2.000 caracteres.",
+      "hint": "Opcional. Quien abra esta estrategia la verá en su página pública y antes de suscribirse, como texto sin formato. Es un buen lugar para indicar qué apalancamiento recomienda, dentro del límite que permite su stop. Hasta 2.000 caracteres.",
       "counter": "{{length}} / {{max}}",
       "tooLong": "La descripción puede tener como máximo 2.000 caracteres.",
       "save": "Guardar",
