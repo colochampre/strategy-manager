@@ -13,6 +13,18 @@ from uuid import UUID
 from strategy_manager.shared.application.job import ClaimedJob, Job
 from strategy_manager.shared.domain.mode import Mode
 from strategy_manager.shared.domain.money import Currency
+from strategy_manager.shared.domain.safety_event import NewSafetyEvent
+
+
+class SafetyEventWriterPort(Protocol):
+    """Writes the safety events of subscriber-safety SS.10 (spec safety-events).
+
+    ``record`` STAGES the row on the caller's session and never commits: the event rides the
+    commit of the change it reports, so it exists exactly when its cause does. It is
+    idempotent on the event's source (the execution attempt or the delivery): a second
+    event from the same source writes nothing and raises nothing."""
+
+    async def record(self, event: NewSafetyEvent) -> None: ...
 
 
 class ClockPort(Protocol):

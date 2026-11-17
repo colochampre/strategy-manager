@@ -19,6 +19,7 @@ _KINDS = [
     "enablement_events",
     "subscriptions",
     "invite_codes",
+    "safety_events",
 ]
 
 

@@ -124,11 +124,11 @@ async def open_allocation(
     *,
     symbol: str = "STXUSDT",
     market: tuple[str, str, str] = MARKET,
-) -> None:
+) -> UUID:
     """A FILLED reservation and its BUY fill in the user's ledger: a position the
     strategy holds for that user. The alert's spelling is ``STXUSDT.P``; the
     ledger holds the venue's ``STXUSDT`` (``symbol``, when a test needs another
-    market)."""
+    market). Returns the allocation's id."""
     signal_id, reservation_id, attempt_id = uuid4(), uuid4(), uuid4()
     exchange, venue, currency = market
     await seed_signal(
@@ -184,6 +184,7 @@ async def open_allocation(
             )
         )
         await session.commit()
+    return reservation_id
 
 
 async def live_reservation(factory: Factory, user_id: UUID, strategy_id: UUID) -> None:

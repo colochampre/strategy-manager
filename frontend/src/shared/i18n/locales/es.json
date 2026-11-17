@@ -9,7 +9,34 @@
     "strategies": "Estrategias",
     "discrepancies": "Discrepancias",
     "users": "Usuarios",
+    "safetyEvents": "Eventos de seguridad",
     "settings": "Configuración"
+  },
+  "safetyEvents": {
+    "title": "Eventos de seguridad",
+    "intro": "Lo que la red de seguridad hizo por sus posiciones: stops que saltaron, cierres hechos por usted y aperturas rechazadas.",
+    "loading": "Leyendo eventos de seguridad…",
+    "error": "No se pudieron leer los eventos de seguridad.",
+    "empty": "Todavía nada ha necesitado la red de seguridad.",
+    "listLabel": "Eventos de seguridad, del más reciente al más antiguo",
+    "unknownStrategy": "Estrategia desconocida",
+    "kind": {
+      "STOP_FIRED": "Stop activado",
+      "STOP_FAILED_CLOSED": "Cerrada tras un stop fallido",
+      "STRATEGY_STOPPED_CLOSED": "Cerrada al detenerse la estrategia",
+      "MANUAL_CLOSE": "Cerrada por usted",
+      "OPENING_REFUSED_LEVERAGE_CAP": "Apertura rechazada: tope de apalancamiento",
+      "unknown": "Evento de seguridad"
+    },
+    "detail": {
+      "STOP_FIRED": "El stop se activó en {{trigger_price}} y cerró {{quantity}}.",
+      "STOP_FAILED_CLOSED": "No se pudo mantener el stop, así que se cerró la posición: {{quantity}} a {{price}}.",
+      "STRATEGY_STOPPED_CLOSED": "La estrategia se detuvo, así que se cerró la posición: {{quantity}} a {{price}}.",
+      "MANUAL_CLOSE": "Usted cerró la posición: {{quantity}} a {{price}}.",
+      "OPENING_REFUSED_LEVERAGE_CAP": "La apertura pedía {{requested_leverage}}x, por encima de los {{max_leverage}}x permitidos con un stop de {{stop_loss_pct}}%, así que no se abrió nada.",
+      "unknown": "No hay detalles disponibles para este evento.",
+      "missing": "n/d"
+    }
   },
   "users": {
     "title": "Usuarios",

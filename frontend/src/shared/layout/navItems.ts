@@ -1,4 +1,4 @@
-import { ChartCandlestick, LayoutDashboard, Scale, Settings, Users } from "lucide-react";
+import { ChartCandlestick, LayoutDashboard, Scale, Settings, ShieldAlert, Users } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 import { useMe } from "@/shared/api/me";
@@ -8,7 +8,7 @@ export interface NavItem {
   /** Drawn beside the name in the side rail and alone in the bottom bar. */
   icon: LucideIcon;
   /** Key under `nav.*` in the locale files. */
-  labelKey: "overview" | "strategies" | "discrepancies" | "users" | "settings";
+  labelKey: "overview" | "strategies" | "discrepancies" | "users" | "safetyEvents" | "settings";
   /** `/` would otherwise stay active on every route. */
   end: boolean;
   /** The item carries the `NavBadge` of what needs the owner. */
@@ -22,6 +22,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { to: "/strategies", icon: ChartCandlestick, labelKey: "strategies", end: false },
   { to: "/discrepancies", icon: Scale, labelKey: "discrepancies", end: false, badge: true, adminOnly: true },
   { to: "/users", icon: Users, labelKey: "users", end: false, adminOnly: true },
+  { to: "/safety-events", icon: ShieldAlert, labelKey: "safetyEvents", end: false },
   { to: "/settings", icon: Settings, labelKey: "settings", end: false },
 ];
 

@@ -51,6 +51,7 @@ from strategy_manager.ledger.application.read_symbol_holdings import ReadSymbolH
 from strategy_manager.ledger.application.record_fill import RecordFill
 from strategy_manager.ledger.infrastructure.models import LedgerEntryRow
 from strategy_manager.ledger.infrastructure.repository import SqlAlchemyLedgerRepository
+from strategy_manager.safety.infrastructure.repository import SqlAlchemySafetyEventWriter
 from strategy_manager.shared.domain.leverage import NEW_SEAT_LEVERAGE
 from strategy_manager.shared.domain.money import Currency
 from strategy_manager.shared.infrastructure.job_queue import PostgresJobQueue
@@ -134,6 +135,7 @@ def _settle(
         pool_lock=PoolLockAdapter(session),
         stops=SqlAlchemyProtectiveStopRepository(session),
         queue=PostgresJobQueue(session, clock=_FixedClock()),
+        safety_events=SqlAlchemySafetyEventWriter(session, _FixedClock()),
         leaving=EndLeavingSubscription(
             SqlAlchemySubscriptionRepository(session),
             OpenAllocationAdapter(

@@ -91,10 +91,15 @@ from strategy_manager.execution.domain.execution_attempt import (
 )
 from strategy_manager.execution.domain.market_symbol import is_perpetual, market_key
 from strategy_manager.execution.domain.order import OrderSide
-from strategy_manager.shared.application.ports import AllocationModePort, CommitPort
+from strategy_manager.shared.application.ports import (
+    AllocationModePort,
+    CommitPort,
+    SafetyEventWriterPort,
+)
 from strategy_manager.shared.domain.leverage import Leverage, LeverageAboveStopCap, max_leverage
 from strategy_manager.shared.domain.mode import Mode
 from strategy_manager.shared.domain.money import Currency, Money
+from strategy_manager.shared.domain.safety_event import NewSafetyEvent, SafetyEventKind
 from strategy_manager.shared.domain.trade_capability import TradeCapability, key_refusal
 from strategy_manager.signals.application.close_after_open import CloseStep
 from strategy_manager.signals.application.fan_out_signal import DeliveryHalves
@@ -414,7 +419,9 @@ class ProcessDelivery:
         user_mode: CurrentModePort,
         allocation_modes: AllocationModePort,
         close_after_open: CloseAfterOpenPort,
+        safety_events: SafetyEventWriterPort,
     ) -> None:
+        self._safety_events = safety_events
         self._close_after_open = close_after_open
         self._deliveries = deliveries
         self._signal_context = signal_context
@@ -1219,12 +1226,30 @@ class ProcessDelivery:
             "no capital reserved"
         )
         logger.warning("%s", refused)
+        # SS.10: the subscriber sees this refusal in the panel. It rides the REJECTED
+        # outcome's commit, and its source is the delivery: no order, no allocation.
+        event = NewSafetyEvent(
+            user_id=delivery.user_id,
+            kind=SafetyEventKind.OPENING_REFUSED_LEVERAGE_CAP,
+            strategy_id=context.strategy_id,
+            allocation_id=None,
+            exchange=str(policy.exchange),
+            venue=policy.venue,
+            symbol=market_key(context.symbol),
+            detail={
+                "requested_leverage": str(delivery.leverage.value),
+                "max_leverage": str(maximum),
+                "stop_loss_pct": format(policy.stop_loss_pct, "f"),
+            },
+            delivery_id=delivery.delivery_id,
+        )
         return await self._reject(
             delivery,
             transition,
             LeverageAboveStopCap.reason_code,
             refused,
             close_executed=close_executed,
+            safety_event=event,
         )
 
     async def _refuse_read_only_exchange(
@@ -1367,6 +1392,7 @@ class ProcessDelivery:
         refused: str,
         *,
         close_executed: bool = False,
+        safety_event: NewSafetyEvent | None = None,
     ) -> ProcessSignalResult:
         """The one place a refusal (rows 1-7 of design.md § B) becomes a
         durable outcome: the DELIVERY ends ``REJECTED`` with ``reason`` and the
@@ -1390,6 +1416,10 @@ class ProcessDelivery:
                 "position is flat rather than flipped"
             )
         await self._outcomes.record(delivery.delivery_id, SignalOutcome.rejected(reason, detail))
+        if safety_event is not None:
+            # Staged after the outcome, so the delivery's row lock is already held and the
+            # event rides the same commit: it exists exactly when the refusal does.
+            await self._safety_events.record(safety_event)
         await self._commit.commit()
         # The refusal's own WARNING names the signal (its text is the stored
         # detail, kept verbatim); this names whose delivery it ended, since one

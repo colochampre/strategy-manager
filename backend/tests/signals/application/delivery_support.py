@@ -38,6 +38,7 @@ from strategy_manager.signals.domain.position_transition import (
     TransitionEffect,
 )
 from tests.allocation.fakes import FixedUserMode, OpeningsSettled, RecordedModes
+from tests.execution.fakes import RecordingSafetyEvents
 from tests.signals.fakes import in_both_modes
 
 
@@ -113,5 +114,6 @@ def sole_subscriber_handler(**kwargs: Any) -> SoleSubscriberHandler:
     kwargs.setdefault("user_mode", FixedUserMode())
     kwargs.setdefault("allocation_modes", RecordedModes())
     kwargs.setdefault("close_after_open", OpeningsSettled())
+    kwargs.setdefault("safety_events", RecordingSafetyEvents())
     inner = ProcessDelivery(deliveries=deliveries, **kwargs)
     return SoleSubscriberHandler(inner, kwargs["signal_context"], deliveries)

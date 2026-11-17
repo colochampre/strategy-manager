@@ -234,6 +234,8 @@ from strategy_manager.reconciliation.infrastructure.venue_fill_reader_registry i
 from strategy_manager.reconciliation.infrastructure.venue_position_reader_registry import (
     VenuePositionReaderRegistry,
 )
+from strategy_manager.safety.infrastructure.repository import SqlAlchemySafetyEventWriter
+from strategy_manager.safety.infrastructure.router import router as safety_events_router
 from strategy_manager.shared.application.job import ClaimedJob, JobKind
 from strategy_manager.shared.application.jobs_purge_handler import JobsPurgeHandler
 from strategy_manager.shared.application.purge_jobs import PurgeJobs
@@ -705,6 +707,8 @@ def _build_process_delivery(
         ),
         user_mode=user_mode,
         allocation_modes=allocation_modes,
+        # SS.10: a refused opening writes its event on the refusal's own commit.
+        safety_events=SqlAlchemySafetyEventWriter(session, SystemClock()),
     )
     return handler, open_after_close
 
@@ -741,6 +745,8 @@ def _build_settle_execution(
         # the commit that records its fills. Only enqueues, so no backoff is needed.
         stops=SqlAlchemyProtectiveStopRepository(session),
         queue=PostgresJobQueue(session),
+        # SS.10: the three closes write their event on the commit that books their fills.
+        safety_events=SqlAlchemySafetyEventWriter(session, SystemClock()),
     )
 
 
@@ -798,6 +804,8 @@ def _build_protective_stop_watch(
             allocation_modes=SqlAlchemyAllocationMode(session),
             exchanges_for=exchanges_for,
             unit_of_work=session,
+            # SS.10: STOP_FIRED rides the commit that books the stop's fills.
+            safety_events=SqlAlchemySafetyEventWriter(session, SystemClock()),
         ),
         queue=_job_queue(session, settings),
         clock=SystemClock(),
@@ -2531,6 +2539,8 @@ def create_app() -> FastAPI:
     # Nor an author's own strategies: a LINK one carries the token that opens it
     # (decision 41; K.D advisory A5).
     app.add_middleware(NoStoreMiddleware, prefix="/api/strategies")
+    # Nor a user's safety events: what the system did to their money (SS.10).
+    app.add_middleware(NoStoreMiddleware, prefix="/api/safety-events")
 
     @app.get("/health")
     async def health() -> dict[str, str | bool]:
@@ -2562,6 +2572,7 @@ def create_app() -> FastAPI:
     api_router.include_router(pools_router)
     api_router.include_router(performance_router)
     api_router.include_router(open_positions_router)
+    api_router.include_router(safety_events_router)
     api_router.include_router(manual_close_router)
     api_router.include_router(public_strategies_router)
     api_router.include_router(invite_lookup_router)

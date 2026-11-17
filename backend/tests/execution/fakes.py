@@ -7,6 +7,7 @@ from uuid import UUID
 
 from strategy_manager.execution.application.ports import ExchangeRegistryPort
 from strategy_manager.shared.domain.mode import Mode
+from strategy_manager.shared.domain.safety_event import NewSafetyEvent
 
 
 @dataclass
@@ -90,3 +91,18 @@ class RecordingSettleOutcomes:
     @property
     def nothing(self) -> bool:
         return not (self.open_filled or self.close_filled or self.never_placed)
+
+
+@dataclass
+class RecordingSafetyEvents:
+    """``SafetyEventWriterPort`` for a unit test: keeps every event a use case staged.
+    ``log`` (optional) receives ``"safety_event <KIND>"`` in call order, so a test can
+    prove the event was staged BEFORE the commit."""
+
+    recorded: list[NewSafetyEvent] = field(default_factory=list)
+    log: list[str] | None = None
+
+    async def record(self, event: NewSafetyEvent) -> None:
+        self.recorded.append(event)
+        if self.log is not None:
+            self.log.append(f"safety_event {event.kind.value}")

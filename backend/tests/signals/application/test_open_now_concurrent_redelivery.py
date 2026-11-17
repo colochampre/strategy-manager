@@ -85,6 +85,7 @@ from strategy_manager.execution.infrastructure.repository import (
 from strategy_manager.ledger.application.read_symbol_holdings import ReadSymbolHoldings
 from strategy_manager.ledger.application.record_fill import RecordFill
 from strategy_manager.ledger.infrastructure.repository import SqlAlchemyLedgerRepository
+from strategy_manager.safety.infrastructure.repository import SqlAlchemySafetyEventWriter
 from strategy_manager.shared.domain.mode import Mode
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
 from strategy_manager.signals.application.holding_guard import HoldingGuard
@@ -499,6 +500,7 @@ def _build_handler(
         user_mode=FixedUserMode(),
         allocation_modes=RecordedModes(),
         close_after_open=OpeningsSettled(),
+        safety_events=SqlAlchemySafetyEventWriter(session, clock),
     )
 
 

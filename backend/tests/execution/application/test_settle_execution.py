@@ -25,6 +25,7 @@ from strategy_manager.execution.application.settle_execution import (
 )
 from strategy_manager.execution.domain.execution_attempt import (
     ExecutionAttempt,
+    ExecutionCause,
     ExecutionOrigin,
     ExecutionStatus,
 )
@@ -41,8 +42,9 @@ from strategy_manager.execution.infrastructure.exchange_registry import (
 from strategy_manager.shared.application.job import Job, JobKind
 from strategy_manager.shared.domain.mode import Mode
 from strategy_manager.shared.domain.money import Currency
+from strategy_manager.shared.domain.safety_event import NewSafetyEvent, SafetyEventKind
 from tests.allocation.fakes import RecordedModes
-from tests.execution.fakes import OneRegistry, RecordingSettleOutcomes
+from tests.execution.fakes import OneRegistry, RecordingSafetyEvents, RecordingSettleOutcomes
 
 NOW = datetime(2026, 8, 20, 12, 0, 0, tzinfo=UTC)
 ATTEMPT_ID = uuid4()
@@ -288,13 +290,21 @@ class FakeStops:
         self._status = status
         self._log = log
         self.asked: list[tuple[UUID, UUID]] = []
+        self.asked_allocations: list[tuple[UUID, UUID]] = []
         self.marked: list[tuple[UUID, UUID, StopStatus]] = []
 
     async def insert(self, user_id: UUID, stop: ProtectiveStop) -> None:  # pragma: no cover
         raise NotImplementedError
 
+    async def for_allocation(self, user_id: UUID, allocation_id: UUID) -> ProtectiveStop | None:
+        self.asked_allocations.append((user_id, allocation_id))
+        return self._stop(uuid4())
+
     async def for_attempt(self, user_id: UUID, attempt_id: UUID) -> ProtectiveStop | None:
         self.asked.append((user_id, attempt_id))
+        return self._stop(attempt_id)
+
+    def _stop(self, attempt_id: UUID) -> ProtectiveStop | None:
         if self._status is None:
             return None
         return ProtectiveStop(
@@ -346,6 +356,7 @@ def _build(
     asked: list[Mode] | None = None,
     stops: FakeStops | None = None,
     queue: SpyQueue | None = None,
+    safety_events: RecordingSafetyEvents | None = None,
 ) -> tuple[SettleExecution, FakeReservations, FakeAttempts, SpyLedger, StubUsdRate]:
     reservations = FakeReservations(log if trace_locks else None)
     attempts = FakeAttempts(attempt or _attempt())
@@ -370,6 +381,7 @@ def _build(
         leaving=leaving or FakeLeaving(log if trace_locks else None),
         stops=stops or FakeStops(log=log),
         queue=queue or SpyQueue(log),  # type: ignore[arg-type]
+        safety_events=safety_events or RecordingSafetyEvents(log=log),
     )
     return use_case, reservations, attempts, ledger, usd_rate
 
@@ -1027,3 +1039,120 @@ async def test_a_close_the_venue_never_saw_asks_for_no_stop() -> None:
     await use_case.settle(OWNER, ATTEMPT_ID)
 
     assert stops.asked == [] and stops.marked == []
+
+
+# ---- SS.10: the safety event of a close is written on the commit that books its fills
+
+
+def _closing(cause: ExecutionCause) -> ExecutionAttempt:
+    return replace(_closing_attempt(), cause=cause)
+
+
+async def test_a_manual_close_writes_manual_close_with_what_it_filled_on_the_fills_commit() -> (
+    None
+):
+    log: list[str] = []
+    events = RecordingSafetyEvents(log=log)
+    use_case, *_ = _build(
+        FakeExchange(fills=[_fill("1", "50", "F-1"), _fill("3", "54", "F-2")]),
+        attempt=_closing(ExecutionCause.MANUAL),
+        log=log,
+        safety_events=events,
+    )
+
+    await use_case.settle(OWNER, ATTEMPT_ID)
+
+    [event] = events.recorded
+    assert event == NewSafetyEvent(
+        user_id=OWNER,
+        kind=SafetyEventKind.MANUAL_CLOSE,
+        strategy_id=STRATEGY_ID,
+        allocation_id=RESERVATION_ID,
+        exchange="pionex",
+        venue="spot",
+        symbol="BTC_USDT",
+        detail={"quantity": "4", "price": "53"},
+        execution_attempt_id=ATTEMPT_ID,
+    )
+    assert log.index("ledger.record") < log.index("safety_event MANUAL_CLOSE") < log.index("commit")
+
+
+async def test_a_safety_close_of_an_allocation_whose_stop_failed_is_stop_failed_closed() -> None:
+    events = RecordingSafetyEvents()
+    stops = FakeStops(StopStatus.FAILED)
+    use_case, *_ = _build(
+        FakeExchange(fills=[_fill("2", "50")]),
+        attempt=_closing(ExecutionCause.SAFETY_CLOSE),
+        stops=stops,
+        safety_events=events,
+    )
+
+    await use_case.settle(OWNER, ATTEMPT_ID)
+
+    [event] = events.recorded
+    assert event.kind is SafetyEventKind.STOP_FAILED_CLOSED
+    assert event.detail == {"quantity": "2", "price": "50"}
+    assert stops.asked_allocations == [(OWNER, RESERVATION_ID)]
+
+
+@pytest.mark.parametrize("status", [None, StopStatus.RESTING, StopStatus.GONE])
+async def test_any_other_safety_close_is_strategy_stopped_closed(
+    status: StopStatus | None,
+) -> None:
+    events = RecordingSafetyEvents()
+    use_case, *_ = _build(
+        FakeExchange(fills=[_fill("2", "50")]),
+        attempt=_closing(ExecutionCause.SAFETY_CLOSE),
+        stops=FakeStops(status),
+        safety_events=events,
+    )
+
+    await use_case.settle(OWNER, ATTEMPT_ID)
+
+    assert [event.kind for event in events.recorded] == [
+        SafetyEventKind.STRATEGY_STOPPED_CLOSED
+    ]
+
+
+@pytest.mark.parametrize(
+    "attempt",
+    [_attempt(), _closing_attempt(), _closing(ExecutionCause.STOP)],
+    ids=["opening", "signal close", "stop close"],
+)
+async def test_an_opening_a_signal_close_and_a_stop_close_write_no_event(
+    attempt: ExecutionAttempt,
+) -> None:
+    events = RecordingSafetyEvents()
+    use_case, *_ = _build(
+        FakeExchange(fills=[_fill("2", "50")]), attempt=attempt, safety_events=events
+    )
+
+    await use_case.settle(OWNER, ATTEMPT_ID)
+
+    assert events.recorded == []
+
+
+async def test_a_manual_close_the_venue_never_saw_writes_no_event() -> None:
+    events = RecordingSafetyEvents()
+    use_case, *_ = _build(
+        FakeExchange(raises=OrderNotFound("no such order")),
+        attempt=_closing(ExecutionCause.MANUAL),
+        safety_events=events,
+    )
+
+    await use_case.settle(OWNER, ATTEMPT_ID)
+
+    assert events.recorded == []
+
+
+async def test_a_manual_close_already_settled_writes_no_second_event() -> None:
+    events = RecordingSafetyEvents()
+    use_case, *_ = _build(
+        FakeExchange(fills=[_fill("2", "50")]),
+        attempt=replace(_closing(ExecutionCause.MANUAL), status=ExecutionStatus.FILLED),
+        safety_events=events,
+    )
+
+    await use_case.settle(OWNER, ATTEMPT_ID)
+
+    assert events.recorded == []

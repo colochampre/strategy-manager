@@ -643,7 +643,7 @@ owner's preference.
       `3a2c274cb1768b0ed71a6adfab6e6ca5f3a716958a2ab1a55d709ba78615f46d`.
       The VPS printed `OK`, `readable`, and bundle and checkout
       `b5184a52a863`.
-- [ ] SS.9 "Close now": the API and the panel's confirmation dialog, cause
+- [x] SS.9 "Close now": the API and the panel's confirmation dialog, cause
   MANUAL, idempotent while in flight, with its event.
   - Design, 2026-11-16, from a read-only map of the code. The API never opens
     a key, so it never places the order: it checks, enqueues one job and
@@ -699,8 +699,94 @@ owner's preference.
         route;
       - a request deduped against a live job answers `QUEUED`, not a status
         of its own.
+  - Delivered 2026-11-17 as PR #112 (merge `8561cbeb965a`).
+    - No migration, so no listing was needed: the button closes only when a
+      user asks.
+    - The API step reported checkout `8561cbeb965a`, database `0043`, both
+      services `active`, and no ERROR line after the restart.
+    - The panel (pps.6) was built from a clean worktree of `origin/main`:
+      22 entries, SHA-256
+      `1dac87049dc5688d087e936dd7022cea7f0e98ee06ce20b546e0c33b06fe2656`.
+      The VPS printed `OK`, `readable`, and bundle and checkout
+      `8561cbeb965a`.
 - [ ] SS.10 The `safety_events` table, its API and the panel list, in EN and
   ES, and the `OPENING_REFUSED_LEVERAGE_CAP` event from SS.3's refusal.
+  - Design, 2026-11-17, from a read-only map of the code.
+  - When each event is written. A `*_CLOSED` event reports a close, so it is
+    written when the close's fills are booked, never when the order is sent:
+    - `ClosePosition` commits the SUBMITTED attempt before it contacts the
+      venue, and a dust close commits with no attempt at all. An event
+      staged by the caller would ride those commits and claim a close that
+      may never happen.
+    - `STOP_FIRED`: in `WatchProtectiveStops._book`, on the commit that books
+      the stop's fills and marks it FIRED.
+    - `STOP_FAILED_CLOSED`, `STRATEGY_STOPPED_CLOSED` and `MANUAL_CLOSE`: in
+      `SettleExecution`, on the commit that books a closing attempt's fills.
+      The attempt's cause names the kind:
+      - `MANUAL` is close now. Reconciliation's `MANUAL` booking never goes
+        through settle.
+      - `SAFETY_CLOSE` is `STOP_FAILED_CLOSED` when the allocation's stop is
+        FAILED, as migration 0043's backfill told them apart, and
+        `STRATEGY_STOPPED_CLOSED` otherwise.
+    - `OPENING_REFUSED_LEVERAGE_CAP`: in `ProcessSignal._reject`, on the
+      commit of the REJECTED outcome. It has no allocation.
+  - Table `safety_events`, migration 0044:
+    - columns: id, user, kind (CHECK on the five), strategy, allocation
+      (nullable), exchange, venue, symbol, `occurred_at`, a JSONB `detail`,
+      and the source: `execution_attempt_id` or `delivery_id`, each UNIQUE,
+      exactly one of them set;
+    - the UNIQUE source is what keeps a re-run from writing a second row
+      (the spec's "a fired stop is recorded once");
+    - append-only: nothing updates or deletes a row;
+    - an index on (user, `occurred_at` DESC).
+  - Detail, every value a string:
+    - `STOP_FIRED`: `quantity`, `trigger_price`;
+    - the three closes: `quantity` and `price`, the filled size and its
+      average price;
+    - `OPENING_REFUSED_LEVERAGE_CAP`: `requested_leverage`, `max_leverage`,
+      `stop_loss_pct`.
+  - API, `GET /api/safety-events`, scoped to the signed-in user:
+    `{"events": [...]}`, newest first, at most 100. Each event carries `id`,
+    `kind`, `strategy_id`, `strategy_name`, `allocation_id`, `exchange`,
+    `venue`, `symbol`, `occurred_at` and `detail`.
+  - Panel: a new "Safety events" page, `/safety-events`, with its nav item.
+    Each row shows the kind, the strategy, the symbol, the time and the
+    detail, in EN and ES.
+  - Out of scope, as advisories:
+    - a refused or failed close writes no event, so a position the system
+      could not close is not reported here;
+    - a stop marked GONE, or a stop fill that does not fit the ledger,
+      writes no `STOP_FIRED`.
+  - Risk: item 1 (a migration creating a table) and item 4 (writes added
+    inside the settle and stop-watcher transactions).
+  - Progress, 2026-11-17. Two Sonnet writers in parallel: the backend as
+    `55688d0` and the panel as `8182bf4`.
+    - The symbol is stored as the venue's bare market (`market_key`), so all
+      five kinds show one spelling: an alert's `SOLUSDT.P` is `SOLUSDT`.
+    - The parent made the panel write figures through `figureText`, with a
+      RED test: a ledger figure arrives as `2.000000000000000000`.
+    - The first full backend suite failed on five registry tests, now fixed
+      in `55688d0`:
+      - the strategy history counts `safety_events`, which blocks a delete;
+        one never exists without the signal or reservation that blocks it
+        already. Proven with a test and a mutation.
+      - the cross-user sweep had no probe for this route, nor for SS.9's
+        close now. `main` carries that SS.9 gap until this change merges.
+    - The full frontend suite is green (153 files), with lint.
+    - An independent verifier found no blockers. It drove the leverage-cap
+      refusal end to end on PostgreSQL through the production
+      `ProcessDelivery`, twice, and found one event.
+    - Open advisories:
+      - an error in the event insert aborts the settle before its commit, so
+        a real close's fills stay unbooked and the job retries until the
+        fault is fixed. That is the spec's "an event exists exactly when its
+        cause does"; the stop watcher logs the same error at ERROR and keeps
+        the stop RESTING;
+      - `stop_loss_pct` is stored as `"15.00"`, the column's scale; the panel
+        writes it as `15`;
+      - the page's test prints an `act(...)` warning.
+    - Before production: rehearse migration 0044 on a throwaway database
+      restored from a fresh backup.
 - [ ] SS.11 Docs: CLAUDE.md's venue facts on stops, and the panel's help text.
 
 ## Log

@@ -35,6 +35,7 @@ const ICONS = [
   ["Strategies", "lucide-chart-candlestick"],
   ["Discrepancies", "lucide-scale"],
   ["Users", "lucide-users"],
+  ["Safety events", "lucide-shield-alert"],
   ["Settings", "lucide-settings"],
 ] as const;
 

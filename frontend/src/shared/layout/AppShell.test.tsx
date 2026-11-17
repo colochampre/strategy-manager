@@ -241,12 +241,13 @@ describe("the Discrepancies item and its badge", () => {
     expect(navs).toHaveLength(2);
     for (const nav of navs) {
       const links = within(nav).getAllByRole("link");
-      expect(links.map((link) => link.textContent)).toEqual(["Overview", "Strategies", "Discrepancies", "Users", "Settings"]);
+      expect(links.map((link) => link.textContent)).toEqual(["Overview", "Strategies", "Discrepancies", "Users", "Safety events", "Settings"]);
       expect(links.map((link) => link.getAttribute("href"))).toEqual([
         "/",
         "/strategies",
         "/discrepancies",
         "/users",
+        "/safety-events",
         "/settings",
       ]);
     }
@@ -357,7 +358,7 @@ describe("the Discrepancies item and its badge", () => {
     await within(bottom).findByText("12");
 
     const cells = within(bottom).getAllByRole("link");
-    expect(cells).toHaveLength(5);
+    expect(cells).toHaveLength(6);
     for (const cell of cells) {
       // The icon alone is centred in a touch target of at least 44 px (owner decision 67 Q2).
       expect(cell).toHaveClass("flex-1", "min-w-0", "min-h-11", "items-center", "justify-center");
