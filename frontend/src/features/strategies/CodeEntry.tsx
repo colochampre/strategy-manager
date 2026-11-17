@@ -107,14 +107,14 @@ function CodeDialog({ onClose }: CodeDialogProps) {
 /**
  * "I have a code", on Explore (decision 41): a button where My strategies puts New strategy, green with its icon,
  * opening a dialog that asks for the code. It sits above the list whatever the list's state, since a strategy
- * shared by a code is on no list.
+ * shared by a code is on no list. Its row is the page's toolbar, beside the name search.
  */
 export function CodeEntry() {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
 
   return (
-    <div className="flex flex-wrap items-center justify-end gap-x-4 gap-y-2">
+    <>
       <button
         type="button"
         onClick={() => setOpen(true)}
@@ -124,6 +124,6 @@ export function CodeEntry() {
         {t(`${KEY}.haveCode`)}
       </button>
       {open && <CodeDialog onClose={() => setOpen(false)} />}
-    </div>
+    </>
   );
 }

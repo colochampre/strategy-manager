@@ -250,6 +250,11 @@
   "strategies": {
     "title": "Strategies",
     "archivedToggle": "Show archived",
+    "search": {
+      "label": "Search strategies by name",
+      "placeholder": "Search by name",
+      "noMatch": "No strategy matches “{{query}}”."
+    },
     "loading": "Loading strategies…",
     "empty": "No strategies on this exchange yet.",
     "error": "Strategies could not be loaded.",

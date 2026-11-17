@@ -9,6 +9,7 @@ import { DEFAULT_SORT, nextSort, sortCards } from "@/features/strategies/card-so
 import { Figure } from "@/features/strategies/PublicFigures";
 import { readStored } from "@/features/strategies/share-value";
 import { SortControl } from "@/features/strategies/SortControl";
+import { ListToolbar, matchesName, NoMatch, StrategySearch } from "@/features/strategies/StrategySearch";
 import { StrategyCard } from "@/features/strategies/StrategyCard";
 import type { CardFigures } from "@/features/strategies/StrategyCard";
 import { useStrategyPerformance } from "@/shared/api/performance";
@@ -96,6 +97,16 @@ function SubscriptionCard({ held, figures }: SubscriptionCardProps) {
  * says so once rather than passing for a list of private strategies.
  */
 export function MySubscriptionsPage() {
+  const [query, setQuery] = useState("");
+  return (
+    <div className="flex flex-col gap-4">
+      <ListToolbar search={<StrategySearch value={query} onChange={setQuery} />} />
+      <HeldList query={query} />
+    </div>
+  );
+}
+
+function HeldList({ query }: { query: string }) {
   const { t } = useTranslation();
   const held = useHeldSubscriptions();
   const publics = usePublicStrategies();
@@ -125,7 +136,9 @@ export function MySubscriptionsPage() {
     const shown: PublicStrategy | undefined = publics.data?.find((strategy) => strategy.id === subscription.strategy_id);
     return shown === undefined ? NO_PUBLIC_FIGURES : publicFigures(shown);
   };
-  const ordered = sortCards(held.data, sort, (subscription, key) =>
+  const shown = held.data.filter((subscription) => matchesName(subscription.strategy_name, query));
+  if (shown.length === 0) return <NoMatch query={query} />;
+  const ordered = sortCards(shown, sort, (subscription, key) =>
     sortFigure(figuresOf(subscription), ageOrder(subscription.created_at), key),
   );
 

@@ -6,6 +6,7 @@ import { DEFAULT_SORT, nextSort, sortCards } from "@/features/strategies/card-so
 import { CodeEntry } from "@/features/strategies/CodeEntry";
 import { SortControl } from "@/features/strategies/SortControl";
 import { StrategyCard } from "@/features/strategies/StrategyCard";
+import { ListToolbar, matchesName, NoMatch, StrategySearch } from "@/features/strategies/StrategySearch";
 import { usePublicStrategies } from "@/shared/api/public-strategies";
 import type { PublicStrategy } from "@/shared/api/types";
 
@@ -34,15 +35,18 @@ function PublicStrategyCard({ strategy }: { strategy: PublicStrategy }) {
  * above the list whatever its state, since a strategy shared by a code is on no list.
  */
 export function ExplorePage() {
+  const [query, setQuery] = useState("");
   return (
     <div className="flex flex-col gap-4">
-      <CodeEntry />
-      <PublicList />
+      <ListToolbar search={<StrategySearch value={query} onChange={setQuery} />}>
+        <CodeEntry />
+      </ListToolbar>
+      <PublicList query={query} />
     </div>
   );
 }
 
-function PublicList() {
+function PublicList({ query }: { query: string }) {
   const { t } = useTranslation();
   const strategies = usePublicStrategies();
   const [sort, setSort] = useState(DEFAULT_SORT);
@@ -56,8 +60,10 @@ function PublicList() {
     );
   }
   if (strategies.data.length === 0) return <p className="text-sm text-ink-2">{t("strategies.explore.empty")}</p>;
+  const shown = strategies.data.filter((strategy) => matchesName(strategy.name, query));
+  if (shown.length === 0) return <NoMatch query={query} />;
 
-  const ordered = sortCards(strategies.data, sort, (strategy, key) =>
+  const ordered = sortCards(shown, sort, (strategy, key) =>
     sortFigure(publicFigures(strategy), ageOrder(strategy.created_at), key),
   );
 

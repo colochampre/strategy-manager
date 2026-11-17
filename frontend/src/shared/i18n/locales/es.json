@@ -250,6 +250,11 @@
   "strategies": {
     "title": "Estrategias",
     "archivedToggle": "Mostrar archivadas",
+    "search": {
+      "label": "Buscar estrategias por nombre",
+      "placeholder": "Buscar por nombre",
+      "noMatch": "Ninguna estrategia coincide con «{{query}}»."
+    },
     "loading": "Cargando estrategias…",
     "empty": "Todavía no hay estrategias en este exchange.",
     "error": "No se pudieron cargar las estrategias.",
