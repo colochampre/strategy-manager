@@ -23,7 +23,6 @@ function PublicStrategyCard({ strategy }: { strategy: PublicStrategy }) {
       market={`${strategy.exchange} · ${strategy.venue} · ${strategy.settlement_currency}`}
       since={strategy.created_at}
       sinceKind="age"
-      uptime={strategy.uptime}
       figures={publicFigures(strategy)}
     />
   );

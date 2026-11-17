@@ -1,47 +1,35 @@
-import { ChartPie, Gauge } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router";
 
 import { OpenMarks } from "@/features/positions/OpenMarks";
-import { ageOrder, allTimePnl, NO_PUBLIC_FIGURES, publicFigures, sortFigure } from "@/features/strategies/card-figures";
+import { ageOrder, NO_PUBLIC_FIGURES, publicFigures, seatFigures, sortFigure } from "@/features/strategies/card-figures";
+import type { AuthoredCard } from "@/features/strategies/card-figures";
 import { DEFAULT_SORT, nextSort, sortCards } from "@/features/strategies/card-sort";
-import { Figure } from "@/features/strategies/PublicFigures";
 import { readStored } from "@/features/strategies/share-value";
 import { SortControl } from "@/features/strategies/SortControl";
 import { ListToolbar, matchesName, NoMatch, StrategySearch } from "@/features/strategies/StrategySearch";
 import { StrategyCard } from "@/features/strategies/StrategyCard";
 import type { CardFigures } from "@/features/strategies/StrategyCard";
-import { useStrategyPerformance } from "@/shared/api/performance";
+import { useStrategiesPerformance } from "@/shared/api/performance";
 import { usePublicStrategies } from "@/shared/api/public-strategies";
 import { useHeldSubscriptions } from "@/shared/api/subscriptions";
 import type { HeldSubscription, PublicStrategy } from "@/shared/api/types";
 
-/** What a card shows while the public list is on its way: every public figure is being read. */
-const READING_FIGURES: CardFigures = {
-  trades: undefined,
-  ret: undefined,
-  deepest: undefined,
-  winRate: undefined,
-  subscribers: undefined,
-  capital: undefined,
-};
-
 interface SubscriptionCardProps {
   held: HeldSubscription;
-  figures: CardFigures;
+  /** The reader's own record in the strategy, with its live subscribers and capital from the public list. */
+  card: AuthoredCard;
 }
 
 /**
- * One seat, as Explore draws its strategy: the same card, with the reader's time in it in place of the strategy's
- * age, the reader's own PnL left of the strategy's return, then the share of the pool and the leverage, and the
- * reader's own open positions under it. It is a summary:
- * the seat is changed and left on the strategy's own page, which the whole card opens.
+ * One seat, as Explore draws its strategy: the same card, dated from the day the reader subscribed, with the
+ * reader's own record (owner, 2026-11-17: the PnL and the return beside it speak of the same money), then the
+ * strategy's live subscribers and capital, the seat's share and leverage, and the reader's own open positions under
+ * it. It is a summary: the seat is changed and left on the strategy's own page, which the whole card opens.
  */
-function SubscriptionCard({ held, figures }: SubscriptionCardProps) {
+function SubscriptionCard({ held, card }: SubscriptionCardProps) {
   const { t } = useTranslation();
-  // The reader's own trades in the strategy, all time: the one figure on the card that is theirs, not the strategy's.
-  const own = useStrategyPerformance(held.strategy_id);
   const author = held.authored
     ? t("strategies.subscriptions.yours")
     : held.author_name === null
@@ -59,31 +47,15 @@ function SubscriptionCard({ held, figures }: SubscriptionCardProps) {
       market={`${held.exchange} · ${held.venue} · ${held.settlement_currency}`}
       since={held.created_at}
       sinceKind="subscribed"
-      uptime={held.strategy_uptime}
-      figures={figures}
-      pnl={{
-        value: allTimePnl({ status: own.status, data: own.data }),
-        currency: held.settlement_currency,
-        label: t("strategies.card.yourPnl"),
+      figures={card.figures}
+      figuresError={card.failed ? t("strategies.row.performanceError") : null}
+      pnl={{ value: card.pnl, currency: held.settlement_currency }}
+      setup={{
+        share: t("strategies.subscriptions.shareValue", {
+          share: readStored(held.allocation_percent) ?? held.allocation_percent,
+        }),
+        leverage: t("strategies.subscriptions.leverageValue", { leverage: held.leverage }),
       }}
-      trailing={
-        <>
-          <Figure
-            icon={ChartPie}
-            label={t("strategies.card.share")}
-            testId="subscription-share"
-            value={t("strategies.subscriptions.shareValue", {
-              share: readStored(held.allocation_percent) ?? held.allocation_percent,
-            })}
-          />
-          <Figure
-            icon={Gauge}
-            label={t("strategies.card.leverage")}
-            testId="subscription-leverage"
-            value={t("strategies.subscriptions.leverageValue", { leverage: held.leverage })}
-          />
-        </>
-      }
       marks={<OpenMarks strategy={{ id: held.strategy_id, name: held.strategy_name, exchange: held.exchange }} />}
       notice={held.status !== "ACTIVE" ? <p className="text-sm text-ink-2">{t("strategies.subscriptions.leaving")}</p> : undefined}
     />
@@ -111,6 +83,9 @@ function HeldList({ query }: { query: string }) {
   const held = useHeldSubscriptions();
   const publics = usePublicStrategies();
   const [sort, setSort] = useState(DEFAULT_SORT);
+  // The reader's own report in each strategy, read by the list so it can order the cards by the figures they show.
+  const seats = held.data ?? [];
+  const reports = useStrategiesPerformance(seats.map((subscription) => subscription.strategy_id));
 
   if (held.status === "pending") return <p className="text-sm text-ink-2">{t("strategies.subscriptions.loading")}</p>;
   if (held.status === "error") {
@@ -131,15 +106,24 @@ function HeldList({ query }: { query: string }) {
     );
   }
 
-  const figuresOf = (subscription: HeldSubscription): CardFigures => {
-    if (publics.status === "pending") return READING_FIGURES;
-    const shown: PublicStrategy | undefined = publics.data?.find((strategy) => strategy.id === subscription.strategy_id);
-    return shown === undefined ? NO_PUBLIC_FIGURES : publicFigures(shown);
+  /** Who trades the strategy live and with how much: the public list's, the dash where it is off the list. */
+  const aumOf = (subscription: HeldSubscription): Pick<CardFigures, "subscribers" | "capital"> => {
+    if (publics.status === "pending") return { subscribers: undefined, capital: undefined };
+    const listed: PublicStrategy | undefined = publics.data?.find((strategy) => strategy.id === subscription.strategy_id);
+    const figures = listed === undefined ? NO_PUBLIC_FIGURES : publicFigures(listed);
+    return { subscribers: figures.subscribers, capital: figures.capital };
   };
-  const shown = held.data.filter((subscription) => matchesName(subscription.strategy_name, query));
+  const cards = held.data.map((subscription, index) => ({
+    subscription,
+    card: seatFigures(
+      { status: reports[index]?.status ?? "pending", data: reports[index]?.data },
+      aumOf(subscription),
+    ),
+  }));
+  const shown = cards.filter(({ subscription }) => matchesName(subscription.strategy_name, query));
   if (shown.length === 0) return <NoMatch query={query} />;
-  const ordered = sortCards(shown, sort, (subscription, key) =>
-    sortFigure(figuresOf(subscription), ageOrder(subscription.created_at), key),
+  const ordered = sortCards(shown, sort, ({ subscription, card }, key) =>
+    sortFigure(card.figures, ageOrder(subscription.created_at), key),
   );
 
   return (
@@ -151,8 +135,8 @@ function HeldList({ query }: { query: string }) {
       )}
       <SortControl sort={sort} onChange={(key) => setSort((current) => nextSort(current, key))} />
       <ul className="flex flex-col gap-4">
-        {ordered.map((subscription) => (
-          <SubscriptionCard key={subscription.id} held={subscription} figures={figuresOf(subscription)} />
+        {ordered.map(({ subscription, card }) => (
+          <SubscriptionCard key={subscription.id} held={subscription} card={card} />
         ))}
       </ul>
     </div>

@@ -1,19 +1,17 @@
 import { fireEvent, screen, within } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { Figure } from "@/features/strategies/PublicFigures";
 import { StrategyCard } from "@/features/strategies/StrategyCard";
 import type { CardFigures, StrategyCardProps } from "@/features/strategies/StrategyCard";
 import i18n from "@/shared/i18n";
 import { renderAt } from "@/test/harness";
-
-const DAY_S = 86_400;
 
 const FIGURES: CardFigures = {
   trades: 3,
   ret: 0.125,
   deepest: -0.05,
   winRate: 0.6,
+  profitable: { wins: 3, closed: 5 },
   subscribers: 2,
   capital: { amount: 1500, currency: "USDT" },
 };
@@ -31,7 +29,6 @@ function draw(props: Partial<StrategyCardProps> = {}) {
         market="bybit · usdt-m · USDT"
         since="2026-10-01T10:00:00Z"
         sinceKind="age"
-        uptime={{ seconds: 12 * DAY_S + 3600, first_enabled_at: "2026-09-18T10:00:00Z", baseline: false }}
         figures={FIGURES}
         {...props}
       />
@@ -40,7 +37,23 @@ function draw(props: Partial<StrategyCardProps> = {}) {
   return screen.getByTestId("card-row");
 }
 
-const FIGURE_ORDER = ["age", "uptime", "trades", "return", "deepest", "winrate", "subscribers", "capital"];
+/** The groups of a card, in order, with the icon and the label that head each one (owner, 2026-11-17). */
+const GROUPS = [
+  ["pnl", "coins", "Total PnL"],
+  ["drawdown", "trending-down", "Max drawdown"],
+  ["profitable", "trophy", "Profitable trades"],
+  ["aum", "wallet", "AuM"],
+] as const;
+
+/** The test ids of the card's groups, in the order drawn. */
+function groupOrder(row: HTMLElement): Array<string | null> {
+  return Array.from((row.querySelector("dl") as HTMLElement).children).map((group) => group.getAttribute("data-testid"));
+}
+
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-11-17T12:00:00Z"));
+});
 
 afterEach(() => {
   vi.useRealTimers();
@@ -52,7 +65,7 @@ describe("what a card names", () => {
 
     expect(within(row).getByRole("link", { name: "Alpha" })).toHaveAttribute("href", "/strategies/explore/s-1");
     expect(within(row).getByText("by Ana")).toBeInTheDocument();
-    expect(within(row).getByTestId("card-market")).toHaveTextContent(/^bybit · usdt-m · USDT$/);
+    expect(within(row).getByTestId("card-market")).toHaveTextContent(/^bybit · usdt-m · USDT/);
   });
 
   it("draws no author line when there is none to name", () => {
@@ -119,7 +132,7 @@ describe("the whole card opens the strategy", () => {
   it("lifts the action above the stretched link so the switch keeps its own click", () => {
     const row = draw({ action: <button type="button">Switch</button> });
 
-    expect((within(row).getByRole("button", { name: "Switch" }).parentElement as HTMLElement)).toHaveClass("relative", "z-10");
+    expect(within(row).getByRole("button", { name: "Switch" }).parentElement as HTMLElement).toHaveClass("relative", "z-10");
   });
 
   it("lifts the open positions above it too, for their own links", () => {
@@ -128,70 +141,69 @@ describe("the whole card opens the strategy", () => {
     expect(within(row).getByLabelText("marks").parentElement).toHaveClass("relative", "z-10");
   });
 
-  it("lifts each figure's icon above it, so its tooltip still answers the pointer", () => {
-    const row = draw();
+  it("lifts every icon that names a value above it, so its tooltip still answers the pointer", () => {
+    const row = draw({ setup: { share: "30%", leverage: "x3" } });
 
-    for (const key of FIGURE_ORDER) {
-      const term = within(row).getByTestId(`card-${key}`).previousElementSibling as HTMLElement;
-      expect(term, key).toHaveClass("relative", "z-10");
+    for (const name of ["Age", "Live subscribers", "Share", "Leverage"]) {
+      expect(within(row).getByRole("img", { name }).parentElement, name).toHaveClass("relative", "z-10");
     }
   });
 });
 
+describe("the market line (owner, 2026-11-17)", () => {
+  it("dates the strategy from its creation to today, after the market, under a calendar named Age", () => {
+    const row = draw();
+
+    const market = within(row).getByTestId("card-market");
+    expect(within(market).getByTestId("card-age")).toHaveTextContent(/^Oct 1, 2026 – Nov 17, 2026$/);
+    fireEvent.mouseEnter(within(market).getByRole("img", { name: "Age" }).parentElement as HTMLElement);
+    expect(within(row).getByRole("tooltip")).toHaveTextContent(/^Age$/);
+  });
+
+  it("names the dates the time subscribed when the card is a seat", () => {
+    const row = draw({ sinceKind: "subscribed", since: "2026-10-27T10:00:00Z" });
+
+    const market = within(row).getByTestId("card-market");
+    expect(within(market).getByTestId("card-age")).toHaveTextContent(/^Oct 27, 2026 – Nov 17, 2026$/);
+    expect(within(market).getByRole("img", { name: "Time subscribed" })).toBeInTheDocument();
+    expect(within(market).queryByRole("img", { name: "Age" })).not.toBeInTheDocument();
+  });
+
+  it("draws no dates from an instant that cannot be read", () => {
+    const row = draw({ since: null });
+
+    expect(within(row).queryByTestId("card-age")).not.toBeInTheDocument();
+    expect(within(row).getByTestId("card-market")).toHaveTextContent(/^bybit · usdt-m · USDT$/);
+  });
+
+  it("draws no days active and no bare count of closed trades", () => {
+    const row = draw();
+
+    expect(within(row).queryByTestId("card-uptime")).not.toBeInTheDocument();
+    expect(within(row).queryByTestId("card-trades")).not.toBeInTheDocument();
+    expect(within(row).queryByRole("img", { name: "Days active" })).not.toBeInTheDocument();
+  });
+});
+
 describe("the figures", () => {
-  it("come in one order: age, days active, closed trades, return, deepest, win rate, subscribers, capital", () => {
+  it("come in four groups, each under its icon and its label: Total PnL, Max drawdown, Profitable trades, AuM", () => {
     const row = draw();
 
-    const order = Array.from(row.querySelectorAll("dd")).map((cell) => cell.getAttribute("data-testid"));
-    expect(order).toEqual(FIGURE_ORDER.map((key) => `card-${key}`));
-  });
-
-  it("each sit under the icon that names them", () => {
-    const row = draw();
-    const icons: Record<string, string> = {
-      age: "calendar",
-      uptime: "clock",
-      trades: "list-checks",
-      return: "trending-up",
-      deepest: "trending-down",
-      winrate: "trophy",
-      subscribers: "users",
-      capital: "wallet",
-    };
-
-    for (const [key, icon] of Object.entries(icons)) {
-      const term = within(row).getByTestId(`card-${key}`).previousElementSibling as HTMLElement;
+    expect(groupOrder(row)).toEqual(GROUPS.map(([key]) => `card-group-${key}`));
+    for (const [key, icon, label] of GROUPS) {
+      const term = within(row).getByTestId(`card-group-${key}`).querySelector("dt") as HTMLElement;
       expect(term.querySelector(`svg.lucide-${icon}`), key).not.toBeNull();
-      expect(term.textContent, key).toBe("");
+      expect(term, key).toHaveTextContent(label);
     }
-  });
-
-  it("keep their words as the icon's name and tooltip, capitalised", () => {
-    const row = draw();
-
-    for (const [key, name] of [
-      ["age", "Age"],
-      ["trades", "Closed trades"],
-      ["return", "Return"],
-      ["deepest", "Drawdown"],
-      ["winrate", "Win rate"],
-      ["subscribers", "Live subscribers"],
-      ["capital", "Capital"],
-    ] as const) {
-      const term = within(row).getByTestId(`card-${key}`).previousElementSibling as HTMLElement;
-      expect(within(term).getByRole("img", { name }), key).toBeInTheDocument();
-    }
-    fireEvent.mouseEnter(within(row).getByRole("img", { name: "Drawdown" }).parentElement as HTMLElement);
-    expect(within(row).getByRole("tooltip")).toHaveTextContent("Drawdown");
   });
 
   it("read their values", () => {
     const row = draw();
 
-    expect(within(row).getByTestId("card-trades")).toHaveTextContent(/^3$/);
     expect(within(row).getByTestId("card-return")).toHaveTextContent(/^\+12\.5\s?%$/);
     expect(within(row).getByTestId("card-deepest")).toHaveTextContent(/^[-−]5\.0\s?%$/);
     expect(within(row).getByTestId("card-winrate")).toHaveTextContent(/^60\s?%$/);
+    expect(within(row).getByTestId("card-wins")).toHaveTextContent(/^3\/5$/);
     expect(within(row).getByTestId("card-subscribers")).toHaveTextContent(/^2$/);
     expect(within(row).getByTestId("card-capital")).toHaveTextContent(/^1,500\.00 USDT$/);
   });
@@ -209,150 +221,94 @@ describe("the figures", () => {
     expect(within(row).getByTestId("card-winrate")).toHaveTextContent(/^66\.7\s?%$/);
   });
 
-  it("show the dash the capital uses where there is no figure yet", () => {
+  it("show the dash where there is no figure yet, and no count of wins", () => {
     const row = draw({
-      figures: { ...FIGURES, ret: null, deepest: null, winRate: null, capital: null, subscribers: null },
+      figures: { ...FIGURES, ret: null, deepest: null, winRate: null, profitable: null, capital: null, subscribers: null },
     });
 
     for (const key of ["return", "deepest", "winrate", "capital", "subscribers"]) {
       expect(within(row).getByTestId(`card-${key}`), key).toHaveTextContent(/^—$/);
     }
     expect(within(row).getByTestId("card-return")).not.toHaveClass("text-gain", "text-loss");
-    expect(within(row).queryByText(/not yet/i)).not.toBeInTheDocument();
-  });
-
-  it("show a dash for closed trades that are not known, and a count of none as 0", () => {
-    const unknown = draw({ figures: { ...FIGURES, trades: null } });
-    expect(within(unknown).getByTestId("card-trades")).toHaveTextContent(/^—$/);
+    expect(within(row).queryByTestId("card-wins")).not.toBeInTheDocument();
   });
 
   it("show an ellipsis while a figure is being read", () => {
-    const row = draw({ figures: { ...FIGURES, trades: undefined, ret: undefined, deepest: undefined, winRate: undefined } });
+    const row = draw({
+      figures: {
+        ...FIGURES,
+        ret: undefined,
+        deepest: undefined,
+        winRate: undefined,
+        profitable: undefined,
+        subscribers: undefined,
+        capital: undefined,
+      },
+    });
 
-    for (const key of ["trades", "return", "deepest", "winrate"]) {
+    for (const key of ["return", "deepest", "winrate", "subscribers", "capital"]) {
       expect(within(row).getByTestId(`card-${key}`), key).toHaveTextContent(/^…$/);
     }
   });
 
-  it("show an ellipsis for the subscribers and the capital too while they are being read", () => {
-    const row = draw({ figures: { ...FIGURES, subscribers: undefined, capital: undefined } });
+  it("counts only the live subscribers under AuM, and says so in the icon's tooltip", () => {
+    const row = draw({ figures: { ...FIGURES, subscribers: 0 } });
 
-    expect(within(row).getByTestId("card-subscribers")).toHaveTextContent(/^…$/);
-    expect(within(row).getByTestId("card-capital")).toHaveTextContent(/^…$/);
+    const aum = within(row).getByTestId("card-group-aum");
+    expect(within(aum).getByTestId("card-subscribers")).toHaveTextContent(/^0$/);
+    fireEvent.mouseEnter(within(aum).getByRole("img", { name: "Live subscribers" }).parentElement as HTMLElement);
+    expect(within(row).getByRole("tooltip")).toHaveTextContent(/^Live subscribers$/);
   });
 
-  it("show a dash for a date that cannot be read", () => {
-    const row = draw({ since: null });
-
-    expect(within(row).getByTestId("card-age")).toHaveTextContent(/^—$/);
-  });
-
-  it("write the age short, from the strategy's creation", () => {
-    vi.useFakeTimers({ toFake: ["Date"] });
-    vi.setSystemTime(new Date("2026-11-06T12:00:00Z"));
-    const row = draw({ since: "2026-10-27T10:00:00Z" });
-
-    expect(within(row).getByTestId("card-age")).toHaveTextContent(/^10d$/);
-  });
-
-  it("count the time subscribed, under its own name, when the card is a seat", () => {
-    const row = draw({ sinceKind: "subscribed" });
-
-    const term = within(row).getByTestId("card-age").previousElementSibling as HTMLElement;
-    expect(within(term).getByRole("img", { name: "Time subscribed" })).toBeInTheDocument();
-    expect(within(term).queryByRole("img", { name: "Age" })).not.toBeInTheDocument();
-  });
-});
-
-describe("the days active", () => {
-  it("count whole days of the uptime, and name them in the tooltip", () => {
-    const row = draw();
-
-    expect(within(row).getByTestId("card-uptime")).toHaveTextContent(/^12$/);
-    const term = within(row).getByTestId("card-uptime").previousElementSibling as HTMLElement;
-    // The tooltip names the figure; the count is the value's.
-    expect(within(term).getByRole("img", { name: "Days active" })).toBeInTheDocument();
-  });
-
-  it("read as at least when the first activation is only a baseline", () => {
-    const row = draw({ uptime: { seconds: 3 * DAY_S, first_enabled_at: "2026-09-29T00:00:00Z", baseline: true } });
-
-    expect(within(row).getByTestId("card-uptime")).toHaveTextContent(/^≥3$/);
-    const term = within(row).getByTestId("card-uptime").previousElementSibling as HTMLElement;
-    expect(within(term).getByRole("img", { name: "Days active, at least" })).toBeInTheDocument();
-  });
-
-  it("make no claim for a strategy never enabled: a dash, and the tooltip says so", () => {
-    const row = draw({ uptime: { seconds: 0, first_enabled_at: null, baseline: false } });
-
-    expect(within(row).getByTestId("card-uptime")).toHaveTextContent(/^—$/);
-    const term = within(row).getByTestId("card-uptime").previousElementSibling as HTMLElement;
-    expect(within(term).getByRole("img", { name: "Never enabled" })).toBeInTheDocument();
-  });
-});
-
-describe("the grid", () => {
-  it("is four icons a row on a phone, centred, and wider from there", () => {
+  it("lays the groups out in equal columns, one row from lg, two a row on a phone and three from sm", () => {
     const row = draw();
 
     const grid = row.querySelector("dl") as HTMLElement;
-    expect(grid).toHaveClass("grid", "grid-cols-4", "place-items-center", "sm:place-items-start", "lg:grid-flow-col", "lg:auto-cols-max", "lg:justify-between");
-    // As another author's page spreads them: each column as wide as its value, the first at the left edge, the last
-    // at the right, the room left shared out equally between them, so a long PnL takes no room from its neighbours
-    // (L.12). Equal columns drew +2058.38 USDT against the return, and away from the closed trades.
-    expect(grid).not.toHaveClass("lg:auto-cols-fr");
-    expect(grid).not.toHaveClass("lg:auto-cols-[minmax(max-content,1fr)]");
-    // The phone's four columns are explicit and would hold the first four at minmax(0, 1fr) on lg.
-    expect(grid).toHaveClass("lg:grid-cols-none");
-    // From lg every figure stays whole on one line in its column; a phone may wrap it rather than widen the page.
-    for (const value of grid.querySelectorAll("dd")) expect(value).toHaveClass("lg:whitespace-nowrap");
-  });
-
-  it("keeps each icon centred over the figure it heads", () => {
-    const row = draw();
-
-    for (const key of FIGURE_ORDER) {
-      expect((within(row).getByTestId(`card-${key}`).parentElement as HTMLElement), key).toHaveClass("w-fit", "items-center");
-    }
+    expect(grid).toHaveClass("grid", "grid-cols-2", "sm:grid-cols-3", "lg:grid-flow-col", "lg:grid-cols-none", "lg:auto-cols-fr");
   });
 });
 
 describe("what varies between the lists", () => {
-  it("draws a PnL left of the return, a figure like the rest, signed and in its currency (L.11)", () => {
+  it("draws a PnL before the return under Total PnL, signed and in its currency", () => {
     const row = draw({ pnl: { value: 12.5, currency: "USDT" } });
 
-    const order = Array.from(row.querySelectorAll("dd")).map((cell) => cell.getAttribute("data-testid"));
-    expect(order.slice(2, 5)).toEqual(["card-trades", "card-pnl", "card-return"]);
-    const pnl = within(row).getByTestId("card-pnl");
+    const group = within(row).getByTestId("card-group-pnl");
+    const values = Array.from((group.querySelector("dd") as HTMLElement).children).map((value) => value.getAttribute("data-testid"));
+    expect(values).toEqual(["card-pnl", "card-return"]);
+    const pnl = within(group).getByTestId("card-pnl");
     expect(pnl).toHaveTextContent(/^\+12\.50 USDT$/);
     expect(pnl).toHaveClass("text-gain");
-    expect(pnl.parentElement).toHaveClass("w-fit", "items-center");
-    const term = pnl.previousElementSibling as HTMLElement;
-    expect(within(term).getByRole("img", { name: "PnL" })).toBeInTheDocument();
-    expect(term).toHaveClass("relative", "z-10");
   });
 
-  it("names a PnL by the label it is given, and reads one still on its way as an ellipsis (L.11)", () => {
-    const row = draw({ pnl: { value: undefined, currency: "USDT", label: "Your PnL" } });
+  it("reads a PnL still on its way as an ellipsis", () => {
+    const row = draw({ pnl: { value: undefined, currency: "USDT" } });
 
     expect(within(row).getByTestId("card-pnl")).toHaveTextContent(/^…$/);
-    const term = within(row).getByTestId("card-pnl").previousElementSibling as HTMLElement;
-    expect(within(term).getByRole("img", { name: "Your PnL" })).toBeInTheDocument();
   });
 
-  it("counts only the live subscribers, and says so in the tooltip (L.11)", () => {
-    const row = draw({ figures: { ...FIGURES, subscribers: 0 } });
+  it("draws no PnL where the list has none to show, the return alone under Total PnL", () => {
+    const row = draw();
 
-    expect(within(row).getByTestId("card-subscribers")).toHaveTextContent(/^0$/);
-    fireEvent.mouseEnter(within(row).getByRole("img", { name: "Live subscribers" }).parentElement as HTMLElement);
-    expect(within(row).getByRole("tooltip")).toHaveTextContent(/^Live subscribers$/);
+    expect(within(row).queryByTestId("card-pnl")).not.toBeInTheDocument();
+    expect(within(within(row).getByTestId("card-group-pnl")).getByTestId("card-return")).toBeInTheDocument();
   });
 
-  it("draws the trailing figures after the capital", () => {
-    const row = draw({ trailing: <Figure label="Share" testId="card-share" value="30%" /> });
+  it("draws a seat's settings last, its share and its leverage each beside a named icon", () => {
+    const row = draw({ setup: { share: "30%", leverage: "x3" } });
 
-    const order = Array.from(row.querySelectorAll("dd")).map((cell) => cell.getAttribute("data-testid"));
-    expect(order.slice(-2)).toEqual(["card-capital", "card-share"]);
+    expect(groupOrder(row).at(-1)).toBe("card-group-setup");
+    const setup = within(row).getByTestId("card-group-setup");
+    expect(setup.querySelector("dt")).toHaveTextContent("Settings");
+    expect(within(setup).getByTestId("card-share")).toHaveTextContent(/^30%$/);
+    expect(within(setup).getByTestId("card-leverage")).toHaveTextContent(/^x3$/);
+    expect(within(setup).getByRole("img", { name: "Share" })).toBeInTheDocument();
+    expect(within(setup).getByRole("img", { name: "Leverage" })).toBeInTheDocument();
+  });
+
+  it("draws no settings where the card is not a seat", () => {
+    const row = draw();
+
+    expect(within(row).queryByTestId("card-group-setup")).not.toBeInTheDocument();
   });
 
   it("puts the action on the title's line, at its right end, and leaves the figures the card's whole width (L.12)", () => {
@@ -373,14 +329,14 @@ describe("what varies between the lists", () => {
     expect(within(row).getByText("Leaving soon")).toBeInTheDocument();
   });
 
-  it("replaces the figures it could not read with one alert, and keeps the others", () => {
-    const row = draw({ figuresError: "Could not read" });
+  it("replaces the figures it could not read with one alert, and keeps AuM, the settings and the dates", () => {
+    const row = draw({ figuresError: "Could not read", setup: { share: "30%", leverage: "x3" } });
 
     expect(within(row).getByRole("alert")).toHaveTextContent("Could not read");
-    for (const key of ["trades", "return", "deepest", "winrate"]) {
+    for (const key of ["group-pnl", "group-drawdown", "group-profitable"]) {
       expect(within(row).queryByTestId(`card-${key}`), key).not.toBeInTheDocument();
     }
-    for (const key of ["age", "uptime", "subscribers", "capital"]) {
+    for (const key of ["group-aum", "group-setup", "age"]) {
       expect(within(row).getByTestId(`card-${key}`), key).toBeInTheDocument();
     }
   });

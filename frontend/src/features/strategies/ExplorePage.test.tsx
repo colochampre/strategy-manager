@@ -52,7 +52,8 @@ describe("Explore", () => {
     expect(within(row).getByRole("link", { name: "Alpha" })).toHaveAttribute("href", `/strategies/explore/${ID}`);
     expect(within(row).getByText(i18n.t("strategies.public.by", { name: "Ana" }), { exact: false })).toBeInTheDocument();
     expect(within(row).getByTestId("public-market")).toHaveTextContent("bybit · usdt-m · USDT");
-    expect(within(row).getByTestId("public-trades")).toHaveTextContent("3");
+    // The public record serves a win rate of 0.6 over 3 closed trades: the card writes the count it stands for.
+    expect(within(row).getByTestId("public-wins")).toHaveTextContent(/^2\/3$/);
     expect(within(row).getByTestId("public-return")).toHaveTextContent("+12.5%");
     expect(within(row).getByTestId("public-subscribers")).toHaveTextContent(/^2$/);
     expect(within(row).getByTestId("public-capital")).toHaveTextContent("1,500.00 USDT");
@@ -77,14 +78,14 @@ describe("Explore", () => {
     expect(api.mock.calls.filter(([url]) => String(url).endsWith("/positions/open"))).toHaveLength(0);
   });
 
-  it("adds the deepest fall, the win rate and the days active to the figures", async () => {
+  it("adds the deepest fall and the win rate to the figures, and no days active (owner, 2026-11-17)", async () => {
     serve(() => Promise.resolve(jsonResponse([publicStrategy({ max_drawdown: "-0.05", win_rate: "0.6" })])));
     open();
 
     const row = await screen.findByTestId("public-strategy-row");
     expect(within(row).getByTestId("public-deepest")).toHaveTextContent(/^[-−]5\.0\s?%$/);
     expect(within(row).getByTestId("public-winrate")).toHaveTextContent(/^60\s?%$/);
-    expect(within(row).getByTestId("public-uptime")).toHaveTextContent(/^12$/);
+    expect(within(row).queryByTestId("public-uptime")).not.toBeInTheDocument();
   });
 
   it("shows a strategy of another author as enabled or disabled, in words", async () => {
@@ -122,33 +123,30 @@ describe("Explore", () => {
     expect(api.mock.calls.some(([url]) => String(url).endsWith("/positions/open"))).toBe(false);
   });
 
-  it("draws every figure, the capital included (owner, 2026-11-06), as an icon that keeps its name", async () => {
+  it("groups the record under Total PnL, Max drawdown and Profitable trades, the capital under AuM (owner, 2026-11-17)", async () => {
     serve(() => Promise.resolve(jsonResponse([publicStrategy()])));
     open();
 
     const row = await screen.findByTestId("public-strategy-row");
-    for (const [key, name] of [
-      ["age", "Age"],
-      ["trades", "Closed trades"],
-      ["return", "Return"],
-      ["deepest", "Drawdown"],
-      ["winrate", "Win rate"],
-      ["capital", "Capital"],
+    for (const [group, key, label] of [
+      ["pnl", "return", "Total PnL"],
+      ["drawdown", "deepest", "Max drawdown"],
+      ["profitable", "winrate", "Profitable trades"],
+      ["aum", "capital", "AuM"],
     ] as const) {
-      const term = within(row).getByTestId(`public-${key}`).previousElementSibling as HTMLElement;
-      expect(within(term).getByRole("img", { name })).toBeInTheDocument();
-      expect(term).toHaveTextContent("");
+      const found = within(row).getByTestId(`public-group-${group}`);
+      expect(found.querySelector("dt"), group).toHaveTextContent(label);
+      expect(within(found).getByTestId(`public-${key}`), group).toBeInTheDocument();
     }
   });
 
-  it("draws the age as a calendar and the subscribers as people (owner, 2026-11-06)", async () => {
+  it("draws the dates under a calendar and the subscribers as people (owner, 2026-11-06)", async () => {
     serve(() => Promise.resolve(jsonResponse([publicStrategy()])));
     open();
 
     const row = await screen.findByTestId("public-strategy-row");
-    const term = (key: string) => within(row).getByTestId(`public-${key}`).previousElementSibling as HTMLElement;
-    expect(term("age").querySelector("svg.lucide-calendar")).not.toBeNull();
-    expect(term("subscribers").querySelector("svg.lucide-users")).not.toBeNull();
+    expect(within(row).getByRole("img", { name: "Age" })).toHaveClass("lucide-calendar");
+    expect(within(row).getByRole("img", { name: "Live subscribers" })).toHaveClass("lucide-users");
   });
 
   it("explains an icon on hover", async () => {
@@ -156,8 +154,8 @@ describe("Explore", () => {
     open();
 
     const row = await screen.findByTestId("public-strategy-row");
-    fireEvent.mouseEnter(within(row).getByRole("img", { name: "Closed trades" }).parentElement as HTMLElement);
-    expect(within(row).getByRole("tooltip")).toHaveTextContent("Closed trades");
+    fireEvent.mouseEnter(within(row).getByRole("img", { name: "Live subscribers" }).parentElement as HTMLElement);
+    expect(within(row).getByRole("tooltip")).toHaveTextContent("Live subscribers");
   });
 
   it("colours a loss as a loss", async () => {
@@ -167,45 +165,16 @@ describe("Explore", () => {
     expect(await screen.findByTestId("public-return")).toHaveClass("text-loss");
   });
 
-  it("writes an age in days from the strategy's creation, short", async () => {
-    const tenDaysAgo = new Date(Date.now() - 10 * 86_400_000 - 3_600_000).toISOString();
-    serve(() => Promise.resolve(jsonResponse([publicStrategy({ created_at: tenDaysAgo })])));
-    open();
-
-    expect(await screen.findByTestId("public-age")).toHaveTextContent(/^10d$/);
-  });
-
-  it("centres each icon over the figure it heads", async () => {
-    serve(() => Promise.resolve(jsonResponse([publicStrategy()])));
-    open();
-
-    for (const testId of ["public-age", "public-trades", "public-return", "public-subscribers"]) {
-      const figure = (await screen.findByTestId(testId)).parentElement as HTMLElement;
-      expect(within(figure).getByRole("img")).toBeInTheDocument();
-      expect(figure).toHaveClass("w-fit", "items-center");
-    }
-  });
-
-  it("heads the capital with an icon like the other figures, explained in one capitalised word", async () => {
-    serve(() => Promise.resolve(jsonResponse([publicStrategy()])));
-    open();
-
-    const figure = (await screen.findByTestId("public-capital")).parentElement as HTMLElement;
-    const term = figure.querySelector("dt") as HTMLElement;
-    expect(within(term).getByRole("img", { name: "Capital" })).toBeInTheDocument();
-    expect(term.textContent).toBe("");
-    fireEvent.mouseEnter(within(term).getByRole("img").parentElement as HTMLElement);
-    expect(screen.getByRole("tooltip")).toHaveTextContent(/^Capital$/);
-  });
-
-  it("writes a long age in its two largest units", async () => {
+  it("dates the strategy on its market line, from its creation to today (owner, 2026-11-17)", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-11-06T12:00:00Z"));
     try {
       serve(() => Promise.resolve(jsonResponse([publicStrategy({ created_at: "2025-07-01T10:00:00Z" })])));
       open();
 
-      expect(await screen.findByTestId("public-age")).toHaveTextContent(/^1y 4mo$/);
+      const age = await screen.findByTestId("public-age");
+      expect(age).toHaveTextContent(/^Jul 1, 2025 – Nov 6, 2026$/);
+      expect(screen.getByTestId("public-market")).toContainElement(age);
     } finally {
       vi.useRealTimers();
     }
@@ -230,7 +199,8 @@ describe("Explore", () => {
     );
     open();
 
-    expect(await screen.findByTestId("public-trades")).toHaveTextContent(/^0$/);
+    expect(await screen.findByTestId("public-winrate")).toBeInTheDocument();
+    expect(screen.queryByTestId("public-wins")).not.toBeInTheDocument();
     for (const key of ["return", "deepest", "winrate"]) {
       const figure = screen.getByTestId(`public-${key}`);
       expect(figure, key).toHaveTextContent(/^—$/);

@@ -331,7 +331,12 @@
       "pnl": "PnL",
       "yourPnl": "Your PnL",
       "share": "Share",
-      "leverage": "Leverage"
+      "leverage": "Leverage",
+      "totalPnl": "Total PnL",
+      "maxDrawdown": "Max drawdown",
+      "profitableTrades": "Profitable trades",
+      "aum": "AuM",
+      "setup": "Settings"
     },
     "sort": {
       "label": "Sort by",

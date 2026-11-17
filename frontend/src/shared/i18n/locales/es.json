@@ -331,7 +331,12 @@
       "pnl": "PnL",
       "yourPnl": "Su PnL",
       "share": "Parte del pool",
-      "leverage": "Apalancamiento"
+      "leverage": "Apalancamiento",
+      "totalPnl": "PnL total",
+      "maxDrawdown": "Caída máxima",
+      "profitableTrades": "Operaciones ganadoras",
+      "aum": "AuM",
+      "setup": "Configuración"
     },
     "sort": {
       "label": "Ordenar por",

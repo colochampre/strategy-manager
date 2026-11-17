@@ -34,7 +34,6 @@ export function StrategyRow({ strategy, card }: StrategyRowProps) {
       market={[strategy.venue, strategy.allowed_pairs.join(", ")].filter((part) => part !== "").join(" · ")}
       since={strategy.created_at}
       sinceKind="age"
-      uptime={strategy.uptime}
       figures={card.figures}
       figuresError={card.failed ? t("strategies.row.performanceError") : null}
       pnl={{ value: card.pnl, currency: strategy.settlement_currency }}

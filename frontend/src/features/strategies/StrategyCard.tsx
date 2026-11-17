@@ -1,4 +1,17 @@
-import { Calendar, Clock, Coins, ListChecks, TrendingDown, TrendingUp, Trophy, Users, Wallet } from "lucide-react";
+import {
+  Calendar,
+  ChartPie,
+  Clock,
+  Coins,
+  Gauge,
+  ListChecks,
+  SlidersHorizontal,
+  TrendingDown,
+  TrendingUp,
+  Trophy,
+  Users,
+  Wallet,
+} from "lucide-react";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
@@ -43,6 +56,8 @@ export interface CardFigures {
   ret: number | null | undefined;
   deepest: number | null | undefined;
   winRate: number | null | undefined;
+  /** The trades won out of the trades closed, where a card says both; absent where nothing draws it (a page's row). */
+  profitable?: { wins: number; closed: number } | null | undefined;
   /** Those trading it live: one number, the tooltip says live. */
   subscribers: number | null | undefined;
   capital: { amount: number; currency: string } | null | undefined;
@@ -60,17 +75,16 @@ export interface StrategyCardProps {
   /** Whether the strategy runs, as a word beside its name; null or absent where the card has a switch instead. */
   enabled?: boolean | null;
   market: string;
-  /** The instant the age counts from: the strategy's creation, or the day the reader subscribed. */
+  /** The instant the dates on the market line run from: the strategy's creation, or the day the reader subscribed. */
   since: string | null;
   sinceKind: "age" | "subscribed";
-  uptime: StrategyUptime;
   figures: CardFigures;
-  /** Said once, in place of the figures read from the author's report, when that report failed. */
+  /** Said once, in place of the figures read from a report, when that report failed. */
   figuresError?: string | null;
-  /** A PnL, drawn left of the return, where the card has one: the author's, or the reader's own in a seat. */
+  /** A PnL, drawn before the return under Total PnL, where the card has one: the author's, or the reader's own. */
   pnl?: CardPnl;
-  /** Figures that vary by list, drawn after the capital in the same grid. */
-  trailing?: ReactNode;
+  /** A seat's share of the pool and leverage, as written: only My subscriptions draws them. */
+  setup?: { share: string; leverage: string };
   /** The card's one control (the switch), drawn last and lifted above the stretched link. */
   action?: ReactNode;
   /** The open positions, lifted above the stretched link for their own links. */
@@ -300,13 +314,153 @@ export function CardFigureGrid({
 }
 
 /**
+ * The card's figures in five columns from `lg`, each as wide as the next, as TradingView's strategy tester lays out
+ * its key stats; two a row on a phone, three from `sm`.
+ */
+const STATS_GRID =
+  "grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3 lg:grid-flow-col lg:grid-cols-none lg:auto-cols-fr lg:gap-x-6";
+
+const DATE_OPTIONS: Intl.DateTimeFormatOptions = { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" };
+
+/** "Oct 12, 2026 – Nov 17, 2026": from `since` to today, in UTC; null where `since` cannot be read. */
+function dateRange(since: string | null, locale: string): string | null {
+  const from = since === null ? Number.NaN : Date.parse(since);
+  if (Number.isNaN(from)) return null;
+  const format = new Intl.DateTimeFormat(locale, DATE_OPTIONS);
+  return `${format.format(new Date(from))} – ${format.format(new Date())}`;
+}
+
+/** An icon that names a value beside it, with its tooltip, lifted above the card's stretched link so it answers. */
+function NamedIcon({ icon: Icon, label }: { icon: typeof Users; label: string }) {
+  return (
+    <Tooltip text={label} className="relative z-10 inline-flex">
+      <Icon role="img" aria-label={label} className="size-3.5 shrink-0 text-ink-3" />
+    </Tooltip>
+  );
+}
+
+/** One labelled group of the card: an icon and a label, the values beneath on one line. */
+function StatGroup({
+  testId,
+  icon: Icon,
+  label,
+  children,
+}: {
+  testId: string;
+  icon: typeof Users;
+  label: string;
+  children: ReactNode;
+}) {
+  return (
+    <div data-testid={testId} className="flex min-w-0 flex-col gap-1">
+      <dt className="flex items-center gap-1.5 text-xs text-ink-3">
+        <Icon aria-hidden="true" className="size-3.5 shrink-0" />
+        <span>{label}</span>
+      </dt>
+      <dd className="flex flex-wrap items-center gap-x-2 gap-y-0.5 font-mono text-sm tabular-nums text-ink">{children}</dd>
+    </div>
+  );
+}
+
+interface CardStatsProps {
+  prefix: string;
+  figures: CardFigures;
+  figuresError?: string | null | undefined;
+  pnl?: CardPnl | undefined;
+  setup?: { share: string; leverage: string } | undefined;
+}
+
+/**
+ * A card's figures under one label per group (owner, 2026-11-17, after TradingView's strategy tester): Total PnL (the
+ * PnL where the card has one, and the return), Max drawdown, Profitable trades (the rate, and the wins out of the
+ * trades closed), AuM (who trades it live, and with how much) and, on a seat, its settings.
+ */
+function CardStats({ prefix, figures, figuresError, pnl, setup }: CardStatsProps) {
+  const { t, i18n } = useTranslation();
+  const locale = i18n.language;
+  const ret = signed(figures.ret, locale);
+  const deepest = signed(figures.deepest, locale);
+  const count = (value: number | null | undefined) =>
+    value === undefined ? LOADING : value === null ? NO_FIGURE : String(value);
+
+  return (
+    <dl className={cn(STATS_GRID, "min-w-0")}>
+      {figuresError !== undefined && figuresError !== null ? (
+        <p role="alert" className="col-span-2 text-xs text-loss">
+          {figuresError}
+        </p>
+      ) : (
+        <>
+          <StatGroup testId={`${prefix}-group-pnl`} icon={Coins} label={t("strategies.card.totalPnl")}>
+            {pnl !== undefined && (
+              <span
+                data-testid={`${prefix}-pnl`}
+                className={pnl.value === undefined || pnl.value === null ? undefined : toneClass(pnl.value)}
+              >
+                {pnl.value === undefined
+                  ? LOADING
+                  : pnl.value === null
+                    ? NO_FIGURE
+                    : `${amountText(pnl.value, pnl.currency, locale, true)} ${pnl.currency}`}
+              </span>
+            )}
+            <span data-testid={`${prefix}-return`} className={ret.tone}>
+              {ret.text}
+            </span>
+          </StatGroup>
+          <StatGroup testId={`${prefix}-group-drawdown`} icon={TrendingDown} label={t("strategies.card.maxDrawdown")}>
+            <span data-testid={`${prefix}-deepest`} className={deepest.tone}>
+              {deepest.text}
+            </span>
+          </StatGroup>
+          <StatGroup testId={`${prefix}-group-profitable`} icon={Trophy} label={t("strategies.card.profitableTrades")}>
+            <span data-testid={`${prefix}-winrate`}>{winRateText(figures.winRate, locale)}</span>
+            {figures.profitable !== undefined && figures.profitable !== null && (
+              <span data-testid={`${prefix}-wins`} className="text-ink-2">
+                {`${figures.profitable.wins}/${figures.profitable.closed}`}
+              </span>
+            )}
+          </StatGroup>
+        </>
+      )}
+      <StatGroup testId={`${prefix}-group-aum`} icon={Wallet} label={t("strategies.card.aum")}>
+        <span className="inline-flex items-center gap-1">
+          <NamedIcon icon={Users} label={t("strategies.card.subscribers")} />
+          <span data-testid={`${prefix}-subscribers`}>{count(figures.subscribers)}</span>
+        </span>
+        <span data-testid={`${prefix}-capital`}>
+          {figures.capital === undefined
+            ? LOADING
+            : figures.capital === null
+              ? NO_FIGURE
+              : `${amountText(figures.capital.amount, figures.capital.currency, locale)} ${figures.capital.currency}`}
+        </span>
+      </StatGroup>
+      {setup !== undefined && (
+        <StatGroup testId={`${prefix}-group-setup`} icon={SlidersHorizontal} label={t("strategies.card.setup")}>
+          <span className="inline-flex items-center gap-1">
+            <NamedIcon icon={ChartPie} label={t("strategies.card.share")} />
+            <span data-testid={`${prefix}-share`}>{setup.share}</span>
+          </span>
+          <span className="inline-flex items-center gap-1">
+            <NamedIcon icon={Gauge} label={t("strategies.card.leverage")} />
+            <span data-testid={`${prefix}-leverage`}>{setup.leverage}</span>
+          </span>
+        </StatGroup>
+      )}
+    </dl>
+  );
+}
+
+/**
  * One strategy as a card, the same on Explore, on My subscriptions and on My strategies. The title link is
  * stretched over the whole card, so the card opens the strategy; the switch, the open positions and each figure's
  * icon are lifted above it and keep their own action. The keyboard meets one stop, the title.
  */
 export function StrategyCard(props: StrategyCardProps) {
-  const { prefix, figures, uptime } = props;
-  const { t } = useTranslation();
+  const { prefix } = props;
+  const { t, i18n } = useTranslation();
+  const dates = dateRange(props.since, i18n.language);
 
   return (
     <li
@@ -335,22 +489,33 @@ export function StrategyCard(props: StrategyCardProps) {
               {props.byline}
             </p>
           )}
-          <p data-testid={`${prefix}-market`} className="font-mono text-[11px] uppercase tracking-[0.14em] text-ink-3">
-            {props.market}
+          <p
+            data-testid={`${prefix}-market`}
+            className="flex flex-wrap items-center gap-x-1.5 font-mono text-[11px] text-ink-3"
+          >
+            <span className="uppercase tracking-[0.14em]">{props.market}</span>
+            {dates !== null && (
+              <>
+                <span aria-hidden="true">·</span>
+                <span className="inline-flex items-center gap-1">
+                  <NamedIcon
+                    icon={Calendar}
+                    label={t(props.sinceKind === "age" ? "strategies.card.age" : "strategies.card.subscribed")}
+                  />
+                  <span data-testid={`${prefix}-age`}>{dates}</span>
+                </span>
+              </>
+            )}
           </p>
         </div>
         {props.action !== undefined && <div className="relative z-10 shrink-0">{props.action}</div>}
       </div>
-      <CardFigureGrid
+      <CardStats
         prefix={prefix}
-        since={props.since}
-        sinceKind={props.sinceKind}
-        uptime={uptime}
-        figures={figures}
+        figures={props.figures}
         figuresError={props.figuresError}
         pnl={props.pnl}
-        trailing={props.trailing}
-        className="min-w-0"
+        setup={props.setup}
       />
       {props.marks !== undefined && <div className="relative z-10">{props.marks}</div>}
       {props.notice}
