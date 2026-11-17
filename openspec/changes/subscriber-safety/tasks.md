@@ -711,6 +711,54 @@ owner's preference.
       `8561cbeb965a`.
 - [ ] SS.10 The `safety_events` table, its API and the panel list, in EN and
   ES, and the `OPENING_REFUSED_LEVERAGE_CAP` event from SS.3's refusal.
+  - Design, 2026-11-17, from a read-only map of the code.
+  - When each event is written. A `*_CLOSED` event reports a close, so it is
+    written when the close's fills are booked, never when the order is sent:
+    - `ClosePosition` commits the SUBMITTED attempt before it contacts the
+      venue, and a dust close commits with no attempt at all. An event
+      staged by the caller would ride those commits and claim a close that
+      may never happen.
+    - `STOP_FIRED`: in `WatchProtectiveStops._book`, on the commit that books
+      the stop's fills and marks it FIRED.
+    - `STOP_FAILED_CLOSED`, `STRATEGY_STOPPED_CLOSED` and `MANUAL_CLOSE`: in
+      `SettleExecution`, on the commit that books a closing attempt's fills.
+      The attempt's cause names the kind:
+      - `MANUAL` is close now. Reconciliation's `MANUAL` booking never goes
+        through settle.
+      - `SAFETY_CLOSE` is `STOP_FAILED_CLOSED` when the allocation's stop is
+        FAILED, as migration 0043's backfill told them apart, and
+        `STRATEGY_STOPPED_CLOSED` otherwise.
+    - `OPENING_REFUSED_LEVERAGE_CAP`: in `ProcessSignal._reject`, on the
+      commit of the REJECTED outcome. It has no allocation.
+  - Table `safety_events`, migration 0044:
+    - columns: id, user, kind (CHECK on the five), strategy, allocation
+      (nullable), exchange, venue, symbol, `occurred_at`, a JSONB `detail`,
+      and the source: `execution_attempt_id` or `delivery_id`, each UNIQUE,
+      exactly one of them set;
+    - the UNIQUE source is what keeps a re-run from writing a second row
+      (the spec's "a fired stop is recorded once");
+    - append-only: nothing updates or deletes a row;
+    - an index on (user, `occurred_at` DESC).
+  - Detail, every value a string:
+    - `STOP_FIRED`: `quantity`, `trigger_price`;
+    - the three closes: `quantity` and `price`, the filled size and its
+      average price;
+    - `OPENING_REFUSED_LEVERAGE_CAP`: `requested_leverage`, `max_leverage`,
+      `stop_loss_pct`.
+  - API, `GET /api/safety-events`, scoped to the signed-in user:
+    `{"events": [...]}`, newest first, at most 100. Each event carries `id`,
+    `kind`, `strategy_id`, `strategy_name`, `allocation_id`, `exchange`,
+    `venue`, `symbol`, `occurred_at` and `detail`.
+  - Panel: a new "Safety events" page, `/safety-events`, with its nav item.
+    Each row shows the kind, the strategy, the symbol, the time and the
+    detail, in EN and ES.
+  - Out of scope, as advisories:
+    - a refused or failed close writes no event, so a position the system
+      could not close is not reported here;
+    - a stop marked GONE, or a stop fill that does not fit the ledger,
+      writes no `STOP_FIRED`.
+  - Risk: item 1 (a migration creating a table) and item 4 (writes added
+    inside the settle and stop-watcher transactions).
 - [ ] SS.11 Docs: CLAUDE.md's venue facts on stops, and the panel's help text.
 
 ## Log
