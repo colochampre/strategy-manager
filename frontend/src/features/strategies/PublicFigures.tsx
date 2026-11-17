@@ -1,4 +1,5 @@
 import type { LucideIcon } from "lucide-react";
+import { useState } from "react";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -41,6 +42,8 @@ export function Figure({
   after,
   className,
 }: FigureProps) {
+  // The icon's tooltip also answers the pointer on the value it names (owner, 2026-11-17).
+  const [onValue, setOnValue] = useState(false);
   return (
     // The label takes the room left, so a label that wraps never lowers its figure below the others in the row.
     <div
@@ -52,11 +55,13 @@ export function Figure({
     >
       {/* Lifted above a card's stretched link, so the icon still answers the pointer with its tooltip. */}
       <dt className="relative z-10 flex items-start text-xs text-ink-3">
-        {icon === undefined ? label : <IconTip icon={icon} label={label} />}
+        {icon === undefined ? label : <IconTip icon={icon} label={label} open={onValue} />}
         {info}
       </dt>
       <dd
         data-testid={testId}
+        onMouseEnter={() => setOnValue(true)}
+        onMouseLeave={() => setOnValue(false)}
         className={cn(
           "font-mono text-sm lg:whitespace-nowrap",
           after !== undefined && "inline-flex items-center",

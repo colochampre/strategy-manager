@@ -275,7 +275,6 @@
       "yours": "Your strategy",
       "by": "by {{name}}",
       "noAuthorName": "author with no name yet",
-      "shareValue": "{{share}}%",
       "leaving": "Leaving: it opens nothing more, and it ends when its open position closes.",
       "leverageValue": "x{{leverage}}",
       "figuresError": "The public figures could not be loaded, so only your own are shown.",
@@ -336,6 +335,7 @@
       "maxDrawdown": "Max drawdown",
       "profitableTrades": "Profitable trades",
       "aum": "AuM",
+      "aumHint": "Assets under management: the subscribers trading the strategy live, and the capital they have behind it.",
       "setup": "Settings"
     },
     "sort": {

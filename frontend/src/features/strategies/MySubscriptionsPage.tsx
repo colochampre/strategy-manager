@@ -51,9 +51,8 @@ function SubscriptionCard({ held, card }: SubscriptionCardProps) {
       figuresError={card.failed ? t("strategies.row.performanceError") : null}
       pnl={{ value: card.pnl, currency: held.settlement_currency }}
       setup={{
-        share: t("strategies.subscriptions.shareValue", {
-          share: readStored(held.allocation_percent) ?? held.allocation_percent,
-        }),
+        // The card adds the percent sign, as a smaller unit.
+        share: readStored(held.allocation_percent) ?? held.allocation_percent,
         leverage: t("strategies.subscriptions.leverageValue", { leverage: held.leverage }),
       }}
       marks={<OpenMarks strategy={{ id: held.strategy_id, name: held.strategy_name, exchange: held.exchange }} />}

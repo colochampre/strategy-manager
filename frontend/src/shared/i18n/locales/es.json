@@ -275,7 +275,6 @@
       "yours": "Su estrategia",
       "by": "de {{name}}",
       "noAuthorName": "autor todavía sin nombre",
-      "shareValue": "{{share}}%",
       "leaving": "Saliendo: ya no abre nada más y termina cuando se cierre su posición abierta.",
       "leverageValue": "x{{leverage}}",
       "figuresError": "No se pudieron cargar las cifras públicas, así que solo se muestran las suyas.",
@@ -336,6 +335,7 @@
       "maxDrawdown": "Caída máxima",
       "profitableTrades": "Operaciones ganadoras",
       "aum": "AuM",
+      "aumHint": "Activos bajo gestión: los suscriptores que operan la estrategia en vivo y el capital que tienen detrás.",
       "setup": "Configuración"
     },
     "sort": {

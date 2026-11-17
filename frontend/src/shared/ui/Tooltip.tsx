@@ -16,6 +16,8 @@ interface TooltipProps {
   /** Where the tip opens: above its trigger, or below it (lined up with its right edge, or with its left edge for
    * `below-start`), for a trigger at the top of the page or of a table that scrolls sideways. */
   placement?: "above" | "below" | "below-start";
+  /** Shown also while this is true: the pointer is on what the tip is about, outside the trigger (a figure's value). */
+  open?: boolean;
 }
 
 /**
@@ -29,12 +31,13 @@ export function Tooltip({
   tabbable = true,
   className = "inline-flex",
   placement = "above",
+  open = false,
 }: TooltipProps) {
   const id = useId();
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
   const [dismissed, setDismissed] = useState(false);
-  const shown = (hovered || focused) && !dismissed;
+  const shown = (hovered || focused || open) && !dismissed;
 
   return (
     <span
@@ -79,16 +82,18 @@ interface IconTipProps {
   icon: LucideIcon;
   /** Both the icon's accessible name and the tip: what the text it replaces used to say. */
   label: string;
+  /** Shown also while the pointer is on the value the icon names. */
+  open?: boolean;
 }
 
 /**
  * An icon in place of a label: it keeps the label as its accessible name and explains itself in a tooltip. It is
  * drawn lighter and a little larger (18 px) than the info button's grey 16 px "i", so the two are never confused.
  */
-export function IconTip({ icon: Icon, label }: IconTipProps) {
+export function IconTip({ icon: Icon, label, open = false }: IconTipProps) {
   return (
     // The tip repeats the name, so it does not also describe the trigger: a screen reader would read it twice.
-    <Tooltip text={label} describes={false}>
+    <Tooltip text={label} describes={false} open={open}>
       <span role="img" aria-label={label} className="inline-flex text-ink-2">
         <Icon aria-hidden="true" className="size-4.5" />
       </span>

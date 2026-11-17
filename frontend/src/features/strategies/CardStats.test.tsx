@@ -1,4 +1,4 @@
-import { screen, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AppRoutes } from "@/app/router";
@@ -101,7 +101,7 @@ function serve() {
 
 const en = (key: string) => i18n.t(key);
 const pct = (ratio: number) => percentText(ratio, "en");
-const usdt = (amount: number, signed = false) => `${amountText(amount, "USDT", "en", signed)} USDT`;
+const usdt = (amount: number, signed = false) => `${amountText(amount, "USDT", "en", signed)}USDT`;
 
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ["Date"] });
@@ -170,7 +170,7 @@ describe("a card on My subscriptions", () => {
     expect(within(market).getByRole("img", { name: en("strategies.card.subscribed") })).toBeInTheDocument();
 
     const pnl = group(row, "subscription-group-pnl", en("strategies.card.totalPnl"));
-    expect(await within(pnl).findByText(usdt(67.2, true))).toBeInTheDocument();
+    await waitFor(() => expect(within(pnl).getByTestId("subscription-pnl")).toHaveTextContent(usdt(67.2, true)));
     expect(within(pnl).getByTestId("subscription-return")).toHaveTextContent(pct(0.109));
 
     const drawdown = group(row, "subscription-group-drawdown", en("strategies.card.maxDrawdown"));
@@ -202,7 +202,7 @@ describe("a card on My strategies", () => {
     expect(within(row).getByTestId("strategy-age")).toHaveTextContent("Sep 1, 2026 – Nov 17, 2026");
 
     const pnl = group(row, "strategy-group-pnl", en("strategies.card.totalPnl"));
-    expect(await within(pnl).findByText(usdt(67.2, true))).toBeInTheDocument();
+    await waitFor(() => expect(within(pnl).getByTestId("strategy-pnl")).toHaveTextContent(usdt(67.2, true)));
     expect(within(pnl).getByTestId("strategy-return")).toHaveTextContent(pct(0.109));
 
     const profitable = group(row, "strategy-group-profitable", en("strategies.card.profitableTrades"));

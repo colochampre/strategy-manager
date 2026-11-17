@@ -173,7 +173,7 @@ describe("a card of My subscriptions shows what Explore shows", () => {
     expect(within(row).getByTestId("subscription-deepest")).toHaveTextContent(/^0\.0\s?%$/);
     expect(within(row).getByTestId("subscription-winrate")).toHaveTextContent(/^—$/);
     expect(within(row).getByTestId("subscription-subscribers")).toHaveTextContent(/^2$/);
-    expect(within(row).getByTestId("subscription-capital")).toHaveTextContent(/^1,500\.00 USDT$/);
+    expect(within(row).getByTestId("subscription-capital")).toHaveTextContent(/^1,500.00USDT$/);
   });
 
   it("draws the reader's own PnL in the strategy, all time, before their return under Total PnL", async () => {
@@ -181,7 +181,7 @@ describe("a card of My subscriptions shows what Explore shows", () => {
     open();
 
     const row = await screen.findByTestId("subscription-row");
-    await waitFor(() => expect(within(row).getByTestId("subscription-pnl")).toHaveTextContent(/^\+41\.25 USDT$/));
+    await waitFor(() => expect(within(row).getByTestId("subscription-pnl")).toHaveTextContent(/^\+41\.25USDT$/));
     const group = within(row).getByTestId("subscription-group-pnl");
     const values = Array.from((group.querySelector("dd") as HTMLElement).children).map((value) => value.getAttribute("data-testid"));
     expect(values).toEqual(["subscription-pnl", "subscription-return"]);
@@ -312,7 +312,7 @@ describe("a card of My subscriptions shows what Explore shows", () => {
     expect(await screen.findByTestId("subscription-share")).toBeInTheDocument();
     expect(screen.getByTestId("subscription-age")).toBeInTheDocument();
     await waitFor(() => expect(screen.getByTestId("subscription-subscribers")).toHaveTextContent(/^—$/));
-    await waitFor(() => expect(screen.getByTestId("subscription-pnl")).toHaveTextContent(/^\+41\.25 USDT$/));
+    await waitFor(() => expect(screen.getByTestId("subscription-pnl")).toHaveTextContent(/^\+41\.25USDT$/));
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 

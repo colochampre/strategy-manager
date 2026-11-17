@@ -330,12 +330,70 @@ function dateRange(since: string | null, locale: string): string | null {
   return `${format.format(new Date(from))} – ${format.format(new Date())}`;
 }
 
-/** An icon that names a value beside it, with its tooltip, lifted above the card's stretched link so it answers. */
-function NamedIcon({ icon: Icon, label }: { icon: typeof Users; label: string }) {
+/**
+ * A value with the icon that names it, under one tooltip: the pointer on the icon or on the value shows it (owner,
+ * 2026-11-17). Lifted above the card's stretched link so it answers.
+ */
+function NamedValue({
+  icon: Icon,
+  label,
+  testId,
+  children,
+}: {
+  icon: typeof Users;
+  label: string;
+  testId: string;
+  children: ReactNode;
+}) {
   return (
-    <Tooltip text={label} className="relative z-10 inline-flex">
+    <Tooltip text={label} describes={false} className="relative z-10 inline-flex items-center gap-1">
       <Icon role="img" aria-label={label} className="size-3.5 shrink-0 text-ink-3" />
+      <span data-testid={testId}>{children}</span>
     </Tooltip>
+  );
+}
+
+/** A unit joined to its number and drawn smaller, so the figure leads (owner, 2026-11-17): `+1,738.16USDT`, `+12.5%`. */
+function Unit({ children }: { children: string }) {
+  return <span className="text-[0.75em]">{children}</span>;
+}
+
+/** Money with its currency as a smaller unit, or the ellipsis or the dash it stands for. */
+function money(amount: number | null | undefined, currency: string, locale: string, signedAmount = false): ReactNode {
+  if (amount === undefined) return LOADING;
+  if (amount === null) return NO_FIGURE;
+  return (
+    <>
+      {amountText(amount, currency, locale, signedAmount)}
+      <Unit>{currency}</Unit>
+    </>
+  );
+}
+
+/** A signed ratio as a percentage with a smaller sign and its tone, or the ellipsis or the dash it stands for. */
+function percent(ratio: number | null | undefined, locale: string): { value: ReactNode; tone: string | undefined } {
+  if (ratio === undefined) return { value: LOADING, tone: undefined };
+  if (ratio === null) return { value: NO_FIGURE, tone: undefined };
+  return {
+    value: (
+      <>
+        {percentText(ratio, locale, false)}
+        <Unit>%</Unit>
+      </>
+    ),
+    tone: toneClass(ratio),
+  };
+}
+
+/** A win rate, unsigned, whole when it is whole and one decimal otherwise, with a smaller sign. */
+function rate(value: number | null | undefined, locale: string): ReactNode {
+  if (value === undefined) return LOADING;
+  if (value === null) return NO_FIGURE;
+  return (
+    <>
+      {new Intl.NumberFormat(locale, { maximumFractionDigits: 1 }).format(value * 100)}
+      <Unit>%</Unit>
+    </>
   );
 }
 
@@ -344,18 +402,27 @@ function StatGroup({
   testId,
   icon: Icon,
   label,
+  hint,
   children,
 }: {
   testId: string;
   icon: typeof Users;
   label: string;
+  /** What the label means, on hover, for a term not everyone knows. */
+  hint?: string;
   children: ReactNode;
 }) {
   return (
     <div data-testid={testId} className="flex min-w-0 flex-col gap-1">
       <dt className="flex items-center gap-1.5 text-xs text-ink-3">
         <Icon aria-hidden="true" className="size-3.5 shrink-0" />
-        <span>{label}</span>
+        {hint === undefined ? (
+          <span>{label}</span>
+        ) : (
+          <Tooltip text={hint} className="relative z-10 inline-flex cursor-help underline decoration-dotted underline-offset-2">
+            <span>{label}</span>
+          </Tooltip>
+        )}
       </dt>
       <dd className="flex flex-wrap items-center gap-x-2 gap-y-0.5 font-mono text-sm tabular-nums text-ink">{children}</dd>
     </div>
@@ -378,8 +445,8 @@ interface CardStatsProps {
 function CardStats({ prefix, figures, figuresError, pnl, setup }: CardStatsProps) {
   const { t, i18n } = useTranslation();
   const locale = i18n.language;
-  const ret = signed(figures.ret, locale);
-  const deepest = signed(figures.deepest, locale);
+  const ret = percent(figures.ret, locale);
+  const deepest = percent(figures.deepest, locale);
   const count = (value: number | null | undefined) =>
     value === undefined ? LOADING : value === null ? NO_FIGURE : String(value);
 
@@ -397,24 +464,20 @@ function CardStats({ prefix, figures, figuresError, pnl, setup }: CardStatsProps
                 data-testid={`${prefix}-pnl`}
                 className={pnl.value === undefined || pnl.value === null ? undefined : toneClass(pnl.value)}
               >
-                {pnl.value === undefined
-                  ? LOADING
-                  : pnl.value === null
-                    ? NO_FIGURE
-                    : `${amountText(pnl.value, pnl.currency, locale, true)} ${pnl.currency}`}
+                {money(pnl.value, pnl.currency, locale, true)}
               </span>
             )}
             <span data-testid={`${prefix}-return`} className={ret.tone}>
-              {ret.text}
+              {ret.value}
             </span>
           </StatGroup>
           <StatGroup testId={`${prefix}-group-drawdown`} icon={TrendingDown} label={t("strategies.card.maxDrawdown")}>
             <span data-testid={`${prefix}-deepest`} className={deepest.tone}>
-              {deepest.text}
+              {deepest.value}
             </span>
           </StatGroup>
           <StatGroup testId={`${prefix}-group-profitable`} icon={Trophy} label={t("strategies.card.profitableTrades")}>
-            <span data-testid={`${prefix}-winrate`}>{winRateText(figures.winRate, locale)}</span>
+            <span data-testid={`${prefix}-winrate`}>{rate(figures.winRate, locale)}</span>
             {figures.profitable !== undefined && figures.profitable !== null && (
               <span data-testid={`${prefix}-wins`} className="text-ink-2">
                 {`${figures.profitable.wins}/${figures.profitable.closed}`}
@@ -423,29 +486,30 @@ function CardStats({ prefix, figures, figuresError, pnl, setup }: CardStatsProps
           </StatGroup>
         </>
       )}
-      <StatGroup testId={`${prefix}-group-aum`} icon={Wallet} label={t("strategies.card.aum")}>
-        <span className="inline-flex items-center gap-1">
-          <NamedIcon icon={Users} label={t("strategies.card.subscribers")} />
-          <span data-testid={`${prefix}-subscribers`}>{count(figures.subscribers)}</span>
-        </span>
+      <StatGroup
+        testId={`${prefix}-group-aum`}
+        icon={Wallet}
+        label={t("strategies.card.aum")}
+        hint={t("strategies.card.aumHint")}
+      >
+        <NamedValue icon={Users} label={t("strategies.card.subscribers")} testId={`${prefix}-subscribers`}>
+          {count(figures.subscribers)}
+        </NamedValue>
         <span data-testid={`${prefix}-capital`}>
-          {figures.capital === undefined
-            ? LOADING
-            : figures.capital === null
-              ? NO_FIGURE
-              : `${amountText(figures.capital.amount, figures.capital.currency, locale)} ${figures.capital.currency}`}
+          {figures.capital === null || figures.capital === undefined
+            ? money(figures.capital, "", locale)
+            : money(figures.capital.amount, figures.capital.currency, locale)}
         </span>
       </StatGroup>
       {setup !== undefined && (
         <StatGroup testId={`${prefix}-group-setup`} icon={SlidersHorizontal} label={t("strategies.card.setup")}>
-          <span className="inline-flex items-center gap-1">
-            <NamedIcon icon={ChartPie} label={t("strategies.card.share")} />
-            <span data-testid={`${prefix}-share`}>{setup.share}</span>
-          </span>
-          <span className="inline-flex items-center gap-1">
-            <NamedIcon icon={Gauge} label={t("strategies.card.leverage")} />
-            <span data-testid={`${prefix}-leverage`}>{setup.leverage}</span>
-          </span>
+          <NamedValue icon={ChartPie} label={t("strategies.card.share")} testId={`${prefix}-share`}>
+            {setup.share}
+            <Unit>%</Unit>
+          </NamedValue>
+          <NamedValue icon={Gauge} label={t("strategies.card.leverage")} testId={`${prefix}-leverage`}>
+            {setup.leverage}
+          </NamedValue>
         </StatGroup>
       )}
     </dl>
@@ -497,13 +561,13 @@ export function StrategyCard(props: StrategyCardProps) {
             {dates !== null && (
               <>
                 <span aria-hidden="true">·</span>
-                <span className="inline-flex items-center gap-1">
-                  <NamedIcon
-                    icon={Calendar}
-                    label={t(props.sinceKind === "age" ? "strategies.card.age" : "strategies.card.subscribed")}
-                  />
-                  <span data-testid={`${prefix}-age`}>{dates}</span>
-                </span>
+                <NamedValue
+                  icon={Calendar}
+                  label={t(props.sinceKind === "age" ? "strategies.card.age" : "strategies.card.subscribed")}
+                  testId={`${prefix}-age`}
+                >
+                  {dates}
+                </NamedValue>
               </>
             )}
           </p>

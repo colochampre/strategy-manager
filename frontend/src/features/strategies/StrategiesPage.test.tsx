@@ -122,7 +122,7 @@ describe("the strategies list", () => {
 
     const row = await screen.findByTestId("strategy-row");
     const held = within(row).getByTestId("strategy-subscribers");
-    expect(within(held.previousElementSibling as HTMLElement).getByRole("img", { name: text })).toBeInTheDocument();
+    expect(within(held.parentElement as HTMLElement).getByRole("img", { name: text })).toBeInTheDocument();
     // The live count is a figure, not a label: it stays in sight beside the icon.
     expect(held.textContent).toBe(visible);
   });
@@ -133,7 +133,7 @@ describe("the strategies list", () => {
     renderAt(<AppRoutes />, "/strategies/authored");
 
     const row = await screen.findByTestId("strategy-row");
-    expect(within(row).getByTestId("strategy-capital")).toHaveTextContent("300.00 USDT");
+    expect(within(row).getByTestId("strategy-capital")).toHaveTextContent("300.00USDT");
   });
 
   it("claims no capital under the server's brake", async () => {
@@ -207,7 +207,7 @@ describe("the strategies list", () => {
     expect(group.querySelector("dt")).toHaveTextContent(en.strategies.card.totalPnl);
     const values = Array.from((group.querySelector("dd") as HTMLElement).children).map((value) => value.getAttribute("data-testid"));
     expect(values).toEqual(["strategy-pnl", "strategy-return"]);
-    expect(within(row).getByTestId("strategy-pnl")).toHaveTextContent("+41.20 USDT");
+    expect(within(row).getByTestId("strategy-pnl")).toHaveTextContent("+41.20USDT");
   });
 
   it("test_the_strategies_list_shows_no_rows_share", async () => {
@@ -443,8 +443,8 @@ describe("the author's card", () => {
     expect(within(row).getByTestId("strategy-winrate")).toHaveTextContent("57.1%");
     expect(within(row).getByTestId("strategy-wins")).toHaveTextContent(/^4\/7$/);
     expect(within(row).getByTestId("strategy-subscribers").textContent).toBe("2");
-    expect(within(row).getByTestId("strategy-capital")).toHaveTextContent("300.00 USDT");
-    expect(within(row).getByTestId("strategy-pnl")).toHaveTextContent("+41.20 USDT");
+    expect(within(row).getByTestId("strategy-capital")).toHaveTextContent("300.00USDT");
+    expect(within(row).getByTestId("strategy-pnl")).toHaveTextContent("+41.20USDT");
   });
 
   it("names every group by its label, and draws no settings, which are a seat's", async () => {

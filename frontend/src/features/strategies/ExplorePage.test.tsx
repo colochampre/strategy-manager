@@ -56,7 +56,7 @@ describe("Explore", () => {
     expect(within(row).getByTestId("public-wins")).toHaveTextContent(/^2\/3$/);
     expect(within(row).getByTestId("public-return")).toHaveTextContent("+12.5%");
     expect(within(row).getByTestId("public-subscribers")).toHaveTextContent(/^2$/);
-    expect(within(row).getByTestId("public-capital")).toHaveTextContent("1,500.00 USDT");
+    expect(within(row).getByTestId("public-capital")).toHaveTextContent("1,500.00USDT");
   });
 
   it("shows no open position of anyone, even the reader's own holding in that strategy (owner, 2026-11-08)", async () => {
@@ -223,7 +223,7 @@ describe("Explore", () => {
     serve(() => Promise.resolve(jsonResponse([publicStrategy({ live_subscribers: 0, capital: "0" })])));
     open();
 
-    expect(await screen.findByTestId("public-capital")).toHaveTextContent("0.00 USDT");
+    expect(await screen.findByTestId("public-capital")).toHaveTextContent("0.00USDT");
   });
 
   it("says so when nothing is public", async () => {

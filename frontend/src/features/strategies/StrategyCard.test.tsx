@@ -142,7 +142,7 @@ describe("the whole card opens the strategy", () => {
   });
 
   it("lifts every icon that names a value above it, so its tooltip still answers the pointer", () => {
-    const row = draw({ setup: { share: "30%", leverage: "x3" } });
+    const row = draw({ setup: { share: "30", leverage: "x3" } });
 
     for (const name of ["Age", "Live subscribers", "Share", "Leverage"]) {
       expect(within(row).getByRole("img", { name }).parentElement, name).toHaveClass("relative", "z-10");
@@ -205,7 +205,7 @@ describe("the figures", () => {
     expect(within(row).getByTestId("card-winrate")).toHaveTextContent(/^60\s?%$/);
     expect(within(row).getByTestId("card-wins")).toHaveTextContent(/^3\/5$/);
     expect(within(row).getByTestId("card-subscribers")).toHaveTextContent(/^2$/);
-    expect(within(row).getByTestId("card-capital")).toHaveTextContent(/^1,500\.00 USDT$/);
+    expect(within(row).getByTestId("card-capital")).toHaveTextContent(/^1,500\.00USDT$/);
   });
 
   it("colour a gain as a gain and a fall as a loss", () => {
@@ -268,6 +268,63 @@ describe("the figures", () => {
   });
 });
 
+describe("tooltips and units (owner, 2026-11-17, second round)", () => {
+  it("shows a value's tooltip on its value too, not only on its icon: the dates, the subscribers, the share, the leverage", () => {
+    const row = draw({ setup: { share: "30", leverage: "x3" } });
+
+    for (const [testId, tip] of [
+      ["card-age", "Age"],
+      ["card-subscribers", "Live subscribers"],
+      ["card-share", "Share"],
+      ["card-leverage", "Leverage"],
+    ] as const) {
+      const value = within(row).getByTestId(testId);
+      fireEvent.mouseEnter(value);
+      expect(within(row).getByRole("tooltip"), testId).toHaveTextContent(new RegExp(`^${tip}$`));
+      fireEvent.mouseLeave(value);
+      expect(within(row).queryByRole("tooltip"), testId).not.toBeInTheDocument();
+    }
+  });
+
+  it("explains AuM on its label, for a reader who does not know the term", () => {
+    const row = draw();
+
+    const label = within(within(row).getByTestId("card-group-aum").querySelector("dt") as HTMLElement).getByText("AuM");
+    fireEvent.mouseEnter(label);
+    expect(within(row).getByRole("tooltip")).toHaveTextContent(i18n.t("strategies.card.aumHint"));
+  });
+
+  it("joins every unit to its number and draws it smaller: the currency and the percent sign", () => {
+    const row = draw({ pnl: { value: 1738.16, currency: "USDT" }, setup: { share: "30", leverage: "x3" } });
+
+    for (const [testId, text, unit] of [
+      ["card-pnl", "+1,738.16USDT", "USDT"],
+      ["card-return", "+12.5%", "%"],
+      ["card-deepest", "−5.0%", "%"],
+      ["card-winrate", "60%", "%"],
+      ["card-capital", "1,500.00USDT", "USDT"],
+      ["card-share", "30%", "%"],
+    ] as const) {
+      const value = within(row).getByTestId(testId);
+      expect(value.textContent?.replace("-", "−"), testId).toBe(text);
+      const small = value.lastElementChild as HTMLElement;
+      expect(small.textContent, testId).toBe(unit);
+      expect(small, testId).toHaveClass("text-[0.75em]");
+    }
+  });
+
+  it("leaves no space before the percent sign where the locale puts one (Spanish)", async () => {
+    await i18n.changeLanguage("es");
+    try {
+      const row = draw();
+      expect(within(row).getByTestId("card-return").textContent).toBe("+12,5%");
+      expect(within(row).getByTestId("card-winrate").textContent).toBe("60%");
+    } finally {
+      await i18n.changeLanguage("en");
+    }
+  });
+});
+
 describe("what varies between the lists", () => {
   it("draws a PnL before the return under Total PnL, signed and in its currency", () => {
     const row = draw({ pnl: { value: 12.5, currency: "USDT" } });
@@ -276,7 +333,7 @@ describe("what varies between the lists", () => {
     const values = Array.from((group.querySelector("dd") as HTMLElement).children).map((value) => value.getAttribute("data-testid"));
     expect(values).toEqual(["card-pnl", "card-return"]);
     const pnl = within(group).getByTestId("card-pnl");
-    expect(pnl).toHaveTextContent(/^\+12\.50 USDT$/);
+    expect(pnl).toHaveTextContent(/^\+12\.50USDT$/);
     expect(pnl).toHaveClass("text-gain");
   });
 
@@ -294,7 +351,7 @@ describe("what varies between the lists", () => {
   });
 
   it("draws a seat's settings last, its share and its leverage each beside a named icon", () => {
-    const row = draw({ setup: { share: "30%", leverage: "x3" } });
+    const row = draw({ setup: { share: "30", leverage: "x3" } });
 
     expect(groupOrder(row).at(-1)).toBe("card-group-setup");
     const setup = within(row).getByTestId("card-group-setup");
