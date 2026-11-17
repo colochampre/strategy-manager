@@ -643,7 +643,7 @@ owner's preference.
       `3a2c274cb1768b0ed71a6adfab6e6ca5f3a716958a2ab1a55d709ba78615f46d`.
       The VPS printed `OK`, `readable`, and bundle and checkout
       `b5184a52a863`.
-- [ ] SS.9 "Close now": the API and the panel's confirmation dialog, cause
+- [x] SS.9 "Close now": the API and the panel's confirmation dialog, cause
   MANUAL, idempotent while in flight, with its event.
   - Design, 2026-11-16, from a read-only map of the code. The API never opens
     a key, so it never places the order: it checks, enqueues one job and
@@ -699,6 +699,16 @@ owner's preference.
         route;
       - a request deduped against a live job answers `QUEUED`, not a status
         of its own.
+  - Delivered 2026-11-17 as PR #112 (merge `8561cbeb965a`).
+    - No migration, so no listing was needed: the button closes only when a
+      user asks.
+    - The API step reported checkout `8561cbeb965a`, database `0043`, both
+      services `active`, and no ERROR line after the restart.
+    - The panel (pps.6) was built from a clean worktree of `origin/main`:
+      22 entries, SHA-256
+      `1dac87049dc5688d087e936dd7022cea7f0e98ee06ce20b546e0c33b06fe2656`.
+      The VPS printed `OK`, `readable`, and bundle and checkout
+      `8561cbeb965a`.
 - [ ] SS.10 The `safety_events` table, its API and the panel list, in EN and
   ES, and the `OPENING_REFUSED_LEVERAGE_CAP` event from SS.3's refusal.
 - [ ] SS.11 Docs: CLAUDE.md's venue facts on stops, and the panel's help text.
