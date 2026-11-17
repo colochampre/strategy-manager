@@ -49,6 +49,7 @@ KINDS = [
     "enablement_events",
     "subscriptions",
     "invite_codes",
+    "safety_events",
 ]
 # Migrations 0028, 0031 and 0038: events, subscriptions and invitation codes are
 # reported in the history but never block it.

@@ -59,11 +59,16 @@ from strategy_manager.execution.domain.execution_attempt import (
     ExecutionStatus,
 )
 from strategy_manager.execution.domain.fill import Fill
-from strategy_manager.execution.domain.market_symbol import base_currency_of
+from strategy_manager.execution.domain.market_symbol import base_currency_of, market_key
 from strategy_manager.execution.domain.order import OrderSide
 from strategy_manager.execution.domain.protective_stop import ProtectiveStop, StopStatus
-from strategy_manager.shared.application.ports import AllocationModePort, UsdRateProviderPort
+from strategy_manager.shared.application.ports import (
+    AllocationModePort,
+    SafetyEventWriterPort,
+    UsdRateProviderPort,
+)
 from strategy_manager.shared.domain.money import Currency
+from strategy_manager.shared.domain.safety_event import NewSafetyEvent, SafetyEventKind
 
 logger = logging.getLogger(__name__)
 
@@ -96,7 +101,9 @@ class WatchProtectiveStops:
         allocation_modes: AllocationModePort,
         exchanges_for: Callable[[UUID], AbstractAsyncContextManager[ModeExchangesPort]],
         unit_of_work: UnitOfWorkPort,
+        safety_events: SafetyEventWriterPort,
     ) -> None:
+        self._safety_events = safety_events
         self._stops = stops
         self._attempts = attempts
         self._reservations = reservations
@@ -342,6 +349,26 @@ class WatchProtectiveStops:
             opening.exchange,
             opening.venue,
             opening.settlement_currency,
+        )
+        # SS.10: the user learns their stop fired on the very commit that books it, so the
+        # event exists exactly when the fills do. Its source is the STOP attempt just
+        # written, which is what keeps a second run from writing a second one.
+        trigger = stop.trigger_price
+        await self._safety_events.record(
+            NewSafetyEvent(
+                user_id=user_id,
+                kind=SafetyEventKind.STOP_FIRED,
+                strategy_id=reservation.strategy_id,
+                allocation_id=stop.allocation_id,
+                exchange=opening.exchange,
+                venue=opening.venue,
+                symbol=market_key(opening.symbol),
+                detail={
+                    "quantity": format(quantity, "f"),
+                    "trigger_price": "" if trigger is None else format(trigger, "f"),
+                },
+                execution_attempt_id=attempt.id,
+            )
         )
 
     async def _record(

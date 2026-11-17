@@ -305,10 +305,15 @@ class StrategyHistory:
     of ``signals``, ``allocation``, ``execution``, ``ledger`` or
     ``reconciliation`` appears here, so this port stays free of those modules.
 
-    The eight kinds are the seven foreign keys into ``strategies`` plus the
+    The nine kinds are the eight foreign keys into ``strategies`` plus the
     execution attempts that reach a strategy through a reservation or a
     signal. ``test_strategy_references_guard`` reads ``pg_constraint`` and
     fails when a migration adds a reference this class does not count.
+
+    **Safety events block** (subscriber-safety SS.10): they are append-only and
+    never deleted. One never exists without the signal or the reservation it
+    reports, so in practice it blocks a strategy that is blocked already; the
+    count keeps the foreign key from refusing a delete the check let through.
 
     **Enablement events are counted but never block** (owner decision 42, Q1;
     migration 0028 deletes them with their strategy). They stay a field so the
@@ -331,6 +336,7 @@ class StrategyHistory:
     enablement_events: int
     subscriptions: int
     invite_codes: int
+    safety_events: int
 
     def blocking(self) -> dict[str, int]:
         """The non-zero kinds that refuse a delete, in the fixed order of the

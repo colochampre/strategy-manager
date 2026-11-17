@@ -48,6 +48,8 @@ SCOPED_TO_THE_SIGNED_IN_USER = {
     ("GET", "/api/positions/open"),
     # Close now (SS.9): only the signed-in user's own allocation; any other is 404.
     ("POST", "/api/positions/{allocation_id}/close"),
+    # Safety events (SS.10): the signed-in user's own, an admin's included.
+    ("GET", "/api/safety-events"),
     ("POST", "/api/subscriptions"),
     ("GET", "/api/subscriptions"),
     ("GET", "/api/subscriptions/held"),

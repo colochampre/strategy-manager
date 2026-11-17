@@ -77,6 +77,7 @@ from strategy_manager.ledger.application.read_held_base import ReadHeldBase
 from strategy_manager.ledger.application.read_symbol_holdings import ReadSymbolHoldings
 from strategy_manager.ledger.application.record_fill import RecordFill
 from strategy_manager.ledger.infrastructure.repository import SqlAlchemyLedgerRepository
+from strategy_manager.safety.infrastructure.repository import SqlAlchemySafetyEventWriter
 from strategy_manager.shared.application.job import ClaimedJob, Job, JobKind
 from strategy_manager.shared.domain.mode import Mode
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
@@ -585,6 +586,7 @@ async def test_the_open_waits_for_the_close_to_settle_then_grants_the_freed_bala
             user_mode=FixedUserMode(),
             allocation_modes=RecordedModes(),
             close_after_open=OpeningsSettled(),
+            safety_events=SqlAlchemySafetyEventWriter(session, clock),
         )
         return handler, open_after_close
 
@@ -602,6 +604,7 @@ async def test_the_open_waits_for_the_close_to_settle_then_grants_the_freed_bala
                 outcomes=RecordingSettleOutcomes(),
                 stops=SqlAlchemyProtectiveStopRepository(session),
                 queue=PostgresJobQueue(session, clock=clock),
+                safety_events=SqlAlchemySafetyEventWriter(session, clock),
                 pool_lock=PoolLockAdapter(session),
                 leaving=EndLeavingSubscription(
                     SqlAlchemySubscriptionRepository(session),

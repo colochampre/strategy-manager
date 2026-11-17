@@ -106,6 +106,7 @@ CLOSED_TRADE = "a closed trade of A, on the public strategy"
 SEAT_OF_A = "the seat of A on the public strategy"
 ORDER_OF_A = "an order of A still in flight"
 CODE_OF_A = "a live invitation code of A, on the private strategy"
+OPEN_POSITION_OF_A = "an open position of A, on the public strategy"
 
 
 class _Catalog:
@@ -199,6 +200,13 @@ PROBES: tuple[Probe, ...] = (
         {"strategy_id": PUBLIC, "allocation_id": CLOSED_TRADE},
         unknown=(CLOSED_TRADE,),  # B holds the strategy, so only the trade is unknown.
     ),
+    # A's open position (SS.9): B cannot close it, nor learn that it exists.
+    Probe(
+        "POST",
+        "/api/positions/{allocation_id}/close",
+        {"allocation_id": OPEN_POSITION_OF_A},
+        unknown=(OPEN_POSITION_OF_A,),
+    ),
     # A's seat, on a strategy where B holds one too.
     Probe("PATCH", _SUBSCRIPTION, _ON_SEAT, {"allocation_percent": "10"}),
     Probe("POST", f"{_SUBSCRIPTION}/leave", _ON_SEAT),
@@ -219,6 +227,7 @@ PROBES: tuple[Probe, ...] = (
     Probe("GET", "/api/credentials", answers=200),
     Probe("GET", "/api/pools", answers=200),
     Probe("GET", "/api/positions/open", answers=200),
+    Probe("GET", "/api/safety-events", answers=200),
     Probe("GET", "/api/strategies", answers=200),
     Probe("GET", "/api/subscriptions", answers=200),
     Probe("GET", "/api/subscriptions/held", answers=200),
@@ -245,7 +254,7 @@ class World:
         page is for everybody. Nor is an id the probe itself sent: an answer may
         repeat what B typed, and the 404's own test decides what that gives away."""
         sent = [*probe.at.values(), *(probe.body or {}).values()]
-        secret = (PRIVATE, CLOSED_TRADE, SEAT_OF_A, ORDER_OF_A, CODE_OF_A)
+        secret = (PRIVATE, CLOSED_TRADE, SEAT_OF_A, ORDER_OF_A, CODE_OF_A, OPEN_POSITION_OF_A)
         ids = (self.ids[name] for name in secret if name not in sent and name not in probe.shows)
         traces = (
             *ids,
@@ -332,7 +341,7 @@ async def _seed_the_rows_of_a(factory: Factory, a: UUID, b: UUID, b_pool: int) -
         seat = await ensure_author_subscription(session, public)
         await session.commit()
     await seeds.subscription(factory, b, public, b_pool)
-    await seeds.open_allocation(factory, a, public, symbol=OPEN_PAIR_OF_A)
+    open_position = await seeds.open_allocation(factory, a, public, symbol=OPEN_PAIR_OF_A)
     _, closed, attempt = await _seed_allocation(factory, strategy_id=public, user_id=a)
     legs = (("BUY", "100"), ("SELL", "110"))
     await _record(
@@ -375,6 +384,7 @@ async def _seed_the_rows_of_a(factory: Factory, a: UUID, b: UUID, b_pool: int) -
         CLOSED_TRADE: str(closed),
         SEAT_OF_A: str(seat),
         ORDER_OF_A: str(attempt),
+        OPEN_POSITION_OF_A: str(open_position),
     }
 
 

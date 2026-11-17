@@ -4,7 +4,7 @@ composing one narrow count per provider repository, following the
 the consumer (``strategies``) declared the port, each provider module owns
 the read over its own table, and this adapter only assembles the answer.
 
-Read-only: eight ``SELECT count(...)`` statements, no lock, nothing written.
+Read-only: nine ``SELECT count(...)`` statements, no lock, nothing written.
 Locking is ``DeleteStrategy``'s job.
 
 The reservations count is every user's, by design: deleting a strategy is the
@@ -27,6 +27,7 @@ from strategy_manager.ledger.infrastructure.repository import SqlAlchemyLedgerRe
 from strategy_manager.reconciliation.infrastructure.booking_proposal_repository import (
     SqlAlchemyBookingProposalRepository,
 )
+from strategy_manager.safety.infrastructure.models import SafetyEventRow
 from strategy_manager.signals.infrastructure.repository import SqlAlchemySignalRepository
 from strategy_manager.strategies.application.ports import StrategyHistory
 from strategy_manager.strategies.infrastructure.enablement_log import SqlAlchemyEnablementLog
@@ -43,6 +44,7 @@ COUNTED_STRATEGY_REFERENCES: dict[str, tuple[str, str]] = {
     ),
     "fk_subscriptions_strategy": ("subscriptions", "subscriptions"),
     "fk_invite_codes_strategy": ("invite_codes", "invite_codes"),
+    "fk_safety_events_strategy": ("safety_events", "safety_events"),
 }
 """Every foreign key into ``strategies`` that the history check counts:
 constraint name -> ``(table, StrategyHistory field)``. Read by
@@ -86,7 +88,19 @@ class StrategyHistoryAdapter:
             enablement_events=await self._enablement_log.count_for(strategy_id),
             subscriptions=await self._count_subscriptions(strategy_id),
             invite_codes=await self._count_invite_codes(strategy_id),
+            safety_events=await self._count_safety_events(strategy_id),
         )
+
+    async def _count_safety_events(self, strategy_id: UUID) -> int:
+        """Every safety event of the strategy, of any user (subscriber-safety
+        SS.10). Append-only, so each one is history that blocks. Counted here,
+        as the subscriptions are, so the adapter's wiring stays as it is."""
+        result = await self._session.execute(
+            select(func.count())
+            .select_from(SafetyEventRow)
+            .where(SafetyEventRow.strategy_id == strategy_id)
+        )
+        return result.scalar_one()
 
     async def _count_invite_codes(self, strategy_id: UUID) -> int:
         """Every invitation code of the strategy, used or not (decision 41).

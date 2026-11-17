@@ -40,6 +40,7 @@ from strategy_manager.reconciliation.infrastructure.booking_proposal_repository 
     SqlAlchemyBookingProposalRepository,
 )
 from strategy_manager.reconciliation.infrastructure.models import BookingProposalRow
+from strategy_manager.safety.infrastructure.models import SafetyEventRow
 from strategy_manager.signals.infrastructure.models import SignalRow
 from strategy_manager.signals.infrastructure.repository import SqlAlchemySignalRepository
 from strategy_manager.strategies.application.ports import StrategyHistory
@@ -70,6 +71,7 @@ def _history(**counts: int) -> StrategyHistory:
         "enablement_events": 0,
         "subscriptions": 0,
         "invite_codes": 0,
+        "safety_events": 0,
     }
     base.update(counts)
     return StrategyHistory(**base)
@@ -336,6 +338,32 @@ async def _seed_ledger_entry_only(factory: Factory, strategy_id: UUID, other: UU
     await _seed(factory, _ledger_entry(strategy_id, reservation.id, attempt.id))
 
 
+async def _seed_safety_event_only(factory: Factory, strategy_id: UUID, other: UUID) -> None:
+    """A safety event names the strategy while its source attempt belongs to the
+    other one, as ``_seed_ledger_entry_only`` does, so only this kind is counted."""
+    carrier = _signal(other)
+    await _seed(factory, carrier)
+    reservation = _reservation(other, carrier.id)
+    await _seed(factory, reservation)
+    attempt = _attempt(reservation_id=reservation.id)
+    await _seed(factory, attempt)
+    await _seed(
+        factory,
+        SafetyEventRow(
+            id=uuid4(),
+            user_id=OWNER_ID,
+            kind="MANUAL_CLOSE",
+            strategy_id=strategy_id,
+            exchange="bybit",
+            venue="usdt-m",
+            symbol="SOLUSDT",
+            occurred_at=datetime.now(UTC),
+            detail={},
+            execution_attempt_id=attempt.id,
+        ),
+    )
+
+
 async def _seed_proposal_only(factory: Factory, strategy_id: UUID, other: UUID) -> None:
     await _seed(factory, _proposal(strategy_id))
 
@@ -391,6 +419,7 @@ async def test_a_strategy_with_nothing_counts_zero_in_every_kind(
         pytest.param(_seed_event_only, _history(enablement_events=1), id="enablement_events"),
         pytest.param(_seed_subscription_only, _history(subscriptions=1), id="subscriptions"),
         pytest.param(_seed_invite_code_only, _history(invite_codes=1), id="invite_codes"),
+        pytest.param(_seed_safety_event_only, _history(safety_events=1), id="safety_events"),
     ],
 )
 async def test_one_row_of_each_kind_is_counted_in_its_own_kind(

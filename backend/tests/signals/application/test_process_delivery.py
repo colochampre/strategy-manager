@@ -26,6 +26,7 @@ from strategy_manager.execution.domain.execution_attempt import (
 from strategy_manager.execution.domain.order import OrderSide
 from strategy_manager.shared.domain.leverage import Leverage
 from strategy_manager.shared.domain.mode import Mode
+from strategy_manager.shared.domain.safety_event import NewSafetyEvent, SafetyEventKind
 from strategy_manager.signals.application.fan_out_signal import DeliveryHalves
 from strategy_manager.signals.application.holding_guard import GuardOutcome
 from strategy_manager.signals.application.process_signal import (
@@ -36,6 +37,7 @@ from strategy_manager.signals.application.process_signal import (
 from strategy_manager.signals.domain.holding import HeldAllocation
 from strategy_manager.signals.domain.outcome import SignalOutcome
 from tests.allocation.fakes import FixedUserMode, OpeningsSettled, RecordedModes
+from tests.execution.fakes import RecordingSafetyEvents
 from tests.owner import OWNER_ID
 from tests.signals.application.test_process_signal import (
     TRADABLE,
@@ -114,6 +116,7 @@ class Rig:
     seeder: SpyContinuationSeeder
     orphans: SpyCloseOrphans
     outcomes: RecordingSignalOutcomes
+    safety_events: RecordingSafetyEvents
 
 
 def _rig(
@@ -150,6 +153,7 @@ def _rig(
     seeder = SpyContinuationSeeder()
     orphans = SpyCloseOrphans()
     outcomes = RecordingSignalOutcomes()
+    safety_events = RecordingSafetyEvents()
     handler = ProcessDelivery(
         deliveries=deliveries,
         signal_context=FakeSignalContextPort(context),
@@ -178,6 +182,7 @@ def _rig(
         user_mode=FixedUserMode(mode=mode),
         allocation_modes=RecordedModes(),
         close_after_open=OpeningsSettled(),
+        safety_events=safety_events,
     )
     return Rig(
         handler,
@@ -193,6 +198,7 @@ def _rig(
         seeder,
         orphans,
         outcomes,
+        safety_events,
     )
 
 
@@ -565,6 +571,95 @@ async def test_a_live_opening_of_a_seat_above_the_cap_is_refused_before_any_capi
     assert (row_id, outcome.reason) == (DELIVERY, "LEVERAGE_ABOVE_STOP_CAP")
     assert any("LEVERAGE_ABOVE_STOP_CAP" in record.getMessage() for record in caplog.records)
     assert (await rig.deliveries.load(DELIVERY)).leverage == Leverage(9)
+
+
+class _CommitSeeingEvents:
+    """A commit that remembers how many safety events were staged when it ran."""
+
+    def __init__(self, events: RecordingSafetyEvents) -> None:
+        self._events = events
+        self.staged_at_commit: list[int] = []
+
+    async def commit(self) -> None:
+        self.staged_at_commit.append(len(self._events.recorded))
+
+
+async def test_the_refusal_writes_its_event_on_the_commit_of_the_rejected_outcome() -> None:
+    """Subscriber-safety SS.10: the user sees the refusal in the panel, with the numbers
+    the refusal was made on. The venue's bare spelling of the market is written, not the
+    alert's, and the event has no allocation: nothing was reserved."""
+    context = replace(_open_long_context(), symbol="SOLUSDT.P")
+    policy = _snapshot(
+        author_id=AUTHOR,
+        stop_loss_pct=Decimal("15"),
+        allowed_pairs=frozenset({"SOLUSDT"}),
+    )
+    rig = _rig(context, policy=policy, leverage=Leverage(9))
+    commit = _CommitSeeingEvents(rig.safety_events)
+    rig.handler._commit = commit  # type: ignore[assignment]
+
+    await rig.handler.handle(DELIVERY, "open")
+
+    assert rig.safety_events.recorded == [
+        NewSafetyEvent(
+            user_id=SUBSCRIBER,
+            kind=SafetyEventKind.OPENING_REFUSED_LEVERAGE_CAP,
+            strategy_id=context.strategy_id,
+            allocation_id=None,
+            exchange="pionex",
+            venue="spot",
+            symbol="SOLUSDT",
+            detail={"requested_leverage": "9", "max_leverage": "6", "stop_loss_pct": "15"},
+            delivery_id=DELIVERY,
+        )
+    ]
+    assert commit.staged_at_commit == [1]
+
+
+async def test_the_refusal_of_a_continuations_open_half_writes_its_event_too() -> None:
+    rig = _rig(
+        _open_long_context(),
+        policy=_snapshot(author_id=AUTHOR, stop_loss_pct=Decimal("15")),
+        leverage=Leverage(9),
+    )
+
+    await rig.handler.open_now(DELIVERY)
+
+    assert [event.kind for event in rig.safety_events.recorded] == [
+        SafetyEventKind.OPENING_REFUSED_LEVERAGE_CAP
+    ]
+
+
+async def test_every_other_refusal_an_opening_the_cap_and_a_close_write_no_event() -> None:
+    unlisted = _rig(
+        _open_long_context(),
+        policy=_snapshot(author_id=AUTHOR, allowed_pairs=frozenset({"ETHUSDT"})),
+    )
+    at_the_cap = _rig(
+        _open_long_context(),
+        policy=_snapshot(author_id=AUTHOR, stop_loss_pct=Decimal("15")),
+        leverage=Leverage(6),
+    )
+    simulated = _rig(
+        _open_long_context(),
+        policy=_snapshot(author_id=AUTHOR, stop_loss_pct=Decimal("15")),
+        leverage=Leverage(9),
+        mode=Mode.SIMULATION,
+    )
+    closing = _rig(
+        _close_context(),
+        policy=_snapshot(author_id=AUTHOR, stop_loss_pct=Decimal("15")),
+        leverage=Leverage(9),
+    )
+
+    refused = await unlisted.handler.handle(DELIVERY, "open")
+    await at_the_cap.handler.handle(DELIVERY, "open")
+    await simulated.handler.handle(DELIVERY, "open")
+    await closing.handler.handle(DELIVERY, "close")
+
+    assert refused.refused is not None and "allowed pairs" in refused.refused
+    for rig in (unlisted, at_the_cap, simulated, closing):
+        assert rig.safety_events.recorded == []
 
 
 async def test_the_refusal_also_holds_for_the_open_half_of_a_continuation() -> None:

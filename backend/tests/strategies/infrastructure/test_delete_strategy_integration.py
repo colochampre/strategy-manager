@@ -117,7 +117,7 @@ class ZeroHistory:
     still be able to overrule."""
 
     async def history(self, strategy_id: UUID) -> StrategyHistory:
-        return StrategyHistory(0, 0, 0, 0, 0, 0, 0, 0)
+        return StrategyHistory(0, 0, 0, 0, 0, 0, 0, 0, 0)
 
 
 def _real_history(session: AsyncSession) -> StrategyHistoryAdapter:
@@ -225,10 +225,12 @@ async def test_a_never_enabled_strategy_is_deleted_and_no_table_carries_its_id(
         "invite_codes",
         "ledger_entries",
         "reservations",
+        "safety_events",
         "signals",
         "strategy_enablement_events",
         "subscriptions",
-    ]  # the five tables of design addendum 9x, § A, the subscriptions of 0031, the codes of 0038
+    ]  # the five tables of design addendum 9x, § A, the subscriptions of 0031, the codes of
+    # 0038, the safety events of 0044
     for table in tables:
         count = await _scalar(
             factory, f"SELECT count(*) FROM {table} WHERE strategy_id = :id", id=strategy_id

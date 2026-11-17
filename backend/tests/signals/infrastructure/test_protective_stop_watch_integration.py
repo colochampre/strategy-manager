@@ -55,7 +55,9 @@ from strategy_manager.ledger.application.record_fill import RecordFill
 from strategy_manager.ledger.infrastructure.models import LedgerEntryRow
 from strategy_manager.ledger.infrastructure.repository import SqlAlchemyLedgerRepository
 from strategy_manager.main import _end_leaving
+from strategy_manager.safety.infrastructure.repository import SqlAlchemySafetyEventWriter
 from strategy_manager.shared.domain.money import Currency, Exchange, Venue
+from strategy_manager.shared.infrastructure.clock import SystemClock
 from strategy_manager.shared.infrastructure.usd_rate import FixedUsdRateProvider
 from strategy_manager.strategies.infrastructure.pool_lock_adapter import PoolLockAdapter
 from tests.allocation.fakes import RecordedModes
@@ -113,6 +115,7 @@ def _watcher(session: AsyncSession, exchange: _WatchedExchange) -> WatchProtecti
         allocation_modes=RecordedModes(),
         exchanges_for=exchanges_for,  # type: ignore[arg-type]
         unit_of_work=session,
+        safety_events=SqlAlchemySafetyEventWriter(session, SystemClock()),
     )
 
 

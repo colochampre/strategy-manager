@@ -53,8 +53,9 @@ from strategy_manager.execution.domain.protective_stop import (
 )
 from strategy_manager.shared.domain.mode import Mode
 from strategy_manager.shared.domain.money import Currency
+from strategy_manager.shared.domain.safety_event import NewSafetyEvent, SafetyEventKind
 from tests.allocation.fakes import RecordedModes
-from tests.execution.fakes import OneRegistry
+from tests.execution.fakes import OneRegistry, RecordingSafetyEvents
 
 NOW = datetime(2026, 11, 13, 12, 0, 0, tzinfo=UTC)
 USER = UUID("0a1b2c3d-0000-4000-8000-0000000e0e0e")
@@ -289,6 +290,7 @@ class Rig:
         self.held = Held(self.log)
         self.recorder = Recorder(self.log, recorder_raises)
         self.rates = Rates()
+        self.events = RecordingSafetyEvents()
         self.pool_lock = PoolLock(self.log)
         self.leaving = Leaving(self.log)
         self.modes = RecordedModes()
@@ -320,6 +322,7 @@ class Rig:
             allocation_modes=self.modes,
             exchanges_for=self._exchanges_for,  # type: ignore[arg-type]
             unit_of_work=UnitOfWork(self.log),
+            safety_events=self.events,
         )
 
     def add_stop(
@@ -511,6 +514,55 @@ async def test_a_fired_stop_is_booked_in_one_transaction_under_the_pool_lock() -
         "commit",
     ]
     assert rig.pool_lock.acquired == [(USER, "bybit", "usdt-m", "USDT")]
+
+
+async def test_a_fired_stop_writes_stop_fired_on_the_commit_that_books_its_fills() -> None:
+    rig = Rig()
+    rig.events.log = rig.log.lines
+    stop = rig.add_stop(reading=_fired(_fill("46", "EX-1"), _fill("30", "EX-2")))
+
+    await rig.use_case().watch()
+
+    [(_, booked)] = rig.attempts.inserted
+    assert rig.events.recorded == [
+        NewSafetyEvent(
+            user_id=USER,
+            kind=SafetyEventKind.STOP_FIRED,
+            strategy_id=STRATEGY_ID,
+            allocation_id=stop.allocation_id,
+            exchange="bybit",
+            venue="usdt-m",
+            # The alert's spelling is ``DOGEUSDT.P``; the event carries the bare market.
+            symbol="DOGEUSDT",
+            detail={"quantity": "76", "trigger_price": "0.0597"},
+            execution_attempt_id=booked.id,
+        )
+    ]
+    lines = rig.log.lines
+    assert lines.index("stop.mark FIRED") < lines.index("safety_event STOP_FIRED")
+    assert lines.index("safety_event STOP_FIRED") < lines.index("commit")
+
+
+async def test_a_stop_that_rests_is_gone_waits_or_is_refused_writes_no_event() -> None:
+    rig = Rig()
+    rig.add_stop(reading=StopRests())
+    rig.add_stop(reading=StopNotResting(), net="0")
+    rig.add_stop(reading=_fired(_fill("46")))  # not all published yet
+    rig.add_stop(reading=_fired(_fill("76")), net="40")  # more than the ledger holds
+
+    result = await rig.use_case().watch()
+
+    assert result == WatchResult(read=4, gone=1, waiting=1, refused=1)
+    assert rig.events.recorded == []
+
+
+async def test_a_fired_stop_that_fails_to_book_writes_no_event() -> None:
+    rig = Rig(recorder_raises=RuntimeError("ledger down"))
+    rig.add_stop(reading=_fired(_fill()))
+
+    await rig.use_case().watch()
+
+    assert rig.events.recorded == []
 
 
 async def test_a_fired_short_is_booked_as_a_buy() -> None:

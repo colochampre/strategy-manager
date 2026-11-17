@@ -41,18 +41,22 @@ from strategy_manager.execution.application.ports import (
 )
 from strategy_manager.execution.domain.execution_attempt import (
     ExecutionAttempt,
+    ExecutionCause,
     ExecutionStatus,
 )
-from strategy_manager.execution.domain.fill import Fill
+from strategy_manager.execution.domain.fill import Fill, average_fill_price
+from strategy_manager.execution.domain.market_symbol import market_key
 from strategy_manager.execution.domain.protective_stop import StopStatus
 from strategy_manager.shared.application.job import Job, JobKind
 from strategy_manager.shared.application.ports import (
     AllocationModePort,
     ClockPort,
     JobQueuePort,
+    SafetyEventWriterPort,
     UsdRateProviderPort,
 )
 from strategy_manager.shared.domain.money import Currency
+from strategy_manager.shared.domain.safety_event import NewSafetyEvent, SafetyEventKind
 
 logger = logging.getLogger(__name__)
 
@@ -97,7 +101,9 @@ class SettleExecution:
         leaving: LeavingSubscriptionPort,
         stops: ProtectiveStopRepositoryPort,
         queue: JobQueuePort,
+        safety_events: SafetyEventWriterPort,
     ) -> None:
+        self._safety_events = safety_events
         self._stops = stops
         self._queue = queue
         self._pool_lock = pool_lock
@@ -225,6 +231,9 @@ class SettleExecution:
                 attempt.venue,
                 attempt.settlement_currency,
             )
+            # SS.10: a close the user asked for, or one the system made to protect them,
+            # tells them so on the commit that books it (never when the order was sent).
+            await self._record_safety_event(user_id, attempt, reservation.strategy_id, fills)
         # Decision 25, rows 16-17 (5c.1, 5c.3; C.7): the DELIVERY's outcome rides
         # the SAME commit as the fills, staged last so its row lock is the last
         # one taken. The delivery is the attempt's own link for an open and a
@@ -254,6 +263,49 @@ class SettleExecution:
         )
         return SettleResult(
             status="FILLED", execution_attempt_id=attempt_id, fills=len(fills)
+        )
+
+    async def _record_safety_event(
+        self, user_id: UUID, attempt: ExecutionAttempt, strategy_id: UUID, fills: list[Fill]
+    ) -> None:
+        """Stages the event of a closing attempt whose cause is ``MANUAL`` (close now) or
+        ``SAFETY_CLOSE``; every other cause writes nothing here (a ``SIGNAL`` close is the
+        strategy's own, and a ``STOP`` is the stop watcher's, which writes ``STOP_FIRED``).
+
+        A ``SAFETY_CLOSE`` is ``STOP_FAILED_CLOSED`` when the allocation's protective stop is
+        ``FAILED`` (SS.5's confirm job), as migration 0043's backfill told them apart, and
+        ``STRATEGY_STOPPED_CLOSED`` otherwise (SS.8b's sweep)."""
+        kind: SafetyEventKind
+        if attempt.cause is ExecutionCause.MANUAL:
+            kind = SafetyEventKind.MANUAL_CLOSE
+        elif attempt.cause is ExecutionCause.SAFETY_CLOSE:
+            stop = await self._stops.for_allocation(user_id, attempt.allocation_id)
+            failed = stop is not None and stop.status is StopStatus.FAILED
+            kind = (
+                SafetyEventKind.STOP_FAILED_CLOSED
+                if failed
+                else SafetyEventKind.STRATEGY_STOPPED_CLOSED
+            )
+        else:
+            return
+        quantity = sum((fill.quantity for fill in fills), Decimal(0))
+        await self._safety_events.record(
+            NewSafetyEvent(
+                user_id=user_id,
+                kind=kind,
+                strategy_id=strategy_id,
+                allocation_id=attempt.allocation_id,
+                exchange=attempt.exchange,
+                venue=attempt.venue,
+                # The bare market, whatever spelling the alert carried: one spelling for
+                # every event of a market, as the panel lists them together.
+                symbol=market_key(attempt.symbol),
+                detail={
+                    "quantity": format(quantity, "f"),
+                    "price": format(average_fill_price(fills), "f"),
+                },
+                execution_attempt_id=attempt.id,
+            )
         )
 
     async def _release_never_placed(
