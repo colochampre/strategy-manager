@@ -14,6 +14,7 @@ import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router";
 
+import { CloseNowControl } from "@/features/positions/CloseNowControl";
 import { VenueLine } from "@/features/positions/MarkLine";
 import { OriginTag } from "@/features/positions/OriginTag";
 import type { OpenPosition } from "@/shared/api/positions";
@@ -118,11 +119,14 @@ function cellsOf(position: OpenPosition, locale: string, t: Translate, inlineOpe
       </>
     )),
     nullable(position.margin_granted, money),
-    position.leverage === null ? (
-      <Absent reason={reasonOf(position, t, "leverage")} />
-    ) : (
-      t("positions.table.leverageValue", { value: figureText(position.leverage) ?? unreadableFigure })
-    ),
+    <>
+      {position.leverage === null ? (
+        <Absent reason={reasonOf(position, t, "leverage")} />
+      ) : (
+        t("positions.table.leverageValue", { value: figureText(position.leverage) ?? unreadableFigure })
+      )}
+      <CloseNowControl position={position} />
+    </>,
   ];
 }
 

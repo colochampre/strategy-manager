@@ -571,7 +571,7 @@ owner's preference.
     - Open: an acknowledged order that never appears exhausts the settle
       job (about 7 minutes) and leaves the attempt SUBMITTED. Whether that
       exhaustion logs an ERROR was not verified.
-- [ ] SS.8 Disable refused on exposure, under the archive's locks, with the
+- [x] SS.8 Disable refused on exposure, under the archive's locks, with the
   lock-hold concurrency test on PostgreSQL. Plus the sweep's safety close of
   stopped strategies with positions. Risk: items 3 and 4.
   - Design, 2026-11-16, from a read-only map of the code. Two units, built in
@@ -631,8 +631,74 @@ owner's preference.
         instant between the sweep's re-check and its close is still closed;
       - disabling an already disabled strategy takes the pool locks for
         nothing.
+  - Delivered 2026-11-16 as PR #111 (merge `b5184a52a863`).
+    - Before the merge, the owner ran the read-only listing of open positions
+      on disabled or archived strategies. It returned 0 rows, so the first
+      sweep had nothing to close.
+    - The API step reported checkout `b5184a52a863`, database `0043` (no
+      migration), both services `active`, and no ERROR line after the
+      restart.
+    - The panel (pps.6) was built from a clean worktree of `origin/main`:
+      22 entries, SHA-256
+      `3a2c274cb1768b0ed71a6adfab6e6ca5f3a716958a2ab1a55d709ba78615f46d`.
+      The VPS printed `OK`, `readable`, and bundle and checkout
+      `b5184a52a863`.
 - [ ] SS.9 "Close now": the API and the panel's confirmation dialog, cause
   MANUAL, idempotent while in flight, with its event.
+  - Design, 2026-11-16, from a read-only map of the code. The API never opens
+    a key, so it never places the order: it checks, enqueues one job and
+    answers 202, and the worker closes.
+  - API, `POST /api/positions/{allocation_id}/close`:
+    - The allocation must be the signed-in user's own. Another user's id, or
+      an unknown one, answers 404 and enqueues nothing.
+    - If the latest close of that allocation is SUBMITTED, it answers 202
+      `ALREADY_IN_FLIGHT` and enqueues nothing.
+    - Otherwise it enqueues a `MANUAL_CLOSE` job with `enqueue_unique`. The
+      dedupe key is the allocation plus the id of its latest close attempt
+      (or none), so a double click before the job runs enqueues once, and a
+      retry after a FAILED close is still possible. It answers 202 `QUEUED`.
+  - Worker, the `MANUAL_CLOSE` handler, on that user's own exchanges
+    (`exchanges_by_mode.for_job`):
+    - It takes the user's pool lock and reads the reservation scoped by user.
+      If the latest close is SUBMITTED it sends nothing.
+    - It closes through `ClosePosition`, with the side opposite the ledger
+      net, no signal, no delivery and cause `MANUAL`, in the mode the
+      reservation records.
+    - A flat ledger is logged at INFO and sends nothing. A refused close is
+      an ERROR.
+    - `ExecutionCause.MANUAL`'s docstring grows to cover a close asked for
+      from the panel.
+  - The seat is left as it is.
+  - The `MANUAL_CLOSE` event comes with SS.10, which creates the table.
+  - Panel: each open position (the table and the mobile card) gets "Close
+    now". It opens a dialog naming the symbol and the size; only confirming
+    sends the request, and cancelling sends nothing. EN and ES.
+  - Risk: item 2. A route that sends real orders must never act on another
+    user's allocation.
+  - Two corrections to the design, made while building it:
+    - The worker reads the user-scoped ledger, not the reservation. The
+      reservation holds no symbol, and the close needs the symbol and the net
+      from the ledger. A foreign or vanished allocation still sends nothing.
+    - A finished job keeps its dedupe key until the purge, seven days later.
+      One that ended without an attempt (no key could sign, or the ledger was
+      not settled yet) would have left the button dead that long. So the API
+      releases the key of a DONE or FAILED job before enqueueing, and only a
+      job still waiting or running dedupes.
+  - Progress, 2026-11-16. Built by a Sonnet writer as `ef9e56d`, and the
+    route registries were updated in `14b01f6`.
+    - The dead-button fix was written by the parent, with a RED test and a
+      mutation.
+    - The first full backend suite failed only on the two route registries
+      (the guarded-routes test and the secret sweep), now fixed. The 150
+      frontend test files are green, with lint.
+    - An independent verifier found no blockers. It probed a cross-user
+      close, the dedupe after a released key and a CLAIMED job, and SS.8b's
+      sweep after the reader refactor.
+    - Open advisories:
+      - an unsizeable symbol in the ledger answers a bare 500 from the
+        route;
+      - a request deduped against a live job answers `QUEUED`, not a status
+        of its own.
 - [ ] SS.10 The `safety_events` table, its API and the panel list, in EN and
   ES, and the `OPENING_REFUSED_LEVERAGE_CAP` event from SS.3's refusal.
 - [ ] SS.11 Docs: CLAUDE.md's venue facts on stops, and the panel's help text.

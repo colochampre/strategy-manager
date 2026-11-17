@@ -133,6 +133,7 @@ _NO_BODY = {
     ("POST", "/api/strategies/{strategy_id}/archive"),
     REGENERATE,
     ("POST", "/api/subscriptions/{subscription_id}/leave"),
+    ("POST", "/api/positions/{allocation_id}/close"),
     ("POST", "/api/strategies/{strategy_id}/invite-codes"),
     ("DELETE", "/api/strategies/{strategy_id}/invite-codes/{code_id}"),
 }

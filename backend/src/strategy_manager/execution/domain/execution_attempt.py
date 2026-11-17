@@ -48,7 +48,9 @@ class ExecutionCause(StrEnum):
     ``SIGNAL``: a strategy's signal, an opening or the close it asked for. ``STOP``: a
     protective stop that fired at the venue, booked by the stop watcher. ``SAFETY_CLOSE``:
     the system closed a position by itself, SS.5's confirm job when a stop cannot be shown
-    to rest. ``MANUAL``: a trade done by hand at the venue, booked through reconciliation.
+    to rest. ``MANUAL``: a trade a person did, either by hand at the venue and booked through
+    reconciliation, or a close the user asked for from the panel (SS.9), which the worker sends
+    through ``ClosePosition``.
     """
 
     SIGNAL = "SIGNAL"

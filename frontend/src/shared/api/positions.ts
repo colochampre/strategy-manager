@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { ApiError, apiFetch } from "@/shared/api/client";
 
@@ -224,6 +224,29 @@ export function useOpenPositions() {
     queryFn: fetchOpenPositions,
     staleTime: OPEN_POSITIONS_MS,
     refetchInterval: OPEN_POSITIONS_MS,
+  });
+}
+
+/** What `POST /api/positions/{allocation_id}/close` answers (202): queued for the worker, or one already in flight. */
+export interface CloseNowAnswer {
+  status: "QUEUED" | "ALREADY_IN_FLIGHT";
+}
+
+/**
+ * `POST /api/positions/{allocation_id}/close`: asks the worker to close one of the user's own open positions at
+ * market. The API places no order; the position leaves the list once its fill is recorded. Another user's or an
+ * unknown allocation answers 404.
+ */
+export function closePosition(allocationId: string): Promise<CloseNowAnswer> {
+  return apiFetch<CloseNowAnswer>(`/positions/${encodeURIComponent(allocationId)}/close`, { method: "POST" });
+}
+
+/** The list is read again whatever the outcome, so a position already closed leaves it too. */
+export function useCloseNow() {
+  const queryClient = useQueryClient();
+  return useMutation<CloseNowAnswer, Error, string>({
+    mutationFn: closePosition,
+    onSettled: () => queryClient.invalidateQueries({ queryKey: OPEN_POSITIONS_KEY }),
   });
 }
 
