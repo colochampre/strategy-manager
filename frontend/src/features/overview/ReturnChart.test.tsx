@@ -922,6 +922,25 @@ describe("the hover readout", () => {
     expect(screen.getByTestId("hover-label")).toHaveTextContent("Jul 3 · +30%");
   });
 
+  it("writes the hovered day's drawdown beneath its date and return, in the loss colour while below the peak", () => {
+    const svg = renderHovered();
+    pointer(svg, "pointerMove", clientFor(RIGHT));
+    const drawdown = screen.getByTestId("hover-drawdown");
+    // 07-04 sits 1/13 below the 07-03 peak.
+    expect(drawdown).toHaveTextContent("Drawdown −7.7%");
+    expect(drawdown).toHaveClass("fill-loss");
+    expect(Number(drawdown.getAttribute("y"))).toBeGreaterThan(Number(screen.getByTestId("hover-label").getAttribute("y")));
+    expect(drawdown.getAttribute("x")).toBe(screen.getByTestId("hover-label").getAttribute("x"));
+    expect(drawdown.getAttribute("text-anchor")).toBe(screen.getByTestId("hover-label").getAttribute("text-anchor"));
+
+    pointer(svg, "pointerMove", clientFor(LEFT + 2 * STEP));
+    expect(screen.getByTestId("hover-drawdown")).toHaveTextContent("Drawdown 0%");
+    expect(screen.getByTestId("hover-drawdown")).not.toHaveClass("fill-loss");
+
+    fireEvent.pointerLeave(svg);
+    expect(screen.queryByTestId("hover-drawdown")).toBeNull();
+  });
+
   it("follows the pointer to another day", () => {
     const svg = renderHovered();
     pointer(svg, "pointerMove", clientFor(LEFT + 1 * STEP - 7));

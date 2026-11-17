@@ -20,6 +20,7 @@ import {
 } from "@/shared/charts/scale";
 import type { IndexDay } from "@/shared/charts/scale";
 import { useElementWidth } from "@/shared/charts/useElementWidth";
+import { cn } from "@/shared/lib/cn";
 
 interface ReturnChartProps {
   /** The pool's whole curve, oldest day first; the range picks the window drawn. */
@@ -435,6 +436,21 @@ export function ReturnChart({
                 className="fill-ink stroke-ground font-mono text-[11px]"
               >
                 {`${dayFormat.format(utcInstant(hoveredDay.date))} · ${percentLabel(hoveredDay.cumulative)}`}
+              </text>
+              <text
+                data-testid="hover-drawdown"
+                x={hoveredPoint.x > right - HOVER_LABEL_WIDTH ? hoveredPoint.x - 6 : hoveredPoint.x + 6}
+                y={TOP + 36}
+                textAnchor={hoveredPoint.x > right - HOVER_LABEL_WIDTH ? "end" : "start"}
+                paintOrder="stroke"
+                strokeWidth={4}
+                strokeLinejoin="round"
+                className={cn(
+                  "stroke-ground font-mono text-[11px]",
+                  percentLabel(hoveredDay.drawdown) === "0%" ? "fill-ink-2" : "fill-loss",
+                )}
+              >
+                {t("overview.returnChart.hoverDrawdown", { value: percentLabel(hoveredDay.drawdown) })}
               </text>
             </g>
           )}

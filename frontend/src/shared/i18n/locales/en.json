@@ -187,7 +187,8 @@
       "ariaLabel": "Compounded return above the waterline, drawdown from the previous peak below it",
       "empty": "No closed trades yet",
       "emptyRange": "No closed trades in this range",
-      "unreadable": "The return curve could not be read."
+      "unreadable": "The return curve could not be read.",
+      "hoverDrawdown": "Drawdown {{value}}"
     },
     "ledger": {
       "available": "Available balance",
