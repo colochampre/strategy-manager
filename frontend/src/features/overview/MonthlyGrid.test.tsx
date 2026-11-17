@@ -74,7 +74,7 @@ describe("MonthlyGrid", () => {
     expect(flat).toHaveAccessibleName("March 2026: 0.0%");
   });
 
-  it("test_bands_4_to_6_use_text_ground_for_contrast", () => {
+  it("test_bands_4_to_6_keep_the_ink_text_in_semibold", () => {
     const monthly = [1, 2, 3, 4, 5, 6].flatMap((k) => [
       month(2026, k, bandValue(k)),
       month(2025, k, bandValue(k, -1)),
@@ -83,12 +83,14 @@ describe("MonthlyGrid", () => {
     for (const year of [2026, 2025]) {
       for (const k of [1, 2, 3]) {
         const element = screen.getByTestId(`month-${year}-${k}`);
-        expect(element).not.toHaveClass("text-ground");
+        expect(element).toHaveClass("text-ink");
         expect(element).not.toHaveClass("font-semibold");
       }
       for (const k of [4, 5, 6]) {
         const element = screen.getByTestId(`month-${year}-${k}`);
-        expect(element, `${year}-${k}`).toHaveClass("text-ground", "font-semibold");
+        // The owner's word (2026-11-17): the light ink reads better than the ground colour on a strong fill.
+        expect(element, `${year}-${k}`).toHaveClass("text-ink", "font-semibold");
+        expect(element, `${year}-${k}`).not.toHaveClass("text-ground");
       }
     }
   });
