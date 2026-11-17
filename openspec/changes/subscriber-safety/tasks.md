@@ -804,7 +804,29 @@ owner's preference.
       `ca1e348dc833202683ff65e78bb03169a2db4302ee4439ce0465840a377c68f4`.
       The VPS printed `OK`, `readable`, and bundle and checkout
       `6c016d9cd0fa`.
-- [ ] SS.11 Docs: CLAUDE.md's venue facts on stops, and the panel's help text.
+- [x] SS.11 Docs: CLAUDE.md's venue facts on stops, and the panel's help text.
+  - Built 2026-11-17, inline, from a read-only map of SS.1 to SS.10.
+  - `CLAUDE.md` gains "Protective stops (verified live 2026-11-12)":
+    - Bybit's stop on the opening order, and Binance's algo stop placed after
+      the fill;
+    - a close removing the stop on both venues, and what GONE and FAILED
+      mean;
+    - what is still not verified live: the mark-price trigger, `110017` and
+      `-2022`, a duplicate `clientAlgoId`, and `stopLoss: "0"`;
+    - the rest of the safety net: the leverage cap, the disable guard and
+      the sweep, close now, and the safety events.
+    - The leverage entry under "Open risks" now names the cap.
+  - Panel help text, EN and ES, pinned by `texts-safety.test.ts` (RED on all
+    five, then GREEN):
+    - the disable dialog no longer says an open position closes with the
+      next close: disabling is refused while anyone holds one, and the
+      sweep closes what is left;
+    - leaving a seat names the exchange stop and Close now;
+    - the leverage hint says every live opening carries a stop that caps
+      it, and the stop-level hint says the stop is placed at the exchange,
+      never on a simulated opening;
+    - the description hint recommends a leverage within the stop's limit.
+  - The full frontend suite is green (154 files), with lint.
 
 ## Log
 
