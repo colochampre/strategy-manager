@@ -827,6 +827,15 @@ owner's preference.
       never on a simulated opening;
     - the description hint recommends a leverage within the stop's limit.
   - The full frontend suite is green (154 files), with lint.
+  - Delivered 2026-11-17 as PR #114 (merge `816bc6299945`), panel only.
+    - The checkout was pulled to `816bc6299945` with no restart, as no
+      backend file changed. Both services were `active`.
+    - The panel (pps.6) was built from a clean worktree of `origin/main`:
+      22 entries, SHA-256
+      `bb16b6bd104fba26ed2ee4419e30c6579a8a18c05d2331455362c0b04dbfe21f`.
+      The VPS printed `OK`, `readable`, and bundle and checkout
+      `816bc6299945`.
+    - With this, every task of `subscriber-safety` is delivered.
 
 ## Log
 
