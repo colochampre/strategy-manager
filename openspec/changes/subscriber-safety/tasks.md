@@ -759,6 +759,34 @@ owner's preference.
       writes no `STOP_FIRED`.
   - Risk: item 1 (a migration creating a table) and item 4 (writes added
     inside the settle and stop-watcher transactions).
+  - Progress, 2026-11-17. Two Sonnet writers in parallel: the backend as
+    `55688d0` and the panel as `8182bf4`.
+    - The symbol is stored as the venue's bare market (`market_key`), so all
+      five kinds show one spelling: an alert's `SOLUSDT.P` is `SOLUSDT`.
+    - The parent made the panel write figures through `figureText`, with a
+      RED test: a ledger figure arrives as `2.000000000000000000`.
+    - The first full backend suite failed on five registry tests, now fixed
+      in `55688d0`:
+      - the strategy history counts `safety_events`, which blocks a delete;
+        one never exists without the signal or reservation that blocks it
+        already. Proven with a test and a mutation.
+      - the cross-user sweep had no probe for this route, nor for SS.9's
+        close now. `main` carries that SS.9 gap until this change merges.
+    - The full frontend suite is green (153 files), with lint.
+    - An independent verifier found no blockers. It drove the leverage-cap
+      refusal end to end on PostgreSQL through the production
+      `ProcessDelivery`, twice, and found one event.
+    - Open advisories:
+      - an error in the event insert aborts the settle before its commit, so
+        a real close's fills stay unbooked and the job retries until the
+        fault is fixed. That is the spec's "an event exists exactly when its
+        cause does"; the stop watcher logs the same error at ERROR and keeps
+        the stop RESTING;
+      - `stop_loss_pct` is stored as `"15.00"`, the column's scale; the panel
+        writes it as `15`;
+      - the page's test prints an `act(...)` warning.
+    - Before production: rehearse migration 0044 on a throwaway database
+      restored from a fresh backup.
 - [ ] SS.11 Docs: CLAUDE.md's venue facts on stops, and the panel's help text.
 
 ## Log
