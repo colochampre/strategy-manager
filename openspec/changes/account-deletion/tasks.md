@@ -1,14 +1,11 @@
 # Account deletion — tasks
 
-Branch: `feat/account-deletion`, cut from an up-to-date `main` when the owner
-says to build. Strict TDD; gate after every unit. Not started.
+Branch: `feat/account-deletion`, cut from `main` at `0419adb` on 2026-11-18.
+Strict TDD; gate after every unit. In progress.
 
-**Waits for `subscriber-safety`.** The owner pointed out that S2, as written,
-blocks an author with subscribers indefinitely, because subscribers do not
-leave by themselves and `Leave` does not close a position. S2 is revised once
-subscribers can no longer be stranded: refuse only while a subscriber holds a
-position, and archive each authored strategy (disable it and end its
-subscriptions, as `ArchiveStrategy` does).
+**S2 revised (L4-L6, 2026-11-18).** `subscriber-safety` is delivered, so
+subscribers can no longer be stranded. Only a position refuses the deletion.
+Every other seat ends with it.
 
 **Risk:** item 1 (it irreversibly overwrites and deletes stored personal data
 and keys), item 2 (identity and credentials) and item 4 (it must not race an
@@ -23,13 +20,19 @@ is rehearsed on a throwaway database restored from a fresh backup.
   the repository name.*
 - **S2 Refusals.** `DELETE /api/me` answers 409 with every reason that applies,
   and changes nothing:
-  - real exposure, listing the symbols;
-  - the user's own live subscriptions;
-  - their strategies that have live subscribers.
+  - real exposure of the user, listing the symbols;
+  - a strategy they author on which anyone (a subscriber or the author) holds
+    an open position, a live reservation or an in-flight attempt, naming the
+    strategy (the exposure `ArchiveStrategy` refuses on).
 
   The dialog lists them, as `DeleteKeyDialog` lists a key's open positions.
+  Live subscriptions are no longer a refusal (L5, L6).
 - **S3 Effects.** The wipe, close, keep and mark list in `proposal.md`, applied
-  in one transaction.
+  in one transaction. Closing also:
+  - disables and archives every strategy the user authors, ending all its
+    live subscriptions, the author's own seat included, as `ArchiveStrategy`
+    does (L5);
+  - ends the user's live subscriptions to other authors' strategies (L6).
 - **S4 Concurrency.** The deletion takes every pool advisory lock of the user
   first, then row locks (the project's lock order). It re-checks S2 inside the
   locks. A lock-hold test on real PostgreSQL proves that a concurrent opening
@@ -70,3 +73,15 @@ is rehearsed on a throwaway database restored from a fresh backup.
 - L3 Mapped read-only 2026-11-12. `users` is
   `identity/infrastructure/models.py:19`. Eleven NO ACTION FKs point at
   `users.id`. The latest migration is `0039`.
+- L4 (assistant, 2026-11-18): `subscriber-safety` is delivered; proposed
+  revising S2 so an author is refused only while a subscriber holds a
+  position, each authored strategy is archived, and the user's own live
+  subscriptions still refuse.
+- L5 (owner, 2026-11-18): "Las primeras dos estan bien. La tercera se refiere
+  a la suscripción automática del autor a su propia estrategia? Tengo entendido
+  que de esas un autor no puede optar por salir. Que sería que tenga alguna
+  viva?" Verified: the author's seat cannot be left (`AuthorCannotLeave`,
+  decision 22) and archiving ends it. The third point meant seats on other
+  authors' strategies; the assistant proposed ending them at deletion when no
+  position is held.
+- L6 (owner, 2026-11-18): "Si, me parece bien".
