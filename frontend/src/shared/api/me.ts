@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { onlineManager, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { useAccountDeletedStore } from "@/shared/account/account-deleted";
 import { ApiError, apiFetch } from "@/shared/api/client";
@@ -197,17 +197,29 @@ export function useChooseDisplayName() {
 }
 
 /**
- * The deletion as a mutation. Every query is cancelled before the request goes, and on a deletion the cache is
- * dropped and the app is told, so it unmounts every route: after this, a read of `GET /api/me` would sign the same
- * e-mail in again as a new, empty account.
+ * The deletion as a mutation. Any request that reaches the API once the deletion commits signs the same e-mail in
+ * again as a new, empty account, and one sent while it is in flight waits for that commit (the verifier's A6). So
+ * the panel goes quiet before the request goes: TanStack is told it is offline, which pauses every query, polls
+ * included, instead of fetching; the ones in flight are cancelled; and only this mutation runs regardless
+ * (`networkMode: "always"`). Any answer but a deletion brings the queries back. A deletion keeps them paused, drops
+ * the cache and tells the app, which then unmounts every route.
  */
 export function useDeleteAccount() {
   const queryClient = useQueryClient();
   const markDeleted = useAccountDeletedStore((state) => state.markDeleted);
   return useMutation<DeleteAccountResult, Error, void>({
+    networkMode: "always",
     mutationFn: async () => {
-      await queryClient.cancelQueries();
-      return deleteAccount();
+      onlineManager.setOnline(false);
+      let deleted = false;
+      try {
+        await queryClient.cancelQueries();
+        const result = await deleteAccount();
+        deleted = result.kind === "deleted";
+        return result;
+      } finally {
+        if (!deleted) onlineManager.setOnline(true);
+      }
     },
     onSuccess: (result) => {
       if (result.kind !== "deleted") return;

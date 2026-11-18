@@ -216,8 +216,9 @@ class SqlAlchemyOwnPositions:
         positions = await SqlAlchemyStoppedPositionsReader(self._session).open_of(user_id)
         return sorted(position.allocation_id for position in positions)
 
-    async def request_close(self, user_id: UUID, allocation_id: UUID) -> None:
-        await queue_manual_close(self._session, user_id, allocation_id)
+    async def request_close(self, user_id: UUID, allocation_id: UUID) -> bool:
+        queued = await queue_manual_close(self._session, user_id, allocation_id)
+        return queued.status == "QUEUED" and queued.inserted
 
 
 class SqlAlchemyAccountCredentials:

@@ -116,6 +116,17 @@ is rehearsed on a throwaway database restored from a fresh backup.
   - The panel says it: "...and any simulated position on them is closed at
     market", and the refusal is "while you hold a real position, or anyone
     holds a position on one of your strategies".
+- [x] T1.3 S4, S5, the second verifier's A6 and A8 (L11, L12). Route: inline.
+  - A6: `cancelQueries` stopped the fetches in flight but not the
+    `refetchInterval` timers, so a poll could fire during the DELETE, wait on
+    its uncommitted e-mail change, and sign the e-mail in again as a new,
+    empty user once it committed. `useDeleteAccount` now tells TanStack's
+    `onlineManager` the panel is offline before the request (every query
+    pauses instead of fetching), runs the mutation with
+    `networkMode: "always"`, and brings the queries back on any answer but a
+    deletion. 2 tests, RED first (polls kept coming during and after).
+  - A8: `request_close` answers whether it queued a new job, and
+    `closes_requested` counts only those. 1 unit test, RED first.
 - [ ] T4 S7 policy and terms text. **Blocked:** the privacy policy, the terms
   and `PRIVACY_VERSION` exist only on `feat/public-site`, not merged and on
   standby. The text changes there, with that branch.
@@ -165,3 +176,13 @@ is rehearsed on a throwaway database restored from a fresh backup.
   terminar la suscripcion?" The assistant proposed queuing the close "Close
   now" queues, with the seat LEAVING until the last fill.
 - L10 (owner, 2026-11-18): "Si".
+- L11 Second independent verifier, on the whole feature (`0419adb..d4b1906`),
+  2026-11-18: no blockers, S1-S6 pass. A1's fix leaves no lock cycle (a
+  parked save made the deletion wait, then 204); a real 40P01 reads as the
+  route expects; "Close now" is unchanged; the new tests fail when their
+  protections are removed. Advisories: A6 (a poll during the DELETE recreates
+  the user), A7 (a simulated opening still in flight gets no close; the
+  strategy's own close reaches its LEAVING seat), A8 (`closes_requested`
+  counted closes already on their way), and a ledger symbol whose base
+  cannot be split makes the deletion a 500 (out of domain).
+- L12 (owner, 2026-11-18), on fixing A6 and A8: "Dale, si".

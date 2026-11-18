@@ -1,3 +1,4 @@
+import { onlineManager } from "@tanstack/react-query";
 import { act, fireEvent, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -44,6 +45,8 @@ afterEach(async () => {
   vi.unstubAllGlobals();
   lock();
   useAccountDeletedStore.setState({ deleted: false });
+  // A deletion keeps every query paused for good; the next test starts online again.
+  onlineManager.setOnline(true);
   await act(() => i18n.changeLanguage("en"));
 });
 

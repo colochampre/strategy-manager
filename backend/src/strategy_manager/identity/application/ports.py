@@ -188,8 +188,10 @@ class OwnPositionsPort(Protocol):
         """The allocations the user's ledger still holds, one id each."""
         ...
 
-    async def request_close(self, user_id: UUID, allocation_id: UUID) -> None:
-        """Queues the close "Close now" queues; the worker sends it after the commit."""
+    async def request_close(self, user_id: UUID, allocation_id: UUID) -> bool:
+        """Queues the close "Close now" queues; the worker sends it after the commit.
+        ``False`` when nothing new was queued: a close of it is in flight, or a job for
+        it is already waiting."""
         ...
 
 

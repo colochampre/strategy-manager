@@ -162,8 +162,8 @@ class DeleteAccount:
                 seats += 1
         closes = 0
         for allocation_id in await self._positions.open(user_id):
-            await self._positions.request_close(user_id, allocation_id)
-            closes += 1
+            if await self._positions.request_close(user_id, allocation_id):
+                closes += 1
         keys = await self._credentials.delete_all(user_id)
         disabled = await self._pools.disable_all(user_id)
         await self._users.wipe(user_id, now)

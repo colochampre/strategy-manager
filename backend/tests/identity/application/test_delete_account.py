@@ -62,7 +62,9 @@ class World:
         seats: Sequence[OwnSeat] = TWO_SEATS,
         holding_on: Sequence[UUID] = (),
         open_allocations: Sequence[UUID] = (),
+        already_closing: Sequence[UUID] = (),
     ) -> None:
+        self.already_closing = set(already_closing)
         self.seats = list(seats)
         self.holding_on = set(holding_on)
         self.open_allocations = list(open_allocations)
@@ -139,9 +141,10 @@ class World:
         assert user_id == USER
         return list(self.open_allocations)
 
-    async def request_close(self, user_id: UUID, allocation_id: UUID) -> None:
+    async def request_close(self, user_id: UUID, allocation_id: UUID) -> bool:
         assert user_id == USER
         self.events.append(("request_close", allocation_id))
+        return allocation_id not in self.already_closing
 
     # AccountCredentialsPort
     async def delete_all(self, user_id: UUID) -> int:
@@ -463,3 +466,15 @@ async def test_the_log_line_counts_the_seats_left_and_the_closes_asked_for(
     [line] = [record.getMessage() for record in caplog.records]
     assert "seats_leaving=1" in line
     assert "closes_requested=1" in line
+
+
+async def test_a_close_already_on_its_way_is_not_counted_as_requested() -> None:
+    """A close in flight, or a job already waiting, queues nothing new: the log line
+    counts only the closes this deletion asked for (the verifier's A8)."""
+    other = UUID("00000000-0000-0000-0000-0000000000f6")
+    world = World(holding_on=[GAMMA], open_allocations=[HELD, other], already_closing=[other])
+
+    report = await use_case(world).execute(USER)
+
+    assert ("request_close", other) in world.writes()
+    assert report.closes_requested == 1
