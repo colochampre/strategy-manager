@@ -56,11 +56,11 @@ describe("deleting the account, in Settings", () => {
     expect(headings[headings.length - 1]).toHaveTextContent("Delete account");
     expect(region).toHaveTextContent("Erased: your e-mail, your display name and every API key.");
     expect(region).toHaveTextContent(
-      "Closed: your strategies are archived and made private, and every subscription to them ends, yours included. Your subscriptions to other strategies end too.",
+      "Closed: your strategies are archived and made private, and every subscription to them ends, yours included. Your subscriptions to other strategies end too, and any simulated position on them is closed at market.",
     );
     expect(region).toHaveTextContent("Kept, without your name: your trades and their records, which others depend on.");
     expect(region).toHaveTextContent(
-      "It cannot be done while you, or a subscriber of one of your strategies, holds a position.",
+      "It cannot be done while you hold a real position, or anyone holds a position on one of your strategies.",
     );
   });
 

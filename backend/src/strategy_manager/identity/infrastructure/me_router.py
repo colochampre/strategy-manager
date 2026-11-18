@@ -52,6 +52,7 @@ from strategy_manager.identity.infrastructure.account_deletion import (
     SqlAlchemyAccountCredentials,
     SqlAlchemyAccountPools,
     SqlAlchemyAuthoredStrategies,
+    SqlAlchemyOwnPositions,
     SqlAlchemyOwnSeats,
 )
 from strategy_manager.identity.infrastructure.dependencies import current_user, is_admin
@@ -119,6 +120,7 @@ async def delete_account(
         pools=SqlAlchemyAccountPools(session),
         authored=SqlAlchemyAuthoredStrategies(session, user.id),
         seats=SqlAlchemyOwnSeats(session),
+        positions=SqlAlchemyOwnPositions(session),
         credentials=SqlAlchemyAccountCredentials(session),
         exposure=SqlAlchemyLiveExposure(session),
         pool_lock=PoolLockAdapter(session),

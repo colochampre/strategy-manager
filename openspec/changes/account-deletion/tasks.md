@@ -20,7 +20,8 @@ is rehearsed on a throwaway database restored from a fresh backup.
   the repository name.*
 - **S2 Refusals.** `DELETE /api/me` answers 409 with every reason that applies,
   and changes nothing:
-  - real exposure of the user, listing the symbols;
+  - real exposure of the user, listing the symbols. A simulated position of
+    theirs on another author's strategy does not refuse (L9, L10, see S3);
   - a strategy they author on which anyone (a subscriber or the author) holds
     an open position, a live reservation or an in-flight attempt, naming the
     strategy (the exposure `ArchiveStrategy` refuses on).
@@ -33,6 +34,10 @@ is rehearsed on a throwaway database restored from a fresh backup.
     live subscriptions, the author's own seat included, as `ArchiveStrategy`
     does (L5);
   - ends the user's live subscriptions to other authors' strategies (L6).
+    One still holding anything (simulated, by then) goes LEAVING, as `Leave`
+    decides, and the job "Close now" queues is queued for each open
+    allocation; the worker closes it in the mode its reservation recorded, so
+    no key is needed, and the close's last fill ends the seat (L9, L10).
 - **S4 Concurrency.** The deletion takes every pool advisory lock of the user
   first, then row locks (the project's lock order). It re-checks S2 inside the
   locks. A lock-hold test on real PostgreSQL proves that a concurrent opening
@@ -94,6 +99,23 @@ is rehearsed on a throwaway database restored from a fresh backup.
     reaches `DELETE /api/me` answers 409 `ACCOUNT_CHANGED`, not a 500.
   - 3 tests, each RED first on an assertion (the deadlock, a save after the
     deletion that stored a key, the route's unhandled 500).
+- [x] T1.2 S2, S3, the verifier's A3 (L9, L10). Route: inline.
+  - `DeleteAccount` asks each of the user's other seats `Leave`'s question
+    (`OpenAllocationAdapter`): holding, it goes LEAVING through
+    `Subscription.leave`; not, it ends. Each allocation the ledger still
+    holds gets the `MANUAL_CLOSE` job, queued by `queue_manual_close`, now
+    shared with "Close now" (`execution/infrastructure/manual_close_queue.py`).
+  - 4 unit tests (3 RED on assertions; the refusal one guards that nothing is
+    asked before it) and 1 route test on real PostgreSQL, RED on the previous
+    code (`ENDED` where `LEAVING` was due): 204, the seat LEAVING, the job
+    queued for that user and allocation, and `CloseByHand` then sends the
+    close for the anonymised user with no key.
+  - The seed `open_allocation` gained `simulated=True`: a simulated fill is
+    one whose `exchange_fill_id` starts `fake-fill-`, which is how
+    `SqlAlchemyLiveExposure` tells it from a real one.
+  - The panel says it: "...and any simulated position on them is closed at
+    market", and the refusal is "while you hold a real position, or anyone
+    holds a position on one of your strategies".
 - [ ] T4 S7 policy and terms text. **Blocked:** the privacy policy, the terms
   and `PRIVACY_VERSION` exist only on `feat/public-site`, not merged and on
   standby. The text changes there, with that branch.
@@ -132,11 +154,14 @@ is rehearsed on a throwaway database restored from a fresh backup.
     deletion held: a strategy registered, or a seat taken by the user or by
     a third user on an authored strategy. None can open anything (pool
     disabled, strategy archived, secret gone).
-  - A3: a SIMULATED position on another author's strategy does not refuse;
-    its seat ends and the position stays open. It matches S2 ("real
-    exposure"); to confirm with the owner.
+  - A3: a SIMULATED position on another author's strategy did not refuse;
+    its seat ended and the position stayed open. Fixed by T1.2 (L9, L10).
   - A4: the lock-hold test's 409 alone would survive removing the pool locks;
     only its advisory-wait check makes that mutation red. No real-PG test
     for a subscription racing the deletion, or for `ACCOUNT_CHANGED`.
   - A5: a repeated DELETE moves `deleted_at`; `users.mode` stays as it was;
     strategy descriptions are kept.
+- L9 (owner, 2026-11-18), on A3: "Se puede cerrar la operacion simulada y
+  terminar la suscripcion?" The assistant proposed queuing the close "Close
+  now" queues, with the seat LEAVING until the last fill.
+- L10 (owner, 2026-11-18): "Si".

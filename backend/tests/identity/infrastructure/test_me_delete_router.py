@@ -28,6 +28,9 @@ from strategy_manager.main import create_app
 from strategy_manager.shared import db as shared_db
 from strategy_manager.shared.config import get_settings
 from strategy_manager.strategies.infrastructure.pool_lock_adapter import PoolLockAdapter
+from tests.allocation.infrastructure.test_close_by_hand_integration import (
+    _by_hand as close_by_hand,
+)
 from tests.identity_auth import OTHER_EMAIL, OTHER_HEADERS, sign_in_as_admin
 from tests.ledger.infrastructure.conftest import (  # noqa: F401
     pg_engine,
@@ -353,6 +356,38 @@ async def test_the_deletion_waits_for_an_opening_in_flight_and_then_refuses_on_i
     assert response.status_code == 409, response.text
     # The signal's own spelling, BTCUSDT: the seeds' default.
     assert response.json()["detail"]["symbols"] == ["BTCUSDT"]
+
+
+async def test_a_simulated_position_elsewhere_is_closed_and_its_seat_leaves_until_it_is(
+    client: AsyncClient, factory: Factory
+) -> None:
+    """L9: a simulated position on another author's strategy does not refuse. Its seat
+    goes LEAVING and the close "Close now" queues is queued, in the deletion's own
+    commit; the worker then closes it for the anonymised user, who holds no key."""
+    account = await Account(factory).build()
+    held = await open_allocation(factory, account.id, account.elsewhere_id, simulated=True)
+
+    response = await client.delete("/api/me", headers=OTHER_HEADERS)
+
+    assert response.status_code == 204, response.text
+    assert await account.rows(
+        "SELECT status FROM subscriptions WHERE user_id = :id AND strategy_id = :strategy",
+        id=account.id,
+        strategy=account.elsewhere_id,
+    ) == [("LEAVING",)]
+    assert await account.rows(
+        "SELECT payload->>'user_id', payload->>'allocation_id', status FROM jobs "
+        "WHERE kind = 'execution.manual_close'"
+    ) == [(str(account.id), str(held), "PENDING")]
+
+    async with factory() as session:
+        sent = await close_by_hand(session).close(account.id, held)
+
+    assert sent is True
+    assert await account.rows(
+        "SELECT user_id, side, cause FROM execution_attempts WHERE closes_allocation_id = :id",
+        id=held,
+    ) == [(account.id, "SELL", "MANUAL")]
 
 
 async def test_no_identity_is_401(client: AsyncClient) -> None:

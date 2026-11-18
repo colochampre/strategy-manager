@@ -18,6 +18,10 @@ operation exists.
   only an open position refuses. The author's strategies are archived, which
   ends every seat on them, the author's own included, and the user's seats on
   other authors' strategies end too.
+- Revised again 2026-11-18 (tasks.md L9-L10): only a REAL position of the
+  user's refuses. A simulated one on another author's strategy is closed at
+  market by the worker, as "Close now" would close it, and its seat leaves
+  until the close's last fill ends it.
 
 ## Why anonymise, not delete
 
@@ -46,7 +50,10 @@ enough under art. 16 is the lawyer's question 3 (`public-site/proposal.md`).
 - **Closed:**
   - every strategy they author becomes PRIVATE (its `share_token` goes), is
     disabled and archived, and every live subscription on it ends;
-  - their live subscriptions to other authors' strategies end;
+  - their live subscriptions to other authors' strategies end. One still
+    holding a simulated position goes LEAVING instead, the close "Close now"
+    queues is queued for that position in the same commit, and the close's
+    last fill ends the seat;
   - its webhook secret is replaced by a random one nobody holds, so the
     author's TradingView alerts are refused;
   - their capital pools are disabled.

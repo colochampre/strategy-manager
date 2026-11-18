@@ -24,8 +24,11 @@ first and row locks after, as everywhere:
    anything anyone holds on an authored strategy. Any of it refuses with
    ``AccountDeletionRefused``, naming every reason at once, and nothing written.
 6. Close every authored strategy (private, disabled, secret nobody holds,
-   archived, every seat ended), end the user's other seats, delete their keys,
-   disable their pools, wipe the row, and commit once, releasing every lock.
+   archived, every seat ended). Each other seat of the user's ends, or, while it
+   still holds something (simulated, by now), leaves; a close is queued for every
+   allocation the ledger still holds. Delete the keys, disable the pools, wipe
+   the row, and commit once, releasing every lock. The worker sends the closes
+   after the commit, in the mode each reservation recorded, so no key is needed.
 
 On a refusal the caller ends the transaction, which releases the locks.
 """
@@ -47,6 +50,7 @@ from strategy_manager.identity.application.ports import (
     HeldStrategy,
     LiveExposurePort,
     LockedPool,
+    OwnPositionsPort,
     OwnSeatsPort,
 )
 from strategy_manager.shared.domain.errors import DomainError
@@ -76,6 +80,8 @@ class AccountChanged(DomainError):
 class DeletionReport:
     strategies_closed: int
     seats_ended: int
+    seats_leaving: int
+    closes_requested: int
     keys_deleted: int
     pools_disabled: int
 
@@ -88,6 +94,7 @@ class DeleteAccount:
         pools: AccountPoolsPort,
         authored: AuthoredStrategiesPort,
         seats: OwnSeatsPort,
+        positions: OwnPositionsPort,
         credentials: AccountCredentialsPort,
         exposure: LiveExposurePort,
         pool_lock: AccountPoolLockPort,
@@ -98,6 +105,7 @@ class DeleteAccount:
         self._pools = pools
         self._authored = authored
         self._seats = seats
+        self._positions = positions
         self._credentials = credentials
         self._exposure = exposure
         self._pool_lock = pool_lock
@@ -140,7 +148,22 @@ class DeleteAccount:
         seats = 0
         for strategy in strategies:
             seats += await self._authored.close(strategy.id, now)
-        seats += await self._seats.end_live(user_id, now)
+        # Past the refusals, anything the user still holds is simulated. A seat that
+        # holds something leaves, as ``Leave`` decides; the close "Close now" queues is
+        # asked for each open allocation, and its last fill ends the seat (L9).
+        leaving = 0
+        for seat in await self._seats.live(user_id):
+            if await self._seats.holds_open(user_id, seat.strategy_id):
+                if not seat.leaving:
+                    await self._seats.leave(user_id, seat.id, now)
+                leaving += 1
+            else:
+                await self._seats.end(user_id, seat.id, now)
+                seats += 1
+        closes = 0
+        for allocation_id in await self._positions.open(user_id):
+            await self._positions.request_close(user_id, allocation_id)
+            closes += 1
         keys = await self._credentials.delete_all(user_id)
         disabled = await self._pools.disable_all(user_id)
         await self._users.wipe(user_id, now)
@@ -149,15 +172,19 @@ class DeleteAccount:
         report = DeletionReport(
             strategies_closed=len(strategies),
             seats_ended=seats,
+            seats_leaving=leaving,
+            closes_requested=closes,
             keys_deleted=keys,
             pools_disabled=disabled,
         )
         logger.info(
-            "account deleted: user=%s strategies_closed=%d seats_ended=%d keys_deleted=%d "
-            "pools_disabled=%d",
+            "account deleted: user=%s strategies_closed=%d seats_ended=%d seats_leaving=%d "
+            "closes_requested=%d keys_deleted=%d pools_disabled=%d",
             user_id,
             report.strategies_closed,
             report.seats_ended,
+            report.seats_leaving,
+            report.closes_requested,
             report.keys_deleted,
             report.pools_disabled,
         )

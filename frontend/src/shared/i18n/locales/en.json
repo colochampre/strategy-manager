@@ -989,9 +989,9 @@
     "account": {
       "title": "Delete account",
       "erased": "Erased: your e-mail, your display name and every API key.",
-      "closed": "Closed: your strategies are archived and made private, and every subscription to them ends, yours included. Your subscriptions to other strategies end too.",
+      "closed": "Closed: your strategies are archived and made private, and every subscription to them ends, yours included. Your subscriptions to other strategies end too, and any simulated position on them is closed at market.",
       "kept": "Kept, without your name: your trades and their records, which others depend on.",
-      "refused": "It cannot be done while you, or a subscriber of one of your strategies, holds a position.",
+      "refused": "It cannot be done while you hold a real position, or anyone holds a position on one of your strategies.",
       "open": "Delete account",
       "confirmTitle": "Delete your account?",
       "confirmBody": "This cannot be undone. Type your e-mail to confirm.",

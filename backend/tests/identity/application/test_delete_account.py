@@ -22,6 +22,7 @@ from strategy_manager.identity.application.ports import (
     AuthoredStrategy,
     HeldStrategy,
     LockedPool,
+    OwnSeat,
 )
 
 NOW = datetime(2026, 11, 18, 12, 0, tzinfo=UTC)
@@ -29,6 +30,16 @@ USER = UUID("00000000-0000-0000-0000-00000000000a")
 OTHER = UUID("00000000-0000-0000-0000-00000000000b")
 ALPHA = UUID("00000000-0000-0000-0000-0000000000a1")
 BETA = UUID("00000000-0000-0000-0000-0000000000b2")
+# Seats of the user's on other authors' strategies, and an allocation of theirs.
+GAMMA = UUID("00000000-0000-0000-0000-0000000000c3")
+DELTA = UUID("00000000-0000-0000-0000-0000000000d4")
+SEAT_1 = UUID("00000000-0000-0000-0000-000000000051")
+SEAT_2 = UUID("00000000-0000-0000-0000-000000000052")
+HELD = UUID("00000000-0000-0000-0000-0000000000e5")
+TWO_SEATS = (
+    OwnSeat(id=SEAT_1, strategy_id=GAMMA, leaving=False),
+    OwnSeat(id=SEAT_2, strategy_id=DELTA, leaving=False),
+)
 
 
 def pool(pool_id: int, user_id: UUID = USER, exchange: str = "bybit") -> LockedPool:
@@ -48,7 +59,13 @@ class World:
         subscriber_pools: dict[UUID, Sequence[LockedPool]] | None = None,
         symbols: Sequence[str] = (),
         strategy_holdings: dict[UUID, tuple[str, ...]] | None = None,
+        seats: Sequence[OwnSeat] = TWO_SEATS,
+        holding_on: Sequence[UUID] = (),
+        open_allocations: Sequence[UUID] = (),
     ) -> None:
+        self.seats = list(seats)
+        self.holding_on = set(holding_on)
+        self.open_allocations = list(open_allocations)
         self.own_pools = list(own_pools)
         self.authored_list = list(authored)
         self.subscriber_pool_map = dict(subscriber_pools or {})
@@ -101,9 +118,30 @@ class World:
         return len(self.subscriber_pool_map.get(strategy_id, ()))
 
     # OwnSeatsPort
-    async def end_live(self, user_id: UUID, now: datetime) -> int:
-        self.events.append(("end_seats", user_id, now))
-        return 2
+    async def live(self, user_id: UUID) -> list[OwnSeat]:
+        assert user_id == USER
+        return list(self.seats)
+
+    async def holds_open(self, user_id: UUID, strategy_id: UUID) -> bool:
+        assert user_id == USER
+        return strategy_id in self.holding_on
+
+    async def leave(self, user_id: UUID, seat_id: UUID, now: datetime) -> None:
+        assert user_id == USER
+        self.events.append(("leave_seat", seat_id, now))
+
+    async def end(self, user_id: UUID, seat_id: UUID, now: datetime) -> None:
+        assert user_id == USER
+        self.events.append(("end_seat", seat_id, now))
+
+    # OwnPositionsPort
+    async def open(self, user_id: UUID) -> list[UUID]:
+        assert user_id == USER
+        return list(self.open_allocations)
+
+    async def request_close(self, user_id: UUID, allocation_id: UUID) -> None:
+        assert user_id == USER
+        self.events.append(("request_close", allocation_id))
 
     # AccountCredentialsPort
     async def delete_all(self, user_id: UUID) -> int:
@@ -137,6 +175,7 @@ def use_case(world: World) -> DeleteAccount:
         pools=world,
         authored=world,
         seats=world,
+        positions=world,
         credentials=world,
         exposure=world,
         pool_lock=world,
@@ -155,11 +194,17 @@ async def test_a_user_holding_nothing_is_wiped_closed_and_committed_once() -> No
     report = await use_case(world).execute(USER)
 
     assert report == DeletionReport(
-        strategies_closed=1, seats_ended=4, keys_deleted=1, pools_disabled=1
+        strategies_closed=1,
+        seats_ended=4,
+        seats_leaving=0,
+        closes_requested=0,
+        keys_deleted=1,
+        pools_disabled=1,
     )
     assert world.writes() == [
         ("close", ALPHA, NOW),
-        ("end_seats", USER, NOW),
+        ("end_seat", SEAT_1, NOW),
+        ("end_seat", SEAT_2, NOW),
         ("delete_keys", USER),
         ("disable_pools", USER),
         ("wipe", USER, NOW),
@@ -306,11 +351,17 @@ async def test_a_user_with_no_pool_and_no_strategy_is_still_wiped() -> None:
     report = await use_case(world).execute(USER)
 
     assert report == DeletionReport(
-        strategies_closed=0, seats_ended=2, keys_deleted=1, pools_disabled=0
+        strategies_closed=0,
+        seats_ended=2,
+        seats_leaving=0,
+        closes_requested=0,
+        keys_deleted=1,
+        pools_disabled=0,
     )
     assert world.kinds() == [
         "user_lock",
-        "end_seats",
+        "end_seat",
+        "end_seat",
         "delete_keys",
         "disable_pools",
         "wipe",
@@ -349,3 +400,66 @@ async def test_a_refusal_leaves_a_line_naming_the_user_id(caplog: pytest.LogCapt
     assert len(lines) == 1
     assert str(USER) in lines[0]
     assert "refused" in lines[0]
+
+
+async def test_a_seat_holding_a_simulated_position_leaves_and_the_position_is_closed() -> None:
+    """Anything still held once the deletion is past its refusals is simulated: the seat
+    goes LEAVING, as ``Leave`` would, and the close "Close now" queues is asked for, so
+    the worker closes it and the last fill ends the seat (L9)."""
+    world = World(holding_on=[GAMMA], open_allocations=[HELD])
+
+    report = await use_case(world).execute(USER)
+
+    assert world.writes() == [
+        ("leave_seat", SEAT_1, NOW),
+        ("end_seat", SEAT_2, NOW),
+        ("request_close", HELD),
+        ("delete_keys", USER),
+        ("disable_pools", USER),
+        ("wipe", USER, NOW),
+        ("commit",),
+    ]
+    assert (report.seats_ended, report.seats_leaving, report.closes_requested) == (1, 1, 1)
+
+
+async def test_a_seat_already_leaving_stays_so_while_it_holds_and_ends_once_it_does_not() -> None:
+    world = World(
+        seats=[
+            OwnSeat(id=SEAT_1, strategy_id=GAMMA, leaving=True),
+            OwnSeat(id=SEAT_2, strategy_id=DELTA, leaving=True),
+        ],
+        holding_on=[GAMMA],
+        open_allocations=[HELD],
+    )
+
+    report = await use_case(world).execute(USER)
+
+    assert [event for event in world.writes() if "seat" in str(event[0])] == [
+        ("end_seat", SEAT_2, NOW)
+    ]
+    assert ("request_close", HELD) in world.writes()
+    assert (report.seats_ended, report.seats_leaving) == (1, 1)
+
+
+async def test_a_refusal_requests_no_close_and_moves_no_seat() -> None:
+    world = World(symbols=["BTCUSDT"], holding_on=[GAMMA], open_allocations=[HELD])
+
+    with pytest.raises(AccountDeletionRefused):
+        await use_case(world).execute(USER)
+
+    assert world.writes() == []
+
+
+async def test_the_log_line_counts_the_seats_left_and_the_closes_asked_for(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    world = World(holding_on=[GAMMA], open_allocations=[HELD])
+
+    with caplog.at_level(
+        logging.INFO, logger="strategy_manager.identity.application.delete_account"
+    ):
+        await use_case(world).execute(USER)
+
+    [line] = [record.getMessage() for record in caplog.records]
+    assert "seats_leaving=1" in line
+    assert "closes_requested=1" in line

@@ -989,9 +989,9 @@
     "account": {
       "title": "Eliminar cuenta",
       "erased": "Se borran: su e-mail, su nombre visible y todas sus claves API.",
-      "closed": "Se cierran: sus estrategias se archivan y pasan a privadas, y terminan todas las suscripciones a ellas, incluida la suya. También terminan sus suscripciones a otras estrategias.",
+      "closed": "Se cierran: sus estrategias se archivan y pasan a privadas, y terminan todas las suscripciones a ellas, incluida la suya. También terminan sus suscripciones a otras estrategias, y sus posiciones simuladas en ellas se cierran a mercado.",
       "kept": "Se conservan, sin su nombre: sus operaciones y sus registros, de los que dependen otros.",
-      "refused": "No se puede hacer mientras usted, o un suscriptor de alguna de sus estrategias, tenga una posición abierta.",
+      "refused": "No se puede hacer mientras usted tenga una posición real abierta, o alguien tenga una posición abierta en una de sus estrategias.",
       "open": "Eliminar cuenta",
       "confirmTitle": "¿Eliminar su cuenta?",
       "confirmBody": "Esto no se puede deshacer. Escriba su e-mail para confirmar.",

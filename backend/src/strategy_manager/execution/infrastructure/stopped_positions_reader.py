@@ -57,6 +57,14 @@ class SqlAlchemyStoppedPositionsReader:
     async def stopped_positions(self) -> Sequence[StoppedPosition]:
         return await self._positions(stopped_only=True, keep_flat=False)
 
+    async def open_of(self, user_id: UUID) -> Sequence[StoppedPosition]:
+        """Every allocation ``user_id``'s ledger still holds, whatever state its strategy is
+        in, flat ones left out (account-deletion L9). A symbol whose base cannot be split
+        from the pool's currency raises, as ``position_of`` does."""
+        return await self._positions(
+            LedgerEntryRow.user_id == user_id, stopped_only=False, keep_flat=False
+        )
+
     async def position_of(self, user_id: UUID, allocation_id: UUID) -> StoppedPosition | None:
         """One allocation as ``user_id``'s ledger holds it (SS.9), whatever state its strategy
         is in. ``None`` when that user has no ledger row under the id, which is how another

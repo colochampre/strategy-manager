@@ -157,9 +157,39 @@ class AuthoredStrategiesPort(Protocol):
         ...
 
 
+@dataclass(frozen=True, slots=True)
+class OwnSeat:
+    """A live seat of the user's on someone else's strategy."""
+
+    id: UUID
+    strategy_id: UUID
+    leaving: bool
+
+
 class OwnSeatsPort(Protocol):
-    async def end_live(self, user_id: UUID, now: datetime) -> int:
-        """Ends every live seat of ``user_id``; the number ended."""
+    async def live(self, user_id: UUID) -> Sequence[OwnSeat]:
+        """Every ACTIVE or LEAVING seat of ``user_id``, each row locked ``FOR UPDATE``."""
+        ...
+
+    async def holds_open(self, user_id: UUID, strategy_id: UUID) -> bool:
+        """``Leave``'s question: a position, a reservation or an opening in flight of
+        the user's on the strategy."""
+        ...
+
+    async def leave(self, user_id: UUID, seat_id: UUID, now: datetime) -> None:
+        """ACTIVE to LEAVING: no new openings; it ends when the last fill closes."""
+        ...
+
+    async def end(self, user_id: UUID, seat_id: UUID, now: datetime) -> None: ...
+
+
+class OwnPositionsPort(Protocol):
+    async def open(self, user_id: UUID) -> Sequence[UUID]:
+        """The allocations the user's ledger still holds, one id each."""
+        ...
+
+    async def request_close(self, user_id: UUID, allocation_id: UUID) -> None:
+        """Queues the close "Close now" queues; the worker sends it after the commit."""
         ...
 
 

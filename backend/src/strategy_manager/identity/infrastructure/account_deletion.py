@@ -15,12 +15,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from strategy_manager.accounts.infrastructure.models import CapitalPoolRow, ExchangeCredentialRow
 from strategy_manager.allocation.infrastructure.repository import SqlAlchemyReservationRepository
+from strategy_manager.execution.infrastructure.manual_close_queue import queue_manual_close
 from strategy_manager.execution.infrastructure.repository import (
     SqlAlchemyExecutionAttemptRepository,
 )
-from strategy_manager.identity.application.ports import AuthoredStrategy, LockedPool
+from strategy_manager.execution.infrastructure.stopped_positions_reader import (
+    SqlAlchemyStoppedPositionsReader,
+)
+from strategy_manager.identity.application.ports import AuthoredStrategy, LockedPool, OwnSeat
 from strategy_manager.ledger.application.read_symbol_holdings import ReadSymbolHoldings
 from strategy_manager.ledger.infrastructure.repository import SqlAlchemyLedgerRepository
+from strategy_manager.shared.domain.errors import InvariantViolation
 from strategy_manager.strategies.domain.strategy import Strategy, Visibility
 from strategy_manager.strategies.domain.webhook_secret import (
     hash_webhook_secret,
@@ -33,8 +38,15 @@ from strategy_manager.strategies.infrastructure.repository import AuthorStrategy
 from strategy_manager.strategies.infrastructure.subscribers_adapter import (
     StrategySubscribersAdapter,
 )
-from strategy_manager.subscriptions.domain.subscription import SubscriptionStatus
+from strategy_manager.subscriptions.domain.subscription import Subscription, SubscriptionStatus
+from strategy_manager.subscriptions.infrastructure.adapters import (
+    OpenAllocationAdapter,
+    SqlAlchemyStrategyLookup,
+)
 from strategy_manager.subscriptions.infrastructure.models import SubscriptionRow
+from strategy_manager.subscriptions.infrastructure.repository import (
+    SqlAlchemySubscriptionRepository,
+)
 
 _LIVE = (SubscriptionStatus.ACTIVE.value, SubscriptionStatus.LEAVING.value)
 
@@ -150,18 +162,62 @@ class SqlAlchemyAuthoredStrategies:
 
 
 class SqlAlchemyOwnSeats:
+    """The user's own seats on other authors' strategies, moved the way ``Leave`` moves
+    one: through the subscription repository and ``Subscription.leave`` / ``end``, and
+    with ``OpenAllocationAdapter``'s question of what is still held."""
+
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+        self._subscriptions = SqlAlchemySubscriptionRepository(session)
+        self._strategies = SqlAlchemyStrategyLookup(session)
+        ledger = SqlAlchemyLedgerRepository(session)
+        self._holdings = OpenAllocationAdapter(session, ledger, ReadSymbolHoldings(ledger))
+
+    async def live(self, user_id: UUID) -> list[OwnSeat]:
+        result = await self._session.execute(
+            select(SubscriptionRow.id, SubscriptionRow.strategy_id, SubscriptionRow.status)
+            .where(SubscriptionRow.user_id == user_id, SubscriptionRow.status.in_(_LIVE))
+            .order_by(SubscriptionRow.id)
+            .with_for_update()
+        )
+        return [
+            OwnSeat(
+                id=seat_id,
+                strategy_id=strategy_id,
+                leaving=status == SubscriptionStatus.LEAVING.value,
+            )
+            for seat_id, strategy_id, status in result.all()
+        ]
+
+    async def holds_open(self, user_id: UUID, strategy_id: UUID) -> bool:
+        strategy = await self._strategies.find(strategy_id)
+        if strategy is None:
+            raise InvariantViolation(f"a seat names strategy {strategy_id}, which does not exist")
+        return await self._holdings.holds_open_allocation(user_id, strategy_id, strategy.market)
+
+    async def leave(self, user_id: UUID, seat_id: UUID, now: datetime) -> None:
+        await self._subscriptions.update((await self._locked(user_id, seat_id)).leave(now))
+
+    async def end(self, user_id: UUID, seat_id: UUID, now: datetime) -> None:
+        await self._subscriptions.update((await self._locked(user_id, seat_id)).end(now))
+
+    async def _locked(self, user_id: UUID, seat_id: UUID) -> Subscription:
+        seat = await self._subscriptions.get_for_update(user_id, seat_id)
+        if seat is None:
+            raise InvariantViolation(f"seat {seat_id} of user {user_id} vanished under its lock")
+        return seat
+
+
+class SqlAlchemyOwnPositions:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def end_live(self, user_id: UUID, now: datetime) -> int:
-        result = await self._session.execute(
-            update(SubscriptionRow)
-            .where(SubscriptionRow.user_id == user_id, SubscriptionRow.status.in_(_LIVE))
-            .values(status=SubscriptionStatus.ENDED.value, ended_at=now)
-            .returning(SubscriptionRow.id)
-            .execution_options(synchronize_session="fetch")
-        )
-        return len(result.all())
+    async def open(self, user_id: UUID) -> list[UUID]:
+        positions = await SqlAlchemyStoppedPositionsReader(self._session).open_of(user_id)
+        return sorted(position.allocation_id for position in positions)
+
+    async def request_close(self, user_id: UUID, allocation_id: UUID) -> None:
+        await queue_manual_close(self._session, user_id, allocation_id)
 
 
 class SqlAlchemyAccountCredentials:
