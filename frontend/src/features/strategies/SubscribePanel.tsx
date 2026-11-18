@@ -3,7 +3,7 @@ import { LogOut, UserPlus } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router";
 
-import { maxLeverage } from "@/features/strategies/stop-level";
+import { maxLeverage, stopLevelText } from "@/features/strategies/stop-level";
 import { entryRefusal } from "@/features/strategies/entry-refusal";
 import { LeaveDialog } from "@/features/strategies/LeaveDialog";
 import { LeverageSlider } from "@/features/strategies/LeverageSlider";
@@ -50,7 +50,7 @@ function refusalText(error: unknown): string {
 }
 
 function SubscribeForm({ strategyId, stopLevel }: { strategyId: string; stopLevel: string }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const ids = { field: useId(), label: useId(), problem: useId() };
   const leverageIds = { field: useId(), label: useId(), problem: useId() };
   const subscribe = useSubscribe(strategyId);
@@ -130,7 +130,7 @@ function SubscribeForm({ strategyId, stopLevel }: { strategyId: string; stopLeve
         onStop={leverage.changeStep}
         note={
           max < 20 &&
-          leverage.reading.valid && <p className="text-xs text-ink-3">{t("strategies.leverage.capNote", { max })}</p>
+          leverage.reading.valid && <p className="text-xs text-ink-3">{t("strategies.leverage.capNote", { max, stop: stopLevelText(stopLevel, i18n.language) })}</p>
         }
       />
       {!leverage.reading.valid && (

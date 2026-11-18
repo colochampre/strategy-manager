@@ -926,7 +926,8 @@ describe("StrategyDetailPage settings column (L.7)", () => {
     renderPage(strategy({ stop_loss_pct: "10.00" }));
     await heading("ETH Breakout");
 
-    const note = screen.getByText(en.strategies.leverage.capNote.replace("{{max}}", "9"));
+    // Short, as the owner worded it (2026-11-17): the cap and the stop that sets it.
+    const note = screen.getByText("Max leverage x9 with a 10% stop");
     const field = screen.getByRole("textbox", { name: en.strategies.leverage.label });
     const slider = screen.getByRole("slider", { name: en.strategies.leverage.label });
     expect(field.compareDocumentPosition(note) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();

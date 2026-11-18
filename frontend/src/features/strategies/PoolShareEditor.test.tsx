@@ -1002,7 +1002,7 @@ describe("PoolShareEditor, the amount under the track", () => {
   it("no balance shows its sentence and no figure, never a zero, and the control stays usable", async () => {
     const { patches } = setup(strategy(), { preview: served({ noBalance: true }) });
 
-    await expectText("The pool's balance has not been read yet, so the amount cannot be shown.");
+    await expectText("Amount unavailable until the pool's balance is read");
     expect(screen.queryByText(/Margin:/)).toBeNull();
     expect(field()).toBeEnabled();
     fireEvent.click(stop(50));
@@ -1459,7 +1459,7 @@ describe("PoolShareEditor, the warning on the pool's minimum", () => {
   it("no balance, no figure, no warning", async () => {
     setup(strategy({ allocation_percent: "1" }), { preview: served({ noBalance: true }) });
 
-    await expectText("The pool's balance has not been read yet, so the amount cannot be shown.");
+    await expectText("Amount unavailable until the pool's balance is read");
     expect(screen.queryByText(/less than the pool's minimum order/)).toBeNull();
   });
 
@@ -1625,7 +1625,7 @@ describe("PoolShareEditor, the two information buttons", () => {
 
   it("with no balance read, the amount's button shows the pair note only: there is no time to name", async () => {
     setup(strategy(), { preview: served({ noBalance: true }) });
-    await expectText("The pool's balance has not been read yet, so the amount cannot be shown.");
+    await expectText("Amount unavailable until the pool's balance is read");
 
     fireEvent.click(amountInfo());
 
@@ -1794,7 +1794,7 @@ describe("PoolShareEditor, the two information buttons", () => {
   });
 
   it.each([
-    ["no balance", { preview: served({ noBalance: true }) }, "The pool's balance has not been read yet, so the amount cannot be shown."],
+    ["no balance", { preview: served({ noBalance: true }) }, "Amount unavailable until the pool's balance is read"],
     ["a failed read", { preview: () => jsonResponse({ detail: "boom" }, 500) }, "The amount could not be loaded."],
   ])("the amount's button is present with %s", async (_name, options, text) => {
     setup(strategy(), options);
@@ -1897,8 +1897,8 @@ const SHARE_TEXTS = {
     es: "El saldo del pool se leyó por última vez a las 14:03 UTC y puede estar desactualizado.",
   },
   amountNoBalance: {
-    en: "The pool's balance has not been read yet, so the amount cannot be shown.",
-    es: "El saldo del pool todavía no se ha leído, por lo que no se puede mostrar el importe.",
+    en: "Amount unavailable until the pool's balance is read",
+    es: "Importe no disponible hasta leer el saldo del pool",
   },
   amountLoading: { en: "Calculating the amount…", es: "Calculando el importe…" },
   amountError: { en: "The amount could not be loaded.", es: "No se pudo cargar el importe." },

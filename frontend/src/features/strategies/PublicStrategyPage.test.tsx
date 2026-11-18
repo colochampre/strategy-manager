@@ -768,7 +768,7 @@ describe("subscribing", () => {
     open();
 
     const leverage = await screen.findByRole("textbox", { name: i18n.t("strategies.leverage.label") });
-    expect(screen.getByText(i18n.t("strategies.leverage.capNote", { max: 3 }))).toBeInTheDocument();
+    expect(screen.getByText("Max leverage x3 with a 25% stop")).toBeInTheDocument();
     fireEvent.change(leverage, { target: { value: "4" } });
 
     expect(await subscribeButton()).toBeDisabled();

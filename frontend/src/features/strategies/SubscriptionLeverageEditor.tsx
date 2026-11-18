@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 
 import { LeverageSlider } from "@/features/strategies/LeverageSlider";
 import { leverageProblem, useLeverageDraft, type LeverageDraft } from "@/features/strategies/useLeverageDraft";
-import { maxLeverage } from "@/features/strategies/stop-level";
+import { maxLeverage, stopLevelText } from "@/features/strategies/stop-level";
 import { ApiError } from "@/shared/api/client";
 import { useSetSubscriptionLeverage } from "@/shared/api/subscriptions";
 import type { Strategy } from "@/shared/api/types";
@@ -36,7 +36,7 @@ function saveRefusal(error: unknown): string {
  * opening; the system sets it on the exchange before opening.
  */
 export function SubscriptionLeverageEditor({ strategy, draft }: SubscriptionLeverageEditorProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const ids = { field: useId(), label: useId(), problem: useId() };
   const [saved, setSaved] = useState(false);
   const held = strategy.subscription;
@@ -115,7 +115,7 @@ export function SubscriptionLeverageEditor({ strategy, draft }: SubscriptionLeve
             />
           </div>
         }
-        note={max < 20 && reading.valid && <p className="text-xs text-ink-3">{t("strategies.leverage.capNote", { max })}</p>}
+        note={max < 20 && reading.valid && <p className="text-xs text-ink-3">{t("strategies.leverage.capNote", { max, stop: stopLevelText(strategy.stop_loss_pct, i18n.language) })}</p>}
       />
       {!reading.valid && (
         <p id={ids.problem} className="text-xs text-loss">

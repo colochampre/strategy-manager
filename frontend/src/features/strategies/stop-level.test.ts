@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { maxLeverage, readStopLevel } from "@/features/strategies/stop-level";
+import { maxLeverage, readStopLevel, stopLevelText } from "@/features/strategies/stop-level";
 
 describe("readStopLevel", () => {
   it.each([
@@ -27,6 +27,19 @@ describe("readStopLevel", () => {
 
   it.each(["", "  ", "abc", "-5", "+5", "7,5", "1e1", "5%", ".5", "5."])("%j is not a number", (text) => {
     expect(readStopLevel(text)).toEqual({ valid: false, refusal: "not-a-number" });
+  });
+});
+
+describe("stopLevelText", () => {
+  it("writes a stored level without its trailing zeros, in the reader's locale", () => {
+    expect(stopLevelText("10.00", "en")).toBe("10");
+    expect(stopLevelText("7.50", "en")).toBe("7.5");
+    expect(stopLevelText("7.50", "es")).toBe("7,5");
+  });
+
+  it("writes nothing for a level it cannot read", () => {
+    expect(stopLevelText(undefined, "en")).toBeNull();
+    expect(stopLevelText("abc", "en")).toBeNull();
   });
 });
 

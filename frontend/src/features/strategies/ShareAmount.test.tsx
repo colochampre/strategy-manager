@@ -107,7 +107,7 @@ describe("ShareAmount", () => {
     renderAmount({ kind: "noBalance" });
 
     expect(
-      screen.queryByText("The pool's balance has not been read yet, so the amount cannot be shown."),
+      screen.queryByText("Amount unavailable until the pool's balance is read"),
     ).toBeInTheDocument();
     expect(screen.queryByText(/Margin:/)).toBeNull();
     expect(screen.queryByText(/\d/)).toBeNull();
