@@ -136,6 +136,8 @@ _NO_BODY = {
     ("POST", "/api/positions/{allocation_id}/close"),
     ("POST", "/api/strategies/{strategy_id}/invite-codes"),
     ("DELETE", "/api/strategies/{strategy_id}/invite-codes/{code_id}"),
+    # The account deletion: its 409 names strategies and symbols, never a secret.
+    ("DELETE", "/api/me"),
 }
 
 

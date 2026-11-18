@@ -392,6 +392,69 @@ async def test_the_list_is_ordered_by_email(
     assert emails.index(first) < emails.index(second)
 
 
+# --- deleted accounts (account-deletion S6) ----------------------------------------
+
+
+async def _delete(factory: Factory, user_id: UUID) -> None:
+    """What ``DeleteAccount`` leaves of the row."""
+    async with factory() as session:
+        await session.execute(
+            text(
+                "UPDATE users SET email = 'deleted-' || id::text || '@invalid', "
+                "display_name = NULL, deleted_at = now() WHERE id = :id"
+            ),
+            {"id": user_id},
+        )
+        await session.commit()
+
+
+async def _deleted_count(admin: AsyncClient) -> int:
+    response = await admin.get(f"{USERS}/deleted-count")
+    assert response.status_code == 200, response.text
+    assert set(response.json()) == {"deleted_accounts"}
+    count: int = response.json()["deleted_accounts"]
+    return count
+
+
+async def test_a_deleted_account_is_left_out_of_the_list(
+    pg_session_factory: Factory,  # noqa: F811
+    admin: AsyncClient,
+) -> None:
+    user_id, email = await _user(pg_session_factory)
+    _, kept = await _user(pg_session_factory)
+    await _delete(pg_session_factory, user_id)
+
+    emails = [each["email"] for each in await _listed(admin)]
+
+    assert email not in emails
+    assert f"deleted-{user_id}@invalid" not in emails
+    assert kept in emails
+
+
+async def test_the_deleted_accounts_are_counted_and_only_they(
+    pg_session_factory: Factory,  # noqa: F811
+    admin: AsyncClient,
+) -> None:
+    before = await _deleted_count(admin)
+    first, _ = await _user(pg_session_factory)
+    second, _ = await _user(pg_session_factory)
+    await _user(pg_session_factory)
+
+    await _delete(pg_session_factory, first)
+    await _delete(pg_session_factory, second)
+
+    assert await _deleted_count(admin) == before + 2
+
+
+async def test_the_count_is_the_admins_alone(
+    pg_session_factory: Factory,  # noqa: F811
+    admin: AsyncClient,
+) -> None:
+    response = await admin.get(f"{USERS}/deleted-count", headers=OTHER_HEADERS)
+
+    assert response.status_code == 403
+
+
 # --- statements ------------------------------------------------------------------
 
 

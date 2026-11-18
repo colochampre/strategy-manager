@@ -12,7 +12,10 @@ effective mode alone could not.
 
 ``POST /me/mode`` changes the signed-in user's mode and nobody else's: the route
 takes no user id. Its rules are ``ChangeMode``'s. ``PUT /me/display-name`` is the
-same for their name, under ``ChooseDisplayName``'s rules.
+same for their name, under ``ChooseDisplayName``'s rules. ``DELETE /me`` deletes
+their own account, under ``DeleteAccount``'s (account-deletion S2-S5). After it,
+the same e-mail signing in again is a new, empty user: the panel must not call
+``GET /me`` once the account is gone, or it would create that user at once.
 
 The answers name a person, so they are never cached (``NoStoreMiddleware`` in
 ``main.create_app``).
@@ -21,7 +24,7 @@ The answers name a person, so they are never cached (``NoStoreMiddleware`` in
 from dataclasses import replace
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -35,14 +38,27 @@ from strategy_manager.identity.application.change_mode import (
     ModeRefusal,
 )
 from strategy_manager.identity.application.choose_display_name import ChooseDisplayName
+from strategy_manager.identity.application.delete_account import (
+    AccountChanged,
+    AccountDeletionRefused,
+    DeleteAccount,
+)
 from strategy_manager.identity.application.ports import DisplayNameTakenError
 from strategy_manager.identity.domain.display_name import InvalidDisplayNameError
 from strategy_manager.identity.domain.user import User
+from strategy_manager.identity.infrastructure.account_deletion import (
+    SqlAlchemyAccountCredentials,
+    SqlAlchemyAccountPools,
+    SqlAlchemyAuthoredStrategies,
+    SqlAlchemyOwnSeats,
+)
 from strategy_manager.identity.infrastructure.dependencies import current_user, is_admin
 from strategy_manager.identity.infrastructure.user_repository import SqlAlchemyUserRepository
 from strategy_manager.shared.config import Settings, get_settings
 from strategy_manager.shared.db import get_session
 from strategy_manager.shared.domain.mode import Mode
+from strategy_manager.shared.infrastructure.clock import SystemClock
+from strategy_manager.strategies.infrastructure.pool_lock_adapter import PoolLockAdapter
 
 router = APIRouter(prefix="/me", tags=["identity"])
 
@@ -85,6 +101,47 @@ class DisplayNameBody(BaseModel):
 @router.get("", response_model=MeBody)
 async def me(user: CurrentUserDep, settings: SettingsDep) -> MeBody:
     return MeBody.of(user, settings)
+
+
+@router.delete("", status_code=204)
+async def delete_account(
+    user: CurrentUserDep,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> Response:
+    use_case = DeleteAccount(
+        users=SqlAlchemyUserRepository(session),
+        pools=SqlAlchemyAccountPools(session),
+        authored=SqlAlchemyAuthoredStrategies(session, user.id),
+        seats=SqlAlchemyOwnSeats(session),
+        credentials=SqlAlchemyAccountCredentials(session),
+        exposure=SqlAlchemyLiveExposure(session),
+        pool_lock=PoolLockAdapter(session),
+        commit=session,
+        clock=SystemClock(),
+    )
+    try:
+        await use_case.execute(user.id)
+    except AccountDeletionRefused as exc:
+        # Nothing was written, but the pool locks are still held: end the transaction.
+        await session.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "ACCOUNT_HOLDS_POSITIONS",
+                "message": "The account cannot be deleted while a position is open.",
+                "symbols": list(exc.symbols),
+                "strategies": [
+                    {"id": str(held.id), "name": held.name, "symbols": list(held.symbols)}
+                    for held in exc.strategies
+                ],
+            },
+        ) from exc
+    except AccountChanged as exc:
+        await session.rollback()
+        raise HTTPException(
+            status_code=409, detail={"error": "ACCOUNT_CHANGED", "message": str(exc)}
+        ) from exc
+    return Response(status_code=204)
 
 
 @router.post("/mode", response_model=MeBody)

@@ -30,6 +30,11 @@ class UserRow(Base):
             name="ck_users_display_name_shape",
         ),
         Index("ux_users_display_name_lower", text("lower(display_name)"), unique=True),
+        CheckConstraint(
+            "deleted_at IS NULL OR (display_name IS NULL "
+            "AND email = 'deleted-' || id::text || '@invalid')",
+            name="ck_users_deleted_names_nobody",
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
@@ -44,3 +49,6 @@ class UserRow(Base):
     mode: Mapped[str] = mapped_column(Text, nullable=False, server_default="SIMULATION")
     # Added by migration 0036. None until the user chooses one (decision 27).
     display_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Added by migration 0045. Set when the user deleted their account, which
+    # anonymises the row instead of removing it (account-deletion S3).
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

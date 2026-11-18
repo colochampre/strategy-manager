@@ -3,7 +3,7 @@
 from datetime import datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -47,15 +47,35 @@ class SqlAlchemyUserRepository:
             select(UserRow.id).where(UserRow.id == user_id).with_for_update()
         )
 
+    async def wipe(self, user_id: UUID, now: datetime) -> None:
+        """The row stops naming anyone (account-deletion S3): the e-mail becomes a
+        placeholder no sign-in can match, which frees the real one, and the name
+        goes. ``ck_users_deleted_names_nobody`` holds the three together."""
+        await self._session.execute(
+            update(UserRow)
+            .where(UserRow.id == user_id)
+            .values(email=f"deleted-{user_id}@invalid", display_name=None, deleted_at=now)
+        )
+
     async def set_mode(self, user_id: UUID, mode: Mode) -> None:
         await self._session.execute(
             update(UserRow).where(UserRow.id == user_id).values(mode=mode.value)
         )
 
     async def everyone(self) -> list[User]:
-        """Every user, by e-mail, in ONE statement: the admin's list (decision 8)."""
-        result = await self._session.execute(select(UserRow).order_by(UserRow.email))
+        """Every user, by e-mail, in ONE statement: the admin's list (decision 8).
+        A deleted account names nobody, so it is not listed (account-deletion S6)."""
+        result = await self._session.execute(
+            select(UserRow).where(UserRow.deleted_at.is_(None)).order_by(UserRow.email)
+        )
         return [_to_domain(row) for row in result.scalars().all()]
+
+    async def count_deleted(self) -> int:
+        """How many accounts were deleted: the admin's list says so beside it."""
+        result = await self._session.execute(
+            select(func.count()).select_from(UserRow).where(UserRow.deleted_at.is_not(None))
+        )
+        return int(result.scalar_one())
 
     async def set_display_name(self, user_id: UUID, name: str) -> None:
         """The unique index decides, not a read first: two users racing for one name

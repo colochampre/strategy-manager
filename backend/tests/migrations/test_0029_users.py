@@ -107,6 +107,8 @@ async def test_the_table_holds_an_id_an_email_two_timestamps_the_mode_and_a_name
         "last_seen_at": ("timestamp with time zone", "NO"),
         "mode": ("text", "NO"),
         "display_name": ("text", "YES"),
+        # Added by 0045: when the account was deleted (account-deletion S3).
+        "deleted_at": ("timestamp with time zone", "YES"),
     }
 
 
