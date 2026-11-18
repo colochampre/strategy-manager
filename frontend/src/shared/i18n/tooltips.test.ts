@@ -8,32 +8,15 @@ import es from "@/shared/i18n/locales/es.json";
  * `StatusButton` `iconOnly` text): the owner asked for each to begin with a capital and be brief (tasks.md L.9).
  */
 const TOOLTIP_KEYS = [
-  // The ledger's and the record line's icons.
-  "overview.ledger.available",
-  "overview.ledger.pnl",
-  "overview.ledger.pnlRange",
-  "overview.ledger.return",
-  "overview.ledger.returnRange",
-  "overview.ledger.deepest",
-  "strategies.performance.contribution",
-  "strategies.performance.contributionRange",
-  "strategies.report.recordReturn",
-  "strategies.report.recordReturnRange",
-  // The cards' icons, and the public figures'.
+  // The cards' and the pages' named values, and what AuM means.
   "strategies.card.age",
   "strategies.card.subscribed",
-  "strategies.card.uptime",
-  "strategies.card.uptimeAtLeast",
-  "strategies.card.neverEnabled",
-  "strategies.card.trades",
-  "strategies.card.return",
-  "strategies.card.deepest",
-  "strategies.card.winRate",
   "strategies.card.subscribers",
-  "strategies.card.capital",
-  "strategies.card.pnl",
   "strategies.card.share",
   "strategies.card.leverage",
+  "strategies.card.aumHint",
+  // The description's pencil.
+  "strategies.description.edit",
   // Archive's reason, and the icon buttons' names.
   "strategies.archive.disabledHint",
   "settings.name.save",

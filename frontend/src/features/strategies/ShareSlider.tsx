@@ -29,6 +29,11 @@ export interface ShareSliderProps {
    * and the action keeps the width of its own content.
    */
   action?: ReactNode;
+  /**
+   * The legend is as tall as its labels, and the stops' 44 px reach 16 px below the slider, into room the container
+   * leaves after it (a gap of 16 px or more), instead of the slider keeping 24 px of empty room under its labels.
+   */
+  reachBelow?: boolean;
 }
 
 /**
@@ -88,6 +93,7 @@ export function ShareSlider({
   onHandle,
   onStop,
   action,
+  reachBelow = false,
 }: ShareSliderProps) {
   const { t } = useTranslation();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -103,7 +109,7 @@ export function ShareSlider({
   };
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-1.5">
       {/* One row: the field takes the width that is left, the action beside it keeps its own. */}
       <div className="flex items-start gap-x-3">
       <div
@@ -179,7 +185,7 @@ export function ShareSlider({
         </div>
         {/* The legend is pulled up 12 px so it begins at the handle's lower edge; it lets presses through
             and only its buttons take them, so none covers the handle. */}
-        <div className="pointer-events-none relative z-20 mx-2.5 -mt-3 h-11">
+        <div className={cn("pointer-events-none relative z-20 mx-2.5 -mt-3", reachBelow ? "mb-1 h-6" : "h-11")}>
           {STOPS.map(({ stop, place }) => (
             <button
               key={stop}

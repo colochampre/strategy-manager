@@ -1,6 +1,6 @@
 import { useTranslation } from "react-i18next";
 
-import { LedgerLine, rangeLabel } from "@/features/overview/LedgerLine";
+import { LedgerLine } from "@/features/overview/LedgerLine";
 import { MonthlyGrid } from "@/features/overview/MonthlyGrid";
 import { MonthlySummary } from "@/features/overview/MonthlySummary";
 import { RangeSelector } from "@/features/overview/RangeSelector";
@@ -44,7 +44,6 @@ function ReportView({ report, asOf, ledger }: ReportViewProps) {
             pnl={summary.pnl}
             ret={summary.return}
             maxDrawdown={report.max_drawdown}
-            returnLabel={rangeLabel(t, "strategies.performance.contribution", range)}
           />
         )}
         <ReportSection>

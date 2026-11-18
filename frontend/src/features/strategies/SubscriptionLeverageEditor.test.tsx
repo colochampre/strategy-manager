@@ -328,7 +328,7 @@ describe("SubscriptionLeverageEditor, under the cap of the strategy's stop level
     const { patches } = setupPage(strategy({ stop_loss_pct: "10.00" }));
     await ready();
 
-    expect(screen.getByText("This strategy's stop allows a leverage of up to x9.")).toBeInTheDocument();
+    expect(screen.getByText("Max leverage x9 with a 10% stop")).toBeInTheDocument();
     expect(stopButton(5)).toBeEnabled();
     for (const stop of [10, 15, 20]) expect(stopButton(stop)).toBeDisabled();
 

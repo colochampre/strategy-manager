@@ -36,8 +36,13 @@ describe("withOrigin (decision 36: the curve starts at 0 on the day its first tr
     expect(withOrigin(closes.slice(1), "2026-09-03", "2026-09-06")).toEqual(closes.slice(1));
   });
 
-  it("starts at 0 on the close's own day when the first trade opened and closed that day", () => {
-    expect(withOrigin(closes, "2026-09-05", null)).toEqual([{ ...zero, date: "2026-09-05" }, ...closes]);
+  it("starts at 0 at the end of the day before when the first trade opened and closed on one day (owner, 2026-11-17)", () => {
+    // On the close's own day the 0 and the close shared one x: the line rose straight up, and the hover only ever
+    // found the 0, never the first close.
+    const dayBefore = { ...zero, date: "2026-09-04" };
+    expect(withOrigin(closes, "2026-09-05", null)).toEqual([dayBefore, ...closes]);
+    // Also in a window that starts on that day: the chart's axis reaches back to the 0.
+    expect(withOrigin(closes, "2026-09-05", "2026-09-05")).toEqual([dayBefore, ...closes]);
   });
 
   it("ignores an origin after the first close, which no consistent report holds", () => {

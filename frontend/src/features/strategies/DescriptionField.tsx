@@ -12,6 +12,8 @@ interface DescriptionFieldProps {
   disabled?: boolean;
   /** How the name reads: a dialog's field, or a section of the strategy page. Default: a dialog's field. */
   look?: FieldNameLook;
+  /** Takes the focus when drawn: the field was opened in place, from a pencil. */
+  autoFocus?: boolean;
 }
 
 /**
@@ -19,7 +21,7 @@ interface DescriptionFieldProps {
  * characters as the server counts them, and the refusal in words when it is over the limit. It holds no state of
  * its own and sends nothing; the dialog and the strategy page each decide when to send.
  */
-export function DescriptionField({ value, onChange, disabled = false, look = "field" }: DescriptionFieldProps) {
+export function DescriptionField({ value, onChange, disabled = false, look = "field", autoFocus = false }: DescriptionFieldProps) {
   const { t } = useTranslation();
   const ids = { field: useId(), problem: useId() };
   const info = useInfoDisclosure();
@@ -46,6 +48,8 @@ export function DescriptionField({ value, onChange, disabled = false, look = "fi
         value={value}
         onChange={(event) => onChange(event.target.value)}
         disabled={disabled}
+        // Opened from a pencil, the field is what the reader came for; nowhere else does it take the focus.
+        autoFocus={autoFocus}
         rows={4}
         aria-invalid={tooLong}
         aria-describedby={tooLong ? ids.problem : undefined}

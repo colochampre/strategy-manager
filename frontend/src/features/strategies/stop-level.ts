@@ -40,6 +40,14 @@ export function readStopLevel(text: string): StopLevelReading {
   return { valid: true, canonical: significant === "" ? canonicalWhole : `${canonicalWhole}.${significant}` };
 }
 
+/** A level as a reader reads it, "10" or "7,5", in their locale: the stored "10.00" loses its trailing zeros. */
+export function stopLevelText(stopLevel: string | undefined, locale: string): string | null {
+  if (stopLevel === undefined) return null;
+  const reading = readStopLevel(stopLevel);
+  if (!reading.valid) return null;
+  return new Intl.NumberFormat(locale, { maximumFractionDigits: MAX_DECIMALS }).format(Number(reading.canonical));
+}
+
 /**
  * The most a seat may trade at under a stop of `stopLevel` (a level as the API writes it, "10.00", or as typed).
  * With no level to read it is the plain ceiling: the server still refuses a leverage above the cap.

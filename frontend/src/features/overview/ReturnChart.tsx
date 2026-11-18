@@ -20,6 +20,7 @@ import {
 } from "@/shared/charts/scale";
 import type { IndexDay } from "@/shared/charts/scale";
 import { useElementWidth } from "@/shared/charts/useElementWidth";
+import { cn } from "@/shared/lib/cn";
 
 interface ReturnChartProps {
   /** The pool's whole curve, oldest day first; the range picks the window drawn. */
@@ -191,7 +192,10 @@ export function ReturnChart({
   // Every range runs to today, so a quiet stretch since the last close shows as empty space; a
   // bounded one also starts on its own window, the whole curve on its first day (its origin).
   const today = utcDate(asOf);
-  const start = from ?? days[0]?.date ?? null;
+  // A window's own start, unless the curve's 0 stands the day before it (a first trade opened and closed on one day).
+  // Both are "YYYY-MM-DD", so the earlier sorts first.
+  const firstDay = days[0]?.date ?? null;
+  const start = from === null ? firstDay : firstDay !== null && firstDay < from ? firstDay : from;
   const domain = start === null ? [] : [start, today];
   const x = timeScale(domain, LEFT, right);
   const curvePoints = days.map((day) => ({ x: x(day.date), y: toY(day.cumulative) }));
@@ -434,7 +438,35 @@ export function ReturnChart({
                 strokeLinejoin="round"
                 className="fill-ink stroke-ground font-mono text-[11px]"
               >
-                {`${dayFormat.format(utcInstant(hoveredDay.date))} · ${percentLabel(hoveredDay.cumulative)}`}
+                {`${dayFormat.format(utcInstant(hoveredDay.date))} · `}
+                {/* The return in its sign's colour, as the drawdown below it is in the loss colour (owner, 2026-11-17). */}
+                <tspan
+                  data-testid="hover-return"
+                  className={
+                    percentLabel(hoveredDay.cumulative) === "0%"
+                      ? "fill-ink-2"
+                      : hoveredDay.cumulative > 0
+                        ? "fill-gain"
+                        : "fill-loss"
+                  }
+                >
+                  {percentLabel(hoveredDay.cumulative)}
+                </tspan>
+              </text>
+              <text
+                data-testid="hover-drawdown"
+                x={hoveredPoint.x > right - HOVER_LABEL_WIDTH ? hoveredPoint.x - 6 : hoveredPoint.x + 6}
+                y={TOP + 36}
+                textAnchor={hoveredPoint.x > right - HOVER_LABEL_WIDTH ? "end" : "start"}
+                paintOrder="stroke"
+                strokeWidth={4}
+                strokeLinejoin="round"
+                className={cn(
+                  "stroke-ground font-mono text-[11px]",
+                  percentLabel(hoveredDay.drawdown) === "0%" ? "fill-ink-2" : "fill-loss",
+                )}
+              >
+                {t("overview.returnChart.hoverDrawdown", { value: percentLabel(hoveredDay.drawdown) })}
               </text>
             </g>
           )}

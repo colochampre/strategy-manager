@@ -3,15 +3,15 @@ import { useTranslation } from "react-i18next";
 import { Link, useParams, useSearchParams } from "react-router";
 
 import { entryRefusal } from "@/features/strategies/entry-refusal";
-import { PublicOrigin } from "@/features/strategies/PublicFigures";
 import { EnabledBadge } from "@/features/strategies/StrategyCard";
+import { PublicDescription } from "@/features/strategies/StrategyDescription";
+import { STRATEGY_TITLE, StrategyPageHeader } from "@/features/strategies/StrategyPageHeader";
 import { StrategyReportViews } from "@/features/strategies/StrategyReportViews";
 import { SubscribePanel } from "@/features/strategies/SubscribePanel";
 import { ApiError } from "@/shared/api/client";
 import { type Entry, EntryProvider } from "@/shared/api/entry";
 import { usePublicStrategy } from "@/shared/api/public-strategies";
 import type { PublicStrategy } from "@/shared/api/types";
-import { LinkifiedText } from "@/shared/ui/LinkifiedText";
 
 function BackToExplore() {
   const { t } = useTranslation();
@@ -29,25 +29,18 @@ function PublicRecord({ strategy }: { strategy: PublicStrategy }) {
   // aside on the right. Stacked on a phone, the aside comes last.
   return (
     <div className="grid gap-9 lg:grid-cols-[minmax(0,1fr)_25rem]">
-      {/* Blocks 4 apart, as on every view; the title alone steps 6 to what follows (L.13). */}
+      {/* Blocks 4 apart, as on every view; the header, the description and Performance as the own page draws them. */}
       <div className="flex min-w-0 flex-col gap-4">
-        <header className="mb-2 flex flex-col gap-1.5">
-          <BackToExplore />
-          <div className="flex flex-wrap items-center gap-x-2">
-            <h1 className="font-display text-2xl font-bold text-ink">{strategy.name}</h1>
-            <EnabledBadge enabled={strategy.enabled} testId="public-enabled" />
-          </div>
-          <PublicOrigin strategy={strategy} />
-        </header>
-        {strategy.description !== null && (
-          <section data-testid="public-description" className="flex flex-col gap-1.5">
-            <h2 className="text-xs font-semibold text-ink-2">{t("strategies.description.publicHeading")}</h2>
-            {/* Plain text: React escapes it; only http and https URLs become links, nothing is parsed as HTML or Markdown. */}
-            <p className="whitespace-pre-line break-words text-sm text-ink">
-              <LinkifiedText text={strategy.description} />
-            </p>
-          </section>
-        )}
+        <StrategyPageHeader
+          prefix="public"
+          back={<BackToExplore />}
+          title={<h1 className={STRATEGY_TITLE}>{strategy.name}</h1>}
+          status={<EnabledBadge enabled={strategy.enabled} testId="public-enabled" />}
+          byline={t("strategies.public.by", { name: strategy.author_name })}
+          market={`${strategy.exchange} · ${strategy.venue} · ${strategy.settlement_currency}`}
+          since={strategy.created_at}
+        />
+        <PublicDescription text={strategy.description} />
         <StrategyReportViews strategy={strategy} />
       </div>
       <SubscribePanel strategy={strategy} />

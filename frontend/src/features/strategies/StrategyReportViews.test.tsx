@@ -137,36 +137,33 @@ describe("StrategyReportViews", () => {
     fireEvent.click(screen.getByRole("button", { name: "30D" }));
   });
 
-  it("draws the record line as the cards' icons over their values, and keeps the (i) on the return", async () => {
+  it("draws the record line in the cards' groups, and keeps the (i) on the return's", async () => {
     serve();
     renderAt(<StrategyReportViews strategy={STRATEGY} />);
     const line = await screen.findByTestId("record-line");
     await waitFor(() => expect(screen.getByTestId("public-return")).toHaveTextContent("+5.1%"));
 
-    const returnTerm = screen.getByTestId("public-return").previousElementSibling as HTMLElement;
-    expect(returnTerm.querySelector("svg.lucide-trending-up")).not.toBeNull();
-    expect(returnTerm.textContent).toBe("");
-    const deepest = within(line).getByTestId("public-deepest");
-    const deepestTerm = deepest.previousElementSibling as HTMLElement;
-    expect(deepestTerm.querySelector("svg.lucide-trending-down")).not.toBeNull();
-    expect(deepest).toHaveClass("text-loss");
-    expect(within(deepestTerm).getByRole("img", { name: "Drawdown" })).toBeInTheDocument();
+    const pnl = within(line).getByTestId("public-group-pnl");
+    expect(pnl.querySelector("dt svg.lucide-coins")).not.toBeNull();
+    const drawdown = within(line).getByTestId("public-group-drawdown");
+    expect(drawdown.querySelector("dt svg.lucide-trending-down")).not.toBeNull();
+    expect(within(drawdown).getByTestId("public-deepest")).toHaveClass("text-loss");
     // The unleveraged, before-fees disclosure stays with the return.
-    expect(within(returnTerm).getByRole("button", { name: i18n.t("strategies.public.returnInfo") })).toBeInTheDocument();
-    expect(line.textContent).not.toMatch(/return|deepest/i);
+    expect(
+      within(pnl.querySelector("dt") as HTMLElement).getByRole("button", { name: i18n.t("strategies.public.returnInfo") }),
+    ).toBeInTheDocument();
   });
 
-  it("names the range in the record's return tooltip only when it is not All", async () => {
+  it("names the range in the Total PnL label only when it is not All", async () => {
     serve();
     renderAt(<StrategyReportViews strategy={STRATEGY} />);
     await screen.findByTestId("return-curve");
-    const name = () =>
-      within(screen.getByTestId("public-return").previousElementSibling as HTMLElement).getByRole("img").getAttribute("aria-label");
+    const name = () => (screen.getByTestId("public-group-pnl").querySelector("dt span") as HTMLElement).textContent;
 
     fireEvent.click(screen.getByRole("button", { name: "7D" }));
-    expect(name()).toBe("Return, last 7 days");
+    expect(name()).toBe("Total PnL · 7D");
     fireEvent.click(screen.getByRole("button", { name: "All" }));
-    expect(name()).toBe("Return");
+    expect(name()).toBe("Total PnL");
     // The range is one choice for the whole panel: put it back where the other tests expect it.
     fireEvent.click(screen.getByRole("button", { name: "30D" }));
   });
@@ -200,16 +197,13 @@ describe("StrategyReportViews", () => {
     await screen.findByRole("row", { name: /^XRPUSDT\b/ });
 
     const line = screen.getByTestId("record-line");
-    const ids = [...line.querySelectorAll("dd")].map((value) => value.getAttribute("data-testid"));
-    expect(ids.slice(2, 6)).toEqual(["public-trades", "public-pnl", "public-return", "public-deepest"]);
-    expect(within(line).getByTestId("public-pnl")).toHaveTextContent(/^\+41\.25 USDT$/);
-    // Where the column holds one row of eight but not of nine, the PnL goes and the row stays one (owner, L.11).
-    expect(within(line).getByTestId("public-pnl").parentElement).toHaveClass("@[32rem]:hidden", "@[40rem]:flex");
+    const pnl = within(line).getByTestId("public-group-pnl");
+    const values = Array.from((pnl.querySelector("dd") as HTMLElement).children).map((value) => value.getAttribute("data-testid"));
+    expect(values).toEqual(["public-pnl", "public-return"]);
+    await waitFor(() => expect(within(line).getByTestId("public-pnl")).toHaveTextContent(/^\+41\.25USDT$/));
     expect(within(line).getByTestId("public-return")).toHaveTextContent("+2.0%");
     expect(within(line).getByTestId("public-deepest")).toHaveTextContent("-1.0%");
-    // Their return is their contribution to their pool, as their report names it; the record's (i) is not theirs.
-    const returnTerm = within(line).getByTestId("public-return").previousElementSibling as HTMLElement;
-    expect(within(returnTerm).getByRole("img").getAttribute("aria-label")).toBe("Contribution to the pool, last 30 days");
+    // The record's (i) explains the record's return, which is not theirs.
     expect(within(line).queryByRole("button", { name: i18n.t("strategies.public.returnInfo") })).toBeNull();
     expect(screen.queryByTestId("ledger-line")).toBeNull();
 

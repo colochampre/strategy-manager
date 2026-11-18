@@ -200,13 +200,14 @@ describe("the public page", () => {
     await act(() => i18n.changeLanguage("en"));
   });
 
-  it("draws nothing for a strategy with no description", async () => {
+  it("says a strategy has no description where the text would be, as the own page does (owner, 2026-11-17)", async () => {
     serve();
     open();
     await screen.findByRole("heading", { level: 1, name: "Alpha" });
 
-    expect(screen.queryByTestId("public-description")).not.toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "About this strategy" })).not.toBeInTheDocument();
+    const section = screen.getByTestId("public-description");
+    expect(within(section).getByRole("heading", { name: "About this strategy" })).toBeInTheDocument();
+    expect(section).toHaveTextContent(i18n.t("strategies.description.none"));
   });
 
   it("shows markup and Markdown literally: no element is created from the text", async () => {
@@ -238,42 +239,96 @@ describe("the public page", () => {
     expect(section.querySelector("p")).toHaveClass("whitespace-pre-line", "break-words");
   });
 
-  it("draws the strategy's figures and its record's in one grid of the cards' icons, under Performance (L.10)", async () => {
+  it("draws the figures under Performance grouped as the cards: Total PnL, Max drawdown, Profitable trades, AuM (owner, 2026-11-17)", async () => {
     serve();
     open();
 
     const line = await screen.findByTestId("record-line");
     const performance = screen.getByRole("region", { name: i18n.t("strategies.report.title") });
     expect(performance).toContainElement(line);
-    const ids = [...line.querySelectorAll("dd")].map((value) => value.getAttribute("data-testid"));
-    expect(ids).toEqual([
-      "public-age",
-      "public-uptime",
-      "public-trades",
-      "public-return",
-      "public-deepest",
-      "public-winrate",
-      "public-subscribers",
-      "public-capital",
-    ]);
-    // The return and the fall follow the chart's range, read from the record (30D by default).
-    await waitFor(() => expect(within(line).getByTestId("public-return")).toHaveTextContent("+5.1%"));
-    expect(within(line).getByTestId("public-deepest")).toHaveTextContent("-2.0%");
+    const groups = [...line.children].map((group) => group.getAttribute("data-testid"));
+    expect(groups).toEqual(["public-group-pnl", "public-group-drawdown", "public-group-profitable", "public-group-aum"]);
+    // The return and the fall follow the chart's range, read from the record (30D by default), the sign joined.
+    await waitFor(() => expect(within(line).getByTestId("public-return")).toHaveTextContent(/^\+5\.1%$/));
+    expect(within(line).getByTestId("public-deepest")).toHaveTextContent(/^-2\.0%$/);
+    // No PnL in a record, which holds no money; the rate and the wins out of the closed trades: 60 % of 3.
+    expect(within(line).queryByTestId("public-pnl")).not.toBeInTheDocument();
+    expect(within(line).getByTestId("public-winrate")).toHaveTextContent(/^60%$/);
+    expect(within(line).getByTestId("public-wins")).toHaveTextContent(/^2\/3$/);
+    expect(within(line).getByTestId("public-subscribers")).toHaveTextContent(/^2$/);
+    expect(within(line).getByTestId("public-capital")).toHaveTextContent(/^1,500\.00USDT$/);
+    // The age and the days active are not figures any more: the dates are on the market line.
+    expect(screen.queryByTestId("public-uptime")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("public-trades")).not.toBeInTheDocument();
     // The return and the capital each keep one (i), on that row.
     expect(within(line).getAllByRole("button", { name: i18n.t("strategies.public.returnInfo") })).toHaveLength(1);
     expect(within(line).getAllByRole("button", { name: i18n.t("strategies.public.capitalInfo") })).toHaveLength(1);
     expect(screen.getAllByTestId("public-return")).toHaveLength(1);
-    // One row wherever the column holds it, each figure as wide as its own value; four a row where it does not
-    // (L.11). The column's width decides, not the screen's: the page's aside takes a share of it.
-    expect(line.parentElement).toHaveClass("@container");
-    expect(line).toHaveClass(
-      "grid-cols-4",
-      "@[32rem]:grid-flow-col",
-      "@[32rem]:grid-cols-none",
-      "@[32rem]:auto-cols-max",
-    );
-    expect(line).not.toHaveClass("lg:grid-flow-col");
-    expect(line).not.toHaveClass("lg:grid-cols-4");
+  });
+
+  it("draws the reader's own PnL, return, fall and wins under My results", async () => {
+    serve({ held: () => Promise.resolve(jsonResponse([heldSubscription({ strategy_id: ID })])) });
+    open();
+
+    expect(await screen.findByRole("button", { name: "My results" })).toHaveAttribute("aria-pressed", "true");
+    const line = await screen.findByTestId("record-line");
+    const pnl = within(line).getByTestId("public-group-pnl");
+    await waitFor(() => expect(within(pnl).getByTestId("public-pnl")).not.toHaveTextContent("…"));
+    // The reader's report has no pair closed: no rate of theirs, and not the record's 60 %.
+    expect(within(line).getByTestId("public-winrate")).toHaveTextContent(/^—$/);
+  });
+
+  it("draws the title, the author and the dated market line as the own page does (owner, 2026-11-17)", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-11-17T12:00:00Z"));
+    try {
+      serve();
+      open();
+
+      const title = await screen.findByRole("heading", { level: 1, name: "Alpha" });
+      expect(title).toHaveClass("font-display", "text-2xl", "font-bold", "text-ink");
+      expect(title.parentElement).toHaveClass("min-h-11");
+      const market = screen.getByTestId("public-market");
+      expect(market).toHaveTextContent(/^bybit · usdt-m · USDT/);
+      expect(within(market).getByTestId("public-age")).toHaveTextContent(/^Oct 1, 2026 – Nov 17, 2026$/);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("folds a long description to four lines, with Show more and Show less, so the page below it keeps its place", async () => {
+    // The text is taller than four lines: what a browser measures, and jsdom does not.
+    const tall = vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockReturnValue(200);
+    const shown = vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(80);
+    try {
+      serve({ strategy: () => Promise.resolve(jsonResponse(publicStrategy({ id: ID, description: "Long.\n".repeat(30) }))) });
+      open();
+
+      const section = await screen.findByTestId("public-description");
+      const body = within(section).getByText(/Long\./);
+      expect(body).toHaveClass("line-clamp-4");
+      const more = within(section).getByRole("button", { name: i18n.t("strategies.description.more") });
+      expect(more).toHaveAttribute("aria-expanded", "false");
+      fireEvent.click(more);
+      expect(body).not.toHaveClass("line-clamp-4");
+      const less = within(section).getByRole("button", { name: i18n.t("strategies.description.less") });
+      expect(less).toHaveAttribute("aria-expanded", "true");
+      fireEvent.click(less);
+      expect(body).toHaveClass("line-clamp-4");
+    } finally {
+      tall.mockRestore();
+      shown.mockRestore();
+    }
+  });
+
+  it("offers no Show more for a description that fits in four lines", async () => {
+    serve({ strategy: () => Promise.resolve(jsonResponse(publicStrategy({ id: ID, description: "Short." }))) });
+    open();
+
+    const section = await screen.findByTestId("public-description");
+    expect(within(section).queryByRole("button", { name: i18n.t("strategies.description.more") })).not.toBeInTheDocument();
+    // Its heading's row is as tall as the own page's, where a pencil stands in it.
+    expect(within(section).getByRole("heading", { level: 2 }).parentElement).toHaveClass("min-h-11");
   });
 
   it("explains the return and the capital on request, closed by default", async () => {
@@ -398,9 +453,9 @@ describe("whether this user can subscribe", () => {
     expect(screen.getByRole("textbox", { name: i18n.t("strategies.leverage.label") })).toHaveValue("2");
     // The danger look of Disable and Archive, and the whole width of the aside like them.
     expect(leave.className).toBe(`${DANGER_CONTROL} w-full justify-center`);
-    // The aside's sections sit closer (gap-2, was gap-5).
-    expect(leave.closest("aside")).toHaveClass("gap-2");
-    expect(leave.closest("aside")).not.toHaveClass("gap-5");
+    // The sections stand apart as on the owner's settings (gap-4), more than each section's own 1.5 (owner, 2026-11-17).
+    expect(leave.closest("aside")).toHaveClass("gap-4", "lg:min-h-[calc(100dvh-7.5rem-1px)]");
+    expect(screen.getByRole("button", { name: "Set the leverage to x5" }).parentElement).toHaveClass("h-6", "mb-1");
     expect(screen.queryByRole("button", { name: i18n.t("strategies.subscribe.submit") })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { level: 2, name: i18n.t("strategies.subscribe.title") })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /My subscriptions/ })).not.toBeInTheDocument();
@@ -411,6 +466,8 @@ describe("whether this user can subscribe", () => {
     open();
 
     expect(await subscribeButton()).toBeInTheDocument();
+    // However little it holds, the aside is as tall as main leaves room for, as Strategy settings (owner, 2026-11-17).
+    expect((await subscribeButton()).closest("aside")).toHaveClass("lg:min-h-[calc(100dvh-7.5rem-1px)]");
     expect(screen.queryByRole("textbox", { name: i18n.t("strategies.leverage.label") })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: i18n.t("strategies.subscriptions.leave") })).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { level: 2, name: i18n.t("strategies.subscribe.title") })).toBeInTheDocument();
@@ -713,7 +770,7 @@ describe("subscribing", () => {
     open();
 
     const leverage = await screen.findByRole("textbox", { name: i18n.t("strategies.leverage.label") });
-    expect(screen.getByText(i18n.t("strategies.leverage.capNote", { max: 3 }))).toBeInTheDocument();
+    expect(screen.getByText("Max leverage x3 with a 25% stop")).toBeInTheDocument();
     fireEvent.change(leverage, { target: { value: "4" } });
 
     expect(await subscribeButton()).toBeDisabled();

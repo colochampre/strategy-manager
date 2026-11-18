@@ -491,7 +491,7 @@ describe("the new-strategy dialog", () => {
 
     // A tighter stop of 5 allows 16x: the same 12 is now taken.
     fireEvent.change(level, { target: { value: "5" } });
-    expect(within(dialog).getByText(i18n.t("strategies.stopLevel.cap", { max: 16 }))).toBeInTheDocument();
+    expect(within(dialog).getByText("Max leverage x16")).toBeInTheDocument();
     fill("Delta");
     await choose(["STXUSDT"]);
     fireEvent.click(submitButton());

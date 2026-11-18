@@ -1419,11 +1419,11 @@ PR #93 merged 2026-11-02 03:14 UTC as `60e5fb33a2d6`, with a merge commit. One m
 
 **Not seen in production:** nobody but the owner can reach any of this until PR G, so a subscribe and a leave by another user, a name refused for real, and a public page read by a stranger stay proven by tests only.
 
-**Asked by the owner on reading it, for the delivery they belong to:** see "Panel requests pending" below.
+**Asked by the owner on reading it, for the delivery they belong to:** see "Panel requests (built in PR I)" below.
 
-## Panel requests pending
+## Panel requests (built in PR I)
 
-Asked by the owner on 2026-11-02, after PR F's deploy, not built. None blocks PR G. Verbatim:
+Asked by the owner on 2026-11-02, after PR F's deploy. None blocked PR G. All of them were built in PR I (tasks I.1 to I.15, below) and are in production. Verbatim:
 
 - "En strategies/explore agregaría a cada item age, closed trades, return... etc, un icono. La página se apoya demasiado en textos y debería empezar a aligerarse con más iconos que hablen por sí solos, y a lo sumo agregarles tooltips al pasar el mouse por encima para el que quiera corroborar de qué se trata. Todo lo que sea información sensible o que no se pueda malinterpretar que quede como textual, pero lo que no lo sea, puede pasar a este formato. No solo en strategies/explore sino en general, para que todo siga las mismas reglas."
 - "Además, el botón de Leave en strategies my subscriptions, debería ser rojo, como el boton de delete key en settings. Sino tiene el mismo peso que el boton de change share."
@@ -1812,7 +1812,7 @@ The follow-up of the PNUT incident above, and decision 38. Branch `feat/subscrip
 
 ## PR I: the panel requests after PR H
 
-The owner's requests under "Panel requests pending", built together on the owner's "Dale, vamos con panel" (2026-11-06). Decisions 36 and 37 and the four asks of 2026-11-06, plus the icons and the red Leave of 2026-11-02. No migration. Owner's word per unit; the owner reads the running panel before the PR.
+The owner's requests under "Panel requests (built in PR I)", built together on the owner's "Dale, vamos con panel" (2026-11-06). Decisions 36 and 37 and the four asks of 2026-11-06, plus the icons and the red Leave of 2026-11-02. No migration. Owner's word per unit; the owner reads the running panel before the PR.
 
 ### PR I's plan (2026-11-06)
 

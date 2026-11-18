@@ -63,7 +63,7 @@ export function PoolShareEditor({ strategy, leverage }: PoolShareEditorProps) {
   if (held === null) {
     // No subscription, so no share of this user's pool to edit. A refused save that found it gone keeps its line.
     return (
-      <section className="flex flex-col gap-3">
+      <section className="flex flex-col gap-1.5">
         <p className="text-sm text-ink-2">{t("strategies.detail.share.label")}</p>
         <p className="text-sm text-ink-2">{t("strategies.detail.share.none")}</p>
         {refusal}
@@ -73,7 +73,7 @@ export function PoolShareEditor({ strategy, leverage }: PoolShareEditorProps) {
   if (stored === null) {
     // Never a guess: a stored value that is not a plain decimal gets no track, no field and no Save.
     return (
-      <section className="flex flex-col gap-3">
+      <section className="flex flex-col gap-1.5">
         <p className="text-sm text-ink-2">{t("strategies.detail.share.label")}</p>
         <p className="text-sm text-ink-2">{t("strategies.detail.share.unreadable")}</p>
       </section>
@@ -98,7 +98,7 @@ export function PoolShareEditor({ strategy, leverage }: PoolShareEditorProps) {
 
   return (
     // Named by its label: several editors on one page each have a Save that says only "Save".
-    <section aria-labelledby={ids.label} className="flex flex-col gap-3">
+    <section aria-labelledby={ids.label} className="flex flex-col gap-1.5">
       <div className="flex items-start">
         <label id={ids.label} htmlFor={ids.field} className="text-sm leading-5 text-ink-2">
           {t("strategies.detail.share.label")}
@@ -109,6 +109,7 @@ export function PoolShareEditor({ strategy, leverage }: PoolShareEditorProps) {
         <p className="text-xs text-ink-3">{t("strategies.detail.share.hint")}</p>
       </InfoText>
       <ShareSlider
+        reachBelow
         fieldId={ids.field}
         labelId={ids.label}
         text={text}
@@ -138,18 +139,21 @@ export function PoolShareEditor({ strategy, leverage }: PoolShareEditorProps) {
           </div>
         }
       />
-      <ShareAmount
-        view={amount}
-        trailing={<InfoButton disclosure={amountInfo} label={t("strategies.detail.share.amountInfo")} />}
-        explanation={
-          <InfoText disclosure={amountInfo}>
-            {readAt !== null && (
-              <p className="text-xs text-ink-3">{t("strategies.detail.share.amountHint", { time: clockText(readAt) ?? readAt })}</p>
-            )}
-            <p className="text-xs text-ink-3">{t("strategies.detail.share.pairMinimumNote")}</p>
-          </InfoText>
-        }
-      />
+      {/* 10 px more than the column's gap, so the slider's stops never reach over the amount's information button. */}
+      <div className="mt-2.5">
+        <ShareAmount
+          view={amount}
+          trailing={<InfoButton disclosure={amountInfo} label={t("strategies.detail.share.amountInfo")} />}
+          explanation={
+            <InfoText disclosure={amountInfo}>
+              {readAt !== null && (
+                <p className="text-xs text-ink-3">{t("strategies.detail.share.amountHint", { time: clockText(readAt) ?? readAt })}</p>
+              )}
+              <p className="text-xs text-ink-3">{t("strategies.detail.share.pairMinimumNote")}</p>
+            </InfoText>
+          }
+        />
+      </div>
       {!reading.valid && (
         <p id={ids.problem} className="text-xs text-loss">
           {t(DRAFT_REFUSAL_TEXT[reading.refusal])}

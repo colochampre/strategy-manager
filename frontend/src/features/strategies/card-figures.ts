@@ -9,6 +9,7 @@ export const NO_PUBLIC_FIGURES: CardFigures = {
   ret: null,
   deepest: null,
   winRate: null,
+  profitable: null,
   subscribers: null,
   capital: null,
 };
@@ -20,11 +21,15 @@ export const NO_PUBLIC_FIGURES: CardFigures = {
 export function publicFigures(strategy: PublicStrategy): CardFigures {
   const traded = strategy.closed_trade_count > 0;
   const capital = strategy.capital === null ? null : parseDecimal(strategy.capital);
+  const winRate = strategy.win_rate === null ? null : parseDecimal(strategy.win_rate);
+  const closed = strategy.closed_trade_count;
   return {
-    trades: strategy.closed_trade_count,
+    trades: closed,
     ret: traded ? parseDecimal(strategy.unleveraged_return_before_fees) : null,
     deepest: traded ? parseDecimal(strategy.max_drawdown) : null,
-    winRate: strategy.win_rate === null ? null : parseDecimal(strategy.win_rate),
+    winRate,
+    // The public record serves the rate, not the count: the count is the rate of the closed trades, which it was.
+    profitable: winRate === null || closed === 0 ? null : { wins: Math.round(winRate * closed), closed },
     subscribers: strategy.live_subscribers,
     capital: capital === null ? null : { amount: capital, currency: strategy.settlement_currency },
   };
@@ -85,49 +90,61 @@ export interface AuthoredCard {
   failed: boolean;
 }
 
+/** The figures a card takes from somewhere other than a report: who trades it live, and with how much. */
+type AumFigures = Pick<CardFigures, "subscribers" | "capital">;
+
+const NO_RECORD = { trades: null, ret: null, deepest: null, winRate: null, profitable: null } as const;
+
 /**
- * An author's strategy as a card draws it. Return, closed trades, deepest and win rate come from the strategy's own
- * report, in its pool's currency: the return is its contribution to the pool. A win rate is every pair's wins over
- * every pair's closed trades, and none before a trade has closed.
+ * The card a report draws, with its live subscribers and capital beside it. Return, closed trades, deepest, win rate
+ * and PnL come from the one report, in its pool's currency: the return is the strategy's contribution to the pool. A
+ * win rate is every pair's wins over every pair's closed trades, and none before a trade has closed.
  */
-export function authoredFigures(strategy: Strategy, read: ReportRead): AuthoredCard {
-  const subscribers = strategy.live_subscribers;
-  const capital = strategy.capital === null ? null : parseDecimal(strategy.capital);
-  const shared = {
-    subscribers,
-    capital: capital === null ? null : { amount: capital, currency: strategy.settlement_currency },
-  };
-  if (read.status === "error") {
-    return { figures: { ...shared, trades: null, ret: null, deepest: null, winRate: null }, pnl: null, failed: true };
-  }
+function reportFigures(read: ReportRead, aum: AumFigures): AuthoredCard {
+  if (read.status === "error") return { figures: { ...aum, ...NO_RECORD }, pnl: null, failed: true };
   if (read.status === "pending" || read.data === undefined) {
     return {
-      figures: { ...shared, trades: undefined, ret: undefined, deepest: undefined, winRate: undefined },
+      figures: { ...aum, trades: undefined, ret: undefined, deepest: undefined, winRate: undefined, profitable: undefined },
       pnl: undefined,
       failed: false,
     };
   }
   const report = read.data;
-  if (report === null) {
-    return { figures: { ...shared, trades: null, ret: null, deepest: null, winRate: null }, pnl: null, failed: false };
-  }
+  if (report === null) return { figures: { ...aum, ...NO_RECORD }, pnl: null, failed: false };
   const all = report.ranges.find((entry) => entry.range === "All");
   const pnl = all === undefined ? null : parseDecimal(all.pnl);
   const ret = all === undefined ? null : parseDecimal(all.return);
-  if (all !== undefined && (pnl === null || ret === null)) {
-    return { figures: { ...shared, trades: null, ret: null, deepest: null, winRate: null }, pnl: null, failed: true };
-  }
+  if (all !== undefined && (pnl === null || ret === null)) return { figures: { ...aum, ...NO_RECORD }, pnl: null, failed: true };
   const closed = report.by_pair.reduce((sum, pair) => sum + pair.trades, 0);
   const wins = report.by_pair.reduce((sum, pair) => sum + pair.wins, 0);
   return {
     figures: {
-      ...shared,
+      ...aum,
       trades: report.trade_count,
       ret,
       deepest: parseDecimal(report.max_drawdown),
       winRate: closed === 0 ? null : wins / closed,
+      profitable: closed === 0 ? null : { wins, closed },
     },
     pnl,
     failed: false,
   };
+}
+
+/** An author's strategy as a card draws it: the author's own report, and the strategy's live subscribers and capital. */
+export function authoredFigures(strategy: Strategy, read: ReportRead): AuthoredCard {
+  const capital = strategy.capital === null ? null : parseDecimal(strategy.capital);
+  return reportFigures(read, {
+    subscribers: strategy.live_subscribers,
+    capital: capital === null ? null : { amount: capital, currency: strategy.settlement_currency },
+  });
+}
+
+/**
+ * A seat as its card draws it (owner, 2026-11-17): the record is the reader's own, from their report in the
+ * strategy, so the PnL and the return beside it speak of the same money; who trades it live and with how much come
+ * from the public list (`aum`, the dash where the strategy is off it, the ellipsis while it is read).
+ */
+export function seatFigures(read: ReportRead, aum: AumFigures): AuthoredCard {
+  return reportFigures(read, aum);
 }

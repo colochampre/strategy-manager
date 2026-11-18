@@ -41,6 +41,8 @@ function setup(strategy: Strategy = STRATEGY) {
   vi.stubGlobal("fetch", (input: RequestInfo | URL) => {
     // The block also reads the webhook's host when it opens; it is not a call for the secret.
     if (String(input).endsWith("/webhook-origin")) return Promise.resolve(jsonResponse({ origin: null }));
+    // The byline reads who is signed in; nor is that a call for the secret.
+    if (String(input).endsWith("/api/me")) return Promise.resolve(jsonResponse({ detail: "unauthorized" }, 401));
     secretCalls.push(String(input));
     return Promise.resolve(jsonResponse({ webhook_secret: SECRET }));
   });
@@ -93,29 +95,11 @@ describe("StrategyHeader status", () => {
 });
 
 describe("StrategyHeader subscribers", () => {
-  it("tells its author who holds it, simulated subscribers included", () => {
-    setup({ ...STRATEGY, subscribers: 3, live_subscribers: 2 });
+  it("leaves the subscribers and the capital to AuM, in the figures under Performance (owner, 2026-11-17)", () => {
+    setup({ ...STRATEGY, subscribers: 3, live_subscribers: 2, capital: "328.12" });
 
-    expect(screen.getByTestId("strategy-subscribers")).toHaveTextContent("3 subscribers, 2 live");
-  });
-
-  it("tells its author the capital, on a private strategy too", () => {
-    setup({ ...STRATEGY, visibility: "PRIVATE", capital: "328.12" });
-
-    expect(screen.getByTestId("strategy-capital")).toHaveTextContent("Capital: 328.12 USDT");
-  });
-
-  it("claims no capital under the server's brake", () => {
-    setup({ ...STRATEGY, capital: null });
-
+    expect(screen.queryByTestId("strategy-subscribers")).not.toBeInTheDocument();
     expect(screen.queryByTestId("strategy-capital")).not.toBeInTheDocument();
-  });
-
-  it("says it in Spanish too", async () => {
-    await i18n.changeLanguage("es");
-    setup({ ...STRATEGY, capital: "300" });
-
-    expect(screen.getByTestId("strategy-capital")).toHaveTextContent("Capital: 300,00 USDT");
   });
 });
 

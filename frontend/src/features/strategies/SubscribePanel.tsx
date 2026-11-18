@@ -3,7 +3,8 @@ import { LogOut, UserPlus } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router";
 
-import { maxLeverage } from "@/features/strategies/stop-level";
+import { PAGE_ASIDE } from "@/features/strategies/page-aside";
+import { maxLeverage, stopLevelText } from "@/features/strategies/stop-level";
 import { entryRefusal } from "@/features/strategies/entry-refusal";
 import { LeaveDialog } from "@/features/strategies/LeaveDialog";
 import { LeverageSlider } from "@/features/strategies/LeverageSlider";
@@ -28,8 +29,6 @@ const STARTING_SHARE = "0";
 /** The leverage the form starts from: the API's own default. */
 const STARTING_LEVERAGE = 1;
 const LINK = "text-sm text-gain hover:text-gain-bright";
-/** The frame of the page's settings column, the same as Strategy settings on an own strategy. */
-const ASIDE = "flex flex-col gap-2 self-start rounded-lg border border-rule bg-panel p-5";
 
 /**
  * The text of a refused subscribe: the status and the code decide, never the server's wording. A dead code and too
@@ -50,7 +49,7 @@ function refusalText(error: unknown): string {
 }
 
 function SubscribeForm({ strategyId, stopLevel }: { strategyId: string; stopLevel: string }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const ids = { field: useId(), label: useId(), problem: useId() };
   const leverageIds = { field: useId(), label: useId(), problem: useId() };
   const subscribe = useSubscribe(strategyId);
@@ -128,10 +127,11 @@ function SubscribeForm({ strategyId, stopLevel }: { strategyId: string; stopLeve
         onText={leverage.changeText}
         onHandle={leverage.changeStep}
         onStop={leverage.changeStep}
+        note={
+          max < 20 &&
+          leverage.reading.valid && <p className="text-xs text-ink-3">{t("strategies.leverage.capNote", { max, stop: stopLevelText(stopLevel, i18n.language) })}</p>
+        }
       />
-      {max < 20 && leverage.reading.valid && (
-        <p className="text-xs text-ink-3">{t("strategies.leverage.capNote", { max })}</p>
-      )}
       {!leverage.reading.valid && (
         <p id={leverageIds.problem} className="text-xs text-loss">
           {t(
@@ -236,7 +236,7 @@ function SeatPanel({ strategy, seat }: { strategy: PublicStrategy; seat: HeldSub
     setAsking(true);
   };
   return (
-    <aside aria-labelledby={titleId} className={ASIDE}>
+    <aside aria-labelledby={titleId} className={PAGE_ASIDE}>
       <h2 id={titleId} className="font-display text-base font-semibold text-ink">
         {t("strategies.subscribe.seatTitle")}
       </h2>
@@ -296,7 +296,7 @@ export function SubscribePanel({ strategy }: { strategy: PublicStrategy }) {
   const seat = useOwnSeat(strategy);
   if (seat !== undefined) return <SeatPanel strategy={strategy} seat={seat} />;
   return (
-    <aside aria-labelledby={titleId} className={ASIDE}>
+    <aside aria-labelledby={titleId} className={PAGE_ASIDE}>
       <h2 id={titleId} className="font-display text-base font-semibold text-ink">
         {t("strategies.subscribe.title")}
       </h2>

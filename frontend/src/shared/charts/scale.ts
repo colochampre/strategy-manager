@@ -277,6 +277,11 @@ export function sliceAndRebase(days: readonly IndexDay[], from: string | null): 
  * the whole curve, or a window starting on or before it (that window has no day
  * before it, so its base is the server's E_0 = 1 and 0 is exact). A window that
  * starts later, and a curve with no close, are left as they are.
+ *
+ * A first trade that opened and closed on one UTC day puts the 0 at the end of
+ * the day before (owner, 2026-11-17): on the close's own day the two points
+ * shared an x, so the line rose straight up and the hover never reached the
+ * close. The chart's axis reaches back to it, even before a window's start.
  */
 export function withOrigin(
   days: readonly ReturnDay[],
@@ -287,7 +292,8 @@ export function withOrigin(
   if (origin === null || first === undefined) return [...days];
   if (from !== null && utcDay(origin) < utcDay(from)) return [...days];
   if (utcDay(origin) > utcDay(first.date)) return [...days];
-  return [{ date: origin, cumulative: 0, drawdown: 0 }, ...days];
+  const start = utcDay(origin) === utcDay(first.date) ? utcDate(utcDay(origin) - DAY_MS) : origin;
+  return [{ date: start, cumulative: 0, drawdown: 0 }, ...days];
 }
 
 export interface SpanTicks {

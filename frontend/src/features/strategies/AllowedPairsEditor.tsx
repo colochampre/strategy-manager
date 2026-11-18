@@ -105,7 +105,7 @@ export function AllowedPairsEditor({ strategy }: AllowedPairsEditorProps) {
 
   return (
     // Named, so this Save is told apart from the other editors' Save, which say the same one word.
-    <section aria-label={t("strategies.detail.pairs.title")} className="flex flex-col gap-3">
+    <section aria-label={t("strategies.detail.pairs.title")} className="flex flex-col gap-1.5">
       <PairSelector
         id={ids.pairs}
         label={t("strategies.detail.pairs.title")}

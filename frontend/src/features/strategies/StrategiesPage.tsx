@@ -9,6 +9,7 @@ import { DEFAULT_SORT, nextSort, sortCards } from "@/features/strategies/card-so
 import { NewStrategyDialog } from "@/features/strategies/NewStrategyDialog";
 import { SortControl } from "@/features/strategies/SortControl";
 import { StrategyRow } from "@/features/strategies/StrategyRow";
+import { ListToolbar, matchesName, NoMatch, StrategySearch } from "@/features/strategies/StrategySearch";
 import { useStrategiesPerformance } from "@/shared/api/performance";
 import { usePools } from "@/shared/api/pools";
 import { useStrategies } from "@/shared/api/strategies";
@@ -60,6 +61,7 @@ export function StrategiesPage() {
   const pools = usePools();
   const [includeArchived, setIncludeArchived] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [query, setQuery] = useState("");
   const strategies = useStrategies(includeArchived);
 
   const exchange = scope.status === "ready" ? scope.exchange : null;
@@ -97,17 +99,15 @@ export function StrategiesPage() {
     );
   } else {
     const rows = strategies.data.filter((strategy) => strategy.exchange === exchange);
-    body =
-      rows.length === 0 ? (
-        <p className="text-sm text-ink-3">{t("strategies.empty")}</p>
-      ) : (
-        <StrategyList strategies={rows} />
-      );
+    const shown = rows.filter((strategy) => matchesName(strategy.name, query));
+    if (rows.length === 0) body = <p className="text-sm text-ink-3">{t("strategies.empty")}</p>;
+    else if (shown.length === 0) body = <NoMatch query={query} />;
+    else body = <StrategyList strategies={shown} />;
   }
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-center justify-end gap-x-4 gap-y-2">
+      <ListToolbar search={<StrategySearch value={query} onChange={setQuery} />}>
         <ArchivedToggle checked={includeArchived} onChange={setIncludeArchived} />
         <button
           type="button"
@@ -118,7 +118,7 @@ export function StrategiesPage() {
           <Plus aria-hidden="true" className="size-4 shrink-0" />
           {t("strategies.new.open")}
         </button>
-      </div>
+      </ListToolbar>
       {body}
       {creating && exchange !== null && (
         <NewStrategyDialog exchange={exchange} pools={registrable} onClose={() => setCreating(false)} />

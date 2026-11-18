@@ -1,9 +1,10 @@
-import { act, createEvent, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, createEvent, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ReturnChart } from "@/features/overview/ReturnChart";
 import type { RangeName } from "@/features/overview/RangeSelector";
 import type { CurvePoint } from "@/shared/api/types";
+import { windowStartDate } from "@/shared/charts/scale";
 import i18n from "@/shared/i18n";
 import en from "@/shared/i18n/locales/en.json";
 import es from "@/shared/i18n/locales/es.json";
@@ -571,6 +572,25 @@ describe("the origin and the All range's dates (decision 36)", () => {
     expect(line[0]![1]).toBeCloseTo(WATER_Y, 1);
   });
 
+  it("draws a first trade that opened and closed on one day as a line forward from the day before (owner, 2026-11-17)", () => {
+    const curve = [point("2026-09-20", 1.015, 0), point("2026-09-24", 0.985, -0.03)];
+    render(<ReturnChart curve={curve} range="All" asOf={AS_OF} origin="2026-09-20" />);
+    const line = coordinates(attr("return-curve", "d"));
+    expect(line).toHaveLength(3);
+    expect(line[0]![0]).toBeCloseTo(LEFT, 1);
+    expect(line[0]![1]).toBeCloseTo(WATER_Y, 1);
+    // Never straight up: the first close stands a day to the right of the 0.
+    expect(line[1]![0]).toBeGreaterThan(line[0]![0] + 1);
+    cleanup();
+
+    // A window that starts on that very day reaches back to the 0 on its left edge.
+    const from = windowStartDate(AS_OF, 7);
+    render(<ReturnChart curve={[point(from, 1.015, 0)]} range="7D" asOf={AS_OF} origin={from} />);
+    const windowLine = coordinates(attr("return-curve", "d"));
+    expect(windowLine[0]![0]).toBeCloseTo(LEFT, 1);
+    expect(windowLine[1]![0]).toBeGreaterThan(LEFT + 1);
+  });
+
   it("draws a single close after its origin as a line from 0, not a lone point", () => {
     render(<ReturnChart curve={[point("2026-09-20", 1.05, 0)]} range="All" asOf={AS_OF} origin="2026-09-18" />);
     expect(coordinates(attr("return-curve", "d"))).toHaveLength(2);
@@ -922,6 +942,25 @@ describe("the hover readout", () => {
     expect(screen.getByTestId("hover-label")).toHaveTextContent("Jul 3 · +30%");
   });
 
+  it("writes the hovered day's drawdown beneath its date and return, in the loss colour while below the peak", () => {
+    const svg = renderHovered();
+    pointer(svg, "pointerMove", clientFor(RIGHT));
+    const drawdown = screen.getByTestId("hover-drawdown");
+    // 07-04 sits 1/13 below the 07-03 peak.
+    expect(drawdown).toHaveTextContent("Drawdown −7.7%");
+    expect(drawdown).toHaveClass("fill-loss");
+    expect(Number(drawdown.getAttribute("y"))).toBeGreaterThan(Number(screen.getByTestId("hover-label").getAttribute("y")));
+    expect(drawdown.getAttribute("x")).toBe(screen.getByTestId("hover-label").getAttribute("x"));
+    expect(drawdown.getAttribute("text-anchor")).toBe(screen.getByTestId("hover-label").getAttribute("text-anchor"));
+
+    pointer(svg, "pointerMove", clientFor(LEFT + 2 * STEP));
+    expect(screen.getByTestId("hover-drawdown")).toHaveTextContent("Drawdown 0%");
+    expect(screen.getByTestId("hover-drawdown")).not.toHaveClass("fill-loss");
+
+    fireEvent.pointerLeave(svg);
+    expect(screen.queryByTestId("hover-drawdown")).toBeNull();
+  });
+
   it("follows the pointer to another day", () => {
     const svg = renderHovered();
     pointer(svg, "pointerMove", clientFor(LEFT + 1 * STEP - 7));
@@ -948,6 +987,26 @@ describe("the hover readout", () => {
     pointer(svg, "pointerMove", clientFor(LEFT + STEP));
     pointer(svg, "pointerMove", clientFor(LEFT - 20));
     expect(screen.queryByTestId("hover-guide")).toBeNull();
+  });
+
+  it("writes the hovered return in its sign's colour and leaves the date in ink (owner, 2026-11-17)", () => {
+    const svg = renderHovered();
+    pointer(svg, "pointerMove", clientFor(LEFT + 2 * STEP));
+    expect(screen.getByTestId("hover-label")).toHaveClass("fill-ink");
+    expect(screen.getByTestId("hover-return")).toHaveTextContent("+30%");
+    expect(screen.getByTestId("hover-return")).toHaveClass("fill-gain");
+
+    pointer(svg, "pointerMove", clientFor(LEFT));
+    expect(screen.getByTestId("hover-return")).toHaveTextContent("0%");
+    expect(screen.getByTestId("hover-return")).toHaveClass("fill-ink-2");
+    cleanup();
+
+    renderChart([point("2026-07-01", 1, 0), point("2026-07-02", 0.75, -0.25)], "All", Date.UTC(2026, 6, 2, 12));
+    const below = screen.getByRole("img");
+    stubBox(below, 796);
+    pointer(below, "pointerMove", clientFor(RIGHT));
+    expect(screen.getByTestId("hover-return")).toHaveTextContent("−25%");
+    expect(screen.getByTestId("hover-return")).toHaveClass("fill-loss");
   });
 
   it("answers a touch (pointer down) like a move", () => {

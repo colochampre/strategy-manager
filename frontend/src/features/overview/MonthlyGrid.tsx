@@ -33,7 +33,7 @@ const LOSS_BANDS = [
   "bg-loss-5",
   "bg-loss-6",
 ] as const;
-/** From this band the fill is dark enough that the text must flip to the ground colour. */
+/** From this band the fill is strong, and the ink text turns semibold to hold against it (the owner chose the ink over the ground colour, 2026-11-17). */
 const FIRST_CONTRAST_BAND = 4;
 
 /** The rows shown before the owner asks for the earlier ones (decision 34). */
@@ -171,9 +171,9 @@ export function MonthlyGrid({ monthly }: MonthlyGridProps) {
                         data-testid={`month-${year}-${month}`}
                         aria-label={`${label}: ${percentText(value, locale)}`}
                         className={cn(
-                          "h-8 rounded-[3px] text-center",
+                          "h-8 rounded-[3px] text-center text-ink",
                           (value < 0 ? LOSS_BANDS : GAIN_BANDS)[band],
-                          band >= FIRST_CONTRAST_BAND ? "font-semibold text-ground" : "text-ink",
+                          band >= FIRST_CONTRAST_BAND && "font-semibold",
                         )}
                       >
                         {percentText(value, locale)}

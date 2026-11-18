@@ -187,15 +187,11 @@
       "ariaLabel": "Compounded return above the waterline, drawdown from the previous peak below it",
       "empty": "No closed trades yet",
       "emptyRange": "No closed trades in this range",
-      "unreadable": "The return curve could not be read."
+      "unreadable": "The return curve could not be read.",
+      "hoverDrawdown": "Drawdown {{value}}"
     },
     "ledger": {
       "available": "Available balance",
-      "pnl": "PnL",
-      "pnlRange": "PnL, {{range}}",
-      "return": "Return",
-      "returnRange": "Return, {{range}}",
-      "deepest": "Drawdown",
       "unreadable": "The figures could not be read."
     },
     "range": {
@@ -205,12 +201,6 @@
       "90D": "90D",
       "1Y": "1Y",
       "All": "All"
-    },
-    "rangeLong": {
-      "7D": "last 7 days",
-      "30D": "last 30 days",
-      "90D": "last 90 days",
-      "1Y": "last year"
     },
     "monthlyGrid": {
       "title": "Month by month",
@@ -249,6 +239,11 @@
   "strategies": {
     "title": "Strategies",
     "archivedToggle": "Show archived",
+    "search": {
+      "label": "Search strategies by name",
+      "placeholder": "Search by name",
+      "noMatch": "No strategy matches “{{query}}”."
+    },
     "loading": "Loading strategies…",
     "empty": "No strategies on this exchange yet.",
     "error": "Strategies could not be loaded.",
@@ -269,7 +264,6 @@
       "yours": "Your strategy",
       "by": "by {{name}}",
       "noAuthorName": "author with no name yet",
-      "shareValue": "{{share}}%",
       "leaving": "Leaving: it opens nothing more, and it ends when its open position closes.",
       "leverageValue": "x{{leverage}}",
       "figuresError": "The public figures could not be loaded, so only your own are shown.",
@@ -313,19 +307,17 @@
     "card": {
       "age": "Age",
       "subscribed": "Time subscribed",
-      "uptime": "Days active",
-      "uptimeAtLeast": "Days active, at least",
-      "neverEnabled": "Never enabled",
-      "trades": "Closed trades",
-      "return": "Return",
-      "deepest": "Drawdown",
-      "winRate": "Win rate",
       "subscribers": "Live subscribers",
-      "capital": "Capital",
-      "pnl": "PnL",
       "yourPnl": "Your PnL",
       "share": "Share",
-      "leverage": "Leverage"
+      "leverage": "Leverage",
+      "totalPnl": "Total PnL",
+      "totalPnlRange": "Total PnL · {{range}}",
+      "maxDrawdown": "Max drawdown",
+      "winRate": "Win rate",
+      "aum": "AuM",
+      "aumHint": "Assets under management: live subscribers and capital",
+      "setup": "Settings"
     },
     "sort": {
       "label": "Sort by",
@@ -372,8 +364,6 @@
       "record": "Strategy record",
       "mine": "My results",
       "recordChartTitle": "Strategy record",
-      "recordReturn": "Return",
-      "recordReturnRange": "Return, {{range}}",
       "joined": "You joined on {{date}}",
       "recordLoading": "Loading the strategy's record…",
       "recordError": "The strategy's record could not be loaded.",
@@ -402,13 +392,8 @@
       }
     },
     "row": {
-      "subscribers_one": "{{count}} subscriber, {{live}} live",
-      "subscribers_other": "{{count}} subscribers, {{live}} live",
-      "capital": "Capital: {{amount}} {{currency}}",
       "archived": "Archived",
       "enable": "Enable {{name}}",
-      "neverEnabled": "never enabled",
-      "daysAtLeast": "≥{{count}}",
       "toggleError": "The change was not saved. Try again.",
       "performanceError": "This strategy's figures could not be loaded."
     },
@@ -465,7 +450,7 @@
       "outOfRange": "The leverage must be a whole number from 1 to 20.",
       "notActive": "Your subscription to this strategy is no longer active, so its leverage can no longer be changed.",
       "gone": "This strategy no longer exists.",
-      "capNote": "This strategy's stop allows a leverage of up to x{{max}}.",
+      "capNote": "Max leverage x{{max}} with a {{stop}}% stop",
       "aboveCap": "This strategy's stop allows at most x{{max}}. Enter a whole number from 1 to {{max}}.",
       "aboveCapRefused": "That leverage is above what this strategy's stop allows. Lower it and try again."
     },
@@ -474,7 +459,7 @@
       "info": "About the stop level",
       "hint": "The distance from the entry price, as a percentage of price, at which a position of this strategy is stopped. The system places that stop at the exchange with every live opening; a simulated opening has none. It also limits the leverage anyone may use on it, so that the stop comes before liquidation: a stop of 10% allows up to x9, and one of 5% up to x16. A change applies to openings made after it; a position already open keeps its stop. A seat left above the new limit stops opening until its user lowers its leverage.",
       "unit": "% of price",
-      "cap": "Allows a leverage of up to x{{max}}.",
+      "cap": "Max leverage x{{max}}",
       "save": "Save",
       "saving": "Saving…",
       "saveFailed": "The stop level was not saved. Try again.",
@@ -494,7 +479,11 @@
       "invalid": "The description is too long or holds a character that cannot be kept.",
       "archived": "This strategy is archived, so its description can no longer be changed.",
       "gone": "This strategy no longer exists.",
-      "publicHeading": "About this strategy"
+      "publicHeading": "About this strategy",
+      "edit": "Edit description",
+      "none": "No description yet.",
+      "more": "Show more",
+      "less": "Show less"
     },
     "new": {
       "open": "New strategy",
@@ -556,12 +545,6 @@
       "disabled": "Disabled",
       "enable": "Enable strategy",
       "disable": "Disable strategy",
-      "uptime": {
-        "active_one": "active {{count}} day since {{date}}",
-        "active_other": "active {{count}} days since {{date}}",
-        "activeAtLeast_one": "active at least {{count}} day, since at least {{date}}",
-        "activeAtLeast_other": "active at least {{count}} days, since at least {{date}}"
-      },
       "history": {
         "title": "Enable history",
         "enabled": "Enabled",
@@ -605,7 +588,7 @@
         "amount": "Margin: {{amount}} {{currency}}",
         "amountNotional": "Margin: {{amount}} {{currency}} · Notional: {{notional}} {{currency}}",
         "amountStale": "The pool's balance was last read at {{time}} UTC and may be out of date.",
-        "amountNoBalance": "The pool's balance has not been read yet, so the amount cannot be shown.",
+        "amountNoBalance": "Amount unavailable until the pool's balance is read",
         "amountLoading": "Calculating the amount…",
         "amountError": "The amount could not be loaded.",
         "belowPoolMinimum": "At this balance the share asks for less than the pool's minimum order, {{minimum}} {{currency}}. Openings would be skipped until the share or the balance is larger.",
@@ -626,8 +609,6 @@
       "retry": "Try again",
       "noReport": "No performance report exists for this strategy yet.",
       "chartTitle": "Contribution to the pool, compounded",
-      "contribution": "Contribution to the pool",
-      "contributionRange": "Contribution to the pool, {{range}}",
       "byPair": {
         "title": "By pair",
         "pair": "Pair",

@@ -1,38 +1,16 @@
-import { Calendar, Clock, Coins, ListChecks, TrendingDown, TrendingUp, Trophy, Users, Wallet } from "lucide-react";
+import { Calendar, ChartPie, Coins, Gauge, SlidersHorizontal, TrendingDown, Trophy, Users, Wallet } from "lucide-react";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import type { TFunction } from "i18next";
 import { Link } from "react-router";
 
-import { Figure, useAgeSince } from "@/features/strategies/PublicFigures";
-import type { StrategyUptime } from "@/shared/api/types";
 import { amountText, percentText, toneClass } from "@/shared/lib/amount-text";
 import { cn } from "@/shared/lib/cn";
 import { Tooltip } from "@/shared/ui/Tooltip";
 
-const DAY_SECONDS = 86_400;
 /** What a figure shows where there is nothing true to say yet. */
 const NO_FIGURE = "—";
 /** What a figure shows while its report is on its way. */
 const LOADING = "…";
-
-/**
- * The grid every card draws its figures in: four a row on a phone, with the items centred, and every figure of the
- * card on one row from `lg`, however many the list adds (share and leverage, PnL), spread as another author's page
- * spreads them: each column as wide as its value, the first at the card's left edge and the last at its right, the
- * room left shared out equally between them, so a long PnL takes no room from its neighbours. The phone's four
- * columns are dropped there: kept, the first four would stay `minmax(0, 1fr)`. One grid for the three lists.
- */
-const CARD_GRID =
-  "grid grid-cols-4 place-items-center gap-x-4 gap-y-3 sm:place-items-start lg:grid-flow-col lg:grid-cols-none lg:auto-cols-max lg:justify-between lg:gap-x-6";
-
-/**
- * The same figures on a strategy's page, whose column is narrower than a card and shares the screen with an aside:
- * one row wherever the column itself holds eight figures (a container query, 32rem), each as wide as its own value
- * and the gaps shared out between them; four a row where it does not.
- */
-const PAGE_GRID =
-  "grid grid-cols-4 place-items-center gap-x-4 gap-y-3 sm:place-items-start @[32rem]:grid-flow-col @[32rem]:grid-cols-none @[32rem]:auto-cols-max @[32rem]:justify-between";
 
 /**
  * What a card shows of a strategy's record. `undefined` is a figure still being read ("…"); `null` is a figure
@@ -43,6 +21,8 @@ export interface CardFigures {
   ret: number | null | undefined;
   deepest: number | null | undefined;
   winRate: number | null | undefined;
+  /** The trades won out of the trades closed, where a card says both; absent where nothing draws it (a page's row). */
+  profitable?: { wins: number; closed: number } | null | undefined;
   /** Those trading it live: one number, the tooltip says live. */
   subscribers: number | null | undefined;
   capital: { amount: number; currency: string } | null | undefined;
@@ -60,52 +40,21 @@ export interface StrategyCardProps {
   /** Whether the strategy runs, as a word beside its name; null or absent where the card has a switch instead. */
   enabled?: boolean | null;
   market: string;
-  /** The instant the age counts from: the strategy's creation, or the day the reader subscribed. */
+  /** The instant the dates on the market line run from: the strategy's creation, or the day the reader subscribed. */
   since: string | null;
   sinceKind: "age" | "subscribed";
-  uptime: StrategyUptime;
   figures: CardFigures;
-  /** Said once, in place of the figures read from the author's report, when that report failed. */
+  /** Said once, in place of the figures read from a report, when that report failed. */
   figuresError?: string | null;
-  /** A PnL, drawn left of the return, where the card has one: the author's, or the reader's own in a seat. */
+  /** A PnL, drawn before the return under Total PnL, where the card has one: the author's, or the reader's own. */
   pnl?: CardPnl;
-  /** Figures that vary by list, drawn after the capital in the same grid. */
-  trailing?: ReactNode;
+  /** A seat's share of the pool and leverage, as written: only My subscriptions draws them. */
+  setup?: { share: string; leverage: string };
   /** The card's one control (the switch), drawn last and lifted above the stretched link. */
   action?: ReactNode;
   /** The open positions, lifted above the stretched link for their own links. */
   marks?: ReactNode;
   notice?: ReactNode;
-}
-
-/**
- * What the clock names: "Days active", the count being the value's. A baseline first activation was written by
- * the migration, so the true date is unknown and the text says "at least" (decision 9). A strategy never enabled
- * makes no claim.
- */
-function uptimeText(uptime: StrategyUptime, t: TFunction): string {
-  if (uptime.first_enabled_at === null) return t("strategies.card.neverEnabled");
-  return t(uptime.baseline ? "strategies.card.uptimeAtLeast" : "strategies.card.uptime");
-}
-
-function uptimeValue(uptime: StrategyUptime, t: TFunction): string {
-  if (uptime.first_enabled_at === null) return NO_FIGURE;
-  const count = Math.floor(uptime.seconds / DAY_SECONDS);
-  return uptime.baseline ? t("strategies.row.daysAtLeast", { count }) : String(count);
-}
-
-/** A ratio as a signed percentage and its tone, or the dash or the ellipsis it stands for. */
-function signed(ratio: number | null | undefined, locale: string): { text: string; tone: string | undefined } {
-  if (ratio === undefined) return { text: LOADING, tone: undefined };
-  if (ratio === null) return { text: NO_FIGURE, tone: undefined };
-  return { text: percentText(ratio, locale), tone: toneClass(ratio) };
-}
-
-/** A win rate is not a gain or a loss: unsigned, whole when it is whole, one decimal otherwise. */
-function winRateText(rate: number | null | undefined, locale: string): string {
-  if (rate === undefined) return LOADING;
-  if (rate === null) return NO_FIGURE;
-  return new Intl.NumberFormat(locale, { style: "percent", maximumFractionDigits: 1 }).format(rate);
 }
 
 /**
@@ -152,149 +101,237 @@ export function EnabledDot({ enabled, testId }: { enabled: boolean; testId: stri
 export interface CardPnl {
   value: number | null | undefined;
   currency: string;
-  /** The tooltip, where "PnL" alone would not say whose or over what range. */
-  label?: string;
-  /** Added to the figure's classes: where it is drawn, by the width it has. */
-  className?: string;
-}
-
-interface CardFigureGridProps {
-  /** The prefix of every figure's test id. */
-  prefix: string;
-  since: string | null;
-  sinceKind: "age" | "subscribed";
-  uptime: StrategyUptime;
-  figures: CardFigures;
-  figuresError?: string | null | undefined;
-  pnl?: CardPnl | undefined;
-  trailing?: ReactNode;
-  /** The grid's own test id, where a page names the row. */
-  testId?: string;
-  /** Replaces the return's tooltip, for a return that follows a range. */
-  returnLabel?: string;
-  /** An information button beside the return's icon. */
-  returnInfo?: ReactNode;
-  /** An information button beside the capital's icon. */
-  capitalInfo?: ReactNode;
-  /** A card's grid, or a page's (one row where its column holds it). */
-  layout?: "card" | "page";
-  className?: string;
 }
 
 /**
- * A strategy's figures as the cards draw them: age, days active, closed trades, a PnL where there is one, return,
- * deepest fall, win rate, live subscribers and capital, each an icon over its value. A card draws it, and so does another author's page, under
- * Performance, where the return and the fall follow the chart's range.
+ * The card's figures in five columns from `lg`, each as wide as the next, as TradingView's strategy tester lays out
+ * its key stats; two a row on a phone, three from `sm`.
  */
-export function CardFigureGrid({
+export const STATS_GRID =
+  "grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3 lg:grid-flow-col lg:grid-cols-none lg:auto-cols-fr lg:gap-x-6";
+
+const DATE_OPTIONS: Intl.DateTimeFormatOptions = { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" };
+
+/** "Oct 12, 2026 – Nov 17, 2026": from `since` to today, in UTC; null where `since` cannot be read. */
+export function dateRange(since: string | null, locale: string): string | null {
+  const from = since === null ? Number.NaN : Date.parse(since);
+  if (Number.isNaN(from)) return null;
+  const format = new Intl.DateTimeFormat(locale, DATE_OPTIONS);
+  return `${format.format(new Date(from))} – ${format.format(new Date())}`;
+}
+
+/**
+ * A value with the icon that names it, under one tooltip: the pointer on the icon or on the value shows it (owner,
+ * 2026-11-17). Lifted above the card's stretched link so it answers.
+ */
+export function NamedValue({
+  icon: Icon,
+  label,
+  testId,
+  children,
+}: {
+  icon: typeof Users;
+  label: string;
+  testId: string;
+  children: ReactNode;
+}) {
+  return (
+    <Tooltip text={label} describes={false} className="relative z-10 inline-flex items-center gap-1">
+      <Icon role="img" aria-label={label} className="size-3.5 shrink-0 text-ink-3" />
+      <span data-testid={testId}>{children}</span>
+    </Tooltip>
+  );
+}
+
+/** A unit joined to its number and drawn smaller, so the figure leads (owner, 2026-11-17): `+1,738.16USDT`, `+12.5%`. */
+function Unit({ children }: { children: string }) {
+  return <span className="text-[0.75em]">{children}</span>;
+}
+
+/** Money with its currency as a smaller unit, or the ellipsis or the dash it stands for. */
+export function money(amount: number | null | undefined, currency: string, locale: string, signedAmount = false): ReactNode {
+  if (amount === undefined) return LOADING;
+  if (amount === null) return NO_FIGURE;
+  return (
+    <>
+      {amountText(amount, currency, locale, signedAmount)}
+      <Unit>{currency}</Unit>
+    </>
+  );
+}
+
+/** A signed ratio as a percentage with a smaller sign and its tone, or the ellipsis or the dash it stands for. */
+export function percent(ratio: number | null | undefined, locale: string): { value: ReactNode; tone: string | undefined } {
+  if (ratio === undefined) return { value: LOADING, tone: undefined };
+  if (ratio === null) return { value: NO_FIGURE, tone: undefined };
+  return {
+    value: (
+      <>
+        {percentText(ratio, locale, false)}
+        <Unit>%</Unit>
+      </>
+    ),
+    tone: toneClass(ratio),
+  };
+}
+
+/** A win rate, unsigned, whole when it is whole and one decimal otherwise, with a smaller sign. */
+function rate(value: number | null | undefined, locale: string): ReactNode {
+  if (value === undefined) return LOADING;
+  if (value === null) return NO_FIGURE;
+  return (
+    <>
+      {new Intl.NumberFormat(locale, { maximumFractionDigits: 1 }).format(value * 100)}
+      <Unit>%</Unit>
+    </>
+  );
+}
+
+/** One labelled group of the card: an icon and a label, the values beneath on one line. */
+export function StatGroup({
+  testId,
+  icon: Icon,
+  label,
+  hint,
+  info,
+  children,
+}: {
+  testId: string;
+  icon: typeof Users;
+  label: string;
+  /** What the label means, on hover, for a term not everyone knows. */
+  hint?: string;
+  /** An information button after the label, on a page that explains the figure in a text beneath. */
+  info?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <div data-testid={testId} className="flex min-w-0 flex-col gap-1">
+      <dt className="flex items-center gap-1.5 text-xs text-ink-3">
+        <Icon aria-hidden="true" className="size-3.5 shrink-0" />
+        {hint === undefined ? (
+          <span>{label}</span>
+        ) : (
+          <Tooltip text={hint} className="relative z-10 inline-flex cursor-help underline decoration-dotted underline-offset-2">
+            <span>{label}</span>
+          </Tooltip>
+        )}
+        {info}
+      </dt>
+      <dd className="flex flex-wrap items-center gap-x-2 gap-y-0.5 font-mono text-sm tabular-nums text-ink">{children}</dd>
+    </div>
+  );
+}
+
+interface FigureGroupsProps {
+  /** The prefix of every value's test id. */
+  prefix: string;
+  figures: CardFigures;
+  figuresError?: string | null | undefined;
+  pnl?: CardPnl | undefined;
+  setup?: { share: string; leverage: string } | undefined;
+  /** The row's own test id, where a page names it. */
+  testId?: string;
+  /** Replaces "Total PnL", for a page whose PnL and return follow the chart's range. */
+  pnlLabel?: string;
+  /** An information button after the Total PnL label, about the return. */
+  pnlInfo?: ReactNode;
+  /** An information button after the AuM label, about the capital. */
+  aumInfo?: ReactNode;
+}
+
+/**
+ * A strategy's figures under one label per group (owner, 2026-11-17, after TradingView's strategy tester): Total PnL
+ * (the PnL where there is one, and the return), Max drawdown, Profitable trades (the rate, and the wins out of the
+ * trades closed), AuM (who trades it live, and with how much) and, on a seat's card, its settings. Every card draws
+ * it, and so does every strategy's page, under Performance.
+ */
+export function FigureGroups({
   prefix,
-  since,
-  sinceKind,
-  uptime,
   figures,
   figuresError,
   pnl,
-  trailing,
+  setup,
   testId,
-  returnLabel,
-  returnInfo,
-  capitalInfo,
-  layout = "card",
-  className,
-}: CardFigureGridProps) {
+  pnlLabel,
+  pnlInfo,
+  aumInfo,
+}: FigureGroupsProps) {
   const { t, i18n } = useTranslation();
   const locale = i18n.language;
-  const age = useAgeSince(since);
-  const ret = signed(figures.ret, locale);
-  const deepest = signed(figures.deepest, locale);
+  const ret = percent(figures.ret, locale);
+  const deepest = percent(figures.deepest, locale);
   const count = (value: number | null | undefined) =>
     value === undefined ? LOADING : value === null ? NO_FIGURE : String(value);
 
   return (
-    <dl data-testid={testId} className={cn(layout === "page" ? PAGE_GRID : CARD_GRID, "tabular", className)}>
-      <Figure
-        icon={Calendar}
-        label={t(sinceKind === "age" ? "strategies.card.age" : "strategies.card.subscribed")}
-        testId={`${prefix}-age`}
-        value={age}
-      />
-      <Figure
-        icon={Clock}
-        label={uptimeText(uptime, t)}
-        testId={`${prefix}-uptime`}
-        value={uptimeValue(uptime, t)}
-      />
+    <dl data-testid={testId} className={cn(STATS_GRID, "min-w-0")}>
       {figuresError !== undefined && figuresError !== null ? (
         <p role="alert" className="col-span-2 text-xs text-loss">
           {figuresError}
         </p>
       ) : (
         <>
-          <Figure
-            icon={ListChecks}
-            label={t("strategies.card.trades")}
-            testId={`${prefix}-trades`}
-            value={count(figures.trades)}
-          />
-          {pnl !== undefined && (
-            <Figure
-              icon={Coins}
-              label={pnl.label ?? t("strategies.card.pnl")}
-              testId={`${prefix}-pnl`}
-              value={
-                pnl.value === undefined
-                  ? LOADING
-                  : pnl.value === null
-                    ? NO_FIGURE
-                    : `${amountText(pnl.value, pnl.currency, locale, true)} ${pnl.currency}`
-              }
-              tone={pnl.value === undefined || pnl.value === null ? undefined : toneClass(pnl.value)}
-              className={pnl.className}
-            />
-          )}
-          <Figure
-            icon={TrendingUp}
-            label={returnLabel ?? t("strategies.card.return")}
-            testId={`${prefix}-return`}
-            value={ret.text}
-            tone={ret.tone}
-            info={returnInfo}
-          />
-          <Figure
-            icon={TrendingDown}
-            label={t("strategies.card.deepest")}
-            testId={`${prefix}-deepest`}
-            value={deepest.text}
-            tone={deepest.tone}
-          />
-          <Figure
-            icon={Trophy}
-            label={t("strategies.card.winRate")}
-            testId={`${prefix}-winrate`}
-            value={winRateText(figures.winRate, locale)}
-          />
+          <StatGroup
+            testId={`${prefix}-group-pnl`}
+            icon={Coins}
+            label={pnlLabel ?? t("strategies.card.totalPnl")}
+            info={pnlInfo}
+          >
+            {pnl !== undefined && (
+              <span
+                data-testid={`${prefix}-pnl`}
+                className={pnl.value === undefined || pnl.value === null ? undefined : toneClass(pnl.value)}
+              >
+                {money(pnl.value, pnl.currency, locale, true)}
+              </span>
+            )}
+            <span data-testid={`${prefix}-return`} className={ret.tone}>
+              {ret.value}
+            </span>
+          </StatGroup>
+          <StatGroup testId={`${prefix}-group-drawdown`} icon={TrendingDown} label={t("strategies.card.maxDrawdown")}>
+            <span data-testid={`${prefix}-deepest`} className={deepest.tone}>
+              {deepest.value}
+            </span>
+          </StatGroup>
+          <StatGroup testId={`${prefix}-group-profitable`} icon={Trophy} label={t("strategies.card.winRate")}>
+            <span data-testid={`${prefix}-winrate`}>{rate(figures.winRate, locale)}</span>
+            {figures.profitable !== undefined && figures.profitable !== null && (
+              <span data-testid={`${prefix}-wins`} className="text-ink-2">
+                {`${figures.profitable.wins}/${figures.profitable.closed}`}
+              </span>
+            )}
+          </StatGroup>
         </>
       )}
-      <Figure
-        icon={Users}
-        label={t("strategies.card.subscribers")}
-        testId={`${prefix}-subscribers`}
-        value={count(figures.subscribers)}
-      />
-      <Figure
+      <StatGroup
+        testId={`${prefix}-group-aum`}
         icon={Wallet}
-        label={t("strategies.card.capital")}
-        testId={`${prefix}-capital`}
-        info={capitalInfo}
-        value={
-          figures.capital === undefined
-            ? LOADING
-            : figures.capital === null
-              ? NO_FIGURE
-              : `${amountText(figures.capital.amount, figures.capital.currency, locale)} ${figures.capital.currency}`
-        }
-      />
-      {trailing}
+        label={t("strategies.card.aum")}
+        hint={t("strategies.card.aumHint")}
+        info={aumInfo}
+      >
+        <NamedValue icon={Users} label={t("strategies.card.subscribers")} testId={`${prefix}-subscribers`}>
+          {count(figures.subscribers)}
+        </NamedValue>
+        <span data-testid={`${prefix}-capital`}>
+          {figures.capital === null || figures.capital === undefined
+            ? money(figures.capital, "", locale)
+            : money(figures.capital.amount, figures.capital.currency, locale)}
+        </span>
+      </StatGroup>
+      {setup !== undefined && (
+        <StatGroup testId={`${prefix}-group-setup`} icon={SlidersHorizontal} label={t("strategies.card.setup")}>
+          <NamedValue icon={ChartPie} label={t("strategies.card.share")} testId={`${prefix}-share`}>
+            {setup.share}
+            <Unit>%</Unit>
+          </NamedValue>
+          <NamedValue icon={Gauge} label={t("strategies.card.leverage")} testId={`${prefix}-leverage`}>
+            {setup.leverage}
+          </NamedValue>
+        </StatGroup>
+      )}
     </dl>
   );
 }
@@ -305,15 +342,15 @@ export function CardFigureGrid({
  * icon are lifted above it and keep their own action. The keyboard meets one stop, the title.
  */
 export function StrategyCard(props: StrategyCardProps) {
-  const { prefix, figures, uptime } = props;
-  const { t } = useTranslation();
+  const { prefix } = props;
+  const { t, i18n } = useTranslation();
+  const dates = dateRange(props.since, i18n.language);
 
   return (
     <li
       data-testid={props.rowTestId}
       className="relative flex flex-col gap-3 rounded-md border border-rule bg-panel px-4 py-3 hover:bg-panel-2"
     >
-      {/* The card's one control sits on the title's line, at its right end, so the figures have the card's width. */}
       <div className="flex items-start justify-between gap-4">
         <div className="flex min-w-0 flex-col gap-0.5">
           <div className="flex flex-wrap items-center gap-x-2">
@@ -335,23 +372,40 @@ export function StrategyCard(props: StrategyCardProps) {
               {props.byline}
             </p>
           )}
-          <p data-testid={`${prefix}-market`} className="font-mono text-[11px] uppercase tracking-[0.14em] text-ink-3">
-            {props.market}
+          <p
+            data-testid={`${prefix}-market`}
+            className="flex flex-wrap items-center gap-x-1.5 font-mono text-[11px] text-ink-3"
+          >
+            <span className="uppercase tracking-[0.14em]">{props.market}</span>
+            {dates !== null && (
+              <>
+                <span aria-hidden="true">·</span>
+                <NamedValue
+                  icon={Calendar}
+                  label={t(props.sinceKind === "age" ? "strategies.card.age" : "strategies.card.subscribed")}
+                  testId={`${prefix}-age`}
+                >
+                  {dates}
+                </NamedValue>
+              </>
+            )}
           </p>
+        </div>
+      </div>
+      {/* The card's one control is level with the figures, at the card's right end (owner, 2026-11-17): beside their
+          grid, not in it, so however narrow the card no figure runs under it. */}
+      <div className="flex items-center gap-4">
+        <div className="min-w-0 flex-1">
+          <FigureGroups
+            prefix={prefix}
+            figures={props.figures}
+            figuresError={props.figuresError}
+            pnl={props.pnl}
+            setup={props.setup}
+          />
         </div>
         {props.action !== undefined && <div className="relative z-10 shrink-0">{props.action}</div>}
       </div>
-      <CardFigureGrid
-        prefix={prefix}
-        since={props.since}
-        sinceKind={props.sinceKind}
-        uptime={uptime}
-        figures={figures}
-        figuresError={props.figuresError}
-        pnl={props.pnl}
-        trailing={props.trailing}
-        className="min-w-0"
-      />
       {props.marks !== undefined && <div className="relative z-10">{props.marks}</div>}
       {props.notice}
     </li>

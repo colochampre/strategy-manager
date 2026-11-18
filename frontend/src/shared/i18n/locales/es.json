@@ -187,15 +187,11 @@
       "ariaLabel": "Rendimiento compuesto por encima de la línea del 0 %, caída desde el máximo anterior por debajo",
       "empty": "Todavía no hay operaciones cerradas",
       "emptyRange": "Sin operaciones cerradas en este rango",
-      "unreadable": "No se pudo leer la curva de rendimiento."
+      "unreadable": "No se pudo leer la curva de rendimiento.",
+      "hoverDrawdown": "Caída {{value}}"
     },
     "ledger": {
       "available": "Saldo disponible",
-      "pnl": "PnL",
-      "pnlRange": "PnL, {{range}}",
-      "return": "Rendimiento",
-      "returnRange": "Rendimiento, {{range}}",
-      "deepest": "Caída máxima",
       "unreadable": "No se pudieron leer las cifras."
     },
     "range": {
@@ -205,12 +201,6 @@
       "90D": "90D",
       "1Y": "1A",
       "All": "Todo"
-    },
-    "rangeLong": {
-      "7D": "últimos 7 días",
-      "30D": "últimos 30 días",
-      "90D": "últimos 90 días",
-      "1Y": "último año"
     },
     "monthlyGrid": {
       "title": "Mes a mes",
@@ -249,6 +239,11 @@
   "strategies": {
     "title": "Estrategias",
     "archivedToggle": "Mostrar archivadas",
+    "search": {
+      "label": "Buscar estrategias por nombre",
+      "placeholder": "Buscar por nombre",
+      "noMatch": "Ninguna estrategia coincide con «{{query}}»."
+    },
     "loading": "Cargando estrategias…",
     "empty": "Todavía no hay estrategias en este exchange.",
     "error": "No se pudieron cargar las estrategias.",
@@ -269,7 +264,6 @@
       "yours": "Su estrategia",
       "by": "de {{name}}",
       "noAuthorName": "autor todavía sin nombre",
-      "shareValue": "{{share}}%",
       "leaving": "Saliendo: ya no abre nada más y termina cuando se cierre su posición abierta.",
       "leverageValue": "x{{leverage}}",
       "figuresError": "No se pudieron cargar las cifras públicas, así que solo se muestran las suyas.",
@@ -313,19 +307,17 @@
     "card": {
       "age": "Antigüedad",
       "subscribed": "Tiempo suscrito",
-      "uptime": "Días activa",
-      "uptimeAtLeast": "Días activa, como mínimo",
-      "neverEnabled": "Nunca activada",
-      "trades": "Operaciones cerradas",
-      "return": "Rendimiento",
-      "deepest": "Caída máxima",
-      "winRate": "Tasa de aciertos",
       "subscribers": "Suscriptores en vivo",
-      "capital": "Capital",
-      "pnl": "PnL",
       "yourPnl": "Su PnL",
       "share": "Parte del pool",
-      "leverage": "Apalancamiento"
+      "leverage": "Apalancamiento",
+      "totalPnl": "PnL total",
+      "totalPnlRange": "PnL total · {{range}}",
+      "maxDrawdown": "Caída máxima",
+      "winRate": "Tasa de acierto",
+      "aum": "AuM",
+      "aumHint": "Activos bajo gestión: suscriptores en vivo y capital",
+      "setup": "Configuración"
     },
     "sort": {
       "label": "Ordenar por",
@@ -372,8 +364,6 @@
       "record": "Historial de la estrategia",
       "mine": "Mis resultados",
       "recordChartTitle": "Historial de la estrategia",
-      "recordReturn": "Rendimiento",
-      "recordReturnRange": "Rendimiento, {{range}}",
       "joined": "Usted se suscribió el {{date}}",
       "recordLoading": "Cargando el historial de la estrategia…",
       "recordError": "No se pudo cargar el historial de la estrategia.",
@@ -402,13 +392,8 @@
       }
     },
     "row": {
-      "subscribers_one": "{{count}} suscriptor, {{live}} en vivo",
-      "subscribers_other": "{{count}} suscriptores, {{live}} en vivo",
-      "capital": "Capital: {{amount}} {{currency}}",
       "archived": "Archivada",
       "enable": "Activar {{name}}",
-      "neverEnabled": "nunca activada",
-      "daysAtLeast": "≥{{count}}",
       "toggleError": "El cambio no se guardó. Inténtelo de nuevo.",
       "performanceError": "No se pudieron cargar las cifras de esta estrategia."
     },
@@ -465,7 +450,7 @@
       "outOfRange": "El apalancamiento debe ser un número entero del 1 al 20.",
       "notActive": "Su suscripción a esta estrategia ya no está activa, así que su apalancamiento ya no se puede cambiar.",
       "gone": "Esta estrategia ya no existe.",
-      "capNote": "El stop de esta estrategia permite un apalancamiento de hasta x{{max}}.",
+      "capNote": "Apalancamiento máximo de x{{max}} con stop de {{stop}}%",
       "aboveCap": "El stop de esta estrategia permite como máximo x{{max}}. Ingrese un número entero del 1 al {{max}}.",
       "aboveCapRefused": "Ese apalancamiento supera lo que permite el stop de esta estrategia. Redúzcalo e inténtelo de nuevo."
     },
@@ -474,7 +459,7 @@
       "info": "Acerca del nivel de stop",
       "hint": "La distancia al precio de entrada, como porcentaje del precio, a la que se detiene una posición de esta estrategia. El sistema coloca ese stop en el exchange con cada apertura en vivo; una apertura simulada no lo lleva. También limita el apalancamiento que cualquiera puede usar en ella, para que el stop llegue antes que la liquidación: un stop del 10% permite hasta x9, y uno del 5% hasta x16. Un cambio se aplica a las aperturas que se hagan después; una posición ya abierta conserva su stop. Un puesto que quede por encima del nuevo límite deja de abrir hasta que su usuario reduzca su apalancamiento.",
       "unit": "% del precio",
-      "cap": "Permite un apalancamiento de hasta x{{max}}.",
+      "cap": "Apalancamiento máximo de x{{max}}",
       "save": "Guardar",
       "saving": "Guardando…",
       "saveFailed": "No se guardó el nivel de stop. Inténtelo de nuevo.",
@@ -494,7 +479,11 @@
       "invalid": "La descripción es demasiado larga o contiene un carácter que no se puede conservar.",
       "archived": "Esta estrategia está archivada, así que su descripción ya no se puede cambiar.",
       "gone": "Esta estrategia ya no existe.",
-      "publicHeading": "Acerca de esta estrategia"
+      "publicHeading": "Acerca de esta estrategia",
+      "edit": "Editar descripción",
+      "none": "Todavía no hay descripción.",
+      "more": "Mostrar más",
+      "less": "Mostrar menos"
     },
     "new": {
       "open": "Nueva estrategia",
@@ -556,12 +545,6 @@
       "disabled": "Desactivada",
       "enable": "Activar estrategia",
       "disable": "Desactivar estrategia",
-      "uptime": {
-        "active_one": "activa {{count}} día desde el {{date}}",
-        "active_other": "activa {{count}} días desde el {{date}}",
-        "activeAtLeast_one": "activa al menos {{count}} día, desde al menos el {{date}}",
-        "activeAtLeast_other": "activa al menos {{count}} días, desde al menos el {{date}}"
-      },
       "history": {
         "title": "Historial de activación",
         "enabled": "Activada",
@@ -605,7 +588,7 @@
         "amount": "Margen: {{amount}} {{currency}}",
         "amountNotional": "Margen: {{amount}} {{currency}} · Nocional: {{notional}} {{currency}}",
         "amountStale": "El saldo del pool se leyó por última vez a las {{time}} UTC y puede estar desactualizado.",
-        "amountNoBalance": "El saldo del pool todavía no se ha leído, por lo que no se puede mostrar el importe.",
+        "amountNoBalance": "Importe no disponible hasta leer el saldo del pool",
         "amountLoading": "Calculando el importe…",
         "amountError": "No se pudo cargar el importe.",
         "belowPoolMinimum": "Con este saldo, el porcentaje pide menos que la orden mínima del pool, {{minimum}} {{currency}}. Las aperturas se omitirían hasta que el porcentaje o el saldo sean mayores.",
@@ -626,8 +609,6 @@
       "retry": "Reintentar",
       "noReport": "Esta estrategia todavía no tiene informe de rendimiento.",
       "chartTitle": "Aporte al pool, compuesto",
-      "contribution": "Aporte al pool",
-      "contributionRange": "Aporte al pool, {{range}}",
       "byPair": {
         "title": "Por par",
         "pair": "Par",

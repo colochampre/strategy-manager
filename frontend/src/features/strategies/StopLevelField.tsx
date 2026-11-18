@@ -48,7 +48,7 @@ export function StopLevelField({
   };
 
   return (
-    <div className="flex flex-col gap-1">
+    <div className="flex flex-col gap-1.5">
       <div className="flex items-start">
         <label htmlFor={ids.field} className={FIELD_NAME_CLASS[look]}>
           {t("strategies.stopLevel.label")}
