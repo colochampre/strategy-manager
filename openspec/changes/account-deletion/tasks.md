@@ -48,17 +48,42 @@ is rehearsed on a throwaway database restored from a fresh backup.
 
 ## Tasks
 
-- [ ] T1 S2-S5 backend:
-  - a migration adding `users.deleted_at`;
-  - a `DeleteAccount` use case under `identity/` with ports for exposure,
-    subscriptions, authored strategies, credentials and pools;
-  - `DELETE /api/me`, covered by the route guard and cross-user sweep tests.
-
-  Route: inline, followed by an independent verifier.
-- [ ] T2 S6 admin list and count. Route: inline.
-- [ ] T3 S1, S5 frontend: the section, the dialog and the deleted screen, EN
-  and ES. Route: inline.
-- [ ] T4 S7 policy and terms text. Route: inline.
+- [x] T1 S2-S5 backend. Route: inline, followed by an independent verifier.
+  - `4e4fb40`: `DeleteAccount` (`identity/application/delete_account.py`),
+    its ports, 12 unit tests against fakes (RED against a stub, then GREEN).
+  - `c619bf6`: migration `0045` (`users.deleted_at` and
+    `ck_users_deleted_names_nobody`, refusing a deleted row that keeps a real
+    e-mail or a name; its 6 tests RED without the CHECK); the adapters
+    (`identity/infrastructure/account_deletion.py`); `DELETE /api/me`, 204 or
+    409 `ACCOUNT_HOLDS_POSITIONS` (symbols, strategies) or `ACCOUNT_CHANGED`;
+    8 route tests on real PostgreSQL (RED on 405 first), including the
+    lock-hold test: an opening holding the user's pool lock makes the deletion
+    wait, then refuse on the reservation it committed. Removing the pool locks
+    turns that test red. The cross-user sweep, the route guard, the
+    no-secret sweep and `test_0029_users` know the new route and column.
+- [x] T2 S6, in `c619bf6`: `GET /api/admin/users` leaves deleted rows out, and
+  `GET /api/admin/users/deleted-count` answers `{"deleted_accounts": N}`, a
+  route of its own so the list's body does not change. 3 tests, RED with the
+  filter and the route removed.
+- [x] T3 S1, S5 frontend, in `c0a016e`. Route: inline.
+  - `deleteAccount` and `useDeleteAccount` (`shared/api/me.ts`): every query
+    is cancelled before the request; on a 204 the cache is dropped and
+    `useAccountDeletedStore` (memory only) tells `App`, which then draws only
+    `AccountDeletedScreen`, with no route and no query: a read of
+    `GET /api/me` after the deletion would sign the e-mail in again as a new,
+    empty account. The screen's link is `/cdn-cgi/access/logout`.
+  - `DeleteAccountSection`, last in Settings: what is erased, closed and kept,
+    and when it is refused. `DeleteAccountDialog` enables its button only when
+    the typed e-mail matches (case and spaces ignored), keeps the focus on
+    Cancel, and lists each refusal reason.
+  - 13 tests (3 API, 8 section, 2 screen), RED first; the Settings outline
+    test gains the section. Frontend 158 files and 3,950 tests, lint clean.
+  - Seen in headless Edge at 1400 px on the fixture server, which answers
+    `DELETE /api/me` itself (`?fixture=deleteok|deletechanged|deleteerror`,
+    refusal by default) so a review never deletes the local account.
+- [ ] T4 S7 policy and terms text. **Blocked:** the privacy policy, the terms
+  and `PRIVACY_VERSION` exist only on `feat/public-site`, not merged and on
+  standby. The text changes there, with that branch.
 - [ ] T5 Migration rehearsal, deploy steps for the owner, and the delivery log.
 
 ## Log
