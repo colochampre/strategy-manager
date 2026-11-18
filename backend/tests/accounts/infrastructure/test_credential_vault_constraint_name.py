@@ -55,6 +55,11 @@ class _Nested:
         return False
 
 
+class _LiveOwner:
+    def scalar_one(self) -> None:
+        return None
+
+
 class _ScriptedSession:
     """Deactivating the previous key flushes once; the insert's flush is the
     second, and is the one that raises."""
@@ -67,8 +72,9 @@ class _ScriptedSession:
     def begin_nested(self) -> _Nested:
         return _Nested()
 
-    async def execute(self, statement: object) -> None:
-        return None
+    async def execute(self, statement: object) -> "_LiveOwner":
+        # The first statement reads the owner's ``deleted_at``; the owner is live.
+        return _LiveOwner()
 
     def add(self, row: object) -> None:
         self.added.append(row)

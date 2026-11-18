@@ -37,6 +37,11 @@ class ConcurrentCredentialSave(DomainError):
     """
 
 
+class AccountDeleted(DomainError):
+    """The user saving the key deleted their account (account-deletion S3) while
+    the save was on its way: nothing is stored for an account that is gone."""
+
+
 class VenueUnreachable(DomainError):
     """The key could not be checked because the venue did not answer in a
     usable way: a transport failure, a timeout, a 5xx, or a body that is not

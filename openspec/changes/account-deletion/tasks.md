@@ -81,6 +81,19 @@ is rehearsed on a throwaway database restored from a fresh backup.
   - Seen in headless Edge at 1400 px on the fixture server, which answers
     `DELETE /api/me` itself (`?fixture=deleteok|deletechanged|deleteerror`,
     refusal by default) so a review never deletes the local account.
+- [x] T1.1 S4, the verifier's A1: saving a key and deleting the account at once.
+  Route: inline.
+  - The deletion holds the user row `FOR UPDATE` and then deletes the keys; a
+    save deactivated the old key row first and then needed the user row for
+    the new one's FK. Reproduced on real PostgreSQL with the real
+    `SaveCredential`, trading and read-only: `DeadlockDetectedError`. The
+    other interleaving left an active key on a deleted account.
+  - The vault's `store` now takes the owner row `FOR SHARE` before any key
+    row and raises `AccountDeleted` once `deleted_at` is set;
+    `SaveCredential` answers `ACCOUNT_DELETED` (409). A deadlock that still
+    reaches `DELETE /api/me` answers 409 `ACCOUNT_CHANGED`, not a 500.
+  - 3 tests, each RED first on an assertion (the deadlock, a save after the
+    deletion that stored a key, the route's unhandled 500).
 - [ ] T4 S7 policy and terms text. **Blocked:** the privacy policy, the terms
   and `PRIVACY_VERSION` exist only on `feat/public-site`, not merged and on
   standby. The text changes there, with that branch.
@@ -110,3 +123,20 @@ is rehearsed on a throwaway database restored from a fresh backup.
   authors' strategies; the assistant proposed ending them at deletion when no
   position is held.
 - L6 (owner, 2026-11-18): "Si, me parece bien".
+- L7 (assistant, 2026-11-18): L3's "latest migration `0039`" is stale; the
+  latest was `0044` and this change adds `0045`.
+- L8 Independent verifier on T1/T2, 2026-11-18: no blockers, S2-S6 pass. A1
+  (the deadlock above) was change-caused; the owner said "Si, por favor" to
+  fixing it (T1.1). Advisories kept:
+  - A2: rows that land after the commit, because their FK waited on a row the
+    deletion held: a strategy registered, or a seat taken by the user or by
+    a third user on an authored strategy. None can open anything (pool
+    disabled, strategy archived, secret gone).
+  - A3: a SIMULATED position on another author's strategy does not refuse;
+    its seat ends and the position stays open. It matches S2 ("real
+    exposure"); to confirm with the owner.
+  - A4: the lock-hold test's 409 alone would survive removing the pool locks;
+    only its advisory-wait check makes that mutation red. No real-PG test
+    for a subscription racing the deletion, or for `ACCOUNT_CHANGED`.
+  - A5: a repeated DELETE moves `deleted_at`; `users.mode` stays as it was;
+    strategy descriptions are kept.

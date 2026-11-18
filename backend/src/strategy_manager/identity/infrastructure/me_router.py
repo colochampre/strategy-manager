@@ -21,11 +21,13 @@ The answers name a person, so they are never cached (``NoStoreMiddleware`` in
 ``main.create_app``).
 """
 
+import logging
 from dataclasses import replace
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from strategy_manager.accounts.infrastructure.trade_capability_adapter import (
@@ -61,6 +63,10 @@ from strategy_manager.shared.infrastructure.clock import SystemClock
 from strategy_manager.strategies.infrastructure.pool_lock_adapter import PoolLockAdapter
 
 router = APIRouter(prefix="/me", tags=["identity"])
+logger = logging.getLogger(__name__)
+
+# SQLSTATE ``deadlock_detected``: Postgres aborted this transaction to break a cycle.
+DEADLOCK_DETECTED = "40P01"
 
 CurrentUserDep = Annotated[User, Depends(current_user)]
 SettingsDep = Annotated[Settings, Depends(get_settings)]
@@ -140,6 +146,18 @@ async def delete_account(
         await session.rollback()
         raise HTTPException(
             status_code=409, detail={"error": "ACCOUNT_CHANGED", "message": str(exc)}
+        ) from exc
+    except DBAPIError as exc:
+        # Postgres broke a deadlock by aborting the deletion, which wrote nothing: like
+        # a change seen under the locks, it is worth trying again. Any other error
+        # propagates.
+        if getattr(getattr(exc.orig, "__cause__", None), "sqlstate", None) != DEADLOCK_DETECTED:
+            raise
+        await session.rollback()
+        logger.warning("account deletion lost a deadlock: user=%s", user.id)
+        raise HTTPException(
+            status_code=409,
+            detail={"error": "ACCOUNT_CHANGED", "message": "The deletion met another change."},
         ) from exc
     return Response(status_code=204)
 

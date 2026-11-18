@@ -16,11 +16,14 @@ from typing import Any
 from uuid import UUID, uuid4
 
 import pytest
+from asyncpg.exceptions import DeadlockDetectedError
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from strategy_manager.accounts.infrastructure.models import ExchangeCredentialRow
+from strategy_manager.identity.infrastructure import me_router
 from strategy_manager.main import create_app
 from strategy_manager.shared import db as shared_db
 from strategy_manager.shared.config import get_settings
@@ -354,6 +357,32 @@ async def test_the_deletion_waits_for_an_opening_in_flight_and_then_refuses_on_i
 
 async def test_no_identity_is_401(client: AsyncClient) -> None:
     assert (await client.delete("/api/me")).status_code == 401
+
+
+async def test_a_deadlock_is_an_account_changed_to_try_again_not_a_500(
+    client: AsyncClient, factory: Factory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A deadlock Postgres broke by aborting the deletion wrote nothing: like a change
+    seen under the locks, it is worth trying again (the verifier's A1)."""
+    account = await Account(factory).build()
+
+    async def deadlocked(self: object, user_id: UUID) -> None:
+        driver_error = Exception("deadlock detected")
+        driver_error.__cause__ = DeadlockDetectedError("deadlock detected")
+        raise DBAPIError("UPDATE users", {}, driver_error)
+
+    monkeypatch.setattr(me_router.DeleteAccount, "execute", deadlocked)
+
+    try:
+        response = await client.delete("/api/me", headers=OTHER_HEADERS)
+    except DBAPIError:
+        pytest.fail("the deadlock left the route unhandled: a 500")
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["error"] == "ACCOUNT_CHANGED"
+    assert await account.rows("SELECT deleted_at FROM users WHERE id = :id", id=account.id) == [
+        (None,)
+    ]
 
 
 async def _owner_pool(factory: Factory) -> int:
