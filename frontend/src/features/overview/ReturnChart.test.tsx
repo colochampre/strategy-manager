@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ReturnChart } from "@/features/overview/ReturnChart";
 import type { RangeName } from "@/features/overview/RangeSelector";
 import type { CurvePoint } from "@/shared/api/types";
+import { windowStartDate } from "@/shared/charts/scale";
 import i18n from "@/shared/i18n";
 import en from "@/shared/i18n/locales/en.json";
 import es from "@/shared/i18n/locales/es.json";
@@ -569,6 +570,25 @@ describe("the origin and the All range's dates (decision 36)", () => {
     expect(line).toHaveLength(RANGE_CURVE.length + 1);
     expect(line[0]![0]).toBeCloseTo(windowX("2026-07-02", "2026-07-05"), 1);
     expect(line[0]![1]).toBeCloseTo(WATER_Y, 1);
+  });
+
+  it("draws a first trade that opened and closed on one day as a line forward from the day before (owner, 2026-11-17)", () => {
+    const curve = [point("2026-09-20", 1.015, 0), point("2026-09-24", 0.985, -0.03)];
+    render(<ReturnChart curve={curve} range="All" asOf={AS_OF} origin="2026-09-20" />);
+    const line = coordinates(attr("return-curve", "d"));
+    expect(line).toHaveLength(3);
+    expect(line[0]![0]).toBeCloseTo(LEFT, 1);
+    expect(line[0]![1]).toBeCloseTo(WATER_Y, 1);
+    // Never straight up: the first close stands a day to the right of the 0.
+    expect(line[1]![0]).toBeGreaterThan(line[0]![0] + 1);
+    cleanup();
+
+    // A window that starts on that very day reaches back to the 0 on its left edge.
+    const from = windowStartDate(AS_OF, 7);
+    render(<ReturnChart curve={[point(from, 1.015, 0)]} range="7D" asOf={AS_OF} origin={from} />);
+    const windowLine = coordinates(attr("return-curve", "d"));
+    expect(windowLine[0]![0]).toBeCloseTo(LEFT, 1);
+    expect(windowLine[1]![0]).toBeGreaterThan(LEFT + 1);
   });
 
   it("draws a single close after its origin as a line from 0, not a lone point", () => {

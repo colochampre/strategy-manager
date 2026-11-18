@@ -192,7 +192,10 @@ export function ReturnChart({
   // Every range runs to today, so a quiet stretch since the last close shows as empty space; a
   // bounded one also starts on its own window, the whole curve on its first day (its origin).
   const today = utcDate(asOf);
-  const start = from ?? days[0]?.date ?? null;
+  // A window's own start, unless the curve's 0 stands the day before it (a first trade opened and closed on one day).
+  // Both are "YYYY-MM-DD", so the earlier sorts first.
+  const firstDay = days[0]?.date ?? null;
+  const start = from === null ? firstDay : firstDay !== null && firstDay < from ? firstDay : from;
   const domain = start === null ? [] : [start, today];
   const x = timeScale(domain, LEFT, right);
   const curvePoints = days.map((day) => ({ x: x(day.date), y: toY(day.cumulative) }));
