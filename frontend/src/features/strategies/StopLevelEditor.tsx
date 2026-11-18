@@ -60,7 +60,7 @@ export function StopLevelEditor({ strategy }: StopLevelEditorProps) {
 
   return (
     // Named, so this Save is told apart from the other editors' Save, which say the same one word.
-    <section aria-label={t("strategies.stopLevel.label")} className="flex flex-col gap-3">
+    <section aria-label={t("strategies.stopLevel.label")} className="flex flex-col gap-1.5">
       <StopLevelField
         value={text}
         onChange={(next) => {

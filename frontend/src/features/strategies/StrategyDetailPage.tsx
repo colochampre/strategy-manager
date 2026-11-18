@@ -86,7 +86,7 @@ export function StrategyDetailPage() {
         </div>
         <aside
           aria-label={t("strategies.detail.settings")}
-          className="flex flex-col gap-2 self-start rounded-lg border border-rule bg-panel p-5"
+          className="flex flex-col gap-4 self-start rounded-lg border border-rule bg-panel p-5"
         >
           <div className="flex flex-wrap items-center justify-between gap-3">
             <h2 className="font-display text-base font-semibold text-ink">{t("strategies.detail.settings")}</h2>

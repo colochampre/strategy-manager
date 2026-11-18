@@ -29,7 +29,7 @@ const STARTING_SHARE = "0";
 const STARTING_LEVERAGE = 1;
 const LINK = "text-sm text-gain hover:text-gain-bright";
 /** The frame of the page's settings column, the same as Strategy settings on an own strategy. */
-const ASIDE = "flex flex-col gap-2 self-start rounded-lg border border-rule bg-panel p-5";
+const ASIDE = "flex flex-col gap-4 self-start rounded-lg border border-rule bg-panel p-5";
 
 /**
  * The text of a refused subscribe: the status and the code decide, never the server's wording. A dead code and too
@@ -128,10 +128,11 @@ function SubscribeForm({ strategyId, stopLevel }: { strategyId: string; stopLeve
         onText={leverage.changeText}
         onHandle={leverage.changeStep}
         onStop={leverage.changeStep}
+        note={
+          max < 20 &&
+          leverage.reading.valid && <p className="text-xs text-ink-3">{t("strategies.leverage.capNote", { max })}</p>
+        }
       />
-      {max < 20 && leverage.reading.valid && (
-        <p className="text-xs text-ink-3">{t("strategies.leverage.capNote", { max })}</p>
-      )}
       {!leverage.reading.valid && (
         <p id={leverageIds.problem} className="text-xs text-loss">
           {t(

@@ -29,6 +29,13 @@ export interface LeverageSliderProps {
   max?: number | undefined;
   /** What sits on the field's own row, after it (the container's Save); the field takes the width that is left. */
   action?: ReactNode;
+  /** Drawn right under the field, above the slider: what caps the value typed in it (owner, 2026-11-17). */
+  note?: ReactNode;
+  /**
+   * The legend is as tall as its labels, and the stops' 44 px reach 16 px below the slider, into room the container
+   * leaves after it (a gap of 16 px or more), instead of the slider keeping 24 px of empty room under its labels.
+   */
+  reachBelow?: boolean;
 }
 
 /**
@@ -65,6 +72,8 @@ export function LeverageSlider({
   onHandle,
   onStop,
   action,
+  note,
+  reachBelow = false,
 }: LeverageSliderProps) {
   const { t } = useTranslation();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -79,7 +88,7 @@ export function LeverageSlider({
   };
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-1.5">
       {/* One row: the field takes the width that is left, the action beside it keeps its own. */}
       <div className="flex items-start gap-x-3">
       <div
@@ -112,6 +121,7 @@ export function LeverageSlider({
       </div>
       {action}
       </div>
+      {note}
       <div>
         <div className="relative h-11">
           <svg
@@ -155,7 +165,7 @@ export function LeverageSlider({
         </div>
         {/* The legend is pulled up 12 px so it begins at the handle's lower edge; it lets presses through
             and only its buttons take them, so none covers the handle. */}
-        <div className="pointer-events-none relative z-20 mx-2.5 -mt-3 h-11">
+        <div className={cn("pointer-events-none relative z-20 mx-2.5 -mt-3", reachBelow ? "mb-1 h-6" : "h-11")}>
           {STOPS.map(({ stop, place }) => (
             <button
               key={stop}

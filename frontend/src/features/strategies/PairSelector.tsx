@@ -100,7 +100,7 @@ export function PairSelector({
       disabled={disabled}
       aria-labelledby={nameId}
       aria-describedby={describedBy ?? (info === undefined ? undefined : disclosure.textId)}
-      className="flex min-w-0 flex-col gap-2"
+      className="flex min-w-0 flex-col gap-1.5"
     >
       {/* One wrapping row: the name, its information button and the chips of the added pairs, to take less height. */}
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">

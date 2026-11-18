@@ -74,7 +74,7 @@ export function SubscriptionLeverageEditor({ strategy, draft }: SubscriptionLeve
 
   return (
     // Named by its label: several editors on one page each have a Save that says only "Save".
-    <section aria-labelledby={ids.label} className="flex flex-col gap-3">
+    <section aria-labelledby={ids.label} className="flex flex-col gap-1.5">
       <div className="flex items-start">
         <label id={ids.label} htmlFor={ids.field} className="text-sm leading-5 text-ink-2">
           {t("strategies.leverage.label")}
@@ -97,6 +97,8 @@ export function SubscriptionLeverageEditor({ strategy, draft }: SubscriptionLeve
         onText={changeText}
         onHandle={changeStep}
         onStop={changeStep}
+        // The containers leave 16 px after this section, room for the stops' reach.
+        reachBelow
         // Save is on the field's row, as wide as its own text needs; the field takes the width that is left.
         action={
           <div className="flex shrink-0 items-start gap-x-3">
@@ -113,8 +115,8 @@ export function SubscriptionLeverageEditor({ strategy, draft }: SubscriptionLeve
             />
           </div>
         }
+        note={max < 20 && reading.valid && <p className="text-xs text-ink-3">{t("strategies.leverage.capNote", { max })}</p>}
       />
-      {max < 20 && reading.valid && <p className="text-xs text-ink-3">{t("strategies.leverage.capNote", { max })}</p>}
       {!reading.valid && (
         <p id={ids.problem} className="text-xs text-loss">
           {t(leverageProblem(reading.refusal, max).key, leverageProblem(reading.refusal, max).values)}

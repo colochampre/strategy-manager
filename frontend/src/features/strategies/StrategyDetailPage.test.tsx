@@ -894,11 +894,42 @@ describe("StrategyDetailPage settings column (L.7)", () => {
     expect(enable.parentElement).toHaveClass("flex-1");
   });
 
-  it("compacts the gap between the aside's sections to gap-2", async () => {
+  it("spaces the sections apart by more than a section spaces its own title, field and slider (owner, 2026-11-17)", async () => {
     renderPage(strategy());
     await heading("ETH Breakout");
 
-    expect(settingsColumn()).toHaveClass("gap-2");
-    expect(settingsColumn()).not.toHaveClass("gap-5");
+    expect(settingsColumn()).toHaveClass("gap-4");
+    // Share, leverage, stop level and allowed pairs: every column inside each, from the title down, steps 1.5.
+    const sections = [
+      screen.getByRole("textbox", { name: en.strategies.detail.share.label }).closest("section"),
+      screen.getByRole("textbox", { name: en.strategies.leverage.label }).closest("section"),
+      screen.getByRole("region", { name: en.strategies.stopLevel.label }),
+      screen.getByRole("region", { name: en.strategies.detail.pairs.title }),
+    ] as HTMLElement[];
+    for (const section of sections) {
+      const columns = [section, ...section.querySelectorAll<HTMLElement>(".flex-col")];
+      const gaps = columns.map((column) => /(?:^|\s)gap-(\S+)/.exec(column.className)?.[1] ?? "none");
+      expect(new Set(gaps), section.getAttribute("aria-label") ?? section.textContent?.slice(0, 30)).toEqual(new Set(["1.5"]));
+    }
+    // A slider's legend is as tall as its labels: its 44 px stops reach 16 px below it, into the gap-4 between
+    // sections (or the share amount's own margin), instead of leaving 24 px of empty room under every slider.
+    for (const stop of [
+      screen.getByRole("button", { name: "Set the share to 25%" }),
+      screen.getByRole("button", { name: "Set the leverage to x5" }),
+    ]) {
+      expect(stop).toHaveClass("size-11");
+      expect(stop.parentElement).toHaveClass("h-6", "mb-1");
+    }
+  });
+
+  it("says what the stop allows right under the leverage field, above its slider (owner, 2026-11-17)", async () => {
+    renderPage(strategy({ stop_loss_pct: "10.00" }));
+    await heading("ETH Breakout");
+
+    const note = screen.getByText(en.strategies.leverage.capNote.replace("{{max}}", "9"));
+    const field = screen.getByRole("textbox", { name: en.strategies.leverage.label });
+    const slider = screen.getByRole("slider", { name: en.strategies.leverage.label });
+    expect(field.compareDocumentPosition(note) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(note.compareDocumentPosition(slider) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });
