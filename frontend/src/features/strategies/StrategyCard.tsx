@@ -351,7 +351,6 @@ export function StrategyCard(props: StrategyCardProps) {
       data-testid={props.rowTestId}
       className="relative flex flex-col gap-3 rounded-md border border-rule bg-panel px-4 py-3 hover:bg-panel-2"
     >
-      {/* The card's one control sits on the title's line, at its right end, so the figures have the card's width. */}
       <div className="flex items-start justify-between gap-4">
         <div className="flex min-w-0 flex-col gap-0.5">
           <div className="flex flex-wrap items-center gap-x-2">
@@ -392,15 +391,21 @@ export function StrategyCard(props: StrategyCardProps) {
             )}
           </p>
         </div>
+      </div>
+      {/* The card's one control is level with the figures, at the card's right end (owner, 2026-11-17): beside their
+          grid, not in it, so however narrow the card no figure runs under it. */}
+      <div className="flex items-center gap-4">
+        <div className="min-w-0 flex-1">
+          <FigureGroups
+            prefix={prefix}
+            figures={props.figures}
+            figuresError={props.figuresError}
+            pnl={props.pnl}
+            setup={props.setup}
+          />
+        </div>
         {props.action !== undefined && <div className="relative z-10 shrink-0">{props.action}</div>}
       </div>
-      <FigureGroups
-        prefix={prefix}
-        figures={props.figures}
-        figuresError={props.figuresError}
-        pnl={props.pnl}
-        setup={props.setup}
-      />
       {props.marks !== undefined && <div className="relative z-10">{props.marks}</div>}
       {props.notice}
     </li>

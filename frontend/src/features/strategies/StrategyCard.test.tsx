@@ -368,16 +368,17 @@ describe("what varies between the lists", () => {
     expect(within(row).queryByTestId("card-group-setup")).not.toBeInTheDocument();
   });
 
-  it("puts the action on the title's line, at its right end, and leaves the figures the card's whole width (L.12)", () => {
+  it("puts the action level with the figures, after their grid at the card's right end (owner, 2026-11-17; was L.12)", () => {
     const row = draw({ action: <button type="button">Switch</button> });
 
     const button = within(row).getByRole("button", { name: "Switch" });
     const grid = row.querySelector("dl") as HTMLElement;
-    expect(grid.compareDocumentPosition(button) & Node.DOCUMENT_POSITION_PRECEDING).not.toBe(0);
-    const head = (button.parentElement as HTMLElement).parentElement as HTMLElement;
-    expect(head).toContainElement(within(row).getByRole("link", { name: "Alpha" }));
-    expect(head).toHaveClass("flex", "justify-between");
-    expect(grid.parentElement).toBe(row);
+    expect(grid.compareDocumentPosition(button) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+    const line = (button.parentElement as HTMLElement).parentElement as HTMLElement;
+    expect(line).toHaveClass("flex", "items-center");
+    expect(line).not.toContainElement(within(row).getByRole("link", { name: "Alpha" }));
+    expect(grid.parentElement).toHaveClass("min-w-0", "flex-1");
+    expect(grid.parentElement?.parentElement).toBe(line);
   });
 
   it("draws a note under the card's figures", () => {

@@ -479,6 +479,22 @@ describe("the author's card", () => {
     expect(within(row).getByRole("switch", { name: "Enable Alpha" })).toBeInTheDocument();
   });
 
+  it("puts the switch level with the figures, at the card's right, beside their grid rather than in it (owner, 2026-11-17)", async () => {
+    const row = await oneCard();
+    const figures = within(row).getByTestId("strategy-group-pnl").closest("dl") as HTMLElement;
+    const holder = within(row).getByRole("switch").closest(".z-10") as HTMLElement;
+    // One row: the figures take the width that is left, the switch keeps its own at the right end, centred on them.
+    const line = holder.parentElement as HTMLElement;
+    expect(line).toHaveClass("flex", "items-center");
+    expect(line.lastElementChild).toBe(holder);
+    expect(holder).toHaveClass("shrink-0");
+    expect(line.firstElementChild).toHaveClass("min-w-0", "flex-1");
+    expect(line.firstElementChild?.contains(figures)).toBe(true);
+    expect(holder.contains(figures)).toBe(false);
+    // Not on the title's line any more.
+    expect(line.contains(within(row).getByRole("link"))).toBe(false);
+  });
+
   it("opens the strategy from the whole card, the title being its one link", async () => {
     const row = await oneCard();
     const links = within(row).getAllByRole("link");
