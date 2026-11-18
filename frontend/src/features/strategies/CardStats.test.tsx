@@ -143,7 +143,7 @@ describe("a card on Explore", () => {
     const drawdown = group(row, "public-group-drawdown", en("strategies.card.maxDrawdown"));
     expect(within(drawdown).getByTestId("public-deepest")).toHaveTextContent(pct(-0.0971));
 
-    const profitable = group(row, "public-group-profitable", en("strategies.card.profitableTrades"));
+    const profitable = group(row, "public-group-profitable", "Win rate");
     expect(within(profitable).getByTestId("public-winrate")).toHaveTextContent("66.7%");
     expect(within(profitable).getByTestId("public-wins")).toHaveTextContent("4/6");
 
@@ -176,7 +176,7 @@ describe("a card on My subscriptions", () => {
     const drawdown = group(row, "subscription-group-drawdown", en("strategies.card.maxDrawdown"));
     expect(within(drawdown).getByTestId("subscription-deepest")).toHaveTextContent(pct(-0.0971));
 
-    const profitable = group(row, "subscription-group-profitable", en("strategies.card.profitableTrades"));
+    const profitable = group(row, "subscription-group-profitable", "Win rate");
     expect(within(profitable).getByTestId("subscription-winrate")).toHaveTextContent("66.7%");
     expect(within(profitable).getByTestId("subscription-wins")).toHaveTextContent("4/6");
 
@@ -205,7 +205,7 @@ describe("a card on My strategies", () => {
     await waitFor(() => expect(within(pnl).getByTestId("strategy-pnl")).toHaveTextContent(usdt(67.2, true)));
     expect(within(pnl).getByTestId("strategy-return")).toHaveTextContent(pct(0.109));
 
-    const profitable = group(row, "strategy-group-profitable", en("strategies.card.profitableTrades"));
+    const profitable = group(row, "strategy-group-profitable", "Win rate");
     expect(within(profitable).getByTestId("strategy-wins")).toHaveTextContent("4/6");
 
     const aum = group(row, "strategy-group-aum", en("strategies.card.aum"));

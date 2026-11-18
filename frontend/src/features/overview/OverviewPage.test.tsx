@@ -394,10 +394,10 @@ describe("the available balance", () => {
     });
     renderAt(<AppRoutes />, "/");
 
-    // Behind an (i) right of the balance, closed until asked (L.10), not on the pool's eyebrow.
-    const lead = await screen.findByTestId("ledger-lead");
+    // Behind an (i) after the balance's title, closed until asked (L.10), not on the pool's eyebrow.
+    const group = await screen.findByTestId("ledger-group-available");
     expect(screen.queryByTestId("balance-stale")).not.toBeInTheDocument();
-    fireEvent.click(within(lead).getByRole("button", { name: "Balance out of date" }));
+    fireEvent.click(within(group).getByRole("button", { name: "Balance out of date" }));
     const note = screen.getByTestId("balance-stale");
     expect(note).toHaveTextContent("Balance is out of date: last synced");
     expect(note).toHaveTextContent("2026");
@@ -616,19 +616,18 @@ describe("the overview sizing (decisions 35 and 36)", () => {
   it("leaves the eyebrow alone on its row: a stale note waits behind the balance's (i) (L.10)", async () => {
     const panel = await renderOne(true);
     expect(within(panel).queryByTestId("balance-stale")).toBeNull();
-    fireEvent.click(within(within(panel).getByTestId("ledger-lead")).getByRole("button", { name: "Balance out of date" }));
+    fireEvent.click(within(within(panel).getByTestId("ledger-group-available")).getByRole("button", { name: "Balance out of date" }));
     const note = within(panel).getByTestId("balance-stale");
     expect(note.className).not.toContain("text-decision");
     expect(note).toHaveTextContent("Balance is out of date: last synced");
     expect(within(panel).getByTestId("pool-eyebrow").parentElement).toBe(panel);
   });
 
-  it("keeps the ledger line to its own row: four figures, each value held on one line", async () => {
+  it("keeps the ledger line to its own row: three groups, each unit joined to its figure (owner, 2026-11-17)", async () => {
     const panel = await renderOne();
-    const values = within(panel).getByTestId("ledger-line").querySelectorAll("dd");
-    expect(values).toHaveLength(4);
-    for (const value of values) expect(value).toHaveClass("whitespace-nowrap");
-    expect(within(panel).getByTestId("ledger-line").className).not.toMatch(/whitespace-nowrap/);
+    expect(within(panel).getByTestId("ledger-line").querySelectorAll("dd")).toHaveLength(3);
+    // No space between a figure and its unit, so the two never part at a line break.
+    expect(within(panel).getByTestId("ledger-lead")).toHaveTextContent(/^1,284\.52USDT$/);
   });
 
   it("scrolls only inside main: the page itself grows no scrollbar of its own", async () => {

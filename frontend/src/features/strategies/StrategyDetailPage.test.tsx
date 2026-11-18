@@ -737,6 +737,8 @@ describe("StrategyDetailPage", () => {
     expect(await screen.findByRole("link", { name: es.strategies.detail.back })).toBeInTheDocument();
     expect(screen.getByTestId("strategy-age")).toHaveTextContent(/^12 ago 2026 – /);
     expect(screen.getByTestId("strategy-origin")).toHaveTextContent(es.strategies.subscriptions.yours);
+    // Short enough to stay on one line beside the other titles at 1390 px (owner, 2026-11-17).
+    expect(screen.getByTestId("strategy-group-profitable")).toHaveTextContent(/^Tasa de acierto/);
 
     const keys = (node: unknown, prefix = ""): string[] =>
       typeof node === "object" && node !== null

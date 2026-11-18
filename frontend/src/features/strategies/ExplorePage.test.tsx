@@ -123,7 +123,7 @@ describe("Explore", () => {
     expect(api.mock.calls.some(([url]) => String(url).endsWith("/positions/open"))).toBe(false);
   });
 
-  it("groups the record under Total PnL, Max drawdown and Profitable trades, the capital under AuM (owner, 2026-11-17)", async () => {
+  it("groups the record under Total PnL, Max drawdown and Win rate, the capital under AuM (owner, 2026-11-17)", async () => {
     serve(() => Promise.resolve(jsonResponse([publicStrategy()])));
     open();
 
@@ -131,7 +131,7 @@ describe("Explore", () => {
     for (const [group, key, label] of [
       ["pnl", "return", "Total PnL"],
       ["drawdown", "deepest", "Max drawdown"],
-      ["profitable", "winrate", "Profitable trades"],
+      ["profitable", "winrate", "Win rate"],
       ["aum", "capital", "AuM"],
     ] as const) {
       const found = within(row).getByTestId(`public-group-${group}`);

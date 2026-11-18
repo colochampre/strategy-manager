@@ -452,7 +452,7 @@ describe("the author's card", () => {
     for (const [group, label] of [
       ["pnl", en.strategies.card.totalPnl],
       ["drawdown", en.strategies.card.maxDrawdown],
-      ["profitable", en.strategies.card.profitableTrades],
+      ["profitable", "Win rate"],
       ["aum", en.strategies.card.aum],
     ] as const) {
       expect(within(row).getByTestId(`strategy-group-${group}`).querySelector("dt"), group).toHaveTextContent(label);

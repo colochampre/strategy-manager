@@ -8,15 +8,6 @@ import es from "@/shared/i18n/locales/es.json";
  * `StatusButton` `iconOnly` text): the owner asked for each to begin with a capital and be brief (tasks.md L.9).
  */
 const TOOLTIP_KEYS = [
-  // The ledger's and the record line's icons.
-  "overview.ledger.available",
-  "overview.ledger.pnl",
-  "overview.ledger.pnlRange",
-  "overview.ledger.return",
-  "overview.ledger.returnRange",
-  "overview.ledger.deepest",
-  "strategies.performance.contribution",
-  "strategies.performance.contributionRange",
   // The cards' and the pages' named values, and what AuM means.
   "strategies.card.age",
   "strategies.card.subscribed",

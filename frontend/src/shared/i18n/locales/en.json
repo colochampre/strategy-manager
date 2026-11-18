@@ -192,11 +192,6 @@
     },
     "ledger": {
       "available": "Available balance",
-      "pnl": "PnL",
-      "pnlRange": "PnL, {{range}}",
-      "return": "Return",
-      "returnRange": "Return, {{range}}",
-      "deepest": "Drawdown",
       "unreadable": "The figures could not be read."
     },
     "range": {
@@ -206,12 +201,6 @@
       "90D": "90D",
       "1Y": "1Y",
       "All": "All"
-    },
-    "rangeLong": {
-      "7D": "last 7 days",
-      "30D": "last 30 days",
-      "90D": "last 90 days",
-      "1Y": "last year"
     },
     "monthlyGrid": {
       "title": "Month by month",
@@ -325,7 +314,7 @@
       "totalPnl": "Total PnL",
       "totalPnlRange": "Total PnL · {{range}}",
       "maxDrawdown": "Max drawdown",
-      "profitableTrades": "Profitable trades",
+      "winRate": "Win rate",
       "aum": "AuM",
       "aumHint": "Assets under management: live subscribers and capital",
       "setup": "Settings"
@@ -620,8 +609,6 @@
       "retry": "Try again",
       "noReport": "No performance report exists for this strategy yet.",
       "chartTitle": "Contribution to the pool, compounded",
-      "contribution": "Contribution to the pool",
-      "contributionRange": "Contribution to the pool, {{range}}",
       "byPair": {
         "title": "By pair",
         "pair": "Pair",

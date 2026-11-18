@@ -107,7 +107,7 @@ export interface CardPnl {
  * The card's figures in five columns from `lg`, each as wide as the next, as TradingView's strategy tester lays out
  * its key stats; two a row on a phone, three from `sm`.
  */
-const STATS_GRID =
+export const STATS_GRID =
   "grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3 lg:grid-flow-col lg:grid-cols-none lg:auto-cols-fr lg:gap-x-6";
 
 const DATE_OPTIONS: Intl.DateTimeFormatOptions = { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" };
@@ -149,7 +149,7 @@ function Unit({ children }: { children: string }) {
 }
 
 /** Money with its currency as a smaller unit, or the ellipsis or the dash it stands for. */
-function money(amount: number | null | undefined, currency: string, locale: string, signedAmount = false): ReactNode {
+export function money(amount: number | null | undefined, currency: string, locale: string, signedAmount = false): ReactNode {
   if (amount === undefined) return LOADING;
   if (amount === null) return NO_FIGURE;
   return (
@@ -161,7 +161,7 @@ function money(amount: number | null | undefined, currency: string, locale: stri
 }
 
 /** A signed ratio as a percentage with a smaller sign and its tone, or the ellipsis or the dash it stands for. */
-function percent(ratio: number | null | undefined, locale: string): { value: ReactNode; tone: string | undefined } {
+export function percent(ratio: number | null | undefined, locale: string): { value: ReactNode; tone: string | undefined } {
   if (ratio === undefined) return { value: LOADING, tone: undefined };
   if (ratio === null) return { value: NO_FIGURE, tone: undefined };
   return {
@@ -188,7 +188,7 @@ function rate(value: number | null | undefined, locale: string): ReactNode {
 }
 
 /** One labelled group of the card: an icon and a label, the values beneath on one line. */
-function StatGroup({
+export function StatGroup({
   testId,
   icon: Icon,
   label,
@@ -295,7 +295,7 @@ export function FigureGroups({
               {deepest.value}
             </span>
           </StatGroup>
-          <StatGroup testId={`${prefix}-group-profitable`} icon={Trophy} label={t("strategies.card.profitableTrades")}>
+          <StatGroup testId={`${prefix}-group-profitable`} icon={Trophy} label={t("strategies.card.winRate")}>
             <span data-testid={`${prefix}-winrate`}>{rate(figures.winRate, locale)}</span>
             {figures.profitable !== undefined && figures.profitable !== null && (
               <span data-testid={`${prefix}-wins`} className="text-ink-2">

@@ -41,7 +41,7 @@ function draw(props: Partial<StrategyCardProps> = {}) {
 const GROUPS = [
   ["pnl", "coins", "Total PnL"],
   ["drawdown", "trending-down", "Max drawdown"],
-  ["profitable", "trophy", "Profitable trades"],
+  ["profitable", "trophy", "Win rate"],
   ["aum", "wallet", "AuM"],
 ] as const;
 
@@ -186,7 +186,7 @@ describe("the market line (owner, 2026-11-17)", () => {
 });
 
 describe("the figures", () => {
-  it("come in four groups, each under its icon and its label: Total PnL, Max drawdown, Profitable trades, AuM", () => {
+  it("come in four groups, each under its icon and its label: Total PnL, Max drawdown, Win rate, AuM", () => {
     const row = draw();
 
     expect(groupOrder(row)).toEqual(GROUPS.map(([key]) => `card-group-${key}`));

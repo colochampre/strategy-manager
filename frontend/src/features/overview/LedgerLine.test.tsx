@@ -13,14 +13,14 @@ const BASE = {
   maxDrawdown: "-0.0200000000",
 };
 
-function text(): string {
-  const values = Array.from(screen.getByTestId("ledger-line").querySelectorAll("dd"));
-  return values.map((value) => (value.textContent ?? "").replace(/\s+/g, " ").trim()).join(" ");
+/** The groups of the line, in order: each one's test id. */
+function groups(): string[] {
+  return Array.from(screen.getByTestId("ledger-line").children).map((child) => child.getAttribute("data-testid") ?? "");
 }
 
-/** The icon that names a figure: it is in the figure's term, the one before the value. */
-function termOf(testId: string): HTMLElement {
-  return screen.getByTestId(testId).previousElementSibling as HTMLElement;
+/** A group's term: its icon and its title. */
+function term(group: string): HTMLElement {
+  return within(screen.getByTestId(group)).getByRole("term");
 }
 
 afterEach(async () => {
@@ -28,51 +28,38 @@ afterEach(async () => {
 });
 
 describe("LedgerLine", () => {
-  it("puts the wallet left of the balance, where the smaller figures keep their icons above (L.10)", () => {
+  it("draws the strategy pages' groups, an icon and a title over each group's values (owner, 2026-11-17)", () => {
     render(<LedgerLine {...BASE} />);
 
-    const balance = screen.getByTestId("ledger-lead").parentElement as HTMLElement;
-    expect(balance).toHaveClass("flex-row", "items-center");
-    expect(balance.firstElementChild).toBe(termOf("ledger-lead"));
-    for (const id of ["ledger-pnl", "ledger-return", "ledger-deepest"]) {
-      expect(screen.getByTestId(id).parentElement).toHaveClass("flex-col");
+    expect(groups()).toEqual(["ledger-group-available", "ledger-group-pnl", "ledger-group-drawdown"]);
+    for (const [group, icon, title] of [
+      ["ledger-group-available", "wallet", "Available balance"],
+      ["ledger-group-pnl", "coins", "Total PnL · 30D"],
+      ["ledger-group-drawdown", "trending-down", "Max drawdown"],
+    ] as const) {
+      expect(term(group).querySelector(`svg.lucide-${icon}`), group).not.toBeNull();
+      expect(term(group), group).toHaveTextContent(title);
     }
-    // The large balance and the smaller figures share one middle line (L.11).
-    expect(screen.getByTestId("ledger-line")).toHaveClass("items-center");
-    expect(screen.getByTestId("ledger-line")).not.toHaveClass("items-end");
+    // The line is the cards' grid.
+    expect(screen.getByTestId("ledger-line")).toHaveClass("grid", "lg:auto-cols-fr");
   });
 
-  it("opens the balance's note behind an (i) right of the balance, only when there is one (L.10)", () => {
-    const { rerender } = render(<LedgerLine {...BASE} availableInfo={{ label: "Out of date", text: "Synced long ago." }} />);
-
-    const button = within(screen.getByTestId("ledger-lead")).getByRole("button", { name: "Out of date" });
-    expect(screen.queryByText("Synced long ago.")).toBeNull();
-    expect(text()).toBe("1,284.52 USDT +41.20 +3.4% -2.0%");
-    fireEvent.click(button);
-    expect(screen.getByText("Synced long ago.")).toBeInTheDocument();
-
-    rerender(<LedgerLine {...BASE} />);
-    expect(screen.queryByRole("button", { name: "Out of date" })).toBeNull();
-  });
-
-  it("test_lead_figure_is_available_balance_pnl_and_return_by_sign_null_return_renders_em_dash", () => {
+  it("writes each value with its unit joined and smaller, the PnL and return together, in their signs' colours", () => {
     const { rerender } = render(<LedgerLine {...BASE} />);
-    // Only the values are written: the words live in the icons' tooltips.
-    expect(text()).toBe("1,284.52 USDT +41.20 +3.4% -2.0%");
 
-    // The lead figure is the available balance, large and in the primary ink.
-    const lead = screen.getByTestId("ledger-lead");
-    expect(lead).toHaveTextContent("1,284.52");
-    expect(lead).toHaveClass("text-ink", "text-[26px]", "font-semibold");
-
-    // PnL and return take their colour from their sign, at weight 600.
-    expect(screen.getByTestId("ledger-pnl")).toHaveClass("text-gain", "font-semibold");
-    expect(screen.getByTestId("ledger-return")).toHaveClass("text-gain", "font-semibold");
+    expect(screen.getByTestId("ledger-lead")).toHaveTextContent(/^1,284\.52USDT$/);
+    expect(screen.getByTestId("ledger-lead").lastElementChild).toHaveClass("text-[0.75em]");
+    expect(screen.getByTestId("ledger-pnl")).toHaveTextContent(/^\+41\.20USDT$/);
+    expect(screen.getByTestId("ledger-pnl")).toHaveClass("text-gain");
+    expect(screen.getByTestId("ledger-return")).toHaveTextContent(/^\+3\.4%$/);
+    expect(screen.getByTestId("ledger-return")).toHaveClass("text-gain");
+    expect(within(screen.getByTestId("ledger-group-pnl")).getByTestId("ledger-return")).toBeInTheDocument();
     // The deepest drawdown is the all-time figure, always a loss.
-    expect(screen.getByTestId("ledger-deepest")).toHaveClass("text-loss", "font-semibold");
+    expect(screen.getByTestId("ledger-deepest")).toHaveTextContent(/^-2\.0%$/);
+    expect(screen.getByTestId("ledger-deepest")).toHaveClass("text-loss");
 
     rerender(<LedgerLine {...BASE} pnl="-41.2000000000" ret="-0.0340000000" />);
-    expect(text()).toBe("1,284.52 USDT -41.20 -3.4% -2.0%");
+    expect(screen.getByTestId("ledger-pnl")).toHaveTextContent(/^-41\.20USDT$/);
     expect(screen.getByTestId("ledger-pnl")).toHaveClass("text-loss");
     expect(screen.getByTestId("ledger-return")).toHaveClass("text-loss");
 
@@ -85,7 +72,7 @@ describe("LedgerLine", () => {
 
   it("shows a return of exactly zero as 0.0%, a real figure, unlike the em dash", () => {
     render(<LedgerLine {...BASE} ret="0.0000000000" />);
-    expect(screen.getByTestId("ledger-return")).toHaveTextContent("0.0%");
+    expect(screen.getByTestId("ledger-return")).toHaveTextContent(/^0\.0%$/);
     expect(screen.getByTestId("ledger-return")).not.toHaveClass("text-gain");
     expect(screen.getByTestId("ledger-return")).not.toHaveClass("text-loss");
   });
@@ -95,32 +82,24 @@ describe("LedgerLine", () => {
     expect(screen.getByTestId("ledger-lead")).toHaveTextContent(/^—$/);
   });
 
-  it("names each figure with the card's icon, and says the words in its tooltip", () => {
-    render(<LedgerLine {...BASE} />);
+  it("opens the balance's note behind an (i) after its title, only when there is one", () => {
+    const { rerender } = render(<LedgerLine {...BASE} availableInfo={{ label: "Out of date", text: "Synced long ago." }} />);
 
-    for (const [testId, icon, name] of [
-      ["ledger-lead", "wallet", "Available balance"],
-      ["ledger-pnl", "coins", "PnL, last 30 days"],
-      ["ledger-return", "trending-up", "Return, last 30 days"],
-      ["ledger-deepest", "trending-down", "Drawdown"],
-    ] as const) {
-      const term = termOf(testId);
-      expect(term.querySelector(`svg.lucide-${icon}`), testId).not.toBeNull();
-      expect(term.textContent, testId).toBe("");
-      expect(within(term).getByRole("img", { name }), testId).toBeInTheDocument();
-    }
-    fireEvent.mouseEnter(within(termOf("ledger-deepest")).getByRole("img").parentElement as HTMLElement);
-    expect(screen.getByRole("tooltip")).toHaveTextContent("Drawdown");
+    const button = within(term("ledger-group-available")).getByRole("button", { name: "Out of date" });
+    expect(screen.queryByText("Synced long ago.")).toBeNull();
+    fireEvent.click(button);
+    expect(screen.getByText("Synced long ago.")).toBeInTheDocument();
+
+    rerender(<LedgerLine {...BASE} />);
+    expect(screen.queryByRole("button", { name: "Out of date" })).toBeNull();
   });
 
-  it("names the range in the PnL and return tooltips only when it is not All", () => {
+  it("names the range in the PnL's title only when it is not All", () => {
     const { rerender } = render(<LedgerLine {...BASE} range="All" />);
-    expect(within(termOf("ledger-pnl")).getByRole("img", { name: "PnL" })).toBeInTheDocument();
-    expect(within(termOf("ledger-return")).getByRole("img", { name: "Return" })).toBeInTheDocument();
+    expect(term("ledger-group-pnl")).toHaveTextContent(/^Total PnL$/);
 
     rerender(<LedgerLine {...BASE} range="7D" />);
-    expect(within(termOf("ledger-pnl")).getByRole("img", { name: "PnL, last 7 days" })).toBeInTheDocument();
-    expect(within(termOf("ledger-return")).getByRole("img", { name: "Return, last 7 days" })).toBeInTheDocument();
+    expect(term("ledger-group-pnl")).toHaveTextContent(/^Total PnL · 7D$/);
   });
 
   it("formats each pool's figures in its own settlement currency and never combines two pools", () => {
@@ -132,40 +111,24 @@ describe("LedgerLine", () => {
     );
     const lines = screen.getAllByTestId("ledger-line");
     expect(lines).toHaveLength(2);
-    expect(lines[0]).toHaveTextContent("1,284.52 USDT");
+    expect(within(lines[0] as HTMLElement).getByTestId("ledger-lead")).toHaveTextContent("1,284.52USDT");
     // A BTC pool keeps its eight decimals; USDT's two would erase a BTC-sized PnL.
-    expect(lines[1]).toHaveTextContent("0.12345679 BTC");
-    expect(lines[1]).toHaveTextContent("+0.00012340");
-    // Nothing on the page is a total across the two.
-    expect(screen.queryByText(/total/i)).not.toBeInTheDocument();
+    expect(within(lines[1] as HTMLElement).getByTestId("ledger-lead")).toHaveTextContent("0.12345679BTC");
+    expect(within(lines[1] as HTMLElement).getByTestId("ledger-pnl")).toHaveTextContent("+0.00012340BTC");
     expect(document.body).not.toHaveTextContent("1,284.64");
   });
 
-  it("formats numbers for the active language", async () => {
+  it("reads every word and number in the active language", async () => {
     await act(() => i18n.changeLanguage("es"));
     // Spanish groups thousands from five digits, not four: the locale decides, not this code.
-    render(<LedgerLine {...BASE} available="12845.520000000000000000" />);
-    expect(screen.getByTestId("ledger-lead")).toHaveTextContent("12.845,52");
-    expect(screen.getByTestId("ledger-pnl")).toHaveTextContent("+41,20");
-    expect(screen.getByTestId("ledger-return")).toHaveTextContent(/^\+3,4\s%$/u);
-  });
-
-  it("reads every word in the active language", async () => {
-    await act(() => i18n.changeLanguage("es"));
     render(<LedgerLine {...BASE} range="1Y" available="12845.520000000000000000" />);
-    expect(text()).toBe("12.845,52 USDT +41,20 +3,4 % -2,0 %");
-    expect(within(termOf("ledger-lead")).getByRole("img", { name: "Saldo disponible" })).toBeInTheDocument();
-    expect(within(termOf("ledger-pnl")).getByRole("img", { name: "PnL, último año" })).toBeInTheDocument();
-    expect(within(termOf("ledger-return")).getByRole("img", { name: "Rendimiento, último año" })).toBeInTheDocument();
-    expect(within(termOf("ledger-deepest")).getByRole("img", { name: "Caída máxima" })).toBeInTheDocument();
-  });
 
-  it("keeps each value on one line, so a currency never strands from its number", () => {
-    render(<LedgerLine {...BASE} currency="BTC" available="0.12345678" pnl="0.00012340" />);
-    const values = screen.getByTestId("ledger-line").querySelectorAll("dd");
-    expect(values).toHaveLength(4);
-    for (const value of values) expect(value).toHaveClass("whitespace-nowrap");
-    expect(screen.getByTestId("ledger-line").className).not.toMatch(/whitespace-nowrap/);
+    expect(screen.getByTestId("ledger-lead")).toHaveTextContent(/^12\.845,52USDT$/);
+    expect(screen.getByTestId("ledger-pnl")).toHaveTextContent(/^\+41,20USDT$/);
+    expect(screen.getByTestId("ledger-return")).toHaveTextContent(/^\+3,4%$/);
+    expect(term("ledger-group-available")).toHaveTextContent("Saldo disponible");
+    expect(term("ledger-group-pnl")).toHaveTextContent("PnL total · 1A");
+    expect(term("ledger-group-drawdown")).toHaveTextContent("Caída máxima");
   });
 
   it("shows an alert rather than NaN when a figure cannot be read", () => {
@@ -184,34 +147,20 @@ describe("LedgerLine", () => {
   describe("without an available balance (one strategy's line)", () => {
     const { available: _omitted, ...WITHOUT_BALANCE } = BASE;
 
-    it("has no balance figure, and its PnL is the size of the figures beside it (L.10)", () => {
+    it("has no balance group", () => {
       render(<LedgerLine {...WITHOUT_BALANCE} />);
 
-      expect(text()).toBe("+41.20 +3.4% -2.0%");
+      expect(groups()).toEqual(["ledger-group-pnl", "ledger-group-drawdown"]);
       expect(screen.queryByTestId("ledger-lead")).toBeNull();
-      expect(screen.getByTestId("ledger-pnl")).toHaveClass("font-semibold", "text-gain", "text-sm");
-      expect(screen.getByTestId("ledger-pnl")).not.toHaveClass("text-[26px]");
-    });
-
-    it("gives the PnL the sign colour of a loss", () => {
-      render(<LedgerLine {...WITHOUT_BALANCE} pnl="-41.2000000000" />);
-
-      expect(text()).toBe("-41.20 +3.4% -2.0%");
-      expect(screen.getByTestId("ledger-pnl")).toHaveClass("text-loss");
     });
 
     it("still renders a null return as an em dash and an unreadable figure as an alert", () => {
       const { rerender } = render(<LedgerLine {...WITHOUT_BALANCE} ret={null} />);
-      expect(text()).toBe("+41.20 — -2.0%");
+      expect(screen.getByTestId("ledger-return")).toHaveTextContent(/^—$/);
 
       rerender(<LedgerLine {...WITHOUT_BALANCE} pnl="1e3" />);
       expect(screen.getByRole("alert")).toHaveTextContent("The figures could not be read.");
     });
 
-    it("uses the return label it is given in place of the pool's", () => {
-      render(<LedgerLine {...WITHOUT_BALANCE} returnLabel="Contribution to the pool 30D" />);
-
-      expect(within(termOf("ledger-return")).getByRole("img", { name: "Contribution to the pool 30D" })).toBeInTheDocument();
-    });
   });
 });
