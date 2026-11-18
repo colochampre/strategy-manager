@@ -435,7 +435,20 @@ export function ReturnChart({
                 strokeLinejoin="round"
                 className="fill-ink stroke-ground font-mono text-[11px]"
               >
-                {`${dayFormat.format(utcInstant(hoveredDay.date))} · ${percentLabel(hoveredDay.cumulative)}`}
+                {`${dayFormat.format(utcInstant(hoveredDay.date))} · `}
+                {/* The return in its sign's colour, as the drawdown below it is in the loss colour (owner, 2026-11-17). */}
+                <tspan
+                  data-testid="hover-return"
+                  className={
+                    percentLabel(hoveredDay.cumulative) === "0%"
+                      ? "fill-ink-2"
+                      : hoveredDay.cumulative > 0
+                        ? "fill-gain"
+                        : "fill-loss"
+                  }
+                >
+                  {percentLabel(hoveredDay.cumulative)}
+                </tspan>
               </text>
               <text
                 data-testid="hover-drawdown"

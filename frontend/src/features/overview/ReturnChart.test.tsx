@@ -1,4 +1,4 @@
-import { act, createEvent, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, createEvent, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ReturnChart } from "@/features/overview/ReturnChart";
@@ -967,6 +967,26 @@ describe("the hover readout", () => {
     pointer(svg, "pointerMove", clientFor(LEFT + STEP));
     pointer(svg, "pointerMove", clientFor(LEFT - 20));
     expect(screen.queryByTestId("hover-guide")).toBeNull();
+  });
+
+  it("writes the hovered return in its sign's colour and leaves the date in ink (owner, 2026-11-17)", () => {
+    const svg = renderHovered();
+    pointer(svg, "pointerMove", clientFor(LEFT + 2 * STEP));
+    expect(screen.getByTestId("hover-label")).toHaveClass("fill-ink");
+    expect(screen.getByTestId("hover-return")).toHaveTextContent("+30%");
+    expect(screen.getByTestId("hover-return")).toHaveClass("fill-gain");
+
+    pointer(svg, "pointerMove", clientFor(LEFT));
+    expect(screen.getByTestId("hover-return")).toHaveTextContent("0%");
+    expect(screen.getByTestId("hover-return")).toHaveClass("fill-ink-2");
+    cleanup();
+
+    renderChart([point("2026-07-01", 1, 0), point("2026-07-02", 0.75, -0.25)], "All", Date.UTC(2026, 6, 2, 12));
+    const below = screen.getByRole("img");
+    stubBox(below, 796);
+    pointer(below, "pointerMove", clientFor(RIGHT));
+    expect(screen.getByTestId("hover-return")).toHaveTextContent("−25%");
+    expect(screen.getByTestId("hover-return")).toHaveClass("fill-loss");
   });
 
   it("answers a touch (pointer down) like a move", () => {
