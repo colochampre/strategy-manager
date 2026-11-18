@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ApiError } from "@/shared/api/client";
-import { changeMode, chooseDisplayName, fetchMe } from "@/shared/api/me";
+import { changeMode, chooseDisplayName, deleteAccount, fetchMe } from "@/shared/api/me";
 import { jsonResponse } from "@/test/harness";
 
 afterEach(() => {
@@ -190,5 +190,60 @@ describe("changeMode", () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("offline")));
 
     await expect(changeMode("LIVE")).resolves.toEqual({ kind: "unknown" });
+  });
+});
+
+describe("deleteAccount", () => {
+  it("sends DELETE /api/me and reads the 204 as deleted", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 204, json: () => Promise.reject() } as unknown as Response);
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(deleteAccount()).resolves.toEqual({ kind: "deleted" });
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toMatch(/\/api\/me$/);
+    expect(init.method).toBe("DELETE");
+  });
+
+  it("reads a refusal with every symbol and strategy the server named", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonResponse(
+          {
+            detail: {
+              error: "ACCOUNT_HOLDS_POSITIONS",
+              message: "The account cannot be deleted while a position is open.",
+              symbols: ["STXUSDT"],
+              strategies: [{ id: "s-1", name: "BTC 4h", symbols: ["BTCUSDT"] }, { id: "s-2", name: "Odd", symbols: "x" }],
+            },
+          },
+          409,
+        ),
+      ),
+    );
+
+    await expect(deleteAccount()).resolves.toEqual({
+      kind: "holds",
+      symbols: ["STXUSDT"],
+      strategies: [
+        { name: "BTC 4h", symbols: ["BTCUSDT"] },
+        // A malformed list of symbols reads as none known, never as a crash.
+        { name: "Odd", symbols: [] },
+      ],
+    });
+  });
+
+  it("tells a changed account and a refused identity apart from anything else", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(jsonResponse({ detail: { error: "ACCOUNT_CHANGED", message: "try again" } }, 409)),
+    );
+    await expect(deleteAccount()).resolves.toEqual({ kind: "changed" });
+
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse({ detail: "boom" }, 500)));
+    await expect(deleteAccount()).resolves.toEqual({ kind: "unknown" });
+
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("offline")));
+    await expect(deleteAccount()).resolves.toEqual({ kind: "unknown" });
   });
 });

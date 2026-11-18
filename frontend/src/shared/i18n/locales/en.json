@@ -985,6 +985,26 @@
         "inFlightAttempts_other": "{{count}} orders being placed right now. Wait for them to finish, then try again.",
         "openDiscrepancies": "Unresolved reconciliation discrepancy on: {{symbols}}. The venue may hold a position this system does not track, and this key is what can close it. To change keys, save the new one instead of deleting this one: it replaces it."
       }
+    },
+    "account": {
+      "title": "Delete account",
+      "erased": "Erased: your e-mail, your display name and every API key.",
+      "closed": "Closed: your strategies are archived and made private, and every subscription to them ends, yours included. Your subscriptions to other strategies end too.",
+      "kept": "Kept, without your name: your trades and their records, which others depend on.",
+      "refused": "It cannot be done while you, or a subscriber of one of your strategies, holds a position.",
+      "open": "Delete account",
+      "confirmTitle": "Delete your account?",
+      "confirmBody": "This cannot be undone. Type your e-mail to confirm.",
+      "emailLabel": "Your e-mail",
+      "confirm": "Delete account",
+      "pending": "Deleting…",
+      "cancel": "Cancel",
+      "holds": "Your account cannot be deleted while a position is open.",
+      "heldSymbols": "Your positions: {{symbols}}",
+      "heldStrategy": "{{name}}: {{symbols}}",
+      "heldStrategyUnlisted": "{{name}}: something is still held",
+      "changed": "Something changed while the account was being deleted. Try again.",
+      "failed": "The account could not be deleted. Try again."
     }
   },
   "auth": {
@@ -995,5 +1015,10 @@
       "signedOut": "Your session has ended.",
       "signInAgain": "Sign in again"
     }
+  },
+  "accountDeleted": {
+    "title": "Your account was deleted",
+    "body": "Your e-mail, your name and your keys are gone. Signing in again with the same e-mail starts a new, empty account.",
+    "signOut": "Sign out"
   }
 }

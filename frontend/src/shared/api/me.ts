@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
+import { useAccountDeletedStore } from "@/shared/account/account-deleted";
 import { ApiError, apiFetch } from "@/shared/api/client";
 import { CONFIRMED_KEY } from "@/shared/api/discrepancies";
 
@@ -125,6 +126,49 @@ export async function changeMode(mode: Mode): Promise<ChangeModeResult> {
   }
 }
 
+/** A strategy of the user's on which something is still held, by name. */
+export interface HeldStrategy {
+  name: string;
+  symbols: string[];
+}
+
+export type DeleteAccountResult =
+  | { kind: "deleted" }
+  | { kind: "holds"; symbols: string[]; strategies: HeldStrategy[] }
+  | { kind: "changed" }
+  | { kind: "unauthorized" }
+  | { kind: "unknown" };
+
+/** `DELETE /api/me`. It names no user: it deletes the signed-in one's account (account-deletion S2-S5). */
+export async function deleteAccount(): Promise<DeleteAccountResult> {
+  try {
+    await apiFetch<unknown>("/me", { method: "DELETE" });
+    return { kind: "deleted" };
+  } catch (error) {
+    if (!(error instanceof ApiError)) return { kind: "unknown" };
+    if (error.status === 401) return { kind: "unauthorized" };
+    if (error.status === 409 && error.code === "ACCOUNT_HOLDS_POSITIONS") {
+      return {
+        kind: "holds",
+        symbols: symbolsOf(error.fields?.symbols),
+        strategies: heldStrategiesOf(error.fields?.strategies),
+      };
+    }
+    if (error.status === 409 && error.code === "ACCOUNT_CHANGED") return { kind: "changed" };
+    return { kind: "unknown" };
+  }
+}
+
+/** Each entry with a string name; its symbols as `symbolsOf` reads them. Anything else is left out. */
+function heldStrategiesOf(value: unknown): HeldStrategy[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry: unknown) => {
+    if (typeof entry !== "object" || entry === null) return [];
+    const { name, symbols } = entry as { name?: unknown; symbols?: unknown };
+    return typeof name === "string" ? [{ name, symbols: symbolsOf(symbols) }] : [];
+  });
+}
+
 const ME_REFRESH_MS = 60_000;
 
 /** Query key `['me']`, fresh for a minute: the brake can be pulled under an open page. */
@@ -148,6 +192,27 @@ export function useChooseDisplayName() {
     onSettled: async (result) => {
       if (result?.kind === "unauthorized") return;
       await queryClient.refetchQueries({ queryKey: ["me"] });
+    },
+  });
+}
+
+/**
+ * The deletion as a mutation. Every query is cancelled before the request goes, and on a deletion the cache is
+ * dropped and the app is told, so it unmounts every route: after this, a read of `GET /api/me` would sign the same
+ * e-mail in again as a new, empty account.
+ */
+export function useDeleteAccount() {
+  const queryClient = useQueryClient();
+  const markDeleted = useAccountDeletedStore((state) => state.markDeleted);
+  return useMutation<DeleteAccountResult, Error, void>({
+    mutationFn: async () => {
+      await queryClient.cancelQueries();
+      return deleteAccount();
+    },
+    onSuccess: (result) => {
+      if (result.kind !== "deleted") return;
+      markDeleted();
+      queryClient.clear();
     },
   });
 }
