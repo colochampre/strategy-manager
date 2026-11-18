@@ -8,6 +8,7 @@ import { ArchiveControl } from "@/features/strategies/ArchiveControl";
 import { DeleteStrategyControl } from "@/features/strategies/DeleteStrategyControl";
 import { EnablementHistory } from "@/features/strategies/EnablementHistory";
 import { EnableToggle } from "@/features/strategies/EnableToggle";
+import { PAGE_ASIDE } from "@/features/strategies/page-aside";
 import { SeatSettings } from "@/features/strategies/SeatSettings";
 import { AuthorFigures } from "@/features/strategies/RecordFigures";
 import { StopLevelEditor } from "@/features/strategies/StopLevelEditor";
@@ -86,7 +87,7 @@ export function StrategyDetailPage() {
         </div>
         <aside
           aria-label={t("strategies.detail.settings")}
-          className="flex flex-col gap-4 self-start rounded-lg border border-rule bg-panel p-5"
+          className={PAGE_ASIDE}
         >
           <div className="flex flex-wrap items-center justify-between gap-3">
             <h2 className="font-display text-base font-semibold text-ink">{t("strategies.detail.settings")}</h2>

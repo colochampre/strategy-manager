@@ -894,6 +894,14 @@ describe("StrategyDetailPage settings column (L.7)", () => {
     expect(enable.parentElement).toHaveClass("flex-1");
   });
 
+  it("is at least as tall as main leaves room for, from lg up (owner, 2026-11-17)", async () => {
+    renderPage(strategy());
+    await heading("ETH Breakout");
+
+    // The viewport less the top bar (4rem and its 1 px rule) and main's padding (1.75rem above and below).
+    expect(settingsColumn()).toHaveClass("lg:min-h-[calc(100dvh-7.5rem-1px)]");
+  });
+
   it("spaces the sections apart by more than a section spaces its own title, field and slider (owner, 2026-11-17)", async () => {
     renderPage(strategy());
     await heading("ETH Breakout");
