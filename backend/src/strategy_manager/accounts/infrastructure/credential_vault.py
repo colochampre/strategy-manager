@@ -17,7 +17,7 @@ from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from strategy_manager.accounts.domain.errors import ConcurrentCredentialSave
+from strategy_manager.accounts.domain.errors import AccountDeleted, ConcurrentCredentialSave
 from strategy_manager.accounts.domain.exchange_credential import (
     CredentialHint,
     ExchangeCredential,
@@ -25,6 +25,7 @@ from strategy_manager.accounts.domain.exchange_credential import (
     KeyFacts,
 )
 from strategy_manager.accounts.infrastructure.models import ExchangeCredentialRow
+from strategy_manager.identity.infrastructure.models import UserRow
 from strategy_manager.shared.application.ports import ClockPort
 from strategy_manager.shared.domain.errors import InvariantViolation
 from strategy_manager.shared.infrastructure.crypto import (
@@ -143,6 +144,7 @@ class SqlAlchemyCredentialVault:
             internal_transfer=facts.internal_transfer,
         )
 
+        await self._lock_live_owner(user_id)
         try:
             # A SAVEPOINT, so a lost race undoes its own deactivation and
             # leaves the caller's transaction usable instead of aborted.
@@ -157,6 +159,21 @@ class SqlAlchemyCredentialVault:
                 ) from None
             raise
         return credential.hint(facts)
+
+    async def _lock_live_owner(self, user_id: UUID) -> None:
+        """The owner's row, ``FOR SHARE``, before any key row (account-deletion
+        S4). ``DeleteAccount`` holds that row ``FOR UPDATE`` and then deletes the
+        keys, so a save that touched a key row first took the two locks in the
+        opposite order and deadlocked with it, or landed a new active key on an
+        account just deleted. Taken here, the save waits for the deletion and
+        then reads it."""
+        deleted_at = (
+            await self._session.execute(
+                select(UserRow.deleted_at).where(UserRow.id == user_id).with_for_update(read=True)
+            )
+        ).scalar_one()
+        if deleted_at is not None:
+            raise AccountDeleted(f"user {user_id} deleted their account")
 
     async def _active_row(self, user_id: UUID, exchange: str) -> ExchangeCredentialRow | None:
         result = await self._session.execute(

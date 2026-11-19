@@ -1,6 +1,7 @@
 """Ports of the identity module (multi-user design AD1)."""
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Protocol
 from uuid import UUID
@@ -74,3 +75,137 @@ class LiveExposurePort(Protocol):
 
 class CommitPort(Protocol):
     async def commit(self) -> None: ...
+
+
+# --- Account deletion (openspec/changes/account-deletion) -------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class LockedPool:
+    """A capital pool whose advisory lock the deletion takes, read from the pool's
+    own row: ``user_id`` is its owner, the deleting user or one of their
+    subscribers."""
+
+    pool_id: int
+    user_id: UUID
+    exchange: str
+    venue: str
+    currency: str
+
+
+@dataclass(frozen=True, slots=True)
+class AuthoredStrategy:
+    id: UUID
+    name: str
+
+
+@dataclass(frozen=True, slots=True)
+class HeldStrategy:
+    """A strategy the user authors on which someone still holds something: an open
+    position, a live reservation or an attempt in flight. ``symbols`` may be empty
+    while a reservation's symbol is not known to the exposure read."""
+
+    id: UUID
+    name: str
+    symbols: tuple[str, ...]
+
+
+class AccountUsersPort(Protocol):
+    async def lock_for_mode_change(self, user_id: UUID) -> None:
+        """The user row ``FOR UPDATE``: an opening in flight holds it ``FOR SHARE``
+        until its reservation commits, so this waits for it."""
+        ...
+
+    async def wipe(self, user_id: UUID, now: datetime) -> None:
+        """The e-mail becomes ``deleted-<id>@invalid``, the display name goes, and
+        ``deleted_at`` is ``now``."""
+        ...
+
+
+class AccountPoolsPort(Protocol):
+    async def pools(self, user_id: UUID) -> Sequence[LockedPool]:
+        """Every capital pool of ``user_id``, enabled or not."""
+        ...
+
+    async def disable_all(self, user_id: UUID) -> int:
+        """Disables every pool of ``user_id``; the number that were enabled."""
+        ...
+
+
+class AuthoredStrategiesPort(Protocol):
+    async def authored(self, user_id: UUID) -> Sequence[AuthoredStrategy]:
+        """Every strategy ``user_id`` authors, archived ones included, lowest id first."""
+        ...
+
+    async def subscriber_pools(self, strategy_id: UUID) -> Sequence[LockedPool]:
+        """The pool of every live (ACTIVE or LEAVING) seat on the strategy."""
+        ...
+
+    async def lock(self, strategy_id: UUID) -> None:
+        """The strategy row ``FOR UPDATE``: a seat inserted on it waits for this."""
+        ...
+
+    async def exposure(self, strategy_id: UUID) -> tuple[str, ...] | None:
+        """``None`` when nobody holds anything on the strategy; otherwise the
+        symbols held, possibly none known."""
+        ...
+
+    async def close(self, strategy_id: UUID, now: datetime) -> int:
+        """Makes the strategy private, disables it, replaces its webhook secret
+        with one nobody holds, archives it and ends every live seat on it; the
+        number of seats ended."""
+        ...
+
+
+@dataclass(frozen=True, slots=True)
+class OwnSeat:
+    """A live seat of the user's on someone else's strategy."""
+
+    id: UUID
+    strategy_id: UUID
+    leaving: bool
+
+
+class OwnSeatsPort(Protocol):
+    async def live(self, user_id: UUID) -> Sequence[OwnSeat]:
+        """Every ACTIVE or LEAVING seat of ``user_id``, each row locked ``FOR UPDATE``."""
+        ...
+
+    async def holds_open(self, user_id: UUID, strategy_id: UUID) -> bool:
+        """``Leave``'s question: a position, a reservation or an opening in flight of
+        the user's on the strategy."""
+        ...
+
+    async def leave(self, user_id: UUID, seat_id: UUID, now: datetime) -> None:
+        """ACTIVE to LEAVING: no new openings; it ends when the last fill closes."""
+        ...
+
+    async def end(self, user_id: UUID, seat_id: UUID, now: datetime) -> None: ...
+
+
+class OwnPositionsPort(Protocol):
+    async def open(self, user_id: UUID) -> Sequence[UUID]:
+        """The allocations the user's ledger still holds, one id each."""
+        ...
+
+    async def request_close(self, user_id: UUID, allocation_id: UUID) -> bool:
+        """Queues the close "Close now" queues; the worker sends it after the commit.
+        ``False`` when nothing new was queued: a close of it is in flight, or a job for
+        it is already waiting."""
+        ...
+
+
+class AccountCredentialsPort(Protocol):
+    async def delete_all(self, user_id: UUID) -> int:
+        """Deletes every key row of ``user_id``, ciphertext included; the number deleted."""
+        ...
+
+
+class AccountPoolLockPort(Protocol):
+    async def acquire(
+        self, user_id: UUID, exchange: str, venue: str, settlement_currency: str
+    ) -> None: ...
+
+
+class AccountClockPort(Protocol):
+    def now(self) -> datetime: ...

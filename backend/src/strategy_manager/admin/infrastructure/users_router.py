@@ -11,6 +11,10 @@ pool and no active key. The worker's own degraded tracking lives in its process.
 
 **Last seen** is ``last_seen_at``, at most a minute stale.
 
+**A deleted account is not listed** (account-deletion S6): its row names nobody.
+``GET /admin/users/deleted-count`` says how many there are, a route of its own so
+the list's body stays the list it was.
+
 The route reads in one read-only ``REPEATABLE READ`` snapshot, in a fixed number
 of statements however many users there are.
 """
@@ -21,6 +25,7 @@ from pydantic import BaseModel
 from strategy_manager.admin.application.read_users import ReadUsers, UserState
 from strategy_manager.admin.infrastructure.users_source import SqlAlchemyUsersSource
 from strategy_manager.identity.infrastructure.dependencies import require_admin
+from strategy_manager.identity.infrastructure.user_repository import SqlAlchemyUserRepository
 from strategy_manager.performance.infrastructure.open_positions_router import (
     SnapshotSessionDep,
 )
@@ -57,7 +62,18 @@ def _body(state: UserState) -> AdminUserBody:
     )
 
 
+class DeletedCountBody(BaseModel):
+    deleted_accounts: int
+
+
 @router.get("", response_model=list[AdminUserBody])
 async def list_users(session: SnapshotSessionDep) -> list[AdminUserBody]:
     states = await ReadUsers(SqlAlchemyUsersSource(session)).read()
     return [_body(state) for state in states]
+
+
+@router.get("/deleted-count", response_model=DeletedCountBody)
+async def deleted_count(session: SnapshotSessionDep) -> DeletedCountBody:
+    return DeletedCountBody(
+        deleted_accounts=await SqlAlchemyUserRepository(session).count_deleted()
+    )

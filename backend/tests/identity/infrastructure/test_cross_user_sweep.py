@@ -237,6 +237,9 @@ PROBES: tuple[Probe, ...] = (
     Probe("GET", "/api/me", answers=200),
     Probe("POST", "/api/me/mode", body={"mode": "SIMULATION"}, answers=200),
     Probe("PUT", "/api/me/display-name", body={"display_name": "Somebody"}, answers=200),
+    # B deletes B's own account: A's rows stay exactly as they were, a seat B held
+    # on A's strategy included only as B's (the world is built again per probe).
+    Probe("DELETE", "/api/me", answers=204),
     Probe("POST", "/api/strategies", body=_NEW_STRATEGY, answers=201),
     Probe("GET", "/api/webhook-origin", answers=200),
 )

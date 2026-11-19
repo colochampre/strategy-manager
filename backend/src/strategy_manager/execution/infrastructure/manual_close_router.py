@@ -9,12 +9,9 @@ and answers 202; the worker closes through ``ClosePosition`` with that user's ow
 - The allocation must be the signed-in user's own and still hold a position. Another user's id,
   an unknown one and a flat one all answer 404, and enqueue nothing: the three are told apart by
   nobody, so the route is no oracle for other users' allocations.
-- If the latest close of the allocation is SUBMITTED the route answers 202
-  ``ALREADY_IN_FLIGHT`` and enqueues nothing.
-- Otherwise it enqueues the job with ``enqueue_unique``. Its key is the allocation plus the id of
-  the allocation's latest close attempt (or ``none``): a second click before the job ran
-  enqueues nothing new, and a retry after a FAILED close, whose attempt id is new, enqueues
-  again. A finished job keeps its key until the purge, which is why the attempt id is part of it.
+- Otherwise ``queue_manual_close`` queues the job, or answers 202 ``ALREADY_IN_FLIGHT`` and
+  queues nothing while the latest close of the allocation is SUBMITTED. Its docstring has the
+  dedupe key; deleting an account queues the same job through it.
 
 It uses the plain writable session: the open positions listing next to it reads a snapshot, and a
 route that enqueues cannot.
@@ -26,21 +23,15 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from strategy_manager.execution.domain.execution_attempt import ExecutionStatus
-from strategy_manager.execution.infrastructure.repository import (
-    SqlAlchemyExecutionAttemptRepository,
-)
+from strategy_manager.execution.infrastructure.manual_close_queue import queue_manual_close
 from strategy_manager.execution.infrastructure.stopped_positions_reader import (
     SqlAlchemyStoppedPositionsReader,
 )
 from strategy_manager.identity.domain.user import User
 from strategy_manager.identity.infrastructure.dependencies import current_user
-from strategy_manager.shared.application.job import Job, JobKind
 from strategy_manager.shared.db import get_session
-from strategy_manager.shared.infrastructure.job_queue import PostgresJobQueue
 
 logger = logging.getLogger(__name__)
 
@@ -66,41 +57,20 @@ async def close_now(
     if held is None or held.net_base == 0:
         raise HTTPException(status_code=404, detail="position not found")
 
-    latest = await SqlAlchemyExecutionAttemptRepository(session).latest_close_for(
-        user.id, allocation_id
-    )
-    if latest is not None and latest.status is ExecutionStatus.SUBMITTED:
+    queued = await queue_manual_close(session, user.id, allocation_id)
+    if queued.status == "ALREADY_IN_FLIGHT":
         logger.info(
             "close now refused as already in flight: user=%s allocation=%s attempt=%s",
             str(user.id)[:8],
             allocation_id,
-            latest.id,
+            queued.attempt_id,
         )
         return ManualCloseResponse(status="ALREADY_IN_FLIGHT")
-
-    dedupe_key = f"manual_close:{allocation_id}:{latest.id if latest else 'none'}"
-    # A finished job keeps its key until the purge, days later. One that ended without an
-    # attempt (no key could sign, the ledger was not settled yet) would leave the key
-    # unchanged and the button dead, so only a job still waiting or running dedupes.
-    await session.execute(
-        text(
-            "UPDATE jobs SET dedupe_key = NULL "
-            "WHERE dedupe_key = :key AND status IN ('DONE', 'FAILED')"
-        ),
-        {"key": dedupe_key},
-    )
-    _, inserted = await PostgresJobQueue(session).enqueue_unique(
-        Job(
-            kind=JobKind.MANUAL_CLOSE,
-            payload={"user_id": str(user.id), "allocation_id": str(allocation_id)},
-            dedupe_key=dedupe_key,
-        )
-    )
     await session.commit()
     logger.info(
         "close now accepted: user=%s allocation=%s queued=%s",
         str(user.id)[:8],
         allocation_id,
-        inserted,
+        queued.inserted,
     )
     return ManualCloseResponse(status="QUEUED")

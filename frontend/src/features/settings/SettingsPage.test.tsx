@@ -107,14 +107,14 @@ describe("the page's structure", () => {
     await cardsDrawn();
   });
 
-  it("puts the headings in order: h1, h2, then one h3 per exchange", async () => {
+  it("puts the headings in order: h1, h2, then one h3 per exchange, and the account's deletion last", async () => {
     stub(ok(storedKey("bybit")));
     mountPage();
     await cardsDrawn();
     await screen.findByRole("heading", { level: 2, name: "Profile" });
 
     const outline = screen.getAllByRole("heading").map((heading) => `${heading.tagName} ${headingName(heading)}`);
-    expect(outline).toEqual(["H1 Settings", "H2 Profile", "H2 Exchange keys", "H3 Bybit"]);
+    expect(outline).toEqual(["H1 Settings", "H2 Profile", "H2 Exchange keys", "H3 Bybit", "H2 Delete account"]);
   });
 
   it("draws the cards as a list, one item per exchange, each holding its article", async () => {

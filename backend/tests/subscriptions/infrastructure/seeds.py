@@ -12,6 +12,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from strategy_manager.execution.domain.fill import REHEARSAL_FILL_ID_PREFIX
 from strategy_manager.ledger.infrastructure.models import LedgerEntryRow
 from strategy_manager.subscriptions.infrastructure.models import SubscriptionRow
 from tests.ledger.infrastructure.conftest import (
@@ -124,11 +125,13 @@ async def open_allocation(
     *,
     symbol: str = "STXUSDT",
     market: tuple[str, str, str] = MARKET,
+    simulated: bool = False,
 ) -> UUID:
     """A FILLED reservation and its BUY fill in the user's ledger: a position the
     strategy holds for that user. The alert's spelling is ``STXUSDT.P``; the
     ledger holds the venue's ``STXUSDT`` (``symbol``, when a test needs another
-    market). Returns the allocation's id."""
+    market). ``simulated`` records the reservation in SIMULATION and the fill under
+    the ids the simulated exchange mints. Returns the allocation's id."""
     signal_id, reservation_id, attempt_id = uuid4(), uuid4(), uuid4()
     exchange, venue, currency = market
     await seed_signal(
@@ -147,6 +150,7 @@ async def open_allocation(
         exchange=exchange,
         venue=venue,
         settlement_currency=currency,
+        mode="SIMULATION" if simulated else "LIVE",
     )
     await seed_execution_attempt(
         factory,
@@ -178,7 +182,9 @@ async def open_allocation(
                 fee_currency=currency,
                 notional=Decimal("1"),
                 exchange_order_id=f"order-{entry_id}",
-                exchange_fill_id=f"fill-{entry_id}",
+                exchange_fill_id=(
+                    f"{REHEARSAL_FILL_ID_PREFIX}{entry_id}" if simulated else f"fill-{entry_id}"
+                ),
                 filled_at=datetime.now(UTC),
                 usd_rate_at_fill=Decimal("1"),
             )

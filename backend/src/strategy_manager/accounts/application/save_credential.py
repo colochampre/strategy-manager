@@ -56,6 +56,7 @@ from strategy_manager.accounts.application.ports import (
     RealExposurePort,
 )
 from strategy_manager.accounts.domain.errors import (
+    AccountDeleted,
     ConcurrentCredentialSave,
     KeyRejected,
     VenueUnreachable,
@@ -88,6 +89,7 @@ class SaveOutcome(StrEnum):
     CONFIRMATION_NOT_APPLICABLE = "CONFIRMATION_NOT_APPLICABLE"
     CONCURRENT_SAVE = "CONCURRENT_SAVE"
     EXCHANGE_HOLDS_REAL_EXPOSURE = "EXCHANGE_HOLDS_REAL_EXPOSURE"
+    ACCOUNT_DELETED = "ACCOUNT_DELETED"
 
 
 @dataclass(frozen=True, slots=True)
@@ -180,6 +182,8 @@ class SaveCredential:
             await self._writer.store(user_id, credential, facts)
         except ConcurrentCredentialSave as exc:
             return self._refused_with(exchange, SaveOutcome.CONCURRENT_SAVE, str(exc))
+        except AccountDeleted as exc:
+            return self._refused_with(exchange, SaveOutcome.ACCOUNT_DELETED, str(exc))
         # Decision 21: the same transaction as the credential, after it. Nothing
         # above reaches here on a refusal, a venue failure or a lost race, so a
         # pool is only ever switched on for a key that was stored.

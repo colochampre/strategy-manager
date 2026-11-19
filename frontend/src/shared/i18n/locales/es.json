@@ -985,7 +985,27 @@
         "openDiscrepancies": "Discrepancia de conciliación sin resolver en: {{symbols}}. El exchange puede tener una posición que este sistema no registra, y esta clave es la que puede cerrarla. Para cambiar de clave, guarde la nueva en lugar de eliminar esta: la reemplaza."
       }
     },
-    "title": "Configuración"
+    "title": "Configuración",
+    "account": {
+      "title": "Eliminar cuenta",
+      "erased": "Se borran: su e-mail, su nombre visible y todas sus claves API.",
+      "closed": "Se cierran: sus estrategias se archivan y pasan a privadas, y terminan todas las suscripciones a ellas, incluida la suya. También terminan sus suscripciones a otras estrategias, y sus posiciones simuladas en ellas se cierran a mercado.",
+      "kept": "Se conservan, sin su nombre: sus operaciones y sus registros, de los que dependen otros.",
+      "refused": "No se puede hacer mientras usted tenga una posición real abierta, o alguien tenga una posición abierta en una de sus estrategias.",
+      "open": "Eliminar cuenta",
+      "confirmTitle": "¿Eliminar su cuenta?",
+      "confirmBody": "Esto no se puede deshacer. Escriba su e-mail para confirmar.",
+      "emailLabel": "Su e-mail",
+      "confirm": "Eliminar cuenta",
+      "pending": "Eliminando…",
+      "cancel": "Cancelar",
+      "holds": "Su cuenta no se puede eliminar mientras haya una posición abierta.",
+      "heldSymbols": "Sus posiciones: {{symbols}}",
+      "heldStrategy": "{{name}}: {{symbols}}",
+      "heldStrategyUnlisted": "{{name}}: todavía hay algo abierto",
+      "changed": "Algo cambió mientras se eliminaba la cuenta. Vuelva a intentarlo.",
+      "failed": "No se pudo eliminar la cuenta. Vuelva a intentarlo."
+    }
   },
   "auth": {
     "gate": {
@@ -995,5 +1015,10 @@
       "signedOut": "Su sesión terminó.",
       "signInAgain": "Ingresar de nuevo"
     }
+  },
+  "accountDeleted": {
+    "title": "Su cuenta fue eliminada",
+    "body": "Su e-mail, su nombre y sus claves ya no están. Si vuelve a ingresar con el mismo e-mail, se crea una cuenta nueva y vacía.",
+    "signOut": "Cerrar sesión"
   }
 }

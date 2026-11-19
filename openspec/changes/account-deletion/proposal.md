@@ -14,6 +14,14 @@ operation exists.
   chosen "Block until clear"): deletion is refused while any of their
   strategies has active subscribers or subscribers with open positions, so
   nobody is left holding a position no signal will close.
+- Revised 2026-11-18, once `subscriber-safety` was delivered (tasks.md L4-L6):
+  only an open position refuses. The author's strategies are archived, which
+  ends every seat on them, the author's own included, and the user's seats on
+  other authors' strategies end too.
+- Revised again 2026-11-18 (tasks.md L9-L10): only a REAL position of the
+  user's refuses. A simulated one on another author's strategy is closed at
+  market by the worker, as "Close now" would close it, and its seat leaves
+  until the close's last fill ends it.
 
 ## Why anonymise, not delete
 
@@ -29,8 +37,9 @@ enough under art. 16 is the lawyer's question 3 (`public-site/proposal.md`).
 - **Refused** (409, with the reasons listed, nothing changed) while the user:
   - holds anything real: `SqlAlchemyLiveExposure.symbols(user_id)`
     (`execution/infrastructure/live_exposure.py:55`) is not empty;
-  - has a live subscription of their own (ACTIVE or LEAVING): they leave it first;
-  - authors a strategy with a live subscriber.
+  - authors a strategy on which anyone holds an open position, a live
+    reservation or an in-flight attempt (the exposure `ArchiveStrategy`
+    refuses on).
 - **Wiped:**
   - `users.email` becomes `deleted-<id>@invalid`, which keeps the NOT NULL,
     unique and normalised constraints and frees the real address;
@@ -39,8 +48,12 @@ enough under art. 16 is the lawyer's question 3 (`public-site/proposal.md`).
     included. Deactivating is not enough, because `DeleteCredential` keeps the
     encrypted columns.
 - **Closed:**
-  - every strategy they author becomes PRIVATE (its `share_token` goes) and is
-    disabled;
+  - every strategy they author becomes PRIVATE (its `share_token` goes), is
+    disabled and archived, and every live subscription on it ends;
+  - their live subscriptions to other authors' strategies end. One still
+    holding a simulated position goes LEAVING instead, the close "Close now"
+    queues is queued for that position in the same commit, and the close's
+    last fill ends the seat;
   - its webhook secret is replaced by a random one nobody holds, so the
     author's TradingView alerts are refused;
   - their capital pools are disabled.

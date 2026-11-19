@@ -2,6 +2,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
+import { DeleteAccountSection } from "@/features/settings/DeleteAccountSection";
 import { DeleteKeyControl } from "@/features/settings/DeleteKeyControl";
 import { DisplayNameSection } from "@/features/settings/DisplayNameSection";
 import { ExchangeKeyCard } from "@/features/settings/ExchangeKeyCard";
@@ -347,6 +348,7 @@ export function SettingsPage() {
           </>
         )}
       </section>
+      <DeleteAccountSection />
     </div>
   );
 }

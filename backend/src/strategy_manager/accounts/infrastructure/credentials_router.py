@@ -115,6 +115,7 @@ OUTCOME_STATUS: dict[SaveOutcome, int] = {
     SaveOutcome.VENUE_UNREACHABLE: 502,
     SaveOutcome.CONCURRENT_SAVE: 409,
     SaveOutcome.EXCHANGE_HOLDS_REAL_EXPOSURE: 409,
+    SaveOutcome.ACCOUNT_DELETED: 409,
 }
 
 
