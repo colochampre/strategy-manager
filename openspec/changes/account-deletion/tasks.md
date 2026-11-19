@@ -1,7 +1,8 @@
 # Account deletion — tasks
 
 Branch: `feat/account-deletion`, cut from `main` at `0419adb` on 2026-11-18.
-Strict TDD; gate after every unit. In progress.
+Strict TDD; gate after every unit. Delivered 2026-11-19 as PR #118 (merge
+`833712e9f006`), except T4, which waits for `feat/public-site`.
 
 **S2 revised (L4-L6, 2026-11-18).** `subscriber-safety` is delivered, so
 subscribers can no longer be stranded. Only a position refuses the deletion.
@@ -130,7 +131,29 @@ is rehearsed on a throwaway database restored from a fresh backup.
 - [ ] T4 S7 policy and terms text. **Blocked:** the privacy policy, the terms
   and `PRIVACY_VERSION` exist only on `feat/public-site`, not merged and on
   standby. The text changes there, with that branch.
-- [ ] T5 Migration rehearsal, deploy steps for the owner, and the delivery log.
+- [x] T5 Migration rehearsal, deploy steps for the owner, and the delivery log.
+  - Delivered 2026-11-19 as PR #118 (merge `833712e9f006`), 8 commits.
+  - Rehearsal (`rehearse_0045.sh`, by the owner) on `sm_rehearsal_0045`,
+    restored from `pre-0045-rehearsal-20261119T182631Z.dump`:
+    - 0044 to 0045: the column and the CHECK present, no user marked
+      deleted, and every public table's rows (`deleted_at` left out) hashed
+      the same before and after;
+    - on the copy, a deleted row keeping its e-mail was refused and a wiped
+      row accepted, both rolled back;
+    - the downgrade to 0044 dropped both, and the re-upgrade made them
+      again, the rows the same each time. The copy was dropped.
+  - Production (`deploy_0045.sh`), 149 minutes into the 4h candle: backup
+    `pre-0045-deploy-20261119T182939Z.dump`, then 0044 to 0045. 4 users, none
+    marked deleted, the CHECK present. Both services `active`. Unsigned,
+    `DELETE /api/me` and `GET /api/admin/users/deleted-count` answer 401
+    (the old code answered 405 to the first). The vault self-test opened both
+    keys. The only lines the ERROR grep matched were the two INFO lines of
+    `alerts.composition`, known noise.
+  - The panel (pps.6) was built from a clean worktree of `origin/main`.
+    Archive SHA-256:
+    `49912aa5c3544a87dc1514937bc665ab4e1021ee77538dde9e2e68dcebb2f1b2`.
+    The VPS printed `OK` and `readable`, and bundle and checkout both at
+    `833712e9f006`.
 
 ## Log
 
@@ -186,3 +209,5 @@ is rehearsed on a throwaway database restored from a fresh backup.
   counted closes already on their way), and a ledger symbol whose base
   cannot be split makes the deletion a 500 (out of domain).
 - L12 (owner, 2026-11-18), on fixing A6 and A8: "Dale, si".
+- L13 (owner, 2026-11-19): "Dale, push y PR" (PR #118), then "Hecho el
+  merge". Rehearsed, deployed and the panel published the same day (T5).
