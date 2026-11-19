@@ -87,7 +87,68 @@ Not legal advice; primary texts where found, for the lawyer to confirm.
 
 Sources: argentina.gob.ar (Ley 24.240, RG CNV 1058/2025, AAIP international transfers), marval.com, abogados.com.ar, aldiaargentina.microjuris.com, pensamientocivil.com.ar.
 
+## The lawyer's answers (consultation, notes received 2026-11-19)
+
+The owner's notes, taken during the consultation, verbatim:
+
+> Evitar exponerse a la legislación de cada país. Cuanto menos exposición mejor. Evitar principalmente Estados Unidos y países que suelen evitar brindar servicios aplicaciones importantes (por algo será que algunos países se evitan).
+>
+> Titular de los datos
+> Registrar la base de datos
+>
+> Normativa europea
+> La información personal no se comparte con terceros
+> Casilla de consentimiento sirve
+>
+> Pedir nombre, apellido, país y edad +18
+> Pedir cuit si el usuario tiene mucho volumen. Segmentar los perfiles de usuario. Se podría exigir los datos cuando el usuario supera ciertos montos.
+> Resoluciones de la UIF.
+>
+> Hay consumidor financiero.
+> No tomar usuarios norteamericanos. Recomendado por ahora: limitar a solo Argentina
+> Verificar en términos que la veracidad de sus datos es cierta.
+> Derecho reservado a suspensión de cuenta si el usuario falsea datos.
+>
+> Dejar bien claro:
+> Qué servicio da la app, en que condiciones, cómo, a qué te obligas, cómo recibe el servicio el usuario.
+> Riesgos vinculados a estrategias de terceros.
+>
+> Conectar via api consultas.siaj.ar    config > api key > conector personalizado > mcp
+> Normativa argentina con temas financieros y regulatoria
+> Defensa consumidor, que busque aspectos de defensa respecto al caso de la app.
+> regulaciones de uif
+>
+> Redactar bien especificado lo que se garantiza del funcionamiento de la app y responsabilidad ante fallos de la app, de tradingview o el Exchange vinculado. Responsabilidad de pérdidas ocasionadas por suscribirse a estrategias de terceros
+
+The lawyer also set up SIAJ Consultas (`consultas.siaj.ar`), a search over Argentine legislation, and suggested connecting it as an MCP server. The owner connected it at user scope on 2026-11-19. Its key is personal and lives only in the owner's Claude configuration, never in this repository.
+
+How the notes map onto the nine questions (the assistant's reading, for the owner to correct):
+
+- **1 (registration, privacy policy):** "Titular de los datos", "Registrar la base de datos".
+- **2 (international transfer):** "Normativa europea", "La información personal no se comparte con terceros", "Casilla de consentimiento sirve".
+- **3 (deletion):** not in the notes. Anonymising is what the account-deletion change built.
+- **4 (financial regulation):** "Resoluciones de la UIF", "Hay consumidor financiero", "Normativa argentina con temas financieros y regulatoria", "regulaciones de uif", and the CUIT above a volume.
+- **5 (liability):** "Redactar bien especificado lo que se garantiza…", "Riesgos vinculados a estrategias de terceros".
+- **6 (users abroad):** "No tomar usuarios norteamericanos. Recomendado por ahora: limitar a solo Argentina".
+- **7 (minimum age):** "edad +18".
+- **8 (terms while free):** "Dejar bien claro: Qué servicio da la app…".
+- **9 (acceptance):** "Casilla de consentimiento sirve".
+- **New, not asked:** asking for name, surname and country; the user vouching that their data is true; suspending an account whose data is false; segmenting profiles by volume.
+
+### What SIAJ says on the notes (researched 2026-11-19)
+
+Read through SIAJ by a research worker, for the lawyer to confirm; not legal advice. Unread parts are listed at the end.
+
+- **PSAV.** RG CNV 1058/2025 art. 8 labels category 4 "Custodia y/o administración de Activos Virtuales o instrumentos que permitan el control sobre los mismos (siempre y cuando no sean no custodiados)", and its custody articles speak of private keys, wallets and segregated client assets. No sentence was found that places a non-custodial executor, trading through the user's own key, inside or outside it, and none on whether a perpetual contract is an "activo virtual". Natural persons may only do categories 1 and 2 (art. 8), and are exempt from registering while all their activity stays at or below 35,000 UVA per calendar month, valued at the last day's UVA (art. 1). Aiming at Argentine residents is itself a "punto de contacto" (art. 3).
+  [RG 1058/2025](https://consultas.siaj.ar/ver/LEG%3Acnv%3ACNV-410635)
+- **CNV advice and management.** An AAGI (asesoramiento, gestión de órdenes, administración de carteras) must be a company, and the figure is grounded in Ley 26.831's "valores negociables". Whether these perpetuals are valores negociables was not answered. [Normas CNV Tít. VII Cap. IV](https://consultas.siaj.ar/ver/LEG%3Acnv%3ACNV-NT-T07-C04)
+- **UIF.** Res. UIF 49/2024 binds PSAVs registered with the CNV. For every natural-person client, at onboarding and regardless of volume (art. 23): full name, document, nationality, date and place of birth, CUIL/CUIT, real address, phone and e-mail, occupation, PEP and sanctions checks; biometrics for remote onboarding (art. 22). Volume only grades the client's risk (arts. 26-29), and fixed amounts appear only in reporting (art. 39, 6 SMVM a month). So "pedir CUIT si el usuario tiene mucho volumen" does not match that scheme: if the app were a sujeto obligado, the CUIT would be asked of everyone. [Res. UIF 49/2024](https://consultas.siaj.ar/ver/LEG%3Auif%3AUIF-397597)
+- **Consumer law.** Ley 24.240 art. 4 (clear, detailed information on the service and its conditions) and art. 37 a) (a clause limiting liability for damage is held not agreed). Disposición 954/2025 replaced Res. 316/2018 and 424/2020: a service contracted at a distance shows, in plain sight and at first access, a link to cancel it with no prior sign-in (art. 4), and the "botón de arrepentimiento". [Ley 24.240](https://consultas.siaj.ar/ver/LEG%3Anacion%3A638), [Disp. 954/2025](https://consultas.siaj.ar/ver/LEG%3Anacion%3A417152)
+- **Personal data.** Ley 25.326 art. 6 lists what the user is told before collection (purpose and recipients, the file and its owner's identity and address, mandatory or optional answers, consequences, the rights of access, rectification and deletion). Art. 21 registration names private databases "destinado a proporcionar informes"; whether this one is caught, and the AAIP's current procedure, were not settled. [Ley 25.326](https://consultas.siaj.ar/ver/LEG%3Anacion%3A64790)
+- **Argentina only, 18+.** Nothing read forbids refusing foreign residents or requires 18+; both are choices the norms allow.
+- **Not read or not found:** RG 1058 past art. 16; RG CNV 994/2024; Ley 25.246 art. 20 itself; Ley 26.831 art. 2; Disposición 377/2026 (not found in SIAJ); "consumidor financiero"; the AAIP's current registration rule.
+
 ## Out of scope
 
 - The paid plans themselves, and the seat-priority requirement (multi-user `tasks.md`, under G.D.5).
-- A "delete my account" feature. It may follow from question 3, as its own change.
+- A "delete my account" feature. It may follow from question 3, as its own change. *Delivered as its own change (`account-deletion`, PR #118, 2026-11-19).*

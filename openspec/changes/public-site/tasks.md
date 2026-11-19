@@ -4,6 +4,8 @@ The plan is in `proposal.md`. Each task records its evidence when done. Push, PR
 
 **On standby (owner, 2026-11-12)**, except PS.0: the site, Google and the paid plans wait for the lawyer's and an accountant's answers. The owner's words: "Bueno, todo esto queda en standby. Es complejo, tengo que hacer esas consultas y me hacen plantearme si vale la pena".
 
+**Resumed 2026-11-19** after the lawyer's consultation (owner: "Después vamos con lo que me dijo el abogado en la consulta"). The notes are in `proposal.md`, verbatim. The branch was rebuilt as `feat/public-site-v2` from `main` at `60315d2`: its 10 own commits were cherry-picked, and the 15 others, docs that had reached `main` another way, were left behind. `feat/public-site` is kept, untouched, as it was.
+
 - [ ] PS.0 The privacy policy inside the panel, now (owner, 2026-11-12: "Dale, arrancá con el borrador dentro del panel"). Sign-up is open, so whoever signs in is told what is stored when it is stored (Ley 25.326 art. 6).
   - `/privacy` in the shell, EN and ES, written from the inventory in `proposal.md`; a link at the foot of every page; a notice on the first visit that links it, dismissed per browser and per policy version (`PRIVACY_VERSION`), not a record of consent.
   - Placeholders the owner fills before the panel moves: `[FULL NAME]`, `[ADDRESS]`, `[DATE]`, `[LOG RETENTION]`, `[BACKUP RETENTION]`, `[HOW TRADE RECORDS ARE HANDLED ON DELETION]`, and their Spanish twins. The last one waits for the lawyer (question 3). Every panel deploy (pps.6) from now on refuses a bundle that still holds `[FULL NAME]` or `[NOMBRE COMPLETO]`.
