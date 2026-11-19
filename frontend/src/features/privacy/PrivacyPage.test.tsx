@@ -97,6 +97,33 @@ describe("privacy policy page", () => {
     expect(screen.getByText(/encrypted before they are stored/i)).toBeInTheDocument();
   });
 
+  it("names the identity asked at sign-up, says it is required, and records each acceptance", () => {
+    renderAt(<PrivacyPage />);
+
+    expect(screen.getByText(/first name, last name, CUIT and country of residence/)).toBeInTheDocument();
+    expect(screen.getByText(/are required: without them the app cannot be used/)).toBeInTheDocument();
+    expect(screen.getByText(/Every acceptance of the terms and of this policy/)).toBeInTheDocument();
+  });
+
+  it("asks the express consent the transfer abroad needs", () => {
+    renderAt(<PrivacyPage />);
+
+    expect(screen.getByText(/you expressly consent to that international transfer/)).toBeInTheDocument();
+  });
+
+  it("explains the deletion button and what it keeps, with no placeholder left", () => {
+    renderAt(<PrivacyPage />);
+
+    expect(screen.getByText(/delete your account from Settings/)).toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent("[HOW TRADE RECORDS");
+  });
+
+  it("says the records answer a competent authority, and nobody else", () => {
+    renderAt(<PrivacyPage />);
+
+    expect(screen.getByText(/only when a competent authority requests them/)).toBeInTheDocument();
+  });
+
   it("carries the control authority's notice that Argentine law requires", () => {
     renderAt(<PrivacyPage />);
 

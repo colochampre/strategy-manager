@@ -10,15 +10,19 @@ import { lock, renderAt, stubApi, unlock } from "@/test/harness";
 const SECTIONS_EN = [
   "Who provides the service",
   "What the service does",
+  "Who may use it",
+  "What we commit to",
+  "What you commit to",
   "Not financial advice",
   "Risks",
-  "Your account and keys",
+  "Strategies by other users",
   "Strategies you publish",
   "Acceptable use",
   "Availability",
   "Liability",
+  "Records and authorities",
   "Price",
-  "Stopping",
+  "Stopping and suspension",
   "Privacy",
   "Changes to these terms",
   "Governing law",
@@ -28,15 +32,19 @@ const SECTIONS_EN = [
 const SECTIONS_ES = [
   "Quién presta el servicio",
   "Qué hace el servicio",
+  "Quién puede usarlo",
+  "A qué nos obligamos",
+  "A qué se obliga usted",
   "No es asesoramiento financiero",
   "Riesgos",
-  "Su cuenta y sus keys",
+  "Estrategias de otros usuarios",
   "Estrategias que publica",
   "Uso aceptable",
   "Disponibilidad",
   "Responsabilidad",
+  "Registros y autoridades",
   "Precio",
-  "Baja",
+  "Baja y suspensión",
   "Privacidad",
   "Cambios en estos términos",
   "Ley aplicable",
@@ -103,6 +111,44 @@ describe("terms of service page", () => {
     expect(screen.getByText(/the courts of your domicile/)).toBeInTheDocument();
     expect(document.body).not.toHaveTextContent("[JURISDICTION]");
     expect(document.body).not.toHaveTextContent("[LIABILITY LIMIT");
+  });
+
+  it("is offered only to adults resident in Argentina, on true data, and reserves suspension", () => {
+    renderAt(<TermsPage />);
+
+    expect(screen.getByText(/adults resident in Argentina/)).toBeInTheDocument();
+    expect(screen.getByText(/is not offered to residents of other countries/)).toBeInTheDocument();
+    expect(screen.getByText(/first name, last name, CUIT and country of residence/)).toBeInTheDocument();
+    expect(screen.getByText(/suspend or close an account whose data is false/)).toBeInTheDocument();
+  });
+
+  it("says what the service commits to and what it does not guarantee", () => {
+    renderAt(<TermsPage />);
+
+    expect(screen.getByText(/We commit to:/)).toBeInTheDocument();
+    expect(screen.getByText(/We do not guarantee profits/)).toBeInTheDocument();
+  });
+
+  it("states the risks of another user's strategy and who answers for its losses", () => {
+    renderAt(<TermsPage />);
+
+    expect(screen.getByText(/authored by another user/)).toBeInTheDocument();
+    expect(screen.getByText(/Losses from a strategy you subscribe to are market risk/)).toBeInTheDocument();
+  });
+
+  it("separates the app's failures from TradingView's and the exchange's", () => {
+    renderAt(<TermsPage />);
+
+    expect(screen.getByText(/A failure of TradingView/)).toBeInTheDocument();
+    expect(screen.getByText(/A failure of your exchange/)).toBeInTheDocument();
+  });
+
+  it("keeps the records a competent authority may request, and points to the deletion button", () => {
+    renderAt(<TermsPage />);
+
+    expect(screen.getByText(/only when a competent authority requests them/)).toBeInTheDocument();
+    expect(screen.getByText(/delete your account from Settings/)).toBeInTheDocument();
+    expect(screen.getByText(/asks you to accept them again/)).toBeInTheDocument();
   });
 
   it("reads in Spanish", async () => {

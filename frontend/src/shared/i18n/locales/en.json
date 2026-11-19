@@ -1035,7 +1035,7 @@
     "copyright": "© {{year}} Strategy Manager",
     "notice": {
       "label": "Privacy",
-      "body": "Strategy Manager stores your e-mail and what you enter here, only to run the service for you.",
+      "body": "Strategy Manager stores your e-mail, your identity and what you enter here, only to run the service for you.",
       "read": "Read the privacy policy",
       "dismiss": "Got it"
     },
@@ -1048,26 +1048,30 @@
         "title": "What the app stores",
         "intro": "Only what it needs to run the service for you:",
         "email": "Your e-mail address, which Cloudflare Access verifies when you sign in, the date you joined and the last time you used the app.",
+        "identity": "Your first name, last name, CUIT and country of residence, which you give when you sign up, and your declarations that you are 18 or older and that this data is true.",
         "name": "The display name you choose, if you choose one.",
         "keys": "The API keys you add for your exchanges. They are encrypted before they are stored, opened only to sign your orders, and never shown again except for their last four characters. A key that allows withdrawals is refused.",
         "balances": "The balances the app reads from your exchange account, to size your orders.",
         "strategies": "The strategies you create and subscribe to, and your settings: the share of your capital, the leverage, and whether you trade in simulation or live.",
         "trades": "Every order placed for you and its result: price, quantity, fees and profit or loss.",
+        "acceptances": "Every acceptance of the terms and of this policy: which version you accepted and when.",
         "logs": "A technical log of the requests the server answers: when each happened, what was asked and the result.",
         "messages": "What you write to us, and the address you write from.",
-        "never": "The app never stores a password, identity documents or payment details, and it uses no analytics, advertising or tracking tools."
+        "never": "The app never stores a password, images of identity documents or payment details, and it uses no analytics, advertising or tracking tools."
       },
       "use": {
         "title": "What it is used for",
         "body": "To run the service and nothing else: signing you in, reading your balances, placing and closing the orders of the strategies you subscribe to, showing you your results and showing the record of public strategies. The logs serve only to keep the service working and secure.",
-        "basis": "Your data is processed because it is needed to provide the service you asked for when you signed in (Law No. 25,326, article 5). It is not sold, not used for advertising and not shared beyond what this policy lists."
+        "identity": "Your identity serves to check that the service reaches only adults resident in Argentina, and to know who holds each account and each trade if a competent authority asks.",
+        "required": "Your first name, last name, CUIT, country and both declarations are required: without them the app cannot be used. If they are false, the account may be suspended, as the terms say.",
+        "basis": "Your data is processed because it is needed to provide the service you asked for, and with the consent you give when you accept this policy (Law No. 25,326, articles 5 and 6). It is not sold, not used for advertising and not shared beyond what this policy lists."
       },
       "public": {
         "title": "What other people can see",
         "body": "Your display name, next to the strategies you make public. For each public strategy: its name, its description, its record computed from your real trades (return, drawdown, win rate, closed trades), its number of subscribers, and the capital traded with it as one sum of the author's and the subscribers'.",
         "subscribers": "As a subscriber, your capital counts toward that sum, but your name, e-mail and own figures are never shown to the author or to anyone else.",
         "private": "A private strategy is seen only by its author and its subscribers; one shared by link, also by whoever holds the link.",
-        "admin": "The administrator of the service sees the list of users: e-mail, display name, mode, which exchanges have a key, how many subscriptions and open positions, and the last sign-in. No amounts."
+        "admin": "The administrator of the service sees the list of users: e-mail, first and last name, CUIT, country, display name, mode, which exchanges have a key, how many subscriptions and open positions, and the last sign-in. No amounts."
       },
       "others": {
         "title": "Who else handles it",
@@ -1075,7 +1079,8 @@
         "exchanges": "Your exchange (for example Binance or Bybit) receives your orders, in your own account and with your own key. Its own privacy policy applies there.",
         "tradingview": "TradingView sends the alerts of strategy authors. It receives nothing about subscribers.",
         "server": "The app and its database run on a server rented from netcup GmbH, in a data centre in Nuremberg, Germany.",
-        "abroad": "Your data is therefore also processed outside Argentina.",
+        "authorities": "Competent authorities receive your identity and your records only when a competent authority requests them under the law.",
+        "abroad": "Your data is therefore also processed outside Argentina: in Germany, which Argentina considers to offer adequate protection, and through Cloudflare in the United States, which it does not. By accepting this policy, you expressly consent to that international transfer.",
         "links": "Strategy descriptions and these pages may link to other sites. They are not run by Strategy Manager, and their own policies apply once you follow the link."
       },
       "cookies": {
@@ -1086,15 +1091,17 @@
       },
       "retention": {
         "title": "How long it is kept",
-        "account": "Your account and settings: while your account exists.",
+        "account": "Your account, your identity and your settings: while your account exists.",
+        "identity": "After you delete your account, your first name, last name and CUIT are kept with your trade records for [RETENTION AFTER DELETION], only to answer a competent authority, and then erased.",
         "trades": "Orders and trades: they are kept and never altered, because your results and the accounting depend on them.",
+        "acceptances": "Acceptance records: they are kept and never altered, like trade records.",
         "logs": "Server logs: [LOG RETENTION]. They record internal identifiers and order details, never your e-mail, your keys or your secrets.",
         "backups": "Database backups: [BACKUP RETENTION]."
       },
       "rights": {
         "title": "Your rights",
         "body": "You can ask to see, correct, update or delete your data by writing to {{contact}}. Before answering, we will ask you to confirm the request from the e-mail address your account uses, so that nobody else can obtain or change your data. You will get an answer within the terms Law No. 25,326 sets.",
-        "deletion": "There is no button to delete an account yet: a deletion request is handled by e-mail. Trade records cannot be deleted, for the reason above: [HOW TRADE RECORDS ARE HANDLED ON DELETION].",
+        "deletion": "You can delete your account from Settings. Your e-mail, your display name and your exchange keys are erased, your strategies are closed and your subscriptions end. Trade and acceptance records are kept, as said above, under an account that no longer names you; your first name, last name and CUIT are kept as said under How long it is kept.",
         "authority": "The holder of the personal data has the right to access it free of charge at intervals of no less than six months, unless a legitimate interest is shown, as set out in article 14, paragraph 3 of Law No. 25,326. The AGENCIA DE ACCESO A LA INFORMACIÓN PÚBLICA, as the control authority of Law No. 25,326, has the power to handle the complaints and claims of anyone whose rights are affected by a breach of the rules on personal data protection."
       },
       "security": {
@@ -1108,7 +1115,7 @@
       },
       "changes": {
         "title": "Changes to this policy",
-        "body": "When this policy changes, this page shows the new date and the app shows you the notice again."
+        "body": "When this policy changes, this page shows the new date, and the app asks you to accept it again before you go on using it."
       },
       "contact": {
         "title": "Contact",
@@ -1119,7 +1126,7 @@
   "terms": {
     "title": "Terms of service",
     "updated": "Last updated: [DATE]",
-    "intro": "These terms govern your use of Strategy Manager. By signing in and using the app you accept them. If you do not agree with them, do not use the app.",
+    "intro": "These terms govern your use of Strategy Manager. You accept them by ticking the acceptance box when you sign up, and again when they change. If you do not agree with them, do not use the app.",
     "link": "Terms of service",
     "sections": {
       "who": {
@@ -1130,7 +1137,33 @@
         "title": "What the service does",
         "body": "Strategy Manager receives the signals of trading strategies, sent as TradingView alerts, and places and closes the matching orders in your own account on an exchange (for example Binance or Bybit), with the API key you add.",
         "custody": "It never holds your funds and cannot move them out of your exchange account: your capital stays there at all times, and a key that allows withdrawals is refused.",
-        "modes": "You choose whether you trade in simulation, where no real order is placed, or live, with real money."
+        "modes": "You choose whether you trade in simulation, where no real order is placed, or live, with real money.",
+        "how": "You receive the service through this web panel: there you add your exchange key, choose strategies and their settings, and see every order and its result. The orders themselves are placed on your exchange account and stay there."
+      },
+      "eligibility": {
+        "title": "Who may use it",
+        "body": "The service is offered only to adults resident in Argentina: you must be 18 or older and live in Argentina. It is not offered to residents of other countries.",
+        "data": "When you sign up you give your first name, last name, CUIT and country of residence, and you declare that you are 18 or older and that this data is true. You must keep it up to date.",
+        "false": "We may suspend or close an account whose data is false, or whose holder does not meet these conditions."
+      },
+      "commitments": {
+        "title": "What we commit to",
+        "intro": "We commit to:",
+        "signals": "process the signals of the strategies you subscribe to as they arrive, with the share of capital, the leverage and the mode you chose;",
+        "stop": "place a protective stop at the exchange with every live opening, at the strategy's stop level;",
+        "keys": "keep your keys encrypted, use them only to read your balances and to place and close your orders, and never to withdraw;",
+        "records": "show you every order placed in your name and its result;",
+        "changes": "tell you before a change to these terms takes effect.",
+        "notGuaranteed": "We do not guarantee profits, that a strategy will perform as it did before, that every signal will be executed, or that the app will run without interruption."
+      },
+      "obligations": {
+        "title": "What you commit to",
+        "intro": "You commit to:",
+        "data": "give true data and keep it up to date;",
+        "email": "keep your e-mail account secure: whoever controls it can sign in as you;",
+        "keys": "create your keys without withdraw permission, keep them only in the app and at your exchange, and revoke them at your exchange if you believe they leaked;",
+        "settings": "choose the share of capital, the leverage and the mode of each subscription, and watch your positions; you can change or stop them whenever you want;",
+        "law": "use the app only for lawful purposes, and trade only funds of lawful origin."
       },
       "advice": {
         "title": "Not financial advice",
@@ -1142,14 +1175,14 @@
         "loss": "you can lose all of the capital you assign, and losses grow with leverage;",
         "past": "a strategy's past results do not guarantee its future results;",
         "signals": "a signal can arrive late or not at all, and an order can fill at another price or not fill, because of TradingView, the exchange, the network or the app;",
-        "exchange": "your exchange can fail, change its rules, close positions or freeze your account, and that is outside our control."
+        "exchange": "your exchange can fail, change its rules, close positions or freeze your account, and that is outside our control.",
+        "strategies": "a strategy can lose money, change, or stop sending signals at any time, whoever authors it;"
       },
-      "account": {
-        "title": "Your account and keys",
-        "body": "You sign in with your e-mail and are responsible for what is done with it. Keep your e-mail account safe: whoever controls it can sign in as you.",
-        "keys": "The API keys you add are yours. Create them without withdrawal permission, keep them only in the app and at your exchange, and revoke them at your exchange if you think they leaked.",
-        "settings": "The share of capital and the leverage of each subscription, and your trading mode, are set by you, and you can change or stop them at any time.",
-        "age": "You must be 18 or over to use the app."
+      "thirdParty": {
+        "title": "Strategies by other users",
+        "body": "Most strategies in the app are authored by another user, not by us. We do not review, endorse or guarantee them: their name, description and signals are their author's, and their record shows past results computed from the author's real trades, not a promise.",
+        "losses": "Losses from a strategy you subscribe to are market risk, and they are yours: neither its author nor we answer for them. We answer only when a loss comes from a failure of the service itself, as described under Liability.",
+        "control": "You decide whether to subscribe, with how much capital and at what leverage, and you can leave a subscription or close a position whenever you want."
       },
       "authors": {
         "title": "Strategies you publish",
@@ -1162,25 +1195,34 @@
         "intro": "You must not:",
         "attack": "try to reach other users' data, or attack, overload or probe the app;",
         "illegal": "use the app for anything illegal, such as manipulating markets;",
+        "laundering": "use the app to launder money, finance terrorism or evade taxes, or trade funds of unlawful origin;",
         "others": "sign in or trade on behalf of someone else without their permission."
       },
       "availability": {
         "title": "Availability",
-        "body": "The service is provided as it is and as available. It can stop, fail or change, and we may add, change or remove features at any time."
+        "body": "The app can stop, fail or change, for example during maintenance or when TradingView, the exchange or the network fail. We work to keep it running and to announce planned interruptions, and we may add, change or remove features."
       },
       "liability": {
         "title": "Liability",
-        "body": "We answer for the damage the service itself causes you, as the law provides. Market risk is yours: a trade that loses money because the price moved is the risk described above, not damage caused by the service. What your exchange or TradingView do is outside our control, and each answers for its own service.",
+        "body": "We answer for the damage the service itself causes you, as the law provides: for example, an order the app sent with a size or a side other than the ones your settings and the signal called for.",
+        "market": "Market risk is yours: a trade that loses money because the price moved is the risk described above, not damage the service caused.",
+        "tradingview": "A failure of TradingView, such as an alert sent late, twice or not at all, is TradingView's, and TradingView answers for its own service.",
+        "exchange": "A failure of your exchange, such as an order rejected or filled at another price, a position the exchange closes, or a frozen account, is the exchange's, and the exchange answers for its own service under its own terms.",
         "rights": "Nothing in these terms limits the rights the law gives you that cannot be waived."
+      },
+      "records": {
+        "title": "Records and authorities",
+        "body": "The app keeps a record of every order and trade placed in your name, linked to the identity you gave when you signed up. These records cannot be altered.",
+        "authorities": "We share them, and your identity, only when a competent authority requests them under the law, and with nobody else."
       },
       "price": {
         "title": "Price",
         "body": "The service is free today. If paid plans are added, their price and conditions will be shown before you choose one, and nothing will be charged without your express acceptance."
       },
       "stopping": {
-        "title": "Stopping",
-        "you": "You can stop using the app at any time. To delete your account, write to {{contact}}.",
-        "us": "We may suspend or close an account that breaks these terms.",
+        "title": "Stopping and suspension",
+        "you": "You can stop using the app whenever you want, and delete your account from Settings. What deletion erases and what it keeps is explained in the privacy policy.",
+        "us": "We may suspend or close an account that breaks these terms. A suspended account opens nothing new, but can still close its positions, leave its subscriptions and be deleted. If you believe your account was suspended by mistake, write to {{contact}}.",
         "positions": "Either way, positions already open stay in your exchange account, where you can close them yourself."
       },
       "privacy": {
@@ -1189,7 +1231,7 @@
       },
       "changes": {
         "title": "Changes to these terms",
-        "body": "When these terms change, this page shows the new date. If a change matters, the app will tell you before it applies. If you keep using the app after that, you accept the new terms."
+        "body": "When these terms change, this page shows the new date, and the app asks you to accept them again before you go on using it."
       },
       "law": {
         "title": "Governing law",
