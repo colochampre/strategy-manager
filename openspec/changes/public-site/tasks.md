@@ -91,10 +91,10 @@ Written from the lawyer's notes in `proposal.md`, quoted verbatim where they set
 ### Questions back to the lawyer (LQ)
 
 - **LQ1 PSAV.** Is a service that holds no funds and trades through the user's own exchange key, with no withdraw permission, a PSAV (Ley 25.246 art. 4 bis, RG CNV 1058/2025 category 4, "...instrumentos que permitan el control sobre los mismos (siempre y cuando no sean no custodiados)")? Are USDT-margined perpetuals "activos virtuales" or "valores negociables"? Every user has already passed full KYC at their exchange (Binance and Bybit require it for futures).
-- **LQ2 CUIT and volume.** If the app is a sujeto obligado, Res. UIF 49/2024 art. 23 asks every client for CUIT, document, address and more at onboarding, whatever their volume. What did "pedir cuit si el usuario tiene mucho volumen" mean, and above what amount?
+- ~~**LQ2 CUIT and volume.**~~ Answered by the owner, 2026-11-19, not sent: "Los volumenes o montos no los determinó él. Habría que armar algo nosotros mismos, según cómo convenga hacerlo, o como dijiste antes, exigir el cuit en cualquier caso. El propósito es por lo menos tener el resgistro de movimientos del usuario si alguna autoridad llegara a pedirlos. Que la herramienta no sea una facilitadora de lavado de dinero". Now an owner decision, **LD1**: the CUIT always at sign-up, or only above an amount this project sets.
 - **LQ3 Asking again.** Must the acceptance be asked again on every change of the terms or the policy, or only on a material one?
 - **LQ4 AAIP.** Does art. 21 ("...privado destinado a proporcionar informes") reach this database, and which procedure applies today?
-- **LQ5 "Normativa europea".** Does it refer to the GDPR because the server is in Germany, and does it ask anything beyond the consent box?
+- ~~**LQ5 "Normativa europea".**~~ Answered by the owner, 2026-11-19, not sent: "al referirnos a normativa europea, se mencionaba que al ser distintas normativas y tener distintas reglas, lo mejor era evitar exponerse a ellas, como precaucion. Jurisdicciones extraterritoriales, riesgos regulatorios internacionales, etc. Cosas que no pretendo que me alcancen como persona respondable de la app." It supports LS1 (Argentina only) and asks nothing more of the consent box.
 
 ### Tasks
 
