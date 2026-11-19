@@ -52,3 +52,55 @@ The plan is in `proposal.md`. Each task records its evidence when done. Push, PR
   - No logo.
 - [ ] PS.8 Owner-run: tick Google in the Access application's login methods. Sign in by Google with an address that is not one of Google's test users; `check_users.sh` shows its row.
 - [ ] PS.D Delivery: the PR (owner's word), Pages deploy, and the delivery log of this change.
+
+## From the lawyer's answers (specs written 2026-11-19)
+
+Written from the lawyer's notes in `proposal.md`, quoted verbatim where they set a rule, and the owner's decisions above. Owner, 2026-11-19: "Dale, armá las especificaciones, ni bien tenga las respuestas del abogado te las paso y completamos". Items marked **open** wait for the lawyer's follow-up (LQ1-LQ5 below); everything else is decided.
+
+**Risk:** item 1 (a migration and new personal data), item 2 (a gate in front of the API) and item 3 (every user, the four existing ones included, meets a new step). An independent verifier runs on the backend unit, and the migration is rehearsed on a throwaway restore.
+
+### Specs
+
+- **LS1 Who may use the app.** Adults resident in Argentina only. The lawyer: "No tomar usuarios norteamericanos. Recomendado por ahora: limitar a solo Argentina" and "Pedir nombre, apellido, país y edad +18". Age is declared, not proven (owner: "Dale, con la declaración por ahora"). No full KYC: no document photo, selfie, CUIT, address, date of birth or occupation (owner: "Pedir KYC completo no me parece buena idea. La app debe ser de simple acceso y uso").
+- **LS2 The sign-up step.** A signed-in user whose profile is not complete sees one form before anything else, and nothing else of the panel until it is done. It asks:
+  - first name and last name, both required;
+  - country of residence. Only Argentina is accepted; any other answer says the service is offered only to residents of Argentina for now, and stores nothing;
+  - "I declare that I am 18 or older";
+  - "I declare that the data I give is true" (the lawyer: "Verificar en términos que la veracidad de sus datos es cierta");
+  - "I accept the terms of service and have read the privacy policy", both linked, with the express consent to the international transfer of the data (Cloudflare, United States) written into it (the lawyer: "Casilla de consentimiento sirve").
+
+  Every box must be ticked; none is pre-ticked. The four existing users meet the same form on their next visit.
+- **LS3 What is stored.** On the user: first name, last name, country (`AR`), and when the two declarations were made. The acceptance is recorded apart, one row per acceptance: user, the terms version, the privacy version and the time, never updated or deleted. First and last name are seen only by the user and the admin. The public display name stays separate and optional.
+- **LS4 The gate holds on the server too.** Until the profile is complete, the API refuses (409 `PROFILE_INCOMPLETE`) every request that stores or trades for the user: saving a key, a pool, a subscription, a strategy, a mode change. It keeps answering what lets the user get out: reading their own data, "Close now", leaving a subscription and deleting the account. The panel's form is not the only guard.
+- **LS5 Account deletion wipes the new data.** `DeleteAccount` also removes the first name, the last name and the country, and the users CHECK from migration 0045 is widened so that a deleted row keeps none of them. The acceptance rows stay, like the ledger, pointing at the anonymised user. This also closes the account-deletion change's T4 for the policy text (LS7).
+- **LS6 Asked again on a change.** When the terms or the privacy version changes, the user ticks the acceptance box again before continuing (LS2's last box only). **Open (LQ3):** whether every change asks again, or only a material one.
+- **LS7 The privacy policy follows.** It names the new data (first and last name, country, the declarations and the acceptance record) and why they are asked. It names the express consent to the transfer, and the "delete account" button with what it keeps (account-deletion T4). `PRIVACY_VERSION` is bumped. The project rule in CLAUDE.md asks for this in the same PR as LS3.
+- **LS8 The terms, rewritten.** The lawyer: "Dejar bien claro: Qué servicio da la app, en que condiciones, cómo, a qué te obligas, cómo recibe el servicio el usuario. Riesgos vinculados a estrategias de terceros." and "Redactar bien especificado lo que se garantiza del funcionamiento de la app y responsabilidad ante fallos de la app, de tradingview o el Exchange vinculado. Responsabilidad de pérdidas ocasionadas por suscribirse a estrategias de terceros". So the terms state:
+  - what the service is and how the user receives it: orders placed on their own exchange account through their own key, signals from TradingView, no custody;
+  - who it is for: adults resident in Argentina (LS1);
+  - what the provider commits to and what it does not guarantee;
+  - liability for the app's own failures, kept as consumer law allows (Ley 24.240 art. 37);
+  - TradingView's and the exchange's failures, which are those services' own;
+  - the risks of subscribing to a strategy someone else authors, and who answers for its losses;
+  - the user's duty to give true data, and "Derecho reservado a suspensión de cuenta si el usuario falsea datos".
+
+  `TERMS_VERSION` is introduced, bumped on each change, and recorded with every acceptance (LS3).
+- **LS9 Suspension.** The terms reserve the right (LS8). **Open (decision, not the lawyer's):** whether the admin can suspend an account from `/users` now, and what a suspended account may still do. The proposal: no new openings or subscriptions, while closing, leaving and deleting still work, as LS4.
+- **LS10 Owner-run: register the database with the AAIP** (the lawyer: "Registrar la base de datos"). **Open (LQ4):** the current procedure.
+
+### Questions back to the lawyer (LQ)
+
+- **LQ1 PSAV.** Is a service that holds no funds and trades through the user's own exchange key, with no withdraw permission, a PSAV (Ley 25.246 art. 4 bis, RG CNV 1058/2025 category 4, "...instrumentos que permitan el control sobre los mismos (siempre y cuando no sean no custodiados)")? Are USDT-margined perpetuals "activos virtuales" or "valores negociables"? Every user has already passed full KYC at their exchange (Binance and Bybit require it for futures).
+- **LQ2 CUIT and volume.** If the app is a sujeto obligado, Res. UIF 49/2024 art. 23 asks every client for CUIT, document, address and more at onboarding, whatever their volume. What did "pedir cuit si el usuario tiene mucho volumen" mean, and above what amount?
+- **LQ3 Asking again.** Must the acceptance be asked again on every change of the terms or the policy, or only on a material one?
+- **LQ4 AAIP.** Does art. 21 ("...privado destinado a proporcionar informes") reach this database, and which procedure applies today?
+- **LQ5 "Normativa europea".** Does it refer to the GDPR because the server is in Germany, and does it ask anything beyond the consent box?
+
+### Tasks
+
+- [ ] PS.9 LS2-LS5 backend: the profile fields and the acceptance rows (migration 0046), `PUT /api/me/profile`, the server gate, and the deletion wiping the new fields. Route: inline; independent verifier after.
+- [ ] PS.10 LS2, LS6 frontend: the sign-up form as the panel's first and only screen until done; the re-acceptance box on a version change.
+- [ ] PS.11 LS7 privacy policy text, EN and ES, with `PRIVACY_VERSION` bumped.
+- [ ] PS.12 LS8 terms text, EN and ES, and `TERMS_VERSION`. It waits on LQ1 only where the text depends on it.
+- [ ] PS.13 LS9 suspension, once decided.
+- [ ] PS.14 LS10 owner-run AAIP registration, once LQ4 is answered.
