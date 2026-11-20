@@ -32,7 +32,7 @@ from decimal import Decimal
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import AfterValidator, BaseModel, Field, field_validator
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -51,6 +51,7 @@ from strategy_manager.execution.infrastructure.repository import (
 from strategy_manager.identity.domain.user import User
 from strategy_manager.identity.infrastructure.dependencies import (
     current_user,
+    ensure_complete_profile,
     require_complete_profile,
 )
 from strategy_manager.ledger.application.read_symbol_holdings import ReadSymbolHoldings
@@ -1065,8 +1066,31 @@ async def replace_allowed_pairs(
     return await _view(session, user, strategy, events)
 
 
+async def require_complete_profile_unless_disabling(
+    request: Request, session: SessionDep, user: CurrentUserDep
+) -> None:
+    """The sign-up gate (public-site LS4), with one way out: a body of exactly
+    ``{"enabled": false}``. Disabling stops new openings and is what archiving
+    needs first, so an author who has not signed up, or will not accept new terms,
+    can stop their strategy. Anything else in the body, even beside it, still waits
+    for the sign-up.
+
+    The raw JSON is read, not the parsed model: the model ignores unknown fields
+    and would read ``0`` as false. FastAPI has already read and cached the body,
+    and refused one that is not JSON with its 422."""
+    try:
+        body = await request.json()
+    except ValueError:
+        body = None
+    if isinstance(body, dict) and body.keys() == {"enabled"} and body["enabled"] is False:
+        return
+    await ensure_complete_profile(user, session)
+
+
 @router.patch(
-    "/{strategy_id}", response_model=StrategyView, dependencies=[Depends(require_complete_profile)]
+    "/{strategy_id}",
+    response_model=StrategyView,
+    dependencies=[Depends(require_complete_profile_unless_disabling)],
 )
 async def update_strategy(
     strategy_id: UUID, body: UpdateRequest, session: SessionDep, user: CurrentUserDep

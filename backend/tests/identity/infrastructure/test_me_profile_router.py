@@ -19,7 +19,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from strategy_manager.identity.domain.legal import CURRENT_VERSIONS
 from strategy_manager.main import create_app
 from strategy_manager.shared import db as shared_db
+from strategy_manager.strategies.infrastructure.models import StrategyRow
 from tests.identity.infrastructure.test_every_api_route_is_guarded import (
+    GATED_BUT_FOR_DISABLING,
     GATED_UNTIL_SIGNED_UP,
 )
 from tests.identity_auth import (
@@ -30,7 +32,7 @@ from tests.identity_auth import (
     sign_in_as_admin,
 )
 from tests.ledger.infrastructure.conftest import pg_engine, pg_session_factory  # noqa: F401
-from tests.owner import seed_user
+from tests.owner import secret_hash, seed_user
 
 pytestmark = pytest.mark.integration
 
@@ -321,7 +323,7 @@ async def test_the_box_read_under_other_versions_is_a_409(
 async def test_every_gated_route_answers_409_until_the_user_signs_up(client: AsyncClient) -> None:
     """LS4: the panel's form is not the only guard. The gate answers before the
     route reads its path or body, so an empty request is enough to meet it."""
-    for method, path in sorted(GATED_UNTIL_SIGNED_UP):
+    for method, path in sorted(GATED_UNTIL_SIGNED_UP | GATED_BUT_FOR_DISABLING):
         concrete = re.sub(r"\{[^}]+\}", str(uuid4()), path)
         response = await client.request(method, concrete, headers=ADMIN_HEADERS, json={})
 
@@ -334,7 +336,7 @@ async def test_every_gated_route_answers_409_until_the_user_signs_up(client: Asy
 
     await client.put(PROFILE, headers=ADMIN_HEADERS, json=FORM)
 
-    for method, path in sorted(GATED_UNTIL_SIGNED_UP):
+    for method, path in sorted(GATED_UNTIL_SIGNED_UP | GATED_BUT_FOR_DISABLING):
         concrete = re.sub(r"\{[^}]+\}", str(uuid4()), path)
         response = await client.request(method, concrete, headers=ADMIN_HEADERS, json={})
 
@@ -599,3 +601,116 @@ async def test_a_deleted_account_corrects_no_name(
             )
         ).all()
     assert [tuple(row) for row in deleted] == [(None, None, None)]
+
+
+# The one change to a strategy open before sign-up: stopping it (2026-11-20).
+
+STRATEGIES = "/api/strategies"
+
+
+async def _own_enabled_strategy(factory: async_sessionmaker[AsyncSession], email: str) -> str:
+    """An enabled strategy authored by ``email``, with no position on it."""
+    strategy_id = uuid4()
+    async with factory() as session:
+        author = (
+            await session.execute(text("SELECT id FROM users WHERE email = :e"), {"e": email})
+        ).scalar_one()
+        session.add(
+            StrategyRow(
+                id=strategy_id,
+                name=f"strategy-{strategy_id}",
+                exchange="bybit",
+                venue="usdt-m",
+                settlement_currency="USDT",
+                author_id=author,
+                enabled=True,
+                fill_mode="PARTIAL",
+                allowed_pairs=[],
+                webhook_secret_hash=secret_hash("fixture-secret"),
+                webhook_secret_last4="cret",
+            )
+        )
+        await session.commit()
+    return str(strategy_id)
+
+
+async def _enabled(factory: async_sessionmaker[AsyncSession], strategy_id: str) -> bool:
+    async with factory() as session:
+        return bool(
+            (
+                await session.execute(
+                    text("SELECT enabled FROM strategies WHERE id = :id"), {"id": strategy_id}
+                )
+            ).scalar_one()
+        )
+
+
+async def test_an_author_who_has_not_signed_up_can_disable_their_strategy(
+    client: AsyncClient, factory: async_sessionmaker[AsyncSession]
+) -> None:
+    strategy_id = await _own_enabled_strategy(factory, ADMIN_EMAIL)
+
+    response = await client.patch(
+        f"{STRATEGIES}/{strategy_id}", headers=ADMIN_HEADERS, json={"enabled": False}
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["enabled"] is False
+    assert await _enabled(factory, strategy_id) is False
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"enabled": True},
+        {"enabled": False, "name": "Renamed"},
+        {"enabled": False, "visibility": "PUBLIC"},
+        {"enabled": False, "unknown": 1},
+        {"enabled": 0},
+        {"enabled": "false"},
+        {"enabled": None},
+        {"name": "Renamed"},
+        [{"enabled": False}],
+    ],
+)
+async def test_every_other_change_to_a_strategy_still_waits_for_the_sign_up(
+    client: AsyncClient, factory: async_sessionmaker[AsyncSession], payload: Any
+) -> None:
+    strategy_id = await _own_enabled_strategy(factory, ADMIN_EMAIL)
+
+    response = await client.patch(
+        f"{STRATEGIES}/{strategy_id}", headers=ADMIN_HEADERS, json=payload
+    )
+
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"]["error"] == "PROFILE_INCOMPLETE"
+    assert await _enabled(factory, strategy_id) is True
+
+
+async def test_a_body_that_is_not_json_disables_nothing(
+    client: AsyncClient, factory: async_sessionmaker[AsyncSession]
+) -> None:
+    strategy_id = await _own_enabled_strategy(factory, ADMIN_EMAIL)
+
+    response = await client.patch(
+        f"{STRATEGIES}/{strategy_id}",
+        headers={**ADMIN_HEADERS, "Content-Type": "application/json"},
+        content=b'{"enabled": false',
+    )
+
+    # FastAPI reads the body before any dependency, so this is its 422, as before the change.
+    assert response.status_code == 422, response.text
+    assert await _enabled(factory, strategy_id) is True
+
+
+async def test_disabling_before_sign_up_reaches_only_the_authors_own_strategy(
+    client: AsyncClient, factory: async_sessionmaker[AsyncSession]
+) -> None:
+    strategy_id = await _own_enabled_strategy(factory, ADMIN_EMAIL)
+
+    response = await client.patch(
+        f"{STRATEGIES}/{strategy_id}", headers=OTHER_HEADERS, json={"enabled": False}
+    )
+
+    assert response.status_code == 404, response.text
+    assert await _enabled(factory, strategy_id) is True
