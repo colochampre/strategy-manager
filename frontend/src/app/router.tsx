@@ -12,6 +12,7 @@ import { StrategiesLayout } from "@/features/strategies/StrategiesLayout";
 import { StrategiesPage } from "@/features/strategies/StrategiesPage";
 import { StrategyDetailPage } from "@/features/strategies/StrategyDetailPage";
 import { TermsPage } from "@/features/terms/TermsPage";
+import { WayOutPage } from "@/features/way-out/WayOutPage";
 import { UsersPage } from "@/features/users/UsersPage";
 import { AdminRoute } from "@/shared/auth/AdminRoute";
 import { AppShell } from "@/shared/layout/AppShell";
@@ -42,6 +43,7 @@ export function AppRoutes() {
         <Route path="settings" element={<SettingsPage />} />
         <Route path="privacy" element={<PrivacyPage />} />
         <Route path="terms" element={<TermsPage />} />
+        <Route path="way-out" element={<WayOutPage />} />
         <Route path="*" element={<NotFoundPage />} />
       </Route>
     </Routes>

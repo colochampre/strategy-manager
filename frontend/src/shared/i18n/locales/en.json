@@ -1049,6 +1049,33 @@
       "failed": "Your acceptance could not be saved. Try again."
     }
   },
+  "wayOut": {
+    "link": "Close what you hold and delete your account",
+    "linkIntro": "Do not want to go on?",
+    "title": "Stop using Strategy Manager",
+    "intro": "You can close and stop everything here without signing up or accepting the terms. Deleting the account ends your subscriptions and archives your strategies too, but it is refused while you, or anyone on one of your strategies, holds a real position.",
+    "back": "Back to the sign-up",
+    "positions": {
+      "title": "Open positions",
+      "none": "No open positions."
+    },
+    "seats": {
+      "title": "Your subscriptions",
+      "none": "No subscriptions.",
+      "leaving": "Leaving: its open position closes first."
+    },
+    "strategies": {
+      "title": "Your strategies",
+      "none": "No strategies.",
+      "disable": "Disable",
+      "archiveFirst": "Disable it to stop its openings, then archive it."
+    },
+    "keys": {
+      "title": "Your exchange keys",
+      "none": "No keys stored."
+    },
+    "readFailed": "This list could not be read. Reload the page."
+  },
   "auth": {
     "gate": {
       "checking": "Checking sign-in",

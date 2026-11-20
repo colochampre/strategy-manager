@@ -1049,6 +1049,33 @@
       "failed": "No se pudo guardar su aceptación. Inténtelo de nuevo."
     }
   },
+  "wayOut": {
+    "link": "Cierre lo que tiene abierto y elimine su cuenta",
+    "linkIntro": "¿No desea continuar?",
+    "title": "Dejar de usar Strategy Manager",
+    "intro": "Aquí puede cerrar y detener todo sin registrarse ni aceptar los términos. Eliminar la cuenta también termina sus suscripciones y archiva sus estrategias, pero no se puede mientras usted, o alguien en una de sus estrategias, tenga una posición real abierta.",
+    "back": "Volver al registro",
+    "positions": {
+      "title": "Posiciones abiertas",
+      "none": "No hay posiciones abiertas."
+    },
+    "seats": {
+      "title": "Sus suscripciones",
+      "none": "No hay suscripciones.",
+      "leaving": "Saliendo: primero se cierra su posición abierta."
+    },
+    "strategies": {
+      "title": "Sus estrategias",
+      "none": "No hay estrategias.",
+      "disable": "Desactivar",
+      "archiveFirst": "Desactívela para detener sus aperturas y luego archívela."
+    },
+    "keys": {
+      "title": "Sus claves de exchange",
+      "none": "No hay claves guardadas."
+    },
+    "readFailed": "No se pudo leer esta lista. Recargue la página."
+  },
   "auth": {
     "gate": {
       "checking": "Verificando el ingreso",
