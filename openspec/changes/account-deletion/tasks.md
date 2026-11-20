@@ -50,7 +50,8 @@ is rehearsed on a throwaway database restored from a fresh backup.
   "N deleted accounts".
 - **S7 Policy and terms.** The privacy policy's `rights.deletion` and the terms'
   `stopping.you` describe the button, what is kept and that backups keep the
-  data until they rotate. `PRIVACY_VERSION` is bumped.
+  data until they rotate. The privacy version (`CURRENT_VERSIONS` in
+  `identity/domain/legal.py`) is bumped.
 
 ## Tasks
 

@@ -26,7 +26,7 @@ const SECTIONS: ReadonlyArray<LegalSection> = [
   { id: "records", paragraphs: ["body", "authorities"] },
   { id: "price", paragraphs: ["body"] },
   { id: "stopping", paragraphs: ["you", "us", "positions"] },
-  { id: "privacy", paragraphs: ["body"], link: { to: "/privacy", label: "privacy.notice.read" } },
+  { id: "privacy", paragraphs: ["body"], link: { to: "/privacy", label: "privacy.read" } },
   { id: "changes", paragraphs: ["body"] },
   { id: "law", paragraphs: ["body"] },
   { id: "contact", paragraphs: ["body"] },

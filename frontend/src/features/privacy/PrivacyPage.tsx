@@ -5,7 +5,7 @@ export const PRIVACY_CONTACT = LEGAL_CONTACT;
 
 /**
  * The privacy policy (Ley 25.326), served inside the panel: everyone who reaches
- * it has signed in, and the notice in the shell links it on their first visit.
+ * it has signed in, and the sign-up form links it before anyone accepts it.
  * Every line is a key under `privacy.sections`, in this order.
  */
 const SECTIONS: ReadonlyArray<LegalSection> = [

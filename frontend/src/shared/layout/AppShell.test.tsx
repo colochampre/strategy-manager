@@ -425,12 +425,14 @@ describe("pages", () => {
 });
 
 describe("privacy in the shell", () => {
-  it("shows the notice to a newcomer and links the policy from every page", async () => {
+  it("shows a newcomer no privacy banner, the sign-up form informs and records the acceptance, and links the policy from every page", async () => {
+    window.localStorage.clear();
     stubApi({ kind: "ok", body: { status: "ok", dry_run: true } });
     renderShell("/");
 
     expect(await screen.findByText("page body")).toBeInTheDocument();
-    expect(screen.getByRole("region", { name: "Privacy" })).toBeInTheDocument();
+    expect(screen.queryAllByRole("region", { name: "Privacy" })).toHaveLength(0);
+    expect(screen.queryAllByRole("button", { name: "Got it" })).toHaveLength(0);
     expect(screen.getByRole("link", { name: "Privacy policy" })).toHaveAttribute("href", "/privacy");
   });
 

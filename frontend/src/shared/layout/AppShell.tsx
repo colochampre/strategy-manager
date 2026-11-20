@@ -1,7 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { Link, Outlet } from "react-router";
 
-import { PrivacyNotice } from "@/features/privacy/PrivacyNotice";
 import { ProfileGate } from "@/features/sign-up/ProfileGate";
 import { useSignUpPending } from "@/shared/api/me";
 
@@ -37,12 +36,13 @@ import { TopBar } from "@/shared/layout/TopBar";
  * the whole column and its bottom padding follows the content (task 7p.3). A
  * short page still fills `main`, because the column is `flex-1`.
  *
- * Every page ends with links to the privacy policy and the terms, and a first visit opens
- * with the notice that links it (Ley 25.326 art. 6). Both sit inside the gate:
- * whoever reaches them has signed in.
+ * Every page ends with links to the privacy policy and the terms. The footer sits
+ * inside the gate: whoever reaches it has signed in.
  *
  * Inside it, the sign-up step (public-site LS2) takes the page's place until the
- * user has given their details and accepted the terms in force. The footer stays,
+ * user has given their details and accepted the terms in force. That form is
+ * where the user is informed (Ley 25.326 art. 6): it links the policy and records
+ * the version accepted, and asks again when it changes. The footer stays,
  * so the terms and the policy the form asks to accept are one click away. The
  * navigation (and, in the top bar, the exchange tabs and the mode badge) waits
  * for it too: nothing of the panel to go to or act on. While `me` loads it
@@ -61,7 +61,6 @@ export function AppShell() {
           <div className="mx-auto flex w-full max-w-[90rem] flex-1 flex-col">
             <SignInGate>
               <ProfileGate>
-                <PrivacyNotice />
                 <Outlet />
               </ProfileGate>
               <div className="mt-auto pt-10">

@@ -1065,12 +1065,7 @@
     "intro": "This policy explains what Strategy Manager stores about you, what it is for, who else handles it and what you can ask for. It applies to everyone who signs in. If you do not agree with it, do not use the app.",
     "link": "Privacy policy",
     "copyright": "© {{year}} Strategy Manager",
-    "notice": {
-      "label": "Privacy",
-      "body": "Strategy Manager stores your e-mail, your identity and what you enter here, only to run the service for you.",
-      "read": "Read the privacy policy",
-      "dismiss": "Got it"
-    },
+    "read": "Read the privacy policy",
     "sections": {
       "who": {
         "title": "Who is responsible",
@@ -1118,7 +1113,7 @@
       "cookies": {
         "title": "Cookies and browser storage",
         "access": "Cloudflare Access sets a session cookie when you sign in. It is strictly necessary: without it, every page would ask you to sign in again.",
-        "storage": "The app keeps a few preferences in your browser's own storage: your language, the exchange you last chose, a chart's range, and whether you closed the privacy notice. They never leave your browser and you can clear them at any time.",
+        "storage": "The app keeps a few preferences in your browser's own storage: your language, the exchange you last chose and a chart's range. They never leave your browser and you can clear them at any time.",
         "none": "There are no advertising, analytics or third-party cookies."
       },
       "retention": {
