@@ -60,6 +60,10 @@ The plan is in `proposal.md`. Each task records its evidence when done. Push, PR
     - Production (`deploy_0046.sh`), 85 minutes into the 4h candle: backup `pre-0046-deploy-20261120T172500Z.dump`, then 0045 to 0046. 3 CHECKs, 2 triggers, 0 profiles, 0 acceptances. Both services `active`. Unsigned, `PUT /api/me/profile` and `POST /api/me/acceptance` answer 401. The 2 lines the ERROR count found were the INFO line "operator alerts are on: ERROR and above…", one per service.
     - Panel (pps.6): built by the assistant from a detached worktree of `origin/main` at `cfcd3b6fe069`, 22 entries, SHA-256 `3d080e6644784fb628a4e52b24842e9cabbfc72315f96f11ca7ff7d7a7f27de8`; the owner's block printed `OK`, `readable`, and bundle and checkout `cfcd3b6fe069`. The owner read the panel: the form shows ("Si, se muestra correctamente") and the terms open in a new tab. Found there: following the terms' link to the policy kept the scroll at the bottom of the page (fixed after, on its own branch).
     - Every existing user now meets the sign-up form, and accepts the draft texts in force; the final texts (PS.11, PS.12) will ask them again.
+  - *Delivered 2026-11-20 as PRs #121 and #122* (merges `6bdc3eb`, the delivery log above, and `0ad530e890c9`, 6 commits): "Your details" in Settings, `PUT /api/me/profile/name`, every page opening at its top, and privacy `2026-11-20-draft-6`. No migration.
+    - Production (`deploy_0ad530e.sh`), 213 minutes into the 4h candle: checkout `0ad530e890c9`, still at 0046, 1 user with a profile and 1 acceptance (the owner's). Both services `active`. Unsigned, `PUT /api/me/profile/name` answers 401. No ERROR, CRITICAL or Traceback line since the restart, the alerts' INFO line left out.
+    - Panel (pps.6): built by the assistant from a detached worktree of `origin/main` at `0ad530e890c9`, 22 entries, SHA-256 `9e4018cc9ab82181fc2b4df0a919dbe641851a3d2ba835d34e4501bd09bd842c`; the owner's block printed `OK`, `readable`, and bundle and checkout `0ad530e890c9`.
+    - Every user meets the acceptance box again, for privacy `draft-6`.
 
 ## From the lawyer's answers (specs written 2026-11-19)
 
