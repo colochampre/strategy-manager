@@ -117,8 +117,8 @@ class AccountUsersPort(Protocol):
         ...
 
     async def wipe(self, user_id: UUID, now: datetime) -> None:
-        """The e-mail becomes ``deleted-<id>@invalid``, the display name goes, and
-        ``deleted_at`` is ``now``."""
+        """The e-mail becomes ``deleted-<id>@invalid``, the display name and the
+        identity given at sign-up go, and ``deleted_at`` is ``now``."""
         ...
 
 

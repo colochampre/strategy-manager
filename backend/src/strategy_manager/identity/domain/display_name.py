@@ -54,7 +54,7 @@ def _mixes_alphabets(name: str) -> bool:
     return len({_alphabet(character) for character in name} - {None}) > 1
 
 
-def _is_invisible(character: str) -> bool:
+def is_invisible(character: str) -> bool:
     if unicodedata.category(character).startswith("C"):
         return True
     code_point = ord(character)
@@ -75,7 +75,7 @@ def normalize_display_name(raw: str) -> str:
         )
     if "@" in name:
         raise InvalidDisplayNameError("a name holds no @")
-    if any(_is_invisible(character) for character in name):
+    if any(is_invisible(character) for character in name):
         raise InvalidDisplayNameError("a name holds no invisible characters")
     if _mixes_alphabets(name):
         raise InvalidDisplayNameError("a name keeps to one alphabet")
