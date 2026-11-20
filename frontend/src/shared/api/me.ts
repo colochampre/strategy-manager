@@ -340,6 +340,15 @@ export function useMe() {
 }
 
 /**
+ * True once `me` says the user has not signed up, or must accept the terms again (public-site LS2, LS6): the panel's
+ * navigation and mode menu wait for it. While `me` loads or fails it is false, as the navigation was before.
+ */
+export function useSignUpPending(): boolean {
+  const status = useMe().data?.profileStatus;
+  return status !== undefined && status !== "COMPLETE";
+}
+
+/**
  * The choice as a mutation. On every settled attempt but a 401 it reads `me` again and waits for it, so the form
  * and the top bar show the name the server stored (normalized, perhaps not as typed) when the save reports.
  */

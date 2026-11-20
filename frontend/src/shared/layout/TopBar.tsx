@@ -1,7 +1,7 @@
 import { useTranslation } from "react-i18next";
 import { useLocation } from "react-router";
 
-import { useMe } from "@/shared/api/me";
+import { useMe, useSignUpPending } from "@/shared/api/me";
 import { ExchangeTabs } from "@/shared/layout/ExchangeTabs";
 import { Flag } from "@/shared/layout/Flag";
 import { ModeBadge } from "@/shared/layout/ModeBadge";
@@ -11,10 +11,13 @@ import { isExchangeScoped } from "@/shared/scope/exchange-store";
  * Brand, exchange tabs (scoped routes only), who is signed in (from `lg`), mode
  * badge, language toggle. The tabs render twice, like the two navigations: in
  * the bar from `lg`, and on narrow screens as their own scrollable row below it.
+ * Until the user has signed up (public-site LS2), the tabs and the mode badge
+ * are left out: nothing of the panel to go to or act on.
  */
 export function TopBar() {
   const { t, i18n } = useTranslation();
-  const scoped = isExchangeScoped(useLocation().pathname);
+  const pending = useSignUpPending();
+  const scoped = isExchangeScoped(useLocation().pathname) && !pending;
   const me = useMe().data;
   const signedInAs = me?.displayName ?? me?.email;
 
@@ -34,7 +37,7 @@ export function TopBar() {
           {signedInAs !== undefined && (
             <span className="hidden max-w-56 truncate text-sm font-medium text-ink lg:inline">{signedInAs}</span>
           )}
-          <ModeBadge />
+          {!pending && <ModeBadge />}
           <button
             type="button"
             onClick={toggleLanguage}

@@ -3,6 +3,7 @@ import { Link, Outlet } from "react-router";
 
 import { PrivacyNotice } from "@/features/privacy/PrivacyNotice";
 import { ProfileGate } from "@/features/sign-up/ProfileGate";
+import { useSignUpPending } from "@/shared/api/me";
 
 import { SignInGate } from "@/shared/auth/SignInGate";
 import { BottomNav } from "@/shared/layout/BottomNav";
@@ -42,16 +43,20 @@ import { TopBar } from "@/shared/layout/TopBar";
  *
  * Inside it, the sign-up step (public-site LS2) takes the page's place until the
  * user has given their details and accepted the terms in force. The footer stays,
- * so the terms and the policy the form asks to accept are one click away.
+ * so the terms and the policy the form asks to accept are one click away. The
+ * navigation (and, in the top bar, the exchange tabs and the mode badge) waits
+ * for it too: nothing of the panel to go to or act on. While `me` loads it
+ * shows, as before sign-up existed.
  */
 export function AppShell() {
   const { t } = useTranslation();
+  const signUpPending = useSignUpPending();
 
   return (
     <div className="flex h-full flex-col bg-ground">
       <TopBar />
       <div className="flex min-h-0 flex-1">
-        <SideNav />
+        {!signUpPending && <SideNav />}
         <main className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-auto p-4 lg:px-9 lg:py-7">
           <div className="mx-auto flex w-full max-w-[90rem] flex-1 flex-col">
             <SignInGate>
@@ -74,7 +79,7 @@ export function AppShell() {
           </div>
         </main>
       </div>
-      <BottomNav />
+      {!signUpPending && <BottomNav />}
     </div>
   );
 }
