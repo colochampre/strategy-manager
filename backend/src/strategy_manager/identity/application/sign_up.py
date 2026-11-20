@@ -10,7 +10,9 @@ records one acceptance and commits once.
 
 The profile is given once. The CUIT is there so that the records can name whose
 trades they are (LD1), and a record whose owner can be rewritten from the panel
-names nobody reliably; a correction goes through the contact address.
+names nobody reliably; a correction of the CUIT or the country goes through the
+contact address. ``CorrectName`` lets the user fix a typo in their first or last
+name (owner, 2026-11-20).
 
 ``AcceptLegalTerms`` is the box alone, for a user who has a profile and meets new
 versions. The form is the only way in: the box without a profile is refused.
@@ -26,7 +28,7 @@ from uuid import UUID
 
 from strategy_manager.identity.application.ports import CommitPort
 from strategy_manager.identity.domain.legal import CURRENT_VERSIONS, LegalVersions
-from strategy_manager.identity.domain.profile import Profile
+from strategy_manager.identity.domain.profile import Profile, normalize_person_name
 from strategy_manager.shared.application.ports import ClockPort
 
 logger = logging.getLogger(__name__)
@@ -77,6 +79,11 @@ class ProfilesPort(Protocol):
         ...
 
     async def has_profile(self, user_id: UUID) -> bool: ...
+
+    async def correct_name(self, user_id: UUID, first_name: str, last_name: str) -> bool:
+        """Replaces both names of a user who has a profile; False, writing
+        nothing, for one who has none."""
+        ...
 
 
 class AcceptancesPort(Protocol):
@@ -155,3 +162,26 @@ class AcceptLegalTerms:
         await self._acceptances.record(user_id, CURRENT_VERSIONS, self._clock.now())
         await self._commit.commit()
         logger.info("User %s accepted %s again", user_id, CURRENT_VERSIONS)
+
+
+class CorrectName:
+    """First and last name, corrected by their owner (Ley 25.326 art. 16; the terms
+    ask the data to be kept up to date). The CUIT and the country are not here: the
+    CUIT names whose trades they are (LD1), so changing it goes through the contact
+    address. Not gated on the versions in force: a right to correct does not wait
+    on accepting new terms. Nothing here logs a name."""
+
+    def __init__(self, profiles: ProfilesPort, commit: CommitPort) -> None:
+        self._profiles = profiles
+        self._commit = commit
+
+    async def execute(self, user_id: UUID, *, first_name: str, last_name: str) -> tuple[str, str]:
+        """Raises ``InvalidProfileError`` or ``ProfileMissingError``, having stored
+        nothing."""
+        first = normalize_person_name(first_name, "first_name")
+        last = normalize_person_name(last_name, "last_name")
+        if not await self._profiles.correct_name(user_id, first, last):
+            raise ProfileMissingError("the sign-up form comes first")
+        await self._commit.commit()
+        logger.info("User %s corrected their name", user_id)
+        return first, last

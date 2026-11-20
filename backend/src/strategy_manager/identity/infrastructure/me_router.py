@@ -29,7 +29,7 @@ from dataclasses import replace
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -52,6 +52,7 @@ from strategy_manager.identity.application.ports import DisplayNameTakenError
 from strategy_manager.identity.application.sign_up import (
     AcceptLegalTerms,
     CompleteProfile,
+    CorrectName,
     DeclarationMissingError,
     LegalVersionChangedError,
     ProfileAlreadyGivenError,
@@ -184,6 +185,14 @@ class SignUpBody(BaseModel):
     privacy_version: str
 
 
+class NameBody(BaseModel):
+    #: Refused, not ignored: a CUIT sent here and dropped would read as changed.
+    model_config = ConfigDict(extra="forbid")
+
+    first_name: str
+    last_name: str
+
+
 class AcceptanceBody(BaseModel):
     accepts: bool
     terms_version: str
@@ -273,15 +282,43 @@ async def accept_again(
     except LegalVersionChangedError as exc:
         raise _version_changed() from exc
     except ProfileMissingError as exc:
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "error": PROFILE_INCOMPLETE,
-                "profile_status": ProfileStatus.MISSING.value,
-                "message": PROFILE_INCOMPLETE_MESSAGE,
-            },
-        ) from exc
+        raise _profile_incomplete() from exc
     return await _me(user, settings, session)
+
+
+def _profile_incomplete() -> HTTPException:
+    return HTTPException(
+        status_code=409,
+        detail={
+            "error": PROFILE_INCOMPLETE,
+            "profile_status": ProfileStatus.MISSING.value,
+            "message": PROFILE_INCOMPLETE_MESSAGE,
+        },
+    )
+
+
+@router.put("/profile/name", response_model=MeBody)
+async def correct_name(
+    body: NameBody, user: CurrentUserDep, settings: SettingsDep, session: SessionDep
+) -> MeBody:
+    use_case = CorrectName(SqlAlchemyUserRepository(session), session)
+    try:
+        first, last = await use_case.execute(
+            user.id, first_name=body.first_name, last_name=body.last_name
+        )
+    except InvalidProfileError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"error": "PROFILE_INVALID", "field": exc.field, "message": str(exc)},
+        ) from exc
+    except ProfileMissingError as exc:
+        raise _profile_incomplete() from exc
+    profile = user.profile
+    if profile is None:  # read before the UPDATE, which matched only a row with one
+        raise _profile_incomplete()
+    return await _me(
+        replace(user, profile=replace(profile, first_name=first, last_name=last)), settings, session
+    )
 
 
 @router.delete("", status_code=204)

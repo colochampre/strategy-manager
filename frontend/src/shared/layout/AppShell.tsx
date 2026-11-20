@@ -1,5 +1,6 @@
+import { useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
-import { Link, Outlet } from "react-router";
+import { Link, Outlet, useLocation } from "react-router";
 
 import { ProfileGate } from "@/features/sign-up/ProfileGate";
 import { useSignUpPending } from "@/shared/api/me";
@@ -23,6 +24,10 @@ import { TopBar } from "@/shared/layout/TopBar";
  * lives in one centred column capped at 90rem (decision 38), so a very wide
  * screen adds margin around the content instead of stretching it, and the
  * space between the pool panel and the decision rail never grows.
+ *
+ * Because `main` is the scroll container, a change of page puts it back at its
+ * top; the browser does that for the window only, so a link followed from the
+ * bottom of the terms would otherwise open the policy at its bottom.
  *
  * `main` is `relative`: it is the scroll container, so it must also be the
  * containing block of anything `position: absolute` inside it (the `sr-only`
@@ -51,13 +56,20 @@ import { TopBar } from "@/shared/layout/TopBar";
 export function AppShell() {
   const { t } = useTranslation();
   const signUpPending = useSignUpPending();
+  const { pathname } = useLocation();
+  const mainRef = useRef<HTMLElement>(null);
+
+  // `main` scrolls, not the window, so the browser's own reset on navigation never reaches it.
+  useEffect(() => {
+    if (mainRef.current !== null) mainRef.current.scrollTop = 0;
+  }, [pathname]);
 
   return (
     <div className="flex h-full flex-col bg-ground">
       <TopBar />
       <div className="flex min-h-0 flex-1">
         {!signUpPending && <SideNav />}
-        <main className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-auto p-4 lg:px-9 lg:py-7">
+        <main ref={mainRef} className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-auto p-4 lg:px-9 lg:py-7">
           <div className="mx-auto flex w-full max-w-[90rem] flex-1 flex-col">
             <SignInGate>
               <ProfileGate>

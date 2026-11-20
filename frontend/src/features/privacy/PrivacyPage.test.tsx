@@ -118,6 +118,13 @@ describe("privacy policy page", () => {
     expect(document.body).not.toHaveTextContent("[HOW TRADE RECORDS");
   });
 
+  it("says Settings shows the identity and corrects the names, and the rest goes through the contact address", () => {
+    renderAt(<PrivacyPage />);
+
+    expect(screen.queryAllByText(/In Settings you can see the details you gave at sign-up/)).toHaveLength(1);
+    expect(screen.queryAllByText(/correct your first and last name there/)).toHaveLength(1);
+  });
+
   it("says the records answer a competent authority, and nobody else", () => {
     renderAt(<PrivacyPage />);
 

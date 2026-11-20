@@ -400,3 +400,202 @@ async def test_deleting_the_account_erases_the_identity_and_keeps_the_acceptance
             )
         ).one()
     assert tuple(row) == (None, None, None, None, None, None, 1)
+
+
+NAME = "/api/me/profile/name"
+
+
+async def test_the_name_is_corrected_and_nothing_else_of_the_profile_or_the_record(
+    client: AsyncClient, factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """A typo in the name is the user's to fix (Ley 25.326 art. 16, terms "keep
+    them up to date"). The CUIT, the country, both declarations and the acceptance
+    record stay as given: the CUIT is what names whose trades they are (LD1)."""
+    await client.put(PROFILE, headers=ADMIN_HEADERS, json=FORM)
+    before = await _profile_row(factory, ADMIN_EMAIL)
+
+    response = await client.put(
+        NAME,
+        headers=ADMIN_HEADERS,
+        json={"first_name": "  Ana   María ", "last_name": "Pérez Gómez"},
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["profile"] == {
+        "first_name": "Ana María",
+        "last_name": "Pérez Gómez",
+        "cuit": "20123456786",
+        "country": "AR",
+    }
+    assert body["profile_status"] == "COMPLETE"
+    assert await _profile_row(factory, ADMIN_EMAIL) == ("Ana María", "Pérez Gómez", *before[2:])
+    assert len(await _acceptances(factory, ADMIN_EMAIL)) == 1
+    assert (await client.get("/api/me", headers=ADMIN_HEADERS)).json()["profile"] == body["profile"]
+
+
+async def test_a_name_that_cannot_be_true_is_a_422_naming_it_and_changes_nothing(
+    client: AsyncClient, factory: async_sessionmaker[AsyncSession]
+) -> None:
+    await client.put(PROFILE, headers=ADMIN_HEADERS, json=FORM)
+    before = await _profile_row(factory, ADMIN_EMAIL)
+
+    response = await client.put(
+        NAME, headers=ADMIN_HEADERS, json={"first_name": "Ana", "last_name": "   "}
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"]["error"] == "PROFILE_INVALID"
+    assert response.json()["detail"]["field"] == "last_name"
+    assert await _profile_row(factory, ADMIN_EMAIL) == before
+
+
+async def test_the_cuit_and_the_country_cannot_travel_with_a_name_correction(
+    client: AsyncClient, factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """Refused, not ignored: a CUIT sent here and dropped would read as changed."""
+    await client.put(PROFILE, headers=ADMIN_HEADERS, json=FORM)
+    before = await _profile_row(factory, ADMIN_EMAIL)
+
+    for extra in ({"cuit": "27-12345678-0"}, {"country": "AR"}):
+        response = await client.put(
+            NAME,
+            headers=ADMIN_HEADERS,
+            json={"first_name": "Beatriz", "last_name": "Pérez", **extra},
+        )
+        assert response.status_code == 422, extra
+
+    assert await _profile_row(factory, ADMIN_EMAIL) == before
+
+
+async def test_a_name_correction_without_a_profile_is_a_409_and_stores_nothing(
+    client: AsyncClient, factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """The form is the only way in: a name alone is no profile."""
+    response = await client.put(
+        NAME, headers=ADMIN_HEADERS, json={"first_name": "Ana", "last_name": "Pérez"}
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["error"] == "PROFILE_INCOMPLETE"
+    assert await _profile_row(factory, ADMIN_EMAIL) == NOTHING
+
+
+async def test_one_users_name_correction_is_not_another_users(
+    client: AsyncClient, factory: async_sessionmaker[AsyncSession]
+) -> None:
+    await client.put(PROFILE, headers=ADMIN_HEADERS, json=FORM)
+    await client.put(PROFILE, headers=OTHER_HEADERS, json={**FORM, "first_name": "Otra"})
+
+    await client.put(
+        NAME, headers=ADMIN_HEADERS, json={"first_name": "Beatriz", "last_name": "Pérez"}
+    )
+
+    assert (await _profile_row(factory, OTHER_EMAIL))[0] == "Otra"
+
+
+# The independent verifier's probes (2026-11-20), kept as regression tests.
+
+
+async def _snapshot(factory: async_sessionmaker[AsyncSession], email: str) -> tuple[Any, ...]:
+    """The user's whole row and every acceptance: a refusal must leave both byte-identical."""
+    async with factory() as session:
+        row = (
+            await session.execute(text("SELECT * FROM users WHERE email = :e"), {"e": email})
+        ).one()
+        accepted = (
+            await session.execute(text("SELECT * FROM legal_acceptances ORDER BY id"))
+        ).all()
+        return (tuple(row), tuple(tuple(a) for a in accepted))
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"first_name": "   ", "last_name": "Pérez"},
+        {"first_name": "Ana", "last_name": ""},
+        {"first_name": "A​na", "last_name": "Pérez"},
+        {"first_name": "Ana", "last_name": "x" * 500},
+        {"first_name": 5, "last_name": "Pérez"},
+        {"first_name": None, "last_name": "Pérez"},
+        {"first_name": "Ana"},
+        {"first_name": "Ana", "last_name": "Pérez", "adult": True},
+    ],
+)
+async def test_a_refused_name_correction_leaves_the_row_and_the_record_identical(
+    client: AsyncClient, factory: async_sessionmaker[AsyncSession], payload: dict[str, Any]
+) -> None:
+    assert (await client.put(PROFILE, headers=ADMIN_HEADERS, json=FORM)).status_code == 200
+    before = await _snapshot(factory, ADMIN_EMAIL)
+
+    response = await client.put(NAME, headers=ADMIN_HEADERS, json=payload)
+
+    assert response.status_code == 422, response.text
+    assert await _snapshot(factory, ADMIN_EMAIL) == before
+
+
+async def test_a_name_correction_starts_no_profile(
+    client: AsyncClient, factory: async_sessionmaker[AsyncSession]
+) -> None:
+    before = await _snapshot(factory, ADMIN_EMAIL)
+
+    response = await client.put(
+        NAME, headers=ADMIN_HEADERS, json={"first_name": "Ana", "last_name": "Pérez"}
+    )
+
+    assert response.status_code == 409
+    assert await _snapshot(factory, ADMIN_EMAIL) == before
+    me = (await client.get("/api/me", headers=ADMIN_HEADERS)).json()
+    assert (me["profile"], me["profile_status"]) == (None, "MISSING")
+
+
+async def test_a_user_who_must_accept_again_can_still_correct_the_name(
+    client: AsyncClient, factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """Ley 25.326 art. 16: correcting does not wait on new terms. Only the two names
+    move, and the user still has to accept again."""
+    assert (await client.put(PROFILE, headers=ADMIN_HEADERS, json=FORM)).status_code == 200
+    async with factory() as session:
+        await session.execute(
+            text(
+                "INSERT INTO legal_acceptances (id, user_id, terms_version, privacy_version, "
+                "accepted_at) SELECT :id, a.user_id, 'older', 'older', "
+                "max(a.accepted_at) + interval '1 microsecond' FROM legal_acceptances a "
+                "JOIN users u ON u.id = a.user_id WHERE u.email = :email GROUP BY a.user_id"
+            ),
+            {"id": uuid4(), "email": ADMIN_EMAIL},
+        )
+        await session.commit()
+    before = await _snapshot(factory, ADMIN_EMAIL)
+
+    response = await client.put(
+        NAME, headers=ADMIN_HEADERS, json={"first_name": " Ana  María ", "last_name": "Gómez"}
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["profile"]["first_name"] == "Ana María"
+    assert response.json()["profile_status"] == "ACCEPTANCE_OUTDATED"
+    after = await _snapshot(factory, ADMIN_EMAIL)
+    assert after[1] == before[1]
+    moved = [i for i, (old, new) in enumerate(zip(before[0], after[0], strict=True)) if old != new]
+    assert len(moved) == 2
+
+
+async def test_a_deleted_account_corrects_no_name(
+    client: AsyncClient, factory: async_sessionmaker[AsyncSession]
+) -> None:
+    assert (await client.put(PROFILE, headers=ADMIN_HEADERS, json=FORM)).status_code == 200
+    assert (await client.delete("/api/me", headers=ADMIN_HEADERS)).status_code == 204
+
+    response = await client.put(
+        NAME, headers=ADMIN_HEADERS, json={"first_name": "Ana", "last_name": "Pérez"}
+    )
+
+    assert response.status_code == 409
+    async with factory() as session:
+        deleted = (
+            await session.execute(
+                text("SELECT first_name, last_name, cuit FROM users WHERE deleted_at IS NOT NULL")
+            )
+        ).all()
+    assert [tuple(row) for row in deleted] == [(None, None, None)]

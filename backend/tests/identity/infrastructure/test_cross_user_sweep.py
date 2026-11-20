@@ -261,6 +261,10 @@ PROBES: tuple[Probe, ...] = (
     Probe("PUT", "/api/me/profile", body=_SIGN_UP, answers=200),
     # The box under a stale version: refused, and nothing of A's moves.
     Probe("POST", "/api/me/acceptance", body=_ACCEPT_STALE, answers=409),
+    # B corrects B's own name: A's profile does not move.
+    Probe(
+        "PUT", "/api/me/profile/name", body={"first_name": "B", "last_name": "B"}, answers=200
+    ),
     # B deletes B's own account: A's rows stay exactly as they were, a seat B held
     # on A's strategy included only as B's (the world is built again per probe).
     Probe("DELETE", "/api/me", answers=204),

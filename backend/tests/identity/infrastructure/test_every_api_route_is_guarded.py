@@ -42,6 +42,7 @@ OPEN_TO_ANY_USER = {
     "/api/me/mode",
     "/api/me/display-name",
     "/api/me/profile",
+    "/api/me/profile/name",
     "/api/me/acceptance",
 }
 #: Owner decision 16: the routes any signed-in user reaches, each answering that
@@ -124,6 +125,8 @@ WAYS_OUT_AND_IN = {
     ("DELETE", "/api/me"),
     ("PUT", "/api/me/profile"),
     ("POST", "/api/me/acceptance"),
+    # Correcting one's own name (Ley 25.326 art. 16) does not wait on new terms.
+    ("PUT", "/api/me/profile/name"),
 }
 _WRITES = {"POST", "PUT", "PATCH", "DELETE"}
 

@@ -86,6 +86,17 @@ describe("navigation", () => {
     expect(screen.getAllByRole("link", { name: "Overview" })[0]).not.toHaveAttribute("aria-current");
   });
 
+  it("opens every page at its top: main is the scroll container, so a link followed from the bottom of a page lands at the top of the next", async () => {
+    renderShell("/strategies");
+    const main = screen.getByRole("main");
+    main.scrollTop = 500;
+
+    fireEvent.click(screen.getAllByRole("link", { name: "Overview" })[0]!);
+
+    expect(await screen.findByText("page body")).toBeInTheDocument();
+    expect(main.scrollTop).toBe(0);
+  });
+
   it("keeps the language toggle", () => {
     renderShell();
 

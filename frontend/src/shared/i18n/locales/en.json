@@ -863,6 +863,16 @@
     "profile": {
       "title": "Profile"
     },
+    "identity": {
+      "title": "Your details",
+      "info": "About your details",
+      "intro": "What you gave when you signed up. Only you see it here. Keep your names up to date.",
+      "fixed": "To correct your CUIT or your country, write to {{contact}}.",
+      "save": "Save",
+      "saving": "Saving…",
+      "saved": "Saved",
+      "failed": "The names were not saved. Try again."
+    },
     "name": {
       "info": "About your name",
       "intro": "Other users see this name beside your public strategies. They never see your e-mail.",
@@ -1127,7 +1137,7 @@
       },
       "rights": {
         "title": "Your rights",
-        "body": "You can ask to see, correct, update or delete your data by writing to {{contact}}. Before answering, we will ask you to confirm the request from the e-mail address your account uses, so that nobody else can obtain or change your data. You will get an answer within the terms Law No. 25,326 sets.",
+        "body": "In Settings you can see the details you gave at sign-up, and correct your first and last name there. To correct your CUIT or your country, or to see, correct, update or delete any other data, write to {{contact}}. Before answering, we will ask you to confirm the request from the e-mail address your account uses, so that nobody else can obtain or change your data. You will get an answer within the terms Law No. 25,326 sets.",
         "deletion": "You can delete your account from Settings. Your e-mail, your display name and your exchange keys are erased, your strategies are closed and your subscriptions end. Trade and acceptance records are kept, as said above, under an account that no longer names you; your first name, last name and CUIT are kept as said under How long it is kept.",
         "authority": "The holder of the personal data has the right to access it free of charge at intervals of no less than six months, unless a legitimate interest is shown, as set out in article 14, paragraph 3 of Law No. 25,326. The AGENCIA DE ACCESO A LA INFORMACIÓN PÚBLICA, as the control authority of Law No. 25,326, has the power to handle the complaints and claims of anyone whose rights are affected by a breach of the rules on personal data protection."
       },
