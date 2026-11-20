@@ -30,6 +30,9 @@ from strategy_manager.identity.domain.user import User
 from strategy_manager.identity.infrastructure import dependencies
 from strategy_manager.shared.config import Settings, get_settings
 from strategy_manager.shared.domain.mode import Mode
+from strategy_manager.strategies.infrastructure.router import (
+    require_complete_profile_unless_disabling,
+)
 from tests.owner import OWNER_ID
 
 ADMIN_EMAIL = "owner@example.com"
@@ -101,8 +104,15 @@ def without_a_database(app: FastAPI) -> FastAPI:
         )
 
     app.dependency_overrides[dependencies.current_user] = _user
-    app.dependency_overrides[dependencies.require_complete_profile] = _signed_up
+    _let_the_signed_up_through(app)
     return app
+
+
+def _let_the_signed_up_through(app: FastAPI) -> None:
+    """Both forms of the sign-up gate: the whole one, and the one that lets a bare
+    disable through (``PATCH /api/strategies/{id}``)."""
+    app.dependency_overrides[dependencies.require_complete_profile] = _signed_up
+    app.dependency_overrides[require_complete_profile_unless_disabling] = _signed_up
 
 
 def act_as(app: FastAPI, user_id: UUID) -> FastAPI:
@@ -121,7 +131,7 @@ def act_as(app: FastAPI, user_id: UUID) -> FastAPI:
         )
 
     app.dependency_overrides[dependencies.current_user] = _user
-    app.dependency_overrides[dependencies.require_complete_profile] = _signed_up
+    _let_the_signed_up_through(app)
     return app
 
 

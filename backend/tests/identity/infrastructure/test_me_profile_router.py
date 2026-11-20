@@ -714,3 +714,36 @@ async def test_disabling_before_sign_up_reaches_only_the_authors_own_strategy(
 
     assert response.status_code == 404, response.text
     assert await _enabled(factory, strategy_id) is True
+
+
+@pytest.mark.parametrize(
+    ("raw", "content_type", "status", "still_enabled"),
+    [
+        # json.loads keeps the last key, in the gate and in the model alike.
+        (b'{"enabled": true, "enabled": false}', "application/json", 200, False),
+        (b'{"enabled": false, "enabled": true}', "application/json", 409, True),
+        (b'{"Enabled": false}', "application/json", 409, True),
+        (b'{"enabled": false, "description": null}', "application/json", 409, True),
+        (b"", "application/json", 409, True),
+        (b'{"enabled": false}', "text/plain", 422, True),
+    ],
+)
+async def test_the_disable_exception_reads_the_body_as_the_route_does(
+    client: AsyncClient,
+    factory: async_sessionmaker[AsyncSession],
+    raw: bytes,
+    content_type: str,
+    status: int,
+    still_enabled: bool,
+) -> None:
+    """The independent verifier's probes (2026-11-20), kept as regression tests."""
+    strategy_id = await _own_enabled_strategy(factory, ADMIN_EMAIL)
+
+    response = await client.patch(
+        f"{STRATEGIES}/{strategy_id}",
+        headers={**ADMIN_HEADERS, "Content-Type": content_type},
+        content=raw,
+    )
+
+    assert response.status_code == status, response.text
+    assert await _enabled(factory, strategy_id) is still_enabled
