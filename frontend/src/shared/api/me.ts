@@ -138,6 +138,35 @@ export async function chooseDisplayName(name: string): Promise<ChooseDisplayName
   }
 }
 
+export type CorrectNameResult =
+  | { kind: "corrected" }
+  | { kind: "invalid"; field: "first_name" | "last_name" }
+  | { kind: "unauthorized" }
+  | { kind: "unknown" };
+
+/**
+ * `PUT /api/me/profile/name`: the first and last name given at sign-up, corrected by their owner. The CUIT and the
+ * country are not sent: the server refuses them here, and they are corrected through the contact address.
+ */
+export async function correctName(names: { firstName: string; lastName: string }): Promise<CorrectNameResult> {
+  try {
+    await apiFetch<unknown>("/me/profile/name", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ first_name: names.firstName, last_name: names.lastName }),
+    });
+    return { kind: "corrected" };
+  } catch (error) {
+    if (!(error instanceof ApiError)) return { kind: "unknown" };
+    if (error.status === 401) return { kind: "unauthorized" };
+    const field = error.fields?.["field"];
+    if (error.code === "PROFILE_INVALID" && (field === "first_name" || field === "last_name")) {
+      return { kind: "invalid", field };
+    }
+    return { kind: "unknown" };
+  }
+}
+
 export type ChangeModeResult =
   | { kind: "changed" }
   | { kind: "brakeOn" }
@@ -352,6 +381,18 @@ export function useSignUpPending(): boolean {
  * The choice as a mutation. On every settled attempt but a 401 it reads `me` again and waits for it, so the form
  * and the top bar show the name the server stored (normalized, perhaps not as typed) when the save reports.
  */
+/** The correction as a mutation; like the display name, it reads `me` again and waits for it, except after a 401. */
+export function useCorrectName() {
+  const queryClient = useQueryClient();
+  return useMutation<CorrectNameResult, Error, { firstName: string; lastName: string }>({
+    mutationFn: correctName,
+    onSettled: async (result) => {
+      if (result?.kind === "unauthorized") return;
+      await queryClient.refetchQueries({ queryKey: ["me"] });
+    },
+  });
+}
+
 export function useChooseDisplayName() {
   const queryClient = useQueryClient();
   return useMutation<ChooseDisplayNameResult, Error, string>({

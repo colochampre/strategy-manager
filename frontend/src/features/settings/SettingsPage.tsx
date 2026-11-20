@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { DeleteAccountSection } from "@/features/settings/DeleteAccountSection";
 import { DeleteKeyControl } from "@/features/settings/DeleteKeyControl";
 import { DisplayNameSection } from "@/features/settings/DisplayNameSection";
+import { IdentitySection } from "@/features/settings/IdentitySection";
 import { ExchangeKeyCard } from "@/features/settings/ExchangeKeyCard";
 import { exchangeName } from "@/shared/exchanges/exchange-name";
 import { KeyEntryForm, type SavedKey } from "@/features/settings/KeyEntryForm";
@@ -227,6 +228,7 @@ export function SettingsPage() {
     <div className="flex flex-col gap-4">
       <h1 className="mb-2 font-display text-2xl font-bold text-ink">{t("settings.title")}</h1>
       <DisplayNameSection />
+      <IdentitySection />
       {/* The one status region: always in the document, hidden from sight, said once at a save. */}
       <p role="status" className="sr-only">
         {announcement}
