@@ -492,3 +492,110 @@ async def test_one_users_name_correction_is_not_another_users(
     )
 
     assert (await _profile_row(factory, OTHER_EMAIL))[0] == "Otra"
+
+
+# The independent verifier's probes (2026-11-20), kept as regression tests.
+
+
+async def _snapshot(factory: async_sessionmaker[AsyncSession], email: str) -> tuple[Any, ...]:
+    """The user's whole row and every acceptance: a refusal must leave both byte-identical."""
+    async with factory() as session:
+        row = (
+            await session.execute(text("SELECT * FROM users WHERE email = :e"), {"e": email})
+        ).one()
+        accepted = (
+            await session.execute(text("SELECT * FROM legal_acceptances ORDER BY id"))
+        ).all()
+        return (tuple(row), tuple(tuple(a) for a in accepted))
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"first_name": "   ", "last_name": "Pérez"},
+        {"first_name": "Ana", "last_name": ""},
+        {"first_name": "A​na", "last_name": "Pérez"},
+        {"first_name": "Ana", "last_name": "x" * 500},
+        {"first_name": 5, "last_name": "Pérez"},
+        {"first_name": None, "last_name": "Pérez"},
+        {"first_name": "Ana"},
+        {"first_name": "Ana", "last_name": "Pérez", "adult": True},
+    ],
+)
+async def test_a_refused_name_correction_leaves_the_row_and_the_record_identical(
+    client: AsyncClient, factory: async_sessionmaker[AsyncSession], payload: dict[str, Any]
+) -> None:
+    assert (await client.put(PROFILE, headers=ADMIN_HEADERS, json=FORM)).status_code == 200
+    before = await _snapshot(factory, ADMIN_EMAIL)
+
+    response = await client.put(NAME, headers=ADMIN_HEADERS, json=payload)
+
+    assert response.status_code == 422, response.text
+    assert await _snapshot(factory, ADMIN_EMAIL) == before
+
+
+async def test_a_name_correction_starts_no_profile(
+    client: AsyncClient, factory: async_sessionmaker[AsyncSession]
+) -> None:
+    before = await _snapshot(factory, ADMIN_EMAIL)
+
+    response = await client.put(
+        NAME, headers=ADMIN_HEADERS, json={"first_name": "Ana", "last_name": "Pérez"}
+    )
+
+    assert response.status_code == 409
+    assert await _snapshot(factory, ADMIN_EMAIL) == before
+    me = (await client.get("/api/me", headers=ADMIN_HEADERS)).json()
+    assert (me["profile"], me["profile_status"]) == (None, "MISSING")
+
+
+async def test_a_user_who_must_accept_again_can_still_correct_the_name(
+    client: AsyncClient, factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """Ley 25.326 art. 16: correcting does not wait on new terms. Only the two names
+    move, and the user still has to accept again."""
+    assert (await client.put(PROFILE, headers=ADMIN_HEADERS, json=FORM)).status_code == 200
+    async with factory() as session:
+        await session.execute(
+            text(
+                "INSERT INTO legal_acceptances (id, user_id, terms_version, privacy_version, "
+                "accepted_at) SELECT :id, a.user_id, 'older', 'older', "
+                "max(a.accepted_at) + interval '1 microsecond' FROM legal_acceptances a "
+                "JOIN users u ON u.id = a.user_id WHERE u.email = :email GROUP BY a.user_id"
+            ),
+            {"id": uuid4(), "email": ADMIN_EMAIL},
+        )
+        await session.commit()
+    before = await _snapshot(factory, ADMIN_EMAIL)
+
+    response = await client.put(
+        NAME, headers=ADMIN_HEADERS, json={"first_name": " Ana  María ", "last_name": "Gómez"}
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["profile"]["first_name"] == "Ana María"
+    assert response.json()["profile_status"] == "ACCEPTANCE_OUTDATED"
+    after = await _snapshot(factory, ADMIN_EMAIL)
+    assert after[1] == before[1]
+    moved = [i for i, (old, new) in enumerate(zip(before[0], after[0], strict=True)) if old != new]
+    assert len(moved) == 2
+
+
+async def test_a_deleted_account_corrects_no_name(
+    client: AsyncClient, factory: async_sessionmaker[AsyncSession]
+) -> None:
+    assert (await client.put(PROFILE, headers=ADMIN_HEADERS, json=FORM)).status_code == 200
+    assert (await client.delete("/api/me", headers=ADMIN_HEADERS)).status_code == 204
+
+    response = await client.put(
+        NAME, headers=ADMIN_HEADERS, json={"first_name": "Ana", "last_name": "Pérez"}
+    )
+
+    assert response.status_code == 409
+    async with factory() as session:
+        deleted = (
+            await session.execute(
+                text("SELECT first_name, last_name, cuit FROM users WHERE deleted_at IS NOT NULL")
+            )
+        ).all()
+    assert [tuple(row) for row in deleted] == [(None, None, None)]
