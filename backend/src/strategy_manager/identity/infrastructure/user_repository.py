@@ -87,6 +87,16 @@ class SqlAlchemyUserRepository:
         )
         return bool(result.rowcount)  # type: ignore[attr-defined]
 
+    async def correct_name(self, user_id: UUID, first_name: str, last_name: str) -> bool:
+        """One conditional UPDATE: only a row that has a profile changes, so a name
+        alone never starts one (``ck_users_profile_whole`` would refuse it anyway)."""
+        result = await self._session.execute(
+            update(UserRow)
+            .where(UserRow.id == user_id, UserRow.cuit.is_not(None))
+            .values(first_name=first_name, last_name=last_name)
+        )
+        return bool(result.rowcount)  # type: ignore[attr-defined]
+
     async def has_profile(self, user_id: UUID) -> bool:
         cuit = await self._session.scalar(select(UserRow.cuit).where(UserRow.id == user_id))
         return cuit is not None

@@ -400,3 +400,95 @@ async def test_deleting_the_account_erases_the_identity_and_keeps_the_acceptance
             )
         ).one()
     assert tuple(row) == (None, None, None, None, None, None, 1)
+
+
+NAME = "/api/me/profile/name"
+
+
+async def test_the_name_is_corrected_and_nothing_else_of_the_profile_or_the_record(
+    client: AsyncClient, factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """A typo in the name is the user's to fix (Ley 25.326 art. 16, terms "keep
+    them up to date"). The CUIT, the country, both declarations and the acceptance
+    record stay as given: the CUIT is what names whose trades they are (LD1)."""
+    await client.put(PROFILE, headers=ADMIN_HEADERS, json=FORM)
+    before = await _profile_row(factory, ADMIN_EMAIL)
+
+    response = await client.put(
+        NAME,
+        headers=ADMIN_HEADERS,
+        json={"first_name": "  Ana   María ", "last_name": "Pérez Gómez"},
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["profile"] == {
+        "first_name": "Ana María",
+        "last_name": "Pérez Gómez",
+        "cuit": "20123456786",
+        "country": "AR",
+    }
+    assert body["profile_status"] == "COMPLETE"
+    assert await _profile_row(factory, ADMIN_EMAIL) == ("Ana María", "Pérez Gómez", *before[2:])
+    assert len(await _acceptances(factory, ADMIN_EMAIL)) == 1
+    assert (await client.get("/api/me", headers=ADMIN_HEADERS)).json()["profile"] == body["profile"]
+
+
+async def test_a_name_that_cannot_be_true_is_a_422_naming_it_and_changes_nothing(
+    client: AsyncClient, factory: async_sessionmaker[AsyncSession]
+) -> None:
+    await client.put(PROFILE, headers=ADMIN_HEADERS, json=FORM)
+    before = await _profile_row(factory, ADMIN_EMAIL)
+
+    response = await client.put(
+        NAME, headers=ADMIN_HEADERS, json={"first_name": "Ana", "last_name": "   "}
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"]["error"] == "PROFILE_INVALID"
+    assert response.json()["detail"]["field"] == "last_name"
+    assert await _profile_row(factory, ADMIN_EMAIL) == before
+
+
+async def test_the_cuit_and_the_country_cannot_travel_with_a_name_correction(
+    client: AsyncClient, factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """Refused, not ignored: a CUIT sent here and dropped would read as changed."""
+    await client.put(PROFILE, headers=ADMIN_HEADERS, json=FORM)
+    before = await _profile_row(factory, ADMIN_EMAIL)
+
+    for extra in ({"cuit": "27-12345678-0"}, {"country": "AR"}):
+        response = await client.put(
+            NAME,
+            headers=ADMIN_HEADERS,
+            json={"first_name": "Beatriz", "last_name": "Pérez", **extra},
+        )
+        assert response.status_code == 422, extra
+
+    assert await _profile_row(factory, ADMIN_EMAIL) == before
+
+
+async def test_a_name_correction_without_a_profile_is_a_409_and_stores_nothing(
+    client: AsyncClient, factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """The form is the only way in: a name alone is no profile."""
+    response = await client.put(
+        NAME, headers=ADMIN_HEADERS, json={"first_name": "Ana", "last_name": "Pérez"}
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["error"] == "PROFILE_INCOMPLETE"
+    assert await _profile_row(factory, ADMIN_EMAIL) == NOTHING
+
+
+async def test_one_users_name_correction_is_not_another_users(
+    client: AsyncClient, factory: async_sessionmaker[AsyncSession]
+) -> None:
+    await client.put(PROFILE, headers=ADMIN_HEADERS, json=FORM)
+    await client.put(PROFILE, headers=OTHER_HEADERS, json={**FORM, "first_name": "Otra"})
+
+    await client.put(
+        NAME, headers=ADMIN_HEADERS, json={"first_name": "Beatriz", "last_name": "Pérez"}
+    )
+
+    assert (await _profile_row(factory, OTHER_EMAIL))[0] == "Otra"
