@@ -14,6 +14,7 @@ import {
   renderAt,
   resetExchangeScope,
   setViewport,
+  SIGNED_UP,
   stubApi,
   subscriptionOf,
   unlock,
@@ -58,7 +59,7 @@ function serve({ strategy, held, pools, me, subscribe, leave, preview, record }:
     }
     if (url.endsWith("/api/me")) {
       return Promise.resolve(
-        jsonResponse({ email: "a@example.com", is_admin: true, mode: "LIVE", dry_run_brake: false, ...me }),
+        jsonResponse({ email: "a@example.com", is_admin: true, mode: "LIVE", dry_run_brake: false, ...SIGNED_UP, ...me }),
       );
     }
     return undefined;

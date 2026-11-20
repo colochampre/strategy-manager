@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CONFIRMED_KEY, useConfirmedDiscrepancies } from "@/shared/api/discrepancies";
 import { ModeBadge } from "@/shared/layout/ModeBadge";
-import { jsonResponse, renderAt, stubApi, unlock } from "@/test/harness";
+import { jsonResponse, renderAt, SIGNED_UP, stubApi, unlock } from "@/test/harness";
 
 const HEALTH = { kind: "ok", body: { status: "ok", dry_run: false } } as const;
 
@@ -22,7 +22,7 @@ function serve(server: Server) {
   return stubApi(HEALTH, [], undefined, {}, (url, init) => {
     if (url.endsWith("/api/me")) {
       return Promise.resolve(
-        jsonResponse({ email: "owner@example.com", is_admin: true, mode: server.mode, dry_run_brake: server.brake }),
+        jsonResponse({ email: "owner@example.com", is_admin: true, mode: server.mode, dry_run_brake: server.brake, ...SIGNED_UP }),
       );
     }
     if (!url.endsWith("/api/me/mode")) return undefined;
@@ -30,7 +30,7 @@ function serve(server: Server) {
     if (server.refuse !== undefined) return Promise.resolve(server.refuse());
     server.mode = (JSON.parse(String(init?.body)) as { mode: Server["mode"] }).mode;
     return Promise.resolve(
-      jsonResponse({ email: "owner@example.com", is_admin: true, mode: server.mode, dry_run_brake: server.brake }),
+      jsonResponse({ email: "owner@example.com", is_admin: true, mode: server.mode, dry_run_brake: server.brake, ...SIGNED_UP }),
     );
   });
 }
@@ -122,7 +122,7 @@ describe("what the badge says", () => {
   it.each([
     ["the network fails", () => Promise.reject(new TypeError("offline"))],
     ["a 500", () => Promise.resolve(jsonResponse({}, 500))],
-    ["a body with no mode", () => Promise.resolve(jsonResponse({ email: "a@b.c", is_admin: true, dry_run_brake: false }))],
+    ["a body with no mode", () => Promise.resolve(jsonResponse({ email: "a@b.c", is_admin: true, dry_run_brake: false, ...SIGNED_UP }))],
   ])("says Mode unknown, never Live, on %s", async (_name, answer) => {
     stubApi(HEALTH, [], undefined, {}, (url) => (url.endsWith("/api/me") ? answer() : undefined));
     renderAt(<ModeBadge />);
@@ -298,7 +298,7 @@ describe("changing the mode", () => {
     fireEvent.keyDown(dialog, { key: "Escape" });
     expect(screen.getByRole("dialog")).toBeInTheDocument();
 
-    release(jsonResponse({ email: "owner@example.com", is_admin: true, mode: "LIVE", dry_run_brake: false }));
+    release(jsonResponse({ email: "owner@example.com", is_admin: true, mode: "LIVE", dry_run_brake: false, ...SIGNED_UP }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
 

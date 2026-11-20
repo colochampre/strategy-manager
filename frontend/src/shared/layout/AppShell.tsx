@@ -2,6 +2,7 @@ import { useTranslation } from "react-i18next";
 import { Link, Outlet } from "react-router";
 
 import { PrivacyNotice } from "@/features/privacy/PrivacyNotice";
+import { ProfileGate } from "@/features/sign-up/ProfileGate";
 
 import { SignInGate } from "@/shared/auth/SignInGate";
 import { BottomNav } from "@/shared/layout/BottomNav";
@@ -38,6 +39,10 @@ import { TopBar } from "@/shared/layout/TopBar";
  * Every page ends with links to the privacy policy and the terms, and a first visit opens
  * with the notice that links it (Ley 25.326 art. 6). Both sit inside the gate:
  * whoever reaches them has signed in.
+ *
+ * Inside it, the sign-up step (public-site LS2) takes the page's place until the
+ * user has given their details and accepted the terms in force. The footer stays,
+ * so the terms and the policy the form asks to accept are one click away.
  */
 export function AppShell() {
   const { t } = useTranslation();
@@ -50,8 +55,10 @@ export function AppShell() {
         <main className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-auto p-4 lg:px-9 lg:py-7">
           <div className="mx-auto flex w-full max-w-[90rem] flex-1 flex-col">
             <SignInGate>
-              <PrivacyNotice />
-              <Outlet />
+              <ProfileGate>
+                <PrivacyNotice />
+                <Outlet />
+              </ProfileGate>
               <div className="mt-auto pt-10">
                 <footer className="flex flex-wrap items-center gap-x-6 gap-y-2 border-t border-rule pt-5 text-xs text-ink-3">
                   <span>{t("privacy.copyright", { year: new Date().getFullYear() })}</span>

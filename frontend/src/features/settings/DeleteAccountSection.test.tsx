@@ -5,11 +5,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SettingsPage } from "@/features/settings/SettingsPage";
 import { useAccountDeletedStore } from "@/shared/account/account-deleted";
 import i18n from "@/shared/i18n";
-import { jsonResponse, lock, renderAt, resetExchangeScope, stubApi, unlock } from "@/test/harness";
+import { jsonResponse, lock, renderAt, resetExchangeScope, SIGNED_UP, stubApi, unlock } from "@/test/harness";
 
 const HEALTH = { kind: "ok", body: { status: "ok", dry_run: false } } as const;
 const EMAIL = "someone@example.com";
-const ME = { email: EMAIL, is_admin: false, mode: "LIVE", dry_run_brake: false, display_name: "Ana" };
+const ME = { email: EMAIL, is_admin: false, mode: "LIVE", dry_run_brake: false, ...SIGNED_UP, display_name: "Ana" };
 
 const NO_CONTENT = { ok: true, status: 204, json: () => Promise.reject(new Error("no body")) } as unknown as Response;
 

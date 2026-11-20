@@ -445,3 +445,33 @@ describe("privacy in the shell", () => {
     expect(footer).toHaveClass("border-t");
   });
 });
+
+describe("the sign-up step in the shell (public-site LS2)", () => {
+  it("shows a user who has not signed up the form in place of the page, and still the footer's links", async () => {
+    stubApi({ kind: "ok", body: { status: "ok", dry_run: true } }, [], undefined, {}, (url, init) =>
+      url.endsWith("/api/me") && (init?.method ?? "GET") === "GET"
+        ? Promise.resolve(
+            new Response(
+              JSON.stringify({
+                email: "new@example.com",
+                is_admin: false,
+                mode: "SIMULATION",
+                dry_run_brake: false,
+                profile: null,
+                profile_status: "MISSING",
+                legal_versions: { terms: "t", privacy: "p" },
+              }),
+              { status: 200, headers: { "Content-Type": "application/json" } },
+            ),
+          )
+        : undefined,
+    );
+
+    renderShell();
+
+    expect(await screen.findByRole("form", { name: en.signUp.label })).toBeInTheDocument();
+    expect(screen.queryByText("page body")).not.toBeInTheDocument();
+    const footer = screen.getByRole("contentinfo");
+    expect(within(footer).getByRole("link", { name: "Terms of service" })).toHaveAttribute("href", "/terms");
+  });
+});

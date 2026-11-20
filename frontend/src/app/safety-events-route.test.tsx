@@ -3,14 +3,23 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AppRoutes } from "@/app/router";
 import i18n from "@/shared/i18n";
-import { jsonResponse, lock, renderAt, resetExchangeScope, setViewport, stubApi, unlock } from "@/test/harness";
+import {
+  jsonResponse,
+  lock,
+  renderAt,
+  resetExchangeScope,
+  setViewport,
+  SIGNED_UP,
+  stubApi,
+  unlock,
+} from "@/test/harness";
 
 /** A signed-in user who is NOT the admin: the section is theirs, not the admin's. */
 function serveAsMember() {
   stubApi({ kind: "ok", body: {} }, [], { kind: "ok", body: [] }, {}, (url) => {
     if (url.endsWith("/api/me")) {
       return Promise.resolve(
-        jsonResponse({ email: "member@example.com", is_admin: false, mode: "LIVE", dry_run_brake: false }),
+        jsonResponse({ email: "member@example.com", is_admin: false, mode: "LIVE", dry_run_brake: false, ...SIGNED_UP }),
       );
     }
     if (url.endsWith("/api/safety-events")) return Promise.resolve(jsonResponse({ events: [] }));

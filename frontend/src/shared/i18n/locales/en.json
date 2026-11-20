@@ -1007,6 +1007,38 @@
       "failed": "The account could not be deleted. Try again."
     }
   },
+  "signUp": {
+    "label": "Sign up",
+    "title": "Before you start",
+    "intro": "Strategy Manager is offered to adults who live in Argentina. Fill this in once to use the panel.",
+    "firstName": "First name",
+    "lastName": "Last name",
+    "nameInvalid": "Write between 1 and 80 characters.",
+    "cuit": "CUIT or CUIL",
+    "cuitHint": "11 digits, with or without dashes.",
+    "cuitInvalid": "This CUIT is not valid. Check the number.",
+    "country": "Country of residence",
+    "countryChoose": "Choose a country",
+    "countryAR": "Argentina",
+    "countryOther": "Another country",
+    "notServed": "The service is offered only to residents of Argentina for now.",
+    "adult": "I declare that I am 18 or older.",
+    "truthful": "I declare that the data I give is true.",
+    "acceptsBefore": "I accept the ",
+    "termsLink": "terms of service",
+    "acceptsMiddle": " and have read the ",
+    "privacyLink": "privacy policy",
+    "acceptsAfter": ". I expressly consent to my data being transferred to providers abroad (Cloudflare, United States), as the policy describes.",
+    "submit": "Continue",
+    "versionChanged": "The terms or the privacy policy changed while you filled this in. Read them and tick the box again.",
+    "alreadyGiven": "Your details were already saved.",
+    "failed": "Your details could not be saved. Try again.",
+    "again": {
+      "title": "The terms have changed",
+      "body": "The terms of service or the privacy policy changed since you accepted them. Read them and tick the box to continue.",
+      "failed": "Your acceptance could not be saved. Try again."
+    }
+  },
   "auth": {
     "gate": {
       "checking": "Checking sign-in",

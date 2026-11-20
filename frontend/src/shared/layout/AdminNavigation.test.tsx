@@ -6,9 +6,9 @@ import { AdminRoute } from "@/shared/auth/AdminRoute";
 import { AppShell } from "@/shared/layout/AppShell";
 import { BottomNav } from "@/shared/layout/BottomNav";
 import { SideNav } from "@/shared/layout/SideNav";
-import { jsonResponse, renderAt, stubApi, unlock } from "@/test/harness";
+import { jsonResponse, renderAt, SIGNED_UP, stubApi, unlock } from "@/test/harness";
 
-const USER = { email: "a@example.com", mode: "SIMULATION", dry_run_brake: true };
+const USER = { email: "a@example.com", mode: "SIMULATION", dry_run_brake: true, ...SIGNED_UP };
 
 function serveMe(answer: () => Promise<Response>) {
   return stubApi({ kind: "ok", body: {} }, [], { kind: "ok", body: [] }, {}, (url) =>

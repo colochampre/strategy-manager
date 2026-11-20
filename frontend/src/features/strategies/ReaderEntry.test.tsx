@@ -13,6 +13,7 @@ import {
   renderAt,
   resetExchangeScope,
   setViewport,
+  SIGNED_UP,
   stubApi,
   subscriptionOf,
   unlock,
@@ -73,7 +74,7 @@ function serve(answers: Answers = {}) {
       return Promise.resolve(answers.preview?.() ?? jsonResponse(unsyncedSharePreview(ID)));
     }
     if (path === "/api/me") {
-      return Promise.resolve(jsonResponse({ email: "b@example.com", is_admin: false, mode: "LIVE", dry_run_brake: false }));
+      return Promise.resolve(jsonResponse({ email: "b@example.com", is_admin: false, mode: "LIVE", dry_run_brake: false, ...SIGNED_UP }));
     }
     return undefined;
   });

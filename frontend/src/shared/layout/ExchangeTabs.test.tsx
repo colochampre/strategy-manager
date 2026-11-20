@@ -11,17 +11,18 @@ import en from "@/shared/i18n/locales/en.json";
 import es from "@/shared/i18n/locales/es.json";
 import { ExchangeTabs } from "@/shared/layout/ExchangeTabs";
 import {
-  type CredentialsStub,
-  type ExtraRoute,
   emptyKey,
   jsonResponse,
   lock,
   pool,
   renderAt,
   resetExchangeScope,
+  SIGNED_UP,
   storedKey,
   strategyRoute,
   stubApi,
+  type CredentialsStub,
+  type ExtraRoute,
   unlock,
 } from "@/test/harness";
 
@@ -56,7 +57,7 @@ describe("for a signed-in user who is not the admin", () => {
   it("draws the tabs, so a user keyed on two exchanges can switch between them", async () => {
     const notTheAdmin: ExtraRoute = (url) =>
       url.endsWith("/api/me")
-        ? Promise.resolve(jsonResponse({ email: "a@example.com", is_admin: false, mode: "SIMULATION", dry_run_brake: false }))
+        ? Promise.resolve(jsonResponse({ email: "a@example.com", is_admin: false, mode: "SIMULATION", dry_run_brake: false, ...SIGNED_UP }))
         : undefined;
     stubApi(HEALTH, [], TWO_EXCHANGES, {}, notTheAdmin);
     renderAt(<ExchangeTabs />);

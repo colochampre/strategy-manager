@@ -1007,6 +1007,38 @@
       "failed": "No se pudo eliminar la cuenta. Vuelva a intentarlo."
     }
   },
+  "signUp": {
+    "label": "Alta",
+    "title": "Antes de empezar",
+    "intro": "Strategy Manager se ofrece a personas mayores de edad que residen en Argentina. Complete estos datos una sola vez para usar el panel.",
+    "firstName": "Nombre",
+    "lastName": "Apellido",
+    "nameInvalid": "Escriba entre 1 y 80 caracteres.",
+    "cuit": "CUIT o CUIL",
+    "cuitHint": "11 dígitos, con o sin guiones.",
+    "cuitInvalid": "Este CUIT no es válido. Revise el número.",
+    "country": "País de residencia",
+    "countryChoose": "Elija un país",
+    "countryAR": "Argentina",
+    "countryOther": "Otro país",
+    "notServed": "Por ahora el servicio se ofrece solo a residentes en Argentina.",
+    "adult": "Declaro que tengo 18 años o más.",
+    "truthful": "Declaro que los datos que doy son verdaderos.",
+    "acceptsBefore": "Acepto los ",
+    "termsLink": "términos del servicio",
+    "acceptsMiddle": " y leí la ",
+    "privacyLink": "política de privacidad",
+    "acceptsAfter": ". Presto mi consentimiento expreso para la transferencia de mis datos a proveedores en el exterior (Cloudflare, Estados Unidos), como describe la política.",
+    "submit": "Continuar",
+    "versionChanged": "Los términos o la política de privacidad cambiaron mientras completaba el formulario. Léalos y vuelva a marcar la casilla.",
+    "alreadyGiven": "Sus datos ya estaban guardados.",
+    "failed": "No se pudieron guardar sus datos. Inténtelo de nuevo.",
+    "again": {
+      "title": "Los términos cambiaron",
+      "body": "Los términos del servicio o la política de privacidad cambiaron desde que los aceptó. Léalos y marque la casilla para continuar.",
+      "failed": "No se pudo guardar su aceptación. Inténtelo de nuevo."
+    }
+  },
   "auth": {
     "gate": {
       "checking": "Verificando el ingreso",

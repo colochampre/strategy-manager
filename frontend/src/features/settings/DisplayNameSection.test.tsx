@@ -3,11 +3,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { SettingsPage } from "@/features/settings/SettingsPage";
 import i18n from "@/shared/i18n";
-import { jsonResponse, lock, renderAt, resetExchangeScope, stubApi, unlock } from "@/test/harness";
+import { jsonResponse, lock, renderAt, resetExchangeScope, SIGNED_UP, stubApi, unlock } from "@/test/harness";
 
 const HEALTH = { kind: "ok", body: { status: "ok", dry_run: false } } as const;
 const EMAIL = "owner@example.com";
-const ME = { email: EMAIL, is_admin: true, mode: "LIVE", dry_run_brake: false };
+const ME = { email: EMAIL, is_admin: true, mode: "LIVE", dry_run_brake: false, ...SIGNED_UP };
 
 /**
  * Settings with a stored name. A PUT is recorded and answered by `outcome`: a refusal, or `"saved"`, which stores

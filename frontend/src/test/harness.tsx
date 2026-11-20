@@ -458,6 +458,16 @@ const DEFAULT_POOLS: PoolsStub = { kind: "ok", body: [pool("bybit", "usdt-m")] }
 /** The venue's spelling (`STXUSDT`), sorted, as the endpoint answers it; a pool without an entry gets these. */
 const DEFAULT_AVAILABLE_PAIRS = ["AAVEUSDT", "SFPUSDT", "STXUSDT"] as const;
 
+/**
+ * What `GET /api/me` adds for a user who already signed up (public-site LS2): the panel shows itself, not the form.
+ * Spread into every fabricated `/me` answer of a test that is about something else.
+ */
+export const SIGNED_UP = {
+  profile: null,
+  profile_status: "COMPLETE",
+  legal_versions: { terms: "terms-test", privacy: "privacy-test" },
+} as const;
+
 export function jsonResponse(body: unknown, status = 200): Response {
   return { ok: status >= 200 && status < 300, status, json: () => Promise.resolve(body) } as Response;
 }
@@ -531,7 +541,7 @@ export function stubApi(
     if (url.endsWith("/api/me")) {
       return Promise.resolve(
         signedIn
-          ? jsonResponse({ email: SIGNED_IN_EMAIL, is_admin: true, mode: "SIMULATION", dry_run_brake: true })
+          ? jsonResponse({ email: SIGNED_IN_EMAIL, is_admin: true, mode: "SIMULATION", dry_run_brake: true, ...SIGNED_UP })
           : jsonResponse({ detail: "unauthorized" }, 401),
       );
     }

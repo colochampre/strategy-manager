@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import i18n from "@/shared/i18n";
 import { TopBar } from "@/shared/layout/TopBar";
-import { jsonResponse, lock, renderAt, resetExchangeScope, stubApi, unlock } from "@/test/harness";
+import { jsonResponse, lock, renderAt, resetExchangeScope, SIGNED_UP, stubApi, unlock } from "@/test/harness";
 
 const HEALTH = { kind: "ok", body: { status: "ok", dry_run: false } } as const;
 
@@ -30,6 +30,7 @@ describe("who is signed in, in the top bar", () => {
               is_admin: true,
               mode: "LIVE",
               dry_run_brake: false,
+              ...SIGNED_UP,
               display_name: displayName,
             }),
           )

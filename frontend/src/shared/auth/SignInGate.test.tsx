@@ -5,10 +5,10 @@ import { page } from "@/shared/auth/reauthenticate";
 import { SignInGate } from "@/shared/auth/SignInGate";
 import en from "@/shared/i18n/locales/en.json";
 import es from "@/shared/i18n/locales/es.json";
-import { jsonResponse, renderAt } from "@/test/harness";
+import { jsonResponse, renderAt, SIGNED_UP } from "@/test/harness";
 
-const ADMIN = { email: "owner@example.com", is_admin: true, mode: "LIVE", dry_run_brake: false };
-const USER = { email: "someone@example.com", is_admin: false, mode: "SIMULATION", dry_run_brake: false };
+const ADMIN = { email: "owner@example.com", is_admin: true, mode: "LIVE", dry_run_brake: false, ...SIGNED_UP };
+const USER = { email: "someone@example.com", is_admin: false, mode: "SIMULATION", dry_run_brake: false, ...SIGNED_UP };
 
 function answerMe(response: () => Promise<Response>) {
   const fetchMock = vi.fn((url: string) =>

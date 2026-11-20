@@ -12,6 +12,7 @@ import {
   publicRecord,
   publicStrategy,
   renderAt,
+  SIGNED_UP,
   stubApi,
   unlock,
 } from "@/test/harness";
@@ -78,7 +79,7 @@ function serve({ record, held = [], mine, me }: Serve = {}) {
     }
     if (url.endsWith("/api/me")) {
       return Promise.resolve(
-        jsonResponse({ email: "bea@example.com", is_admin: false, mode: "LIVE", dry_run_brake: false, display_name: "Bea", ...me }),
+        jsonResponse({ email: "bea@example.com", is_admin: false, mode: "LIVE", dry_run_brake: false, ...SIGNED_UP, display_name: "Bea", ...me }),
       );
     }
     return undefined;
