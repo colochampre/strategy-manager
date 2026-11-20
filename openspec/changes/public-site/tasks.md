@@ -64,6 +64,7 @@ The plan is in `proposal.md`. Each task records its evidence when done. Push, PR
     - Production (`deploy_0ad530e.sh`), 213 minutes into the 4h candle: checkout `0ad530e890c9`, still at 0046, 1 user with a profile and 1 acceptance (the owner's). Both services `active`. Unsigned, `PUT /api/me/profile/name` answers 401. No ERROR, CRITICAL or Traceback line since the restart, the alerts' INFO line left out.
     - Panel (pps.6): built by the assistant from a detached worktree of `origin/main` at `0ad530e890c9`, 22 entries, SHA-256 `9e4018cc9ab82181fc2b4df0a919dbe641851a3d2ba835d34e4501bd09bd842c`; the owner's block printed `OK`, `readable`, and bundle and checkout `0ad530e890c9`.
     - Every user meets the acceptance box again, for privacy `draft-6`.
+    - The owner read the panel: the acceptance asked again, "Your details" in Settings, and the policy opening at its top from the terms' link ("Todo correcto").
 
 ## From the lawyer's answers (specs written 2026-11-19)
 
