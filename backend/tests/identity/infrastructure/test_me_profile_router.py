@@ -366,7 +366,8 @@ async def test_new_versions_close_the_gate_until_the_box_is_ticked_again(
 async def test_the_ways_out_stay_open_to_a_user_who_has_not_signed_up(
     client: AsyncClient, factory: async_sessionmaker[AsyncSession]
 ) -> None:
-    """Leaving, closing, archiving and deleting the account never meet the gate."""
+    """Deleting the account never meets the gate. The other ways out are pinned by
+    the route walk (``test_every_api_route_is_guarded``), not exercised here."""
     response = await client.delete("/api/me", headers=ADMIN_HEADERS)
 
     assert response.status_code == 204, response.text
