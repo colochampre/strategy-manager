@@ -1,4 +1,6 @@
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ProfileGate } from "@/features/sign-up/ProfileGate";
@@ -326,5 +328,69 @@ describe("ProfileGate (public-site LS2, LS6)", () => {
     fireEvent.click(submit());
 
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(en.signUp.again.failed));
+  });
+});
+
+describe("ProfileGate when the versions change under an open form (the verifier's blocker)", () => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  /** As `renderGate`, with the query client in hand, so a test can read `me` again as the 60-second poll does. */
+  function renderWithClient() {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
+          <ProfileGate>
+            <div>the panel</div>
+          </ProfileGate>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    return queryClient;
+  }
+
+  it("unticks the acceptance when a background read brings new versions, and never sends them under the old tick", async () => {
+    const server: Server = { status: "MISSING", versions: VERSIONS };
+    const sent = serve(server);
+    const queryClient = renderWithClient();
+    await fillWholeForm();
+
+    server.versions = NEWER;
+    await queryClient.refetchQueries({ queryKey: ["me"] });
+
+    await waitFor(() => expect(acceptsBox().checked).toBe(false));
+    expect(screen.getByText(en.signUp.versionChanged)).toBeInTheDocument();
+    expect(submit().disabled).toBe(true);
+    fireEvent.submit(screen.getByRole("form", { name: en.signUp.label }));
+    expect(sent).toEqual([]);
+
+    fireEvent.click(acceptsBox());
+    fireEvent.click(submit());
+
+    expect(await screen.findByText("the panel")).toBeInTheDocument();
+    expect(sent.map((one) => one.body)).toEqual([expect.objectContaining({ terms_version: NEWER.terms })]);
+  });
+
+  it("unticks the box asked again when newer versions arrive before it is sent", async () => {
+    const server: Server = { status: "ACCEPTANCE_OUTDATED", versions: NEWER };
+    const sent = serve(server);
+    const queryClient = renderWithClient();
+    await screen.findByRole("form", { name: en.signUp.again.title });
+    fireEvent.click(acceptsBox());
+
+    server.versions = { terms: "terms-4", privacy: "privacy-5" };
+    await queryClient.refetchQueries({ queryKey: ["me"] });
+
+    await waitFor(() => expect(acceptsBox().checked).toBe(false));
+    expect(submit().disabled).toBe(true);
+    fireEvent.submit(screen.getByRole("form", { name: en.signUp.again.title }));
+    expect(sent).toEqual([]);
   });
 });

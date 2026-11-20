@@ -1,7 +1,7 @@
 import { type FormEvent, useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import { AcceptanceBox, SubmitButton } from "@/features/sign-up/AcceptanceBox";
+import { AcceptanceBox, SubmitButton, useAcceptance } from "@/features/sign-up/AcceptanceBox";
 import { type LegalVersions, useAcceptAgain } from "@/shared/api/me";
 
 /**
@@ -12,7 +12,8 @@ export function AcceptAgainForm({ versions }: { versions: LegalVersions }) {
   const { t } = useTranslation();
   const accept = useAcceptAgain();
   const headingId = useId();
-  const [accepts, setAccepts] = useState(false);
+  const acceptance = useAcceptance(versions);
+  const accepts = acceptance.ticked;
   const [failed, setFailed] = useState(false);
 
   const submit = (event: FormEvent) => {
@@ -21,7 +22,7 @@ export function AcceptAgainForm({ versions }: { versions: LegalVersions }) {
     setFailed(false);
     accept.mutate(versions, {
       onSuccess: (result) => {
-        if (result.kind === "versionChanged") setAccepts(false);
+        if (result.kind === "versionChanged") acceptance.clear();
         setFailed(result.kind !== "accepted" && result.kind !== "incomplete");
       },
       onError: () => setFailed(true),
@@ -36,7 +37,8 @@ export function AcceptAgainForm({ versions }: { versions: LegalVersions }) {
         </h1>
         <p className="text-sm text-ink-3">{t("signUp.again.body")}</p>
       </div>
-      <AcceptanceBox checked={accepts} onChange={setAccepts} />
+      <AcceptanceBox checked={accepts} onChange={acceptance.set} />
+      {acceptance.outdated && <p className="text-sm text-loss">{t("signUp.versionChanged")}</p>}
       {failed && (
         <p role="alert" className="text-sm text-loss">
           {t("signUp.again.failed")}

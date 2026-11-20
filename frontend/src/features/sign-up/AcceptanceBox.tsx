@@ -1,5 +1,25 @@
-import { useId } from "react";
+import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
+
+import type { LegalVersions } from "@/shared/api/me";
+
+/**
+ * The acceptance as the versions it was ticked under, not a bare boolean. `me` is read again every minute and on focus,
+ * so the versions a form shows can change under a ticked box; a tick given under other versions is no tick at all
+ * (LS6), and the box reads unticked until it is ticked again under the versions now shown.
+ */
+export function useAcceptance(versions: LegalVersions) {
+  const [tickedUnder, setTickedUnder] = useState<LegalVersions | null>(null);
+  const current =
+    tickedUnder !== null && tickedUnder.terms === versions.terms && tickedUnder.privacy === versions.privacy;
+  return {
+    ticked: current,
+    /** Ticked under versions no longer in force: the form says so. */
+    outdated: tickedUnder !== null && !current,
+    set: (checked: boolean) => setTickedUnder(checked ? versions : null),
+    clear: () => setTickedUnder(null),
+  };
+}
 
 const LINK = "text-gain underline hover:text-gain-bright";
 

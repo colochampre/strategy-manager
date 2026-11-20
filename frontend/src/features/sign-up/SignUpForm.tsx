@@ -1,7 +1,7 @@
 import { type FormEvent, type ReactNode, useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import { AcceptanceBox, SubmitButton } from "@/features/sign-up/AcceptanceBox";
+import { AcceptanceBox, SubmitButton, useAcceptance } from "@/features/sign-up/AcceptanceBox";
 import { cuitState } from "@/features/sign-up/cuit";
 import { type GiveProfileResult, type LegalVersions, type ProfileField, useGiveProfile } from "@/shared/api/me";
 
@@ -45,7 +45,8 @@ export function SignUpForm({ versions }: { versions: LegalVersions }) {
   const [country, setCountry] = useState("");
   const [adult, setAdult] = useState(false);
   const [truthful, setTruthful] = useState(false);
-  const [accepts, setAccepts] = useState(false);
+  const acceptance = useAcceptance(versions);
+  const accepts = acceptance.ticked;
   const [refusedField, setRefusedField] = useState<ProfileField | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
 
@@ -69,7 +70,7 @@ export function SignUpForm({ versions }: { versions: LegalVersions }) {
       {
         onSuccess: (result) => {
           if (result.kind === "invalid") setRefusedField(result.field);
-          if (result.kind === "versionChanged") setAccepts(false);
+          if (result.kind === "versionChanged") acceptance.clear();
           setFailure(failureKey(result));
         },
         onError: () => setFailure("signUp.failed"),
@@ -152,12 +153,12 @@ export function SignUpForm({ versions }: { versions: LegalVersions }) {
       <div className="flex flex-col gap-3">
         <Declaration label={t("signUp.adult")} checked={adult} onChange={setAdult} />
         <Declaration label={t("signUp.truthful")} checked={truthful} onChange={setTruthful} />
-        <AcceptanceBox checked={accepts} onChange={setAccepts} />
+        <AcceptanceBox checked={accepts} onChange={acceptance.set} />
       </div>
 
-      {failure !== null && (
+      {(failure ?? (acceptance.outdated ? "signUp.versionChanged" : null)) !== null && (
         <p role="alert" className="text-sm text-loss">
-          {t(failure)}
+          {t(failure ?? "signUp.versionChanged")}
         </p>
       )}
       <SubmitButton disabled={!complete || give.isPending} busy={give.isPending} />
