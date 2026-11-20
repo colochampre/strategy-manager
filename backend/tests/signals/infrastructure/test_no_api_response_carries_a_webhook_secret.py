@@ -133,6 +133,7 @@ _BODIES: dict[tuple[str, str], dict[str, Any]] = {
             "terms_version": CURRENT_VERSIONS.terms,
             "privacy_version": CURRENT_VERSIONS.privacy,
     },
+    ("PUT", "/api/me/profile/name"): {"first_name": "Beto", "last_name": "Gómez"},
     ("POST", "/api/me/acceptance"): {
         "accepts": True,
         "terms_version": CURRENT_VERSIONS.terms,
