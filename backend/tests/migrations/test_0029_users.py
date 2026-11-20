@@ -109,6 +109,13 @@ async def test_the_table_holds_an_id_an_email_two_timestamps_the_mode_and_a_name
         "display_name": ("text", "YES"),
         # Added by 0045: when the account was deleted (account-deletion S3).
         "deleted_at": ("timestamp with time zone", "YES"),
+        # Added by 0046: the identity given at sign-up (public-site LS3).
+        "first_name": ("text", "YES"),
+        "last_name": ("text", "YES"),
+        "cuit": ("text", "YES"),
+        "country": ("text", "YES"),
+        "adult_declared_at": ("timestamp with time zone", "YES"),
+        "truthful_declared_at": ("timestamp with time zone", "YES"),
     }
 
 

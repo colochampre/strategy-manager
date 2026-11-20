@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ApiError } from "@/shared/api/client";
 import { changeMode, chooseDisplayName, deleteAccount, fetchMe } from "@/shared/api/me";
-import { jsonResponse } from "@/test/harness";
+import { jsonResponse, SIGNED_UP } from "@/test/harness";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -13,7 +13,7 @@ describe("fetchMe", () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValue(
-        jsonResponse({ email: "owner@example.com", is_admin: true, mode: "LIVE", dry_run_brake: false }),
+        jsonResponse({ email: "owner@example.com", is_admin: true, mode: "LIVE", dry_run_brake: false, ...SIGNED_UP }),
       );
     vi.stubGlobal("fetch", fetchMock);
 
@@ -23,6 +23,9 @@ describe("fetchMe", () => {
       mode: "LIVE",
       dryRunBrake: false,
       displayName: null,
+      profile: null,
+      profileStatus: "COMPLETE",
+      legalVersions: { terms: "terms-test", privacy: "privacy-test" },
     });
     expect((fetchMock.mock.calls[0] as [string])[0]).toMatch(/\/api\/me$/);
   });
@@ -36,6 +39,7 @@ describe("fetchMe", () => {
           is_admin: true,
           mode: "LIVE",
           dry_run_brake: false,
+          ...SIGNED_UP,
           display_name: "Ana",
         }),
       ),
@@ -56,6 +60,7 @@ describe("fetchMe", () => {
           is_admin: true,
           mode: "LIVE",
           dry_run_brake: false,
+          ...SIGNED_UP,
           display_name: name,
         }),
       ),
@@ -65,11 +70,11 @@ describe("fetchMe", () => {
   });
 
   it.each([
-    ["no email", { is_admin: true, mode: "LIVE", dry_run_brake: true }],
-    ["a non-boolean is_admin", { email: "owner@example.com", is_admin: "yes", mode: "LIVE", dry_run_brake: true }],
-    ["no mode", { email: "owner@example.com", is_admin: true, dry_run_brake: true }],
-    ["a mode nobody knows", { email: "owner@example.com", is_admin: true, mode: "PAPER", dry_run_brake: true }],
-    ["a non-boolean brake", { email: "owner@example.com", is_admin: true, mode: "LIVE", dry_run_brake: null }],
+    ["no email", { is_admin: true, mode: "LIVE", dry_run_brake: true, ...SIGNED_UP }],
+    ["a non-boolean is_admin", { email: "owner@example.com", is_admin: "yes", mode: "LIVE", dry_run_brake: true, ...SIGNED_UP }],
+    ["no mode", { email: "owner@example.com", is_admin: true, dry_run_brake: true, ...SIGNED_UP }],
+    ["a mode nobody knows", { email: "owner@example.com", is_admin: true, mode: "PAPER", dry_run_brake: true, ...SIGNED_UP }],
+    ["a non-boolean brake", { email: "owner@example.com", is_admin: true, mode: "LIVE", dry_run_brake: null, ...SIGNED_UP }],
   ])("refuses an answer with %s, so a malformed body never reads as admin", async (_label, body) => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(body)));
 
@@ -137,7 +142,7 @@ describe("changeMode", () => {
   it("posts the mode to /api/me/mode", async () => {
     const fetchMock = vi
       .fn()
-      .mockResolvedValue(jsonResponse({ email: "owner@example.com", is_admin: true, mode: "LIVE", dry_run_brake: false }));
+      .mockResolvedValue(jsonResponse({ email: "owner@example.com", is_admin: true, mode: "LIVE", dry_run_brake: false, ...SIGNED_UP }));
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(changeMode("LIVE")).resolves.toEqual({ kind: "changed" });

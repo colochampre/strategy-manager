@@ -3,14 +3,23 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AppRoutes } from "@/app/router";
 import i18n from "@/shared/i18n";
-import { adminUser, jsonResponse, renderAt, resetExchangeScope, setViewport, stubApi, unlock } from "@/test/harness";
+import {
+  adminUser,
+  jsonResponse,
+  renderAt,
+  resetExchangeScope,
+  setViewport,
+  SIGNED_UP,
+  stubApi,
+  unlock,
+} from "@/test/harness";
 
 function serve(answer: () => Promise<Response>, me: Record<string, unknown> = {}) {
   return stubApi({ kind: "ok", body: {} }, [], { kind: "ok", body: [] }, {}, (url) => {
     if (url.endsWith("/api/admin/users")) return answer();
     if (url.endsWith("/api/me")) {
       return Promise.resolve(
-        jsonResponse({ email: "owner@example.com", is_admin: true, mode: "LIVE", dry_run_brake: false, ...me }),
+        jsonResponse({ email: "owner@example.com", is_admin: true, mode: "LIVE", dry_run_brake: false, ...SIGNED_UP, ...me }),
       );
     }
     return undefined;
@@ -115,7 +124,7 @@ describe("Users", () => {
   });
 
   it("says the brake forces simulation over the modes shown", async () => {
-    serve(() => Promise.resolve(jsonResponse([adminUser()])), { dry_run_brake: true });
+    serve(() => Promise.resolve(jsonResponse([adminUser()])), { dry_run_brake: true, ...SIGNED_UP });
     open();
 
     expect(await screen.findByText(i18n.t("users.brake"))).toBeInTheDocument();

@@ -25,6 +25,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession, async_sessionmaker
 
 from strategy_manager.identity.application.ports import IdentityRefusedError
+from strategy_manager.identity.domain.legal import ProfileStatus
 from strategy_manager.identity.domain.user import User
 from strategy_manager.identity.infrastructure import dependencies
 from strategy_manager.shared.config import Settings, get_settings
@@ -65,6 +66,21 @@ def sign_in_as_admin(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(dependencies, "identity_verifier_for", verifier_for)
 
 
+def waive_profile_gate(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every signed-in user counts as signed up: the sign-up gate
+    (``require_complete_profile``, public-site LS4) lets them through. For the
+    router tests about something else; the gate's own tests never call it."""
+
+    async def complete(user: User, session: AsyncSession) -> ProfileStatus:
+        return ProfileStatus.COMPLETE
+
+    monkeypatch.setattr(dependencies, "profile_status_of", complete)
+
+
+async def _signed_up() -> None:
+    """``require_complete_profile`` for an app whose user these helpers stand in for."""
+
+
 #: The signed-in user of an app served by ``without_a_database``. Not
 #: ``OWNER_ID``: a route that wrote the fixtures' owner instead of the
 #: signed-in user is told apart.
@@ -75,7 +91,8 @@ def without_a_database(app: FastAPI) -> FastAPI:
     """``current_user`` resolves the ``users`` row through the database. A test
     that serves a scoped route with no database answers the signed-in user
     here, as ``SIGNED_IN_ID``: still behind ``verified_email``, so a missing or
-    forged assertion stays a 401."""
+    forged assertion stays a 401. That user already signed up: the sign-up gate
+    lets them through, with no database to read their acceptance from."""
 
     async def _user(email: Annotated[str, Depends(dependencies.verified_email)]) -> User:
         now = datetime.now(UTC)
@@ -84,6 +101,7 @@ def without_a_database(app: FastAPI) -> FastAPI:
         )
 
     app.dependency_overrides[dependencies.current_user] = _user
+    app.dependency_overrides[dependencies.require_complete_profile] = _signed_up
     return app
 
 
@@ -91,7 +109,10 @@ def act_as(app: FastAPI, user_id: UUID) -> FastAPI:
     """Make ``current_user`` resolve to ``user_id`` on an app that keeps its
     database and its real ``require_admin``. For a scoped route's test, whose
     fixtures own their rows as ``OWNER_ID`` (or as a second user) and need the
-    signed-in user to be that owner without moving every seeded row."""
+    signed-in user to be that owner without moving every seeded row.
+
+    Like ``without_a_database``, it stands for a user who already signed up: the
+    sign-up gate lets them through."""
 
     async def _user(email: Annotated[str, Depends(dependencies.verified_email)]) -> User:
         now = datetime.now(UTC)
@@ -100,6 +121,7 @@ def act_as(app: FastAPI, user_id: UUID) -> FastAPI:
         )
 
     app.dependency_overrides[dependencies.current_user] = _user
+    app.dependency_overrides[dependencies.require_complete_profile] = _signed_up
     return app
 
 

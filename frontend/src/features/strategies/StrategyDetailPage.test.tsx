@@ -15,6 +15,7 @@ import {
   pool,
   renderAt,
   resetExchangeScope,
+  SIGNED_UP,
   strategyRoute,
   stubApi,
   subscriptionOf,
@@ -84,7 +85,7 @@ function renderPage(subject: Strategy = strategy(), options: Options = {}) {
       const method = init?.method ?? "GET";
       if (url.endsWith("/api/me") && options.me !== undefined) {
         return Promise.resolve(
-          jsonResponse({ email: "owner@example.com", is_admin: true, mode: "SIMULATION", dry_run_brake: true, ...options.me }),
+          jsonResponse({ email: "owner@example.com", is_admin: true, mode: "SIMULATION", dry_run_brake: true, ...SIGNED_UP, ...options.me }),
         );
       }
       if (url.includes(`/performance/strategies/${ID}/trades`)) {

@@ -2,7 +2,16 @@ import { screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AppRoutes } from "@/app/router";
-import { adminUser, jsonResponse, renderAt, resetExchangeScope, setViewport, stubApi, unlock } from "@/test/harness";
+import {
+  adminUser,
+  jsonResponse,
+  renderAt,
+  resetExchangeScope,
+  setViewport,
+  SIGNED_UP,
+  stubApi,
+  unlock,
+} from "@/test/harness";
 
 // Past the real `SignInGate`, which lets every signed-in user in since PR G: what
 // keeps these routes the admin's is `AdminRoute`.
@@ -12,7 +21,7 @@ function serve(isAdmin: boolean) {
     if (url.endsWith("/api/admin/users")) return Promise.resolve(jsonResponse([adminUser()]));
     if (url.endsWith("/api/me")) {
       return Promise.resolve(
-        jsonResponse({ email: "a@example.com", is_admin: isAdmin, mode: "SIMULATION", dry_run_brake: false }),
+        jsonResponse({ email: "a@example.com", is_admin: isAdmin, mode: "SIMULATION", dry_run_brake: false, ...SIGNED_UP }),
       );
     }
     return undefined;

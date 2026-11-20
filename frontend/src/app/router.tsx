@@ -2,6 +2,7 @@ import { Route, Routes } from "react-router";
 
 import { DiscrepanciesPage } from "@/features/discrepancies/DiscrepanciesPage";
 import { OverviewPage } from "@/features/overview/OverviewPage";
+import { PrivacyPage } from "@/features/privacy/PrivacyPage";
 import { SafetyEventsPage } from "@/features/safety-events/SafetyEventsPage";
 import { SettingsPage } from "@/features/settings/SettingsPage";
 import { ExplorePage } from "@/features/strategies/ExplorePage";
@@ -10,6 +11,7 @@ import { PublicStrategyPage } from "@/features/strategies/PublicStrategyPage";
 import { StrategiesLayout } from "@/features/strategies/StrategiesLayout";
 import { StrategiesPage } from "@/features/strategies/StrategiesPage";
 import { StrategyDetailPage } from "@/features/strategies/StrategyDetailPage";
+import { TermsPage } from "@/features/terms/TermsPage";
 import { UsersPage } from "@/features/users/UsersPage";
 import { AdminRoute } from "@/shared/auth/AdminRoute";
 import { AppShell } from "@/shared/layout/AppShell";
@@ -38,6 +40,8 @@ export function AppRoutes() {
         </Route>
         <Route path="safety-events" element={<SafetyEventsPage />} />
         <Route path="settings" element={<SettingsPage />} />
+        <Route path="privacy" element={<PrivacyPage />} />
+        <Route path="terms" element={<TermsPage />} />
         <Route path="*" element={<NotFoundPage />} />
       </Route>
     </Routes>

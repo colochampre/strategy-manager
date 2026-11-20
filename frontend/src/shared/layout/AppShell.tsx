@@ -1,4 +1,8 @@
-import { Outlet } from "react-router";
+import { useTranslation } from "react-i18next";
+import { Link, Outlet } from "react-router";
+
+import { ProfileGate } from "@/features/sign-up/ProfileGate";
+import { useSignUpPending } from "@/shared/api/me";
 
 import { SignInGate } from "@/shared/auth/SignInGate";
 import { BottomNav } from "@/shared/layout/BottomNav";
@@ -31,22 +35,50 @@ import { TopBar } from "@/shared/layout/TopBar";
  * the row ended flush with the bottom of the viewport. Uncapped, `main` scrolls
  * the whole column and its bottom padding follows the content (task 7p.3). A
  * short page still fills `main`, because the column is `flex-1`.
+ *
+ * Every page ends with links to the privacy policy and the terms. The footer sits
+ * inside the gate: whoever reaches it has signed in.
+ *
+ * Inside it, the sign-up step (public-site LS2) takes the page's place until the
+ * user has given their details and accepted the terms in force. That form is
+ * where the user is informed (Ley 25.326 art. 6): it links the policy and records
+ * the version accepted, and asks again when it changes. The footer stays,
+ * so the terms and the policy the form asks to accept are one click away. The
+ * navigation (and, in the top bar, the exchange tabs and the mode badge) waits
+ * for it too: nothing of the panel to go to or act on. While `me` loads it
+ * shows, as before sign-up existed.
  */
 export function AppShell() {
+  const { t } = useTranslation();
+  const signUpPending = useSignUpPending();
+
   return (
     <div className="flex h-full flex-col bg-ground">
       <TopBar />
       <div className="flex min-h-0 flex-1">
-        <SideNav />
+        {!signUpPending && <SideNav />}
         <main className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-auto p-4 lg:px-9 lg:py-7">
           <div className="mx-auto flex w-full max-w-[90rem] flex-1 flex-col">
             <SignInGate>
-              <Outlet />
+              <ProfileGate>
+                <Outlet />
+              </ProfileGate>
+              <div className="mt-auto pt-10">
+                <footer className="flex flex-wrap items-center gap-x-6 gap-y-2 border-t border-rule pt-5 text-xs text-ink-3">
+                  <span>{t("privacy.copyright", { year: new Date().getFullYear() })}</span>
+                  <Link to="/privacy" className="text-ink-2 hover:text-ink">
+                    {t("privacy.link")}
+                  </Link>
+                  <Link to="/terms" className="text-ink-2 hover:text-ink">
+                    {t("terms.link")}
+                  </Link>
+                </footer>
+              </div>
             </SignInGate>
           </div>
         </main>
       </div>
-      <BottomNav />
+      {!signUpPending && <BottomNav />}
     </div>
   );
 }

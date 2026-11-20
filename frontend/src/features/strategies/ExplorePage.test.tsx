@@ -11,6 +11,7 @@ import {
   renderAt,
   resetExchangeScope,
   setViewport,
+  SIGNED_UP,
   stubApi,
   unlock,
 } from "@/test/harness";
@@ -22,7 +23,7 @@ function serve(answer: () => Promise<Response>, me: Record<string, unknown> = {}
     if (url.endsWith("/api/public/strategies")) return answer();
     if (url.endsWith("/api/me")) {
       return Promise.resolve(
-        jsonResponse({ email: "a@example.com", is_admin: true, mode: "LIVE", dry_run_brake: false, ...me }),
+        jsonResponse({ email: "a@example.com", is_admin: true, mode: "LIVE", dry_run_brake: false, ...SIGNED_UP, ...me }),
       );
     }
     return undefined;
@@ -212,6 +213,7 @@ describe("Explore", () => {
   it("under the brake shows no capital, and leaves the why to the header's (i) (L.10)", async () => {
     serve(() => Promise.resolve(jsonResponse([publicStrategy({ live_subscribers: 0, capital: null })])), {
       dry_run_brake: true,
+      ...SIGNED_UP,
     });
     open();
 

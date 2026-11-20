@@ -21,4 +21,5 @@ And the quiet notice of `manual-trading`: a position on a symbol the system
 never traded for that user, delivered to that user without a push.
 
 Each channel is a processor of personal data (a chat id, a phone number, an
-address), so it updates the privacy policy and bumps `PRIVACY_VERSION`.
+address), so it updates the privacy policy and bumps the privacy version
+(`CURRENT_VERSIONS` in `identity/domain/legal.py`).

@@ -72,7 +72,10 @@ from strategy_manager.accounts.infrastructure.key_inspectors.registry import Key
 from strategy_manager.accounts.infrastructure.pool_exposure_adapter import PoolExposureAdapter
 from strategy_manager.execution.infrastructure.live_exposure import SqlAlchemyLiveExposure
 from strategy_manager.identity.domain.user import User
-from strategy_manager.identity.infrastructure.dependencies import current_user
+from strategy_manager.identity.infrastructure.dependencies import (
+    current_user,
+    require_complete_profile,
+)
 from strategy_manager.shared.config import get_settings
 from strategy_manager.shared.db import get_session
 from strategy_manager.shared.domain.errors import InvariantViolation
@@ -313,6 +316,7 @@ def _refusal(result: SaveRefused) -> JSONResponse:
 @router.put(
     "/{exchange}",
     response_model=SavedBody,
+    dependencies=[Depends(require_complete_profile)],
     responses={
         404: {"description": "No inspector serves this exchange."},
         409: {"model": RefusalBody},

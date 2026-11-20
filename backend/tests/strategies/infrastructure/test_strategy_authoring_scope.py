@@ -43,6 +43,7 @@ from tests.identity_auth import (
     OTHER_HEADERS,
     seed_admin,
     sign_in_as_admin,
+    waive_profile_gate,
 )
 
 pytestmark = pytest.mark.integration
@@ -80,6 +81,7 @@ async def _seed_other(session: AsyncSession) -> UUID:
 @pytest.fixture(autouse=True)
 def _signed_in(monkeypatch: pytest.MonkeyPatch) -> None:
     sign_in_as_admin(monkeypatch)
+    waive_profile_gate(monkeypatch)
 
 
 @pytest.fixture

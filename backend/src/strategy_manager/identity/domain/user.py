@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from uuid import UUID
 
+from strategy_manager.identity.domain.profile import Profile
 from strategy_manager.shared.domain.mode import Mode
 
 
@@ -39,3 +40,5 @@ class User:
     mode: Mode
     # None until the user chooses one (migration ``0036``, decision 27).
     display_name: str | None = None
+    # None until the sign-up form is sent (migration ``0046``, public-site LS3).
+    profile: Profile | None = None

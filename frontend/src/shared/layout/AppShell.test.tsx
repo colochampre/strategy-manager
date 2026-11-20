@@ -423,3 +423,88 @@ describe("pages", () => {
     expect(await screen.findByRole("heading", { level: 1, name: "Settings" })).toBeInTheDocument();
   });
 });
+
+describe("privacy in the shell", () => {
+  it("shows a newcomer no privacy banner, the sign-up form informs and records the acceptance, and links the policy from every page", async () => {
+    window.localStorage.clear();
+    stubApi({ kind: "ok", body: { status: "ok", dry_run: true } });
+    renderShell("/");
+
+    expect(await screen.findByText("page body")).toBeInTheDocument();
+    expect(screen.queryAllByRole("region", { name: "Privacy" })).toHaveLength(0);
+    expect(screen.queryAllByRole("button", { name: "Got it" })).toHaveLength(0);
+    expect(screen.getByRole("link", { name: "Privacy policy" })).toHaveAttribute("href", "/privacy");
+  });
+
+  it("closes every page with a footer that names the app and links the policy", async () => {
+    stubApi({ kind: "ok", body: { status: "ok", dry_run: true } });
+    renderShell("/");
+
+    const footer = await screen.findByRole("contentinfo");
+    expect(footer).toHaveTextContent(`© ${new Date().getFullYear()} Strategy Manager`);
+    expect(within(footer).getByRole("link", { name: "Privacy policy" })).toHaveAttribute("href", "/privacy");
+    expect(within(footer).getByRole("link", { name: "Terms of service" })).toHaveAttribute("href", "/terms");
+    expect(footer).toHaveClass("border-t");
+  });
+});
+
+describe("the sign-up step in the shell (public-site LS2)", () => {
+  function stubMeAs(profileStatus: "COMPLETE" | "MISSING" | "ACCEPTANCE_OUTDATED") {
+    stubApi({ kind: "ok", body: { status: "ok", dry_run: true } }, [], undefined, {}, (url, init) =>
+      url.endsWith("/api/me") && (init?.method ?? "GET") === "GET"
+        ? Promise.resolve(
+            new Response(
+              JSON.stringify({
+                email: "new@example.com",
+                is_admin: false,
+                mode: "SIMULATION",
+                dry_run_brake: false,
+                profile: null,
+                profile_status: profileStatus,
+                legal_versions: { terms: "t", privacy: "p" },
+              }),
+              { status: 200, headers: { "Content-Type": "application/json" } },
+            ),
+          )
+        : undefined,
+    );
+  }
+
+  it("shows a user who has not signed up the form in place of the page, and still the footer's links", async () => {
+    stubMeAs("MISSING");
+
+    renderShell();
+
+    expect(await screen.findByRole("form", { name: en.signUp.label })).toBeInTheDocument();
+    expect(screen.queryByText("page body")).not.toBeInTheDocument();
+    const footer = screen.getByRole("contentinfo");
+    expect(within(footer).getByRole("link", { name: "Terms of service" })).toHaveAttribute("href", "/terms");
+  });
+
+  it("shows a signed-up user the sections, the exchange tabs and the mode menu", async () => {
+    stubMeAs("COMPLETE");
+
+    renderShell();
+
+    expect(await screen.findByText("page body")).toBeInTheDocument();
+    expect(screen.getAllByRole("navigation", { name: "Sections" })).toHaveLength(2);
+    expect(screen.getAllByRole("navigation", { name: en.scope.exchanges })).toHaveLength(2);
+    expect(screen.getByText(en.status.simulation)).toBeInTheDocument();
+  });
+
+  it.each(["MISSING", "ACCEPTANCE_OUTDATED"] as const)(
+    "shows a %s user nothing of the panel to go to or act on, and keeps the brand and the language",
+    async (profileStatus) => {
+      stubMeAs(profileStatus);
+
+      renderShell();
+
+      expect(await screen.findByRole("heading", { level: 1 })).toBeInTheDocument();
+      expect(screen.queryAllByRole("navigation", { name: "Sections" })).toHaveLength(0);
+      expect(screen.queryAllByRole("navigation", { name: en.scope.exchanges })).toHaveLength(0);
+      expect(screen.queryAllByText(en.status.simulation)).toHaveLength(0);
+      expect(screen.getByText(en.app.name)).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /^(Language|Idioma):/ })).toBeInTheDocument();
+    },
+  );
+});

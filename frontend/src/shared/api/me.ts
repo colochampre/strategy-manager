@@ -20,6 +20,26 @@ export interface Me {
   dryRunBrake: boolean;
   /** The name other users know them by, or none yet (decision 27). */
   displayName: string | null;
+  /** The identity given at sign-up, or none yet (public-site LS3). Only its owner reads it. */
+  profile: Profile | null;
+  /** What the panel shows first: the panel, the whole sign-up form, or the acceptance box alone (LS2, LS6). */
+  profileStatus: ProfileStatus;
+  /** The terms and privacy versions in force: what the form and the box accept. */
+  legalVersions: LegalVersions;
+}
+
+export type ProfileStatus = "COMPLETE" | "MISSING" | "ACCEPTANCE_OUTDATED";
+
+export interface Profile {
+  firstName: string;
+  lastName: string;
+  cuit: string;
+  country: string;
+}
+
+export interface LegalVersions {
+  terms: string;
+  privacy: string;
 }
 
 interface MeWire {
@@ -28,15 +48,42 @@ interface MeWire {
   mode?: unknown;
   dry_run_brake?: unknown;
   display_name?: unknown;
+  profile?: unknown;
+  profile_status?: unknown;
+  legal_versions?: unknown;
 }
 
 function isMode(value: unknown): value is Mode {
   return value === "LIVE" || value === "SIMULATION";
 }
 
+function isProfileStatus(value: unknown): value is ProfileStatus {
+  return value === "COMPLETE" || value === "MISSING" || value === "ACCEPTANCE_OUTDATED";
+}
+
+function legalVersionsOf(value: unknown): LegalVersions | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const { terms, privacy } = value as { terms?: unknown; privacy?: unknown };
+  return typeof terms === "string" && typeof privacy === "string" ? { terms, privacy } : undefined;
+}
+
+function profileOf(value: unknown): Profile | null {
+  if (typeof value !== "object" || value === null) return null;
+  const { first_name, last_name, cuit, country } = value as Record<string, unknown>;
+  if (
+    typeof first_name !== "string" ||
+    typeof last_name !== "string" ||
+    typeof cuit !== "string" ||
+    typeof country !== "string"
+  ) {
+    return null;
+  }
+  return { firstName: first_name, lastName: last_name, cuit, country };
+}
+
 /**
- * Anything but a string e-mail, two booleans and a known mode is an error: a
- * malformed answer must never be readable as "this is the admin", or as "live".
+ * Anything but a string e-mail, two booleans, a known mode, a known sign-up step and the versions in force is an
+ * error: a malformed answer must never be readable as "this is the admin", as "live", or as "signed up".
  */
 export async function fetchMe(): Promise<Me> {
   const body = await apiFetch<MeWire | null>("/me");
@@ -44,17 +91,23 @@ export async function fetchMe(): Promise<Me> {
   const isAdmin = body?.is_admin;
   const mode = body?.mode;
   const dryRunBrake = body?.dry_run_brake;
+  const profileStatus = body?.profile_status;
+  const legalVersions = legalVersionsOf(body?.legal_versions);
   if (
     typeof email !== "string" ||
     typeof isAdmin !== "boolean" ||
     !isMode(mode) ||
-    typeof dryRunBrake !== "boolean"
+    typeof dryRunBrake !== "boolean" ||
+    !isProfileStatus(profileStatus) ||
+    legalVersions === undefined
   ) {
     throw new Error("Unexpected response shape from GET /api/me");
   }
   // A name decides nothing, so a missing or odd one reads as none instead of refusing the whole answer.
   const displayName = typeof body?.display_name === "string" ? body.display_name : null;
-  return { email, isAdmin, mode, dryRunBrake, displayName };
+  // Nor does the profile shown back: which step to show comes from the status alone.
+  const profile = profileOf(body?.profile);
+  return { email, isAdmin, mode, dryRunBrake, displayName, profile, profileStatus, legalVersions };
 }
 
 export type ChooseDisplayNameResult =
@@ -169,6 +222,111 @@ function heldStrategiesOf(value: unknown): HeldStrategy[] {
   });
 }
 
+/** The sign-up form as the panel holds it, with the versions it was shown under (public-site LS2). */
+export interface SignUpForm {
+  firstName: string;
+  lastName: string;
+  cuit: string;
+  country: string;
+  adult: boolean;
+  truthful: boolean;
+  accepts: boolean;
+  versions: LegalVersions;
+}
+
+/** A field of the form the server can name in a refusal. */
+export type ProfileField = "first_name" | "last_name" | "cuit";
+/** A box of the form the server can name as unticked. */
+export type Declaration = "adult" | "truthful" | "accepts";
+
+export type GiveProfileResult =
+  | { kind: "given" }
+  | { kind: "notServed" }
+  | { kind: "invalid"; field: ProfileField }
+  | { kind: "unticked"; field: Declaration }
+  | { kind: "versionChanged" }
+  | { kind: "alreadyGiven" }
+  | { kind: "unauthorized" }
+  | { kind: "unknown" };
+
+export type AcceptAgainResult =
+  | { kind: "accepted" }
+  | { kind: "versionChanged" }
+  | { kind: "incomplete" }
+  | { kind: "unauthorized" }
+  | { kind: "unknown" };
+
+const PROFILE_FIELDS: readonly string[] = ["first_name", "last_name", "cuit"];
+const DECLARATIONS: readonly string[] = ["adult", "truthful", "accepts"];
+
+function profileRefusalFrom(error: ApiError): GiveProfileResult {
+  if (error.status === 401) return { kind: "unauthorized" };
+  const field = error.fields?.field;
+  switch (error.code) {
+    case "COUNTRY_NOT_SERVED":
+      return { kind: "notServed" };
+    case "PROFILE_INVALID":
+      return typeof field === "string" && PROFILE_FIELDS.includes(field)
+        ? { kind: "invalid", field: field as ProfileField }
+        : { kind: "unknown" };
+    case "DECLARATION_MISSING":
+      return typeof field === "string" && DECLARATIONS.includes(field)
+        ? { kind: "unticked", field: field as Declaration }
+        : { kind: "unknown" };
+    case "LEGAL_VERSION_CHANGED":
+      return { kind: "versionChanged" };
+    case "PROFILE_ALREADY_GIVEN":
+      return { kind: "alreadyGiven" };
+    default:
+      return { kind: "unknown" };
+  }
+}
+
+/**
+ * `PUT /api/me/profile`: the sign-up form, given once (public-site LS2). It carries the versions the form was shown
+ * under, so terms that changed between loading and sending are refused instead of accepted unread.
+ */
+export async function giveProfile(form: SignUpForm): Promise<GiveProfileResult> {
+  try {
+    await apiFetch<unknown>("/me/profile", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        first_name: form.firstName,
+        last_name: form.lastName,
+        cuit: form.cuit,
+        country: form.country,
+        adult: form.adult,
+        truthful: form.truthful,
+        accepts: form.accepts,
+        terms_version: form.versions.terms,
+        privacy_version: form.versions.privacy,
+      }),
+    });
+    return { kind: "given" };
+  } catch (error) {
+    return error instanceof ApiError ? profileRefusalFrom(error) : { kind: "unknown" };
+  }
+}
+
+/** `POST /api/me/acceptance`: the acceptance box alone, ticked again under new versions (LS6). */
+export async function acceptAgain(versions: LegalVersions): Promise<AcceptAgainResult> {
+  try {
+    await apiFetch<unknown>("/me/acceptance", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ accepts: true, terms_version: versions.terms, privacy_version: versions.privacy }),
+    });
+    return { kind: "accepted" };
+  } catch (error) {
+    if (!(error instanceof ApiError)) return { kind: "unknown" };
+    if (error.status === 401) return { kind: "unauthorized" };
+    if (error.code === "LEGAL_VERSION_CHANGED") return { kind: "versionChanged" };
+    if (error.code === "PROFILE_INCOMPLETE") return { kind: "incomplete" };
+    return { kind: "unknown" };
+  }
+}
+
 const ME_REFRESH_MS = 60_000;
 
 /** Query key `['me']`, fresh for a minute: the brake can be pulled under an open page. */
@@ -182,6 +340,15 @@ export function useMe() {
 }
 
 /**
+ * True once `me` says the user has not signed up, or must accept the terms again (public-site LS2, LS6): the panel's
+ * navigation and mode menu wait for it. While `me` loads or fails it is false, as the navigation was before.
+ */
+export function useSignUpPending(): boolean {
+  const status = useMe().data?.profileStatus;
+  return status !== undefined && status !== "COMPLETE";
+}
+
+/**
  * The choice as a mutation. On every settled attempt but a 401 it reads `me` again and waits for it, so the form
  * and the top bar show the name the server stored (normalized, perhaps not as typed) when the save reports.
  */
@@ -189,6 +356,32 @@ export function useChooseDisplayName() {
   const queryClient = useQueryClient();
   return useMutation<ChooseDisplayNameResult, Error, string>({
     mutationFn: chooseDisplayName,
+    onSettled: async (result) => {
+      if (result?.kind === "unauthorized") return;
+      await queryClient.refetchQueries({ queryKey: ["me"] });
+    },
+  });
+}
+
+/**
+ * The form and the box as mutations. On every settled attempt but a 401 they read `me` again and wait for it, so the
+ * step shown next is the server's: a success opens the panel, a version change shows the new versions.
+ */
+export function useGiveProfile() {
+  const queryClient = useQueryClient();
+  return useMutation<GiveProfileResult, Error, SignUpForm>({
+    mutationFn: giveProfile,
+    onSettled: async (result) => {
+      if (result?.kind === "unauthorized") return;
+      await queryClient.refetchQueries({ queryKey: ["me"] });
+    },
+  });
+}
+
+export function useAcceptAgain() {
+  const queryClient = useQueryClient();
+  return useMutation<AcceptAgainResult, Error, LegalVersions>({
+    mutationFn: acceptAgain,
     onSettled: async (result) => {
       if (result?.kind === "unauthorized") return;
       await queryClient.refetchQueries({ queryKey: ["me"] });

@@ -2,7 +2,7 @@ import { act, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useVenueFollowUp } from "@/features/positions/useVenueFollowUp";
-import { confirmedBody, discrepancy, jsonResponse, renderAt, stubApi, unlock } from "@/test/harness";
+import { confirmedBody, discrepancy, jsonResponse, renderAt, SIGNED_UP, stubApi, unlock } from "@/test/harness";
 import type { ConfirmedStub } from "@/test/harness";
 
 const HEALTH = { kind: "ok", body: { status: "ok", dry_run: true } } as const;
@@ -20,7 +20,7 @@ function Probe() {
 function serve(isAdmin: boolean) {
   const route = (url: string) =>
     url.endsWith("/api/me")
-      ? Promise.resolve(jsonResponse({ email: "a@example.com", is_admin: isAdmin, mode: "SIMULATION", dry_run_brake: false }))
+      ? Promise.resolve(jsonResponse({ email: "a@example.com", is_admin: isAdmin, mode: "SIMULATION", dry_run_brake: false, ...SIGNED_UP }))
       : undefined;
   return stubApi(HEALTH, [], undefined, {}, route, {}, undefined, undefined, CONFIRMED);
 }

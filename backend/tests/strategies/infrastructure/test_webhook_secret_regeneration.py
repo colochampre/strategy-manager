@@ -30,7 +30,13 @@ from sqlalchemy.ext.asyncio import (
 from strategy_manager.main import create_app
 from strategy_manager.shared import db as shared_db
 from strategy_manager.strategies.infrastructure.pair_catalog_router import get_pair_catalog
-from tests.identity_auth import ADMIN_HEADERS, OTHER_HEADERS, seed_admin, sign_in_as_admin
+from tests.identity_auth import (
+    ADMIN_HEADERS,
+    OTHER_HEADERS,
+    seed_admin,
+    sign_in_as_admin,
+    waive_profile_gate,
+)
 from tests.owner import OWNER_ID, secret_hash, seed_owner
 from tests.pg_head_schema import migrated_head_database
 
@@ -66,6 +72,7 @@ def head_database_url() -> Iterator[str]:
 @pytest.fixture(autouse=True)
 def _signed_in(monkeypatch: pytest.MonkeyPatch) -> None:
     sign_in_as_admin(monkeypatch)
+    waive_profile_gate(monkeypatch)
 
 
 @pytest.fixture

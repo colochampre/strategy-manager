@@ -45,6 +45,7 @@ from strategy_manager.accounts.infrastructure.capital_pool_writer import (
 from strategy_manager.accounts.infrastructure.credential_vault import SqlAlchemyCredentialVault
 from strategy_manager.accounts.infrastructure.credentials_router import get_save_credential
 from strategy_manager.execution.infrastructure.live_exposure import SqlAlchemyLiveExposure
+from strategy_manager.identity.domain.legal import CURRENT_VERSIONS
 from strategy_manager.main import create_app
 from strategy_manager.shared import db as shared_db
 from strategy_manager.shared.config import get_settings
@@ -67,6 +68,7 @@ from tests.identity_auth import (
     OTHER_HEADERS,
     seed_admin,
     sign_in_as_admin,
+    waive_profile_gate,
 )
 from tests.ledger.infrastructure.conftest import (  # noqa: F401
     pg_engine,
@@ -142,6 +144,24 @@ _PAIRS = "/api/pools/{exchange}/{venue}/{settlement_currency}/available-pairs"
 _ON_PUBLIC = {"strategy_id": PUBLIC}
 _ON_PRIVATE = {"strategy_id": PRIVATE}
 _ON_SEAT = {"subscription_id": SEAT_OF_A}
+_SIGN_UP: dict[str, Any] = {
+    "first_name": "Beto",
+    "last_name": "Gómez",
+    "cuit": "20-12345678-6",
+    "country": "AR",
+    "adult": True,
+    "truthful": True,
+    "accepts": True,
+    "terms_version": CURRENT_VERSIONS.terms,
+    "privacy_version": CURRENT_VERSIONS.privacy,
+}
+#: Under a privacy version no longer in force, so it is refused whether or not B
+#: already signed up (``users`` outlives the world: an earlier probe may have).
+_ACCEPT_STALE: dict[str, Any] = {
+    "accepts": True,
+    "terms_version": CURRENT_VERSIONS.terms,
+    "privacy_version": "older",
+}
 _NEW_STRATEGY = {
     "id": str(uuid4()),
     "name": "a strategy of B",
@@ -237,6 +257,10 @@ PROBES: tuple[Probe, ...] = (
     Probe("GET", "/api/me", answers=200),
     Probe("POST", "/api/me/mode", body={"mode": "SIMULATION"}, answers=200),
     Probe("PUT", "/api/me/display-name", body={"display_name": "Somebody"}, answers=200),
+    # B signs up as B: the profile and the acceptance land on B's row alone.
+    Probe("PUT", "/api/me/profile", body=_SIGN_UP, answers=200),
+    # The box under a stale version: refused, and nothing of A's moves.
+    Probe("POST", "/api/me/acceptance", body=_ACCEPT_STALE, answers=409),
     # B deletes B's own account: A's rows stay exactly as they were, a seat B held
     # on A's strategy included only as B's (the world is built again per probe).
     Probe("DELETE", "/api/me", answers=204),
@@ -274,6 +298,7 @@ class World:
 @pytest.fixture(autouse=True)
 def _signed_in(monkeypatch: pytest.MonkeyPatch) -> None:
     sign_in_as_admin(monkeypatch)
+    waive_profile_gate(monkeypatch)
     # Production's setting: a route that behaves otherwise under the brake is swept
     # as it runs, and ``/api/me/mode`` answers at all.
     monkeypatch.setattr(get_settings(), "dry_run", False)

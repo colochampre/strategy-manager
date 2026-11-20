@@ -1007,6 +1007,38 @@
       "failed": "No se pudo eliminar la cuenta. Vuelva a intentarlo."
     }
   },
+  "signUp": {
+    "label": "Alta",
+    "title": "Antes de empezar",
+    "intro": "Strategy Manager se ofrece a personas mayores de edad que residen en Argentina. Complete estos datos una sola vez para usar el panel.",
+    "firstName": "Nombre",
+    "lastName": "Apellido",
+    "nameInvalid": "Escriba entre 1 y 80 caracteres.",
+    "cuit": "CUIT o CUIL",
+    "cuitHint": "11 dígitos, con o sin guiones.",
+    "cuitInvalid": "Este CUIT no es válido. Revise el número.",
+    "country": "País de residencia",
+    "countryChoose": "Elija un país",
+    "countryAR": "Argentina",
+    "countryOther": "Otro país",
+    "notServed": "Por ahora el servicio se ofrece solo a residentes en Argentina.",
+    "adult": "Declaro que tengo 18 años o más.",
+    "truthful": "Declaro que los datos que doy son verdaderos.",
+    "acceptsBefore": "Acepto los ",
+    "termsLink": "términos del servicio",
+    "acceptsMiddle": " y leí la ",
+    "privacyLink": "política de privacidad",
+    "acceptsAfter": ". Presto mi consentimiento expreso para la transferencia de mis datos a proveedores en el exterior (Cloudflare, Estados Unidos), como describe la política.",
+    "submit": "Continuar",
+    "versionChanged": "Los términos o la política de privacidad cambiaron mientras completaba el formulario. Léalos y vuelva a marcar la casilla.",
+    "alreadyGiven": "Sus datos ya estaban guardados.",
+    "failed": "No se pudieron guardar sus datos. Inténtelo de nuevo.",
+    "again": {
+      "title": "Los términos cambiaron",
+      "body": "Los términos del servicio o la política de privacidad cambiaron desde que los aceptó. Léalos y marque la casilla para continuar.",
+      "failed": "No se pudo guardar su aceptación. Inténtelo de nuevo."
+    }
+  },
   "auth": {
     "gate": {
       "checking": "Verificando el ingreso",
@@ -1020,5 +1052,222 @@
     "title": "Su cuenta fue eliminada",
     "body": "Su e-mail, su nombre y sus claves ya no están. Si vuelve a ingresar con el mismo e-mail, se crea una cuenta nueva y vacía.",
     "signOut": "Cerrar sesión"
+  },
+  "legal": {
+    "placeholder": {
+      "name": "[NOMBRE COMPLETO]",
+      "address": "[DOMICILIO]"
+    }
+  },
+  "privacy": {
+    "title": "Política de privacidad",
+    "updated": "Última actualización: [FECHA]",
+    "intro": "Esta política explica qué guarda Strategy Manager sobre usted, para qué, quién más interviene y qué puede pedir. Se aplica a todas las personas que inician sesión. Si no está de acuerdo con ella, no use la app.",
+    "link": "Política de privacidad",
+    "copyright": "© {{year}} Strategy Manager",
+    "read": "Leer la política de privacidad",
+    "sections": {
+      "who": {
+        "title": "Quién es responsable",
+        "body": "Strategy Manager es operado por {{name}}, persona humana en Argentina, con domicilio en {{address}}, responsable de sus datos y de la base de datos que los contiene. Puede escribirle a {{contact}}."
+      },
+      "stores": {
+        "title": "Qué guarda la app",
+        "intro": "Solo lo que necesita para prestarle el servicio:",
+        "email": "Su dirección de e-mail, que Cloudflare Access verifica al iniciar sesión, la fecha en que se registró y la última vez que usó la app.",
+        "identity": "Su nombre, apellido, CUIT y país de residencia, que informa al registrarse, y sus declaraciones de que tiene 18 años o más y de que esos datos son verdaderos.",
+        "name": "El nombre público que elija, si elige uno.",
+        "keys": "Las API keys que cargue de sus exchanges. Se cifran antes de guardarse, solo se abren para firmar sus órdenes y nunca se vuelven a mostrar, salvo sus últimos cuatro caracteres. Una key que permite retiros se rechaza.",
+        "balances": "Los saldos que la app lee de su cuenta en el exchange, para dimensionar sus órdenes.",
+        "strategies": "Las estrategias que crea y a las que se suscribe, y su configuración: la parte de su capital, el apalancamiento y si opera en simulación o en real.",
+        "trades": "Cada orden hecha a su nombre y su resultado: precio, cantidad, comisiones y ganancia o pérdida.",
+        "acceptances": "Cada aceptación de los términos y de esta política: qué versión aceptó y cuándo.",
+        "logs": "Un registro técnico de los pedidos que responde el servidor: cuándo ocurrió cada uno, qué se pidió y el resultado.",
+        "messages": "Lo que nos escriba, y la dirección desde la que escribe.",
+        "never": "La app nunca guarda contraseñas, imágenes de documentos de identidad ni datos de pago, y no usa herramientas de analítica, publicidad ni seguimiento."
+      },
+      "use": {
+        "title": "Para qué se usa",
+        "body": "Para prestar el servicio y nada más: iniciar su sesión, leer sus saldos, abrir y cerrar las órdenes de las estrategias a las que se suscribe, mostrarle sus resultados y mostrar el historial de las estrategias públicas. Los registros sirven solo para mantener el servicio funcionando y seguro.",
+        "identity": "Su identidad sirve para comprobar que el servicio llegue solo a personas mayores de edad residentes en Argentina, y para saber quién es titular de cada cuenta y de cada operación si una autoridad competente lo pide.",
+        "required": "Su nombre, apellido, CUIT, país y ambas declaraciones son obligatorios: sin ellos no se puede usar la app. Si son falsos, la cuenta puede suspenderse, como dicen los términos.",
+        "basis": "Sus datos se tratan porque son necesarios para prestarle el servicio que pidió, y con el consentimiento que usted da al aceptar esta política (Ley N° 25.326, artículos 5 y 6). No se venden, no se usan para publicidad ni se comparten más allá de lo que enumera esta política."
+      },
+      "public": {
+        "title": "Qué pueden ver otras personas",
+        "body": "Su nombre público, junto a las estrategias que haga públicas. De cada estrategia pública: su nombre, su descripción, su historial calculado con sus operaciones reales (rendimiento, caída máxima, porcentaje de aciertos, operaciones cerradas), su cantidad de suscriptores y el capital con el que se opera, como una sola suma del autor y los suscriptores.",
+        "subscribers": "Como suscriptor, su capital cuenta en esa suma, pero su nombre, su e-mail y sus cifras propias nunca se muestran al autor ni a nadie más.",
+        "private": "Una estrategia privada solo la ven su autor y sus suscriptores; una compartida por link, también quien tenga el link.",
+        "admin": "El administrador del servicio ve la lista de usuarios: e-mail, nombre y apellido, CUIT, país, nombre público, modo, qué exchanges tienen key, cuántas suscripciones y posiciones abiertas, y el último inicio de sesión. Sin montos."
+      },
+      "others": {
+        "title": "Quién más interviene",
+        "cloudflare": "Cloudflare (Estados Unidos) inicia su sesión y transporta el tráfico de la app. Ve su e-mail, su dirección IP y cuándo inicia sesión.",
+        "exchanges": "Su exchange (por ejemplo Binance o Bybit) recibe sus órdenes, en su propia cuenta y con su propia key. Allí rige su propia política de privacidad.",
+        "tradingview": "TradingView envía las alertas de los autores de estrategias. No recibe nada sobre los suscriptores.",
+        "server": "La app y su base de datos funcionan en un servidor alquilado a netcup GmbH, en un centro de datos de Núremberg, Alemania.",
+        "authorities": "Las autoridades competentes reciben su identidad y sus registros solo cuando una autoridad competente los pide conforme a la ley.",
+        "abroad": "Por eso sus datos también se procesan fuera de Argentina: en Alemania, que Argentina considera con protección adecuada, y a través de Cloudflare en Estados Unidos, que no lo es. Al aceptar esta política, usted consiente expresamente esa transferencia internacional.",
+        "links": "Las descripciones de las estrategias y estas páginas pueden enlazar a otros sitios. No los opera Strategy Manager, y al seguir el enlace rigen sus propias políticas."
+      },
+      "cookies": {
+        "title": "Cookies y almacenamiento del navegador",
+        "access": "Cloudflare Access guarda una cookie de sesión al iniciar sesión. Es estrictamente necesaria: sin ella, cada página le volvería a pedir que inicie sesión.",
+        "storage": "La app guarda algunas preferencias en el almacenamiento de su propio navegador: el idioma, el último exchange que eligió y el rango de un gráfico. Nunca salen de su navegador y puede borrarlas cuando quiera.",
+        "none": "No hay cookies de publicidad, de analítica ni de terceros."
+      },
+      "retention": {
+        "title": "Cuánto tiempo se guarda",
+        "account": "Su cuenta, su identidad y su configuración: mientras su cuenta exista.",
+        "identity": "Después de que elimine su cuenta, su nombre, apellido y CUIT se conservan junto a sus registros de operaciones durante [PLAZO DE CONSERVACIÓN], solo para responder a una autoridad competente, y luego se borran.",
+        "trades": "Órdenes y operaciones: se conservan y nunca se modifican, porque sus resultados y la contabilidad dependen de ellas.",
+        "acceptances": "Registros de aceptación: se conservan y nunca se modifican, como los registros de operaciones.",
+        "logs": "Registros del servidor: [RETENCIÓN DE REGISTROS]. Guardan identificadores internos y detalles de órdenes, nunca su e-mail, sus keys ni sus secretos.",
+        "backups": "Copias de seguridad de la base de datos: [RETENCIÓN DE COPIAS]."
+      },
+      "rights": {
+        "title": "Sus derechos",
+        "body": "Puede pedir ver, corregir, actualizar o eliminar sus datos escribiendo a {{contact}}. Antes de responder le pediremos que confirme el pedido desde el e-mail de su cuenta, para que nadie más pueda obtener ni cambiar sus datos. Recibirá respuesta dentro de los plazos que fija la Ley N° 25.326.",
+        "deletion": "Puede eliminar su cuenta desde Configuración. Se borran su e-mail, su nombre público y las keys de sus exchanges, se cierran sus estrategias y terminan sus suscripciones. Los registros de operaciones y de aceptación se conservan, como se dijo arriba, a nombre de una cuenta que ya no lo identifica; su nombre, apellido y CUIT se conservan como se dice en Cuánto tiempo se guarda.",
+        "authority": "El titular de los datos personales tiene la facultad de ejercer el derecho de acceso a los mismos en forma gratuita a intervalos no inferiores a seis meses, salvo que se acredite un interés legítimo al efecto conforme lo establecido en el artículo 14, inciso 3 de la Ley N° 25.326. La AGENCIA DE ACCESO A LA INFORMACIÓN PÚBLICA, en su carácter de Órgano de Control de la Ley N° 25.326, tiene la atribución de atender las denuncias y reclamos que interpongan quienes resulten afectados en sus derechos por incumplimiento de las normas vigentes en materia de protección de datos personales."
+      },
+      "security": {
+        "title": "Cómo se protege",
+        "body": "El inicio de sesión pasa por Cloudflare Access y la app no guarda contraseñas. Las keys de los exchanges se guardan cifradas, y solo el proceso que envía las órdenes puede abrirlas. Los datos viajan cifrados entre su navegador y la app.",
+        "limits": "Ningún sistema es perfectamente seguro: estas medidas bajan el riesgo, no lo eliminan. Mantenga sus keys de exchange sin permiso de retiro, como exige la app."
+      },
+      "age": {
+        "title": "Edad mínima",
+        "body": "Strategy Manager es para personas de 18 años o más. Si sabemos que alguien menor tiene una cuenta, la cerraremos y eliminaremos lo que la ley permita eliminar."
+      },
+      "changes": {
+        "title": "Cambios en esta política",
+        "body": "Cuando esta política cambie, esta página mostrará la nueva fecha, y la app le pedirá que la acepte de nuevo antes de seguir usándola."
+      },
+      "contact": {
+        "title": "Contacto",
+        "body": "Por cualquier consulta o reclamo sobre sus datos o esta política, escriba a {{contact}}."
+      }
+    }
+  },
+  "terms": {
+    "title": "Términos y condiciones",
+    "updated": "Última actualización: [FECHA]",
+    "intro": "Estos términos regulan el uso de Strategy Manager. Usted los acepta al marcar la casilla de aceptación cuando se registra, y de nuevo cuando cambian. Si no está de acuerdo con ellos, no use la app.",
+    "link": "Términos y condiciones",
+    "sections": {
+      "who": {
+        "title": "Quién presta el servicio",
+        "body": "Strategy Manager es prestado por {{name}}, persona humana en Argentina, con domicilio en {{address}}. En estos términos, \"nosotros\" se refiere a esa persona y \"usted\" a quien inicia sesión."
+      },
+      "service": {
+        "title": "Qué hace el servicio",
+        "body": "Strategy Manager recibe las señales de estrategias de trading, enviadas como alertas de TradingView, y abre y cierra las órdenes correspondientes en su propia cuenta de un exchange (por ejemplo Binance o Bybit), con la API key que usted carga.",
+        "custody": "Nunca tiene sus fondos ni puede sacarlos de su cuenta en el exchange: su capital queda siempre allí, y una key que permite retiros se rechaza.",
+        "modes": "Usted elige si opera en simulación, donde no se envía ninguna orden real, o en real, con dinero real.",
+        "how": "Usted recibe el servicio a través de este panel web: allí carga la key de su exchange, elige las estrategias y su configuración, y ve cada orden y su resultado. Las órdenes se hacen en su cuenta del exchange y quedan allí."
+      },
+      "eligibility": {
+        "title": "Quién puede usarlo",
+        "body": "El servicio se ofrece solo a personas mayores de edad residentes en Argentina: debe tener 18 años o más y vivir en Argentina. No se ofrece a residentes de otros países.",
+        "data": "Al registrarse, usted informa su nombre, apellido, CUIT y país de residencia, y declara que tiene 18 años o más y que esos datos son verdaderos. Debe mantenerlos actualizados.",
+        "false": "Podemos suspender o cerrar una cuenta cuyos datos sean falsos, o cuyo titular no cumpla estas condiciones."
+      },
+      "commitments": {
+        "title": "A qué nos obligamos",
+        "intro": "Nos obligamos a:",
+        "signals": "procesar las señales de las estrategias a las que se suscribe a medida que llegan, con la parte del capital, el apalancamiento y el modo que usted eligió;",
+        "stop": "poner un stop de protección en el exchange con cada apertura real, al nivel de stop de la estrategia;",
+        "keys": "guardar sus keys cifradas, usarlas solo para leer sus saldos y para abrir y cerrar sus órdenes, y nunca para hacer retiros;",
+        "records": "mostrarle cada orden hecha a su nombre y su resultado;",
+        "changes": "avisarle antes de que rija un cambio en estos términos.",
+        "notGuaranteed": "No garantizamos ganancias, ni que una estrategia rinda como antes, ni que se ejecute cada señal, ni que la app funcione sin interrupciones."
+      },
+      "obligations": {
+        "title": "A qué se obliga usted",
+        "intro": "Usted se obliga a:",
+        "data": "informar datos verdaderos y mantenerlos actualizados;",
+        "email": "mantener segura su cuenta de e-mail: quien la controle puede iniciar sesión como usted;",
+        "keys": "crear sus keys sin permiso de retiro, guardarlas solo en la app y en su exchange, y revocarlas en su exchange si cree que se filtraron;",
+        "settings": "elegir la parte del capital, el apalancamiento y el modo de cada suscripción, y vigilar sus posiciones; puede cambiarlos o detenerlos cuando quiera;",
+        "law": "usar la app solo con fines lícitos, y operar solo con fondos de origen lícito."
+      },
+      "advice": {
+        "title": "No es asesoramiento financiero",
+        "body": "Lo que muestra la app no es asesoramiento de inversión, financiero, legal ni impositivo, ni una recomendación de comprar o vender nada. Las estrategias, sus historiales y sus descripciones son información publicada por sus autores. Cada decisión de operar, y con qué configuración, es suya."
+      },
+      "risks": {
+        "title": "Riesgos",
+        "intro": "Operar futuros de criptoactivos con apalancamiento es muy riesgoso. Al usar la app en modo real, usted acepta que:",
+        "loss": "puede perder todo el capital que asigne, y las pérdidas crecen con el apalancamiento;",
+        "past": "los resultados pasados de una estrategia no garantizan sus resultados futuros;",
+        "signals": "una señal puede llegar tarde o no llegar, y una orden puede ejecutarse a otro precio o no ejecutarse, por TradingView, el exchange, la red o la app;",
+        "exchange": "su exchange puede fallar, cambiar sus reglas, cerrar posiciones o congelar su cuenta, y eso está fuera de nuestro control.",
+        "strategies": "una estrategia puede perder dinero, cambiar o dejar de enviar señales en cualquier momento, sea quien sea su autor;"
+      },
+      "thirdParty": {
+        "title": "Estrategias de otros usuarios",
+        "body": "La mayoría de las estrategias de la app son de autoría de otro usuario, no nuestra. No las revisamos, no las avalamos ni las garantizamos: su nombre, su descripción y sus señales son de su autor, y su historial muestra resultados pasados calculados con las operaciones reales del autor, no una promesa.",
+        "losses": "Las pérdidas de una estrategia a la que usted se suscribe son riesgo de mercado, y son suyas: ni su autor ni nosotros respondemos por ellas. Respondemos solo cuando una pérdida proviene de una falla del propio servicio, como se explica en Responsabilidad.",
+        "control": "Usted decide si se suscribe, con cuánto capital y con qué apalancamiento, y puede salir de una suscripción o cerrar una posición cuando quiera."
+      },
+      "authors": {
+        "title": "Estrategias que publica",
+        "body": "Si publica una estrategia, usted es responsable de sus señales, su nombre y su descripción, y no debe presentarla como una promesa de resultados. Su historial lo calcula la app con sus operaciones reales y se muestra tal como es.",
+        "subscribers": "Usted no administra el dinero de sus suscriptores: cada suscriptor decide su propio capital y apalancamiento, y sus órdenes van a su propia cuenta.",
+        "removal": "Podemos ocultar o quitar una estrategia pública que incumpla estos términos o engañe a otras personas."
+      },
+      "use": {
+        "title": "Uso aceptable",
+        "intro": "Usted no debe:",
+        "attack": "intentar acceder a datos de otros usuarios, ni atacar, sobrecargar o sondear la app;",
+        "illegal": "usar la app para algo ilegal, como manipular mercados;",
+        "laundering": "usar la app para lavar dinero, financiar el terrorismo o evadir impuestos, ni operar con fondos de origen ilícito;",
+        "others": "iniciar sesión u operar en nombre de otra persona sin su permiso."
+      },
+      "availability": {
+        "title": "Disponibilidad",
+        "body": "La app puede detenerse, fallar o cambiar, por ejemplo durante un mantenimiento o cuando fallan TradingView, el exchange o la red. Trabajamos para mantenerla funcionando y para avisar las interrupciones programadas, y podemos agregar, cambiar o quitar funciones."
+      },
+      "liability": {
+        "title": "Responsabilidad",
+        "body": "Respondemos por los daños que el propio servicio le cause, según lo que establece la ley: por ejemplo, una orden que la app envió con un tamaño o un sentido distintos de los que pedían su configuración y la señal.",
+        "market": "El riesgo de mercado es suyo: una operación que pierde dinero porque el precio se movió es el riesgo descrito arriba, no un daño causado por el servicio.",
+        "tradingview": "Una falla de TradingView, como una alerta enviada tarde, dos veces o nunca, es de TradingView, y TradingView responde por su propio servicio.",
+        "exchange": "Una falla de su exchange, como una orden rechazada o ejecutada a otro precio, una posición que el exchange cierra o una cuenta congelada, es del exchange, y el exchange responde por su propio servicio según sus propios términos.",
+        "rights": "Nada en estos términos limita los derechos que la ley le reconoce y que no pueden renunciarse."
+      },
+      "records": {
+        "title": "Registros y autoridades",
+        "body": "La app guarda un registro de cada orden y operación hecha a su nombre, vinculado a la identidad que informó al registrarse. Esos registros no se pueden modificar.",
+        "authorities": "Los compartimos, junto con su identidad, solo cuando una autoridad competente los pide conforme a la ley, y con nadie más."
+      },
+      "price": {
+        "title": "Precio",
+        "body": "Hoy el servicio es gratuito. Si se agregan planes pagos, su precio y sus condiciones se mostrarán antes de que elija uno, y no se cobrará nada sin su aceptación expresa."
+      },
+      "stopping": {
+        "title": "Baja y suspensión",
+        "you": "Puede dejar de usar la app cuando quiera, y eliminar su cuenta desde Configuración. Qué borra la eliminación y qué conserva se explica en la política de privacidad.",
+        "us": "Podemos suspender o cerrar una cuenta que incumpla estos términos. Una cuenta suspendida no abre nada nuevo, pero puede cerrar sus posiciones, salir de sus suscripciones y ser eliminada. Si cree que su cuenta se suspendió por error, escriba a {{contact}}.",
+        "positions": "En ambos casos, las posiciones ya abiertas quedan en su cuenta del exchange, donde puede cerrarlas usted."
+      },
+      "privacy": {
+        "title": "Privacidad",
+        "body": "Qué guarda la app sobre usted, y para qué, se explica en la política de privacidad."
+      },
+      "changes": {
+        "title": "Cambios en estos términos",
+        "body": "Cuando estos términos cambien, esta página mostrará la nueva fecha, y la app le pedirá que los acepte de nuevo antes de seguir usándola."
+      },
+      "law": {
+        "title": "Ley aplicable",
+        "body": "Estos términos se rigen por las leyes de la República Argentina, incluida la Ley de Defensa del Consumidor N° 24.240. Cualquier controversia corresponde a los tribunales de su domicilio."
+      },
+      "contact": {
+        "title": "Contacto",
+        "body": "Por cualquier consulta sobre estos términos, escriba a {{contact}}."
+      }
+    }
   }
 }

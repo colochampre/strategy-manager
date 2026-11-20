@@ -49,7 +49,10 @@ from strategy_manager.execution.infrastructure.repository import (
     SqlAlchemyExecutionAttemptRepository,
 )
 from strategy_manager.identity.domain.user import User
-from strategy_manager.identity.infrastructure.dependencies import current_user
+from strategy_manager.identity.infrastructure.dependencies import (
+    current_user,
+    require_complete_profile,
+)
 from strategy_manager.ledger.application.read_symbol_holdings import ReadSymbolHoldings
 from strategy_manager.ledger.infrastructure.repository import SqlAlchemyLedgerRepository
 from strategy_manager.performance.domain.public_capital import public_capital
@@ -692,7 +695,12 @@ def get_delete_strategy(session: SessionDep, user: CurrentUserDep) -> DeleteStra
     )
 
 
-@router.post("", response_model=RegisteredStrategyView, status_code=201)
+@router.post(
+    "",
+    response_model=RegisteredStrategyView,
+    status_code=201,
+    dependencies=[Depends(require_complete_profile)],
+)
 async def register_strategy(
     body: RegisterRequest,
     session: SessionDep,
@@ -762,7 +770,11 @@ async def register_strategy(
     )
 
 
-@router.post("/{strategy_id}/webhook-secret", response_model=WebhookSecretView)
+@router.post(
+    "/{strategy_id}/webhook-secret",
+    response_model=WebhookSecretView,
+    dependencies=[Depends(require_complete_profile)],
+)
 async def regenerate_webhook_secret(
     strategy_id: UUID,
     session: SessionDep,
@@ -786,7 +798,10 @@ async def regenerate_webhook_secret(
 
 
 @router.post(
-    "/{strategy_id}/invite-codes", response_model=IssuedInviteCodeView, status_code=201
+    "/{strategy_id}/invite-codes",
+    response_model=IssuedInviteCodeView,
+    status_code=201,
+    dependencies=[Depends(require_complete_profile)],
 )
 async def issue_invite_code(
     strategy_id: UUID,
@@ -1014,7 +1029,11 @@ async def preview_share(
     )
 
 
-@router.put("/{strategy_id}/allowed-pairs", response_model=StrategyView)
+@router.put(
+    "/{strategy_id}/allowed-pairs",
+    response_model=StrategyView,
+    dependencies=[Depends(require_complete_profile)],
+)
 async def replace_allowed_pairs(
     strategy_id: UUID,
     body: ReplacePairsRequest,
@@ -1046,7 +1065,9 @@ async def replace_allowed_pairs(
     return await _view(session, user, strategy, events)
 
 
-@router.patch("/{strategy_id}", response_model=StrategyView)
+@router.patch(
+    "/{strategy_id}", response_model=StrategyView, dependencies=[Depends(require_complete_profile)]
+)
 async def update_strategy(
     strategy_id: UUID, body: UpdateRequest, session: SessionDep, user: CurrentUserDep
 ) -> StrategyView:
