@@ -18,6 +18,7 @@ from strategy_manager.main import create_app
 from strategy_manager.shared import db as shared_db
 from strategy_manager.shared.config import get_settings
 from strategy_manager.shared.domain.errors import InvariantViolation
+from tests.identity_auth import waive_profile_gate
 
 pytestmark = pytest.mark.integration
 
@@ -126,6 +127,9 @@ async def test_an_unusable_master_key_does_not_stop_the_api_from_starting(
             yield session
 
     app.dependency_overrides[shared_db.get_session] = _session
+    # The admin has not signed up in this database; the sign-up gate is not what
+    # this test is about.
+    waive_profile_gate(monkeypatch)
 
     async with main.lifespan(main.app), AsyncClient(
         transport=ASGITransport(app=app), base_url="http://test"

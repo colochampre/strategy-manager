@@ -8,6 +8,10 @@ set in PR D (AD8, decision 23): any signed-in user authors, scoped to their own.
 This reads the routes the app actually serves, so a
 router added later without the guard fails here, not in production.
 
+The sign-up gate (``require_complete_profile``, public-site LS4) is placed the same
+way: every route a user reaches that writes is listed either as gated or as a way
+in or out, and the walk checks both lists against the app.
+
 ``/webhook/tradingview`` and ``/health`` stay outside Access entirely: TradingView
 cannot sign in, and rule 3 must not depend on Cloudflare.
 """
@@ -27,12 +31,19 @@ from strategy_manager.identity.infrastructure.dependencies import (
     UNAUTHORIZED_DETAIL,
     current_user,
     require_admin,
+    require_complete_profile,
     verified_email,
 )
 from strategy_manager.main import create_app
 from tests.identity_auth import FORGED_HEADERS, OTHER_HEADERS, sign_in_as_admin
 
-OPEN_TO_ANY_USER = {"/api/me", "/api/me/mode", "/api/me/display-name"}
+OPEN_TO_ANY_USER = {
+    "/api/me",
+    "/api/me/mode",
+    "/api/me/display-name",
+    "/api/me/profile",
+    "/api/me/acceptance",
+}
 #: Owner decision 16: the routes any signed-in user reaches, each answering that
 #: user's own rows only. Listed explicitly, so a new route cannot join the set by
 #: forgetting ``require_admin``: it fails the first test below instead.
@@ -84,6 +95,37 @@ SCOPED_TO_THE_SIGNED_IN_USER = {
     ("GET", "/api/webhook-origin"),
 }
 OUTSIDE_ACCESS = {"/webhook/tradingview", "/health"}
+
+#: Public-site LS4: until the profile is complete, what stores or trades for the
+#: user answers 409 ``PROFILE_INCOMPLETE``.
+GATED_UNTIL_SIGNED_UP = {
+    ("PUT", "/api/credentials/{exchange}"),
+    ("POST", "/api/subscriptions"),
+    ("PATCH", "/api/subscriptions/{subscription_id}"),
+    ("POST", "/api/strategies"),
+    ("PATCH", "/api/strategies/{strategy_id}"),
+    ("PUT", "/api/strategies/{strategy_id}/allowed-pairs"),
+    ("POST", "/api/strategies/{strategy_id}/webhook-secret"),
+    ("POST", "/api/strategies/{strategy_id}/invite-codes"),
+    ("POST", "/api/me/mode"),
+}
+#: What a user who has not signed up may still do: get out, or get in.
+WAYS_OUT_AND_IN = {
+    ("DELETE", "/api/credentials/{exchange}"),
+    ("POST", "/api/positions/{allocation_id}/close"),
+    ("POST", "/api/subscriptions/{subscription_id}/leave"),
+    ("POST", "/api/strategies/{strategy_id}/archive"),
+    ("DELETE", "/api/strategies/{strategy_id}"),
+    ("DELETE", "/api/strategies/{strategy_id}/invite-codes/{code_id}"),
+    # Answers a lookup and stores nothing of the user's.
+    ("POST", "/api/public/invite-codes/lookup"),
+    # A public label, stored on the user's own row; it trades nothing.
+    ("PUT", "/api/me/display-name"),
+    ("DELETE", "/api/me"),
+    ("PUT", "/api/me/profile"),
+    ("POST", "/api/me/acceptance"),
+}
+_WRITES = {"POST", "PUT", "PATCH", "DELETE"}
 
 
 def _calls(dependant: Dependant) -> Iterator[Callable[..., Any]]:
@@ -195,6 +237,27 @@ async def test_every_api_route_but_me_forbids_a_signed_in_user_who_is_not_the_ad
             assert response.json() == {"detail": FORBIDDEN_DETAIL}, f"{method} {path}"
 
     assert len(admin_only) >= 3
+
+
+def test_every_write_a_user_reaches_is_either_gated_or_a_way_out_or_in() -> None:
+    routes = _routes()
+    user_writes = {
+        key
+        for key, calls in routes.items()
+        if key[0] in _WRITES and key[1].startswith("/api/") and require_admin not in calls
+    }
+
+    assert GATED_UNTIL_SIGNED_UP.isdisjoint(WAYS_OUT_AND_IN)
+    assert user_writes == GATED_UNTIL_SIGNED_UP | WAYS_OUT_AND_IN
+
+
+def test_the_gated_routes_require_a_complete_profile_and_the_others_do_not() -> None:
+    routes = _routes()
+
+    for key in sorted(GATED_UNTIL_SIGNED_UP):
+        assert require_complete_profile in routes[key], key
+    for key in sorted(WAYS_OUT_AND_IN):
+        assert require_complete_profile not in routes[key], key
 
 
 def test_me_requires_a_signed_in_user_and_not_the_admin() -> None:

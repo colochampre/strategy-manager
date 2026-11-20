@@ -107,6 +107,7 @@ from tests.identity_auth import (
     hand_owner_pools_to_admin,
     seed_admin,
     sign_in_as_admin,
+    waive_profile_gate,
     without_a_database,
 )
 from tests.ledger.infrastructure.conftest import (  # noqa: F401
@@ -133,6 +134,7 @@ ENTRY_KEYS = {"exchange", "status", "last4", "label", "stored_at"} | FACT_KEYS
 @pytest.fixture(autouse=True)
 def _signed_in(monkeypatch: pytest.MonkeyPatch) -> None:
     sign_in_as_admin(monkeypatch)
+    waive_profile_gate(monkeypatch)
 
 
 def _bybit_body(**over: Any) -> dict[str, Any]:

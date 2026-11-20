@@ -58,6 +58,7 @@ from tests.identity_auth import (
     act_as,
     hand_owner_pools_to_admin,
     sign_in_as_admin,
+    waive_profile_gate,
 )
 from tests.owner import OWNER_ID, seed_reservation_row
 from tests.strategies.wiring import real_subscribers
@@ -102,6 +103,7 @@ def _app(catalog: _Catalog | None = None) -> FastAPI:
 @pytest.fixture(autouse=True)
 def _signed_in(monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[None]:  # type: ignore[misc]
     sign_in_as_admin(monkeypatch)
+    waive_profile_gate(monkeypatch)
     yield
 
 

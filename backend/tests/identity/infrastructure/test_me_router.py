@@ -15,6 +15,7 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from strategy_manager.identity.domain.legal import CURRENT_VERSIONS
 from strategy_manager.main import create_app
 from strategy_manager.shared import db as shared_db
 from strategy_manager.shared.config import get_settings
@@ -88,6 +89,9 @@ async def test_the_admin_is_told_who_they_are_and_the_brake(
         "mode": "SIMULATION",
         "dry_run_brake": dry_run,
         "display_name": None,
+        "profile": None,
+        "profile_status": "MISSING",
+        "legal_versions": {"terms": CURRENT_VERSIONS.terms, "privacy": CURRENT_VERSIONS.privacy},
     }
     assert await _emails(factory) == [ADMIN_EMAIL]
 

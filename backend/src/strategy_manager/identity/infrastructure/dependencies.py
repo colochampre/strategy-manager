@@ -33,9 +33,13 @@ from strategy_manager.identity.application.ports import (
     IdentityVerifierPort,
 )
 from strategy_manager.identity.application.resolve_user import ResolveUser
+from strategy_manager.identity.domain.legal import ProfileStatus, profile_status
 from strategy_manager.identity.domain.user import InvalidEmailError, User, normalize_email
 from strategy_manager.identity.infrastructure.access_jwt import AccessJwtVerifier
-from strategy_manager.identity.infrastructure.user_repository import SqlAlchemyUserRepository
+from strategy_manager.identity.infrastructure.user_repository import (
+    SqlAlchemyLegalAcceptances,
+    SqlAlchemyUserRepository,
+)
 from strategy_manager.shared.config import Settings, get_settings
 from strategy_manager.shared.db import get_session
 from strategy_manager.shared.infrastructure.clock import SystemClock
@@ -113,6 +117,42 @@ async def current_user(
         raise HTTPException(status_code=401, detail=UNAUTHORIZED_DETAIL) from None
     await session.commit()
     return user
+
+
+PROFILE_INCOMPLETE = "PROFILE_INCOMPLETE"
+PROFILE_INCOMPLETE_MESSAGE = "Complete the sign-up form first."
+
+
+async def profile_status_of(user: User, session: AsyncSession) -> ProfileStatus:
+    """Whether ``user`` gave their profile and accepted the versions in force.
+    Looked up by ``require_complete_profile`` at call time, so a router test about
+    something else can waive the gate (``tests.identity_auth.waive_profile_gate``)."""
+    accepted = await SqlAlchemyLegalAcceptances(session).latest(user.id)
+    return profile_status(user.profile, accepted)
+
+
+async def require_complete_profile(
+    user: Annotated[User, Depends(current_user)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> None:
+    """The sign-up gate, held on the server too (openspec/changes/public-site, LS4).
+
+    Attached to every route that stores or trades for the user: saving a key, a
+    subscription, a strategy, a mode change. Not to the ways out (reading, Close
+    now, leaving a subscription, archiving or deleting a strategy, removing a key,
+    deleting the account) nor to the way in (the form and the box).
+    ``test_every_api_route_is_guarded`` lists both sets, so a new route must be
+    placed in one of them."""
+    status = await profile_status_of(user, session)
+    if status is not ProfileStatus.COMPLETE:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": PROFILE_INCOMPLETE,
+                "profile_status": status.value,
+                "message": PROFILE_INCOMPLETE_MESSAGE,
+            },
+        )
 
 
 async def require_admin(

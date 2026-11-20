@@ -28,6 +28,7 @@ from strategy_manager.accounts.infrastructure.models import ExchangeCredentialRo
 from strategy_manager.execution.application.ports import FillRecord
 from strategy_manager.execution.domain.fill import REHEARSAL_FILL_ID_PREFIX
 from strategy_manager.execution.infrastructure.live_exposure import SqlAlchemyLiveExposure
+from strategy_manager.identity.domain.legal import CURRENT_VERSIONS
 from strategy_manager.identity.infrastructure.models import UserRow
 from strategy_manager.ledger.application.record_fill import RecordFill
 from strategy_manager.ledger.infrastructure.repository import SqlAlchemyLedgerRepository
@@ -41,6 +42,7 @@ from tests.identity_auth import (
     OTHER_EMAIL,
     OTHER_HEADERS,
     sign_in_as_admin,
+    waive_profile_gate,
 )
 from tests.ledger.infrastructure.conftest import (  # noqa: F401
     pg_engine,
@@ -193,6 +195,7 @@ class World:
 @pytest.fixture(autouse=True)
 def _signed_in(monkeypatch: pytest.MonkeyPatch) -> None:
     sign_in_as_admin(monkeypatch)
+    waive_profile_gate(monkeypatch)
 
 
 @pytest.fixture(autouse=True)
@@ -267,6 +270,10 @@ async def test_going_live_with_a_trade_capable_key_changes_the_mode(
         "mode": "LIVE",
         "dry_run_brake": False,
         "display_name": None,
+        # The sign-up gate is waived here (``waive_profile_gate``), not passed.
+        "profile": None,
+        "profile_status": "MISSING",
+        "legal_versions": {"terms": CURRENT_VERSIONS.terms, "privacy": CURRENT_VERSIONS.privacy},
     }
     assert await world.stored_mode() == "LIVE"
 

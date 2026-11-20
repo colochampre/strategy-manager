@@ -41,7 +41,13 @@ from strategy_manager.strategies.infrastructure.code_entry_http import (
     CHECK_POOL_SIZE,
     check_engine_for,
 )
-from tests.identity_auth import ADMIN_HEADERS, OTHER_HEADERS, seed_admin, sign_in_as_admin
+from tests.identity_auth import (
+    ADMIN_HEADERS,
+    OTHER_HEADERS,
+    seed_admin,
+    sign_in_as_admin,
+    waive_profile_gate,
+)
 from tests.ledger.infrastructure.conftest import (  # noqa: F401
     pg_engine,
     pg_session_factory,
@@ -86,6 +92,7 @@ class World:
 @pytest.fixture(autouse=True)
 def _signed_in(monkeypatch: pytest.MonkeyPatch) -> None:
     sign_in_as_admin(monkeypatch)
+    waive_profile_gate(monkeypatch)
 
 
 @pytest.fixture

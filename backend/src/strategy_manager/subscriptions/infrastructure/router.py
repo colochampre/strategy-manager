@@ -19,7 +19,10 @@ from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from strategy_manager.identity.domain.user import User
-from strategy_manager.identity.infrastructure.dependencies import current_user
+from strategy_manager.identity.infrastructure.dependencies import (
+    current_user,
+    require_complete_profile,
+)
 from strategy_manager.ledger.application.read_symbol_holdings import ReadSymbolHoldings
 from strategy_manager.ledger.infrastructure.repository import SqlAlchemyLedgerRepository
 from strategy_manager.shared.db import get_session
@@ -176,7 +179,12 @@ def _conflict(code: str, message: str) -> HTTPException:
     return HTTPException(status_code=409, detail={"error": code, "message": message})
 
 
-@router.post("", response_model=SubscriptionView, status_code=201)
+@router.post(
+    "",
+    response_model=SubscriptionView,
+    status_code=201,
+    dependencies=[Depends(require_complete_profile)],
+)
 async def subscribe(
     body: SubscribeRequest, session: SessionDep, user: CurrentUserDep, codes: CodeCheckDep
 ) -> SubscriptionView:
@@ -272,7 +280,11 @@ async def leave(
     return SubscriptionView.of(subscription)
 
 
-@router.patch("/{subscription_id}", response_model=SubscriptionView)
+@router.patch(
+    "/{subscription_id}",
+    response_model=SubscriptionView,
+    dependencies=[Depends(require_complete_profile)],
+)
 async def change_share(
     subscription_id: UUID,
     body: ChangeShareRequest,

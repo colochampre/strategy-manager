@@ -47,6 +47,7 @@ from strategy_manager.accounts.infrastructure.capital_pool_writer import (
 from strategy_manager.accounts.infrastructure.credential_vault import SqlAlchemyCredentialVault
 from strategy_manager.accounts.infrastructure.credentials_router import get_save_credential
 from strategy_manager.execution.infrastructure.live_exposure import SqlAlchemyLiveExposure
+from strategy_manager.identity.domain.legal import CURRENT_VERSIONS
 from strategy_manager.main import create_app
 from strategy_manager.shared import db as shared_db
 from strategy_manager.shared.config import get_settings
@@ -62,7 +63,7 @@ from tests.accounts.fakes import (
 )
 from tests.accounts.infrastructure.test_pools_router import _reserve, _snapshot
 from tests.accounts.pool_seed import clear_discrepancies, seed_discrepancy
-from tests.identity_auth import ADMIN_HEADERS, seed_admin, sign_in_as_admin
+from tests.identity_auth import ADMIN_HEADERS, seed_admin, sign_in_as_admin, waive_profile_gate
 from tests.ledger.infrastructure.conftest import (  # noqa: F401
     pg_engine,
     pg_session_factory,
@@ -86,6 +87,7 @@ ISSUING = {CREATE, REGENERATE}
 @pytest.fixture(autouse=True)
 def _configure_secrets(monkeypatch: pytest.MonkeyPatch) -> None:
     sign_in_as_admin(monkeypatch)
+    waive_profile_gate(monkeypatch)
     monkeypatch.setattr(get_settings(), "webhook_secret", GLOBAL_SECRET)
 
 
@@ -120,6 +122,22 @@ _BODIES: dict[tuple[str, str], dict[str, Any]] = {
     ("PATCH", "/api/subscriptions/{subscription_id}"): {"allocation_percent": "40"},
     ("POST", "/api/me/mode"): {"mode": "SIMULATION"},
     ("PUT", "/api/me/display-name"): {"display_name": "The sweep's author"},
+    ("PUT", "/api/me/profile"): {
+            "first_name": "Beto",
+            "last_name": "Gómez",
+            "cuit": "20-12345678-6",
+            "country": "AR",
+            "adult": True,
+            "truthful": True,
+            "accepts": True,
+            "terms_version": CURRENT_VERSIONS.terms,
+            "privacy_version": CURRENT_VERSIONS.privacy,
+    },
+    ("POST", "/api/me/acceptance"): {
+        "accepts": True,
+        "terms_version": CURRENT_VERSIONS.terms,
+        "privacy_version": CURRENT_VERSIONS.privacy,
+    },
     # The live code the sweep seeds, so the lookup answers 200 with what it shows.
     ("POST", "/api/public/invite-codes/lookup"): {"code": SWEEP_CODE},
 }
