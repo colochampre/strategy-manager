@@ -274,6 +274,7 @@ async def test_going_live_with_a_trade_capable_key_changes_the_mode(
         "profile": None,
         "profile_status": "MISSING",
         "legal_versions": {"terms": CURRENT_VERSIONS.terms, "privacy": CURRENT_VERSIONS.privacy},
+        "suspended": False,
     }
     assert await world.stored_mode() == "LIVE"
 

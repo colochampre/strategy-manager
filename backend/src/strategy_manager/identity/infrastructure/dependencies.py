@@ -121,6 +121,8 @@ async def current_user(
 
 PROFILE_INCOMPLETE = "PROFILE_INCOMPLETE"
 PROFILE_INCOMPLETE_MESSAGE = "Complete the sign-up form first."
+ACCOUNT_SUSPENDED = "ACCOUNT_SUSPENDED"
+ACCOUNT_SUSPENDED_MESSAGE = "This account is suspended."
 
 
 async def profile_status_of(user: User, session: AsyncSession) -> ProfileStatus:
@@ -150,7 +152,16 @@ async def require_complete_profile(
 
 async def ensure_complete_profile(user: User, session: AsyncSession) -> None:
     """The gate's check and its 409, for a dependency that decides first whether
-    the gate applies (``require_complete_profile_unless_disabling``)."""
+    the gate applies (``require_complete_profile_unless_disabling``).
+
+    A suspended account meets the same gate (public-site LS9, PS.13 S5), whether
+    or not it signed up, and is told of the suspension first: signing up would
+    not open it."""
+    if user.suspended:
+        raise HTTPException(
+            status_code=409,
+            detail={"error": ACCOUNT_SUSPENDED, "message": ACCOUNT_SUSPENDED_MESSAGE},
+        )
     status = await profile_status_of(user, session)
     if status is not ProfileStatus.COMPLETE:
         raise HTTPException(

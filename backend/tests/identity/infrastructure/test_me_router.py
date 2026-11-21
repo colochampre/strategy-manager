@@ -92,6 +92,7 @@ async def test_the_admin_is_told_who_they_are_and_the_brake(
         "profile": None,
         "profile_status": "MISSING",
         "legal_versions": {"terms": CURRENT_VERSIONS.terms, "privacy": CURRENT_VERSIONS.privacy},
+        "suspended": False,
     }
     assert await _emails(factory) == [ADMIN_EMAIL]
 

@@ -134,6 +134,8 @@ _BODIES: dict[tuple[str, str], dict[str, Any]] = {
             "privacy_version": CURRENT_VERSIONS.privacy,
     },
     ("PUT", "/api/me/profile/name"): {"first_name": "Beto", "last_name": "Gómez"},
+    # Lifting changes nothing of an account that is not suspended (PS.13 S1).
+    ("PUT", "/api/admin/users/{user_id}/suspension"): {"suspended": False},
     ("POST", "/api/me/acceptance"): {
         "accepts": True,
         "terms_version": CURRENT_VERSIONS.terms,

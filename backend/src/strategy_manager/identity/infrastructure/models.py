@@ -84,6 +84,9 @@ class UserRow(Base):
     truthful_declared_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # Added by migration 0047: when the admin suspended the account (public-site
+    # LS9). The date alone; None while the account is not suspended.
+    suspended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class LegalAcceptanceRow(Base):

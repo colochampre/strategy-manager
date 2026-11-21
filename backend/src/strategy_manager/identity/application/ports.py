@@ -77,6 +77,20 @@ class CommitPort(Protocol):
     async def commit(self) -> None: ...
 
 
+class SuspensionUsersPort(Protocol):
+    async def lock_for_suspension(self, user_id: UUID) -> bool:
+        """Takes the user row ``FOR UPDATE``, as a mode change does, and answers
+        whether it is an account that exists and was not deleted."""
+        ...
+
+    async def suspend(self, user_id: UUID, now: datetime) -> None:
+        """Sets ``suspended_at`` to ``now`` unless it is already set: suspending
+        twice keeps the first date."""
+        ...
+
+    async def lift_suspension(self, user_id: UUID) -> None: ...
+
+
 # --- Account deletion (openspec/changes/account-deletion) -------------------------
 
 
