@@ -72,6 +72,7 @@ The plan is in `proposal.md`. Each task records its evidence when done. Push, PR
   - *Delivered 2026-11-21 as PRs #126 and #127* (merges `7ef70b6`, LD2 and the line added to LQ3, and `68ccaf6771d4`, 2 commits): PS.16, the admin sees the identity in `/users`. No migration, no version bump.
     - Production (`deploy_68ccaf6.sh`), 219 minutes into the 4h candle: checkout `68ccaf6771d4`, still at 0046, 1 user with a profile and 2 acceptances. Both services `active`. Unsigned, `GET /api/admin/users` answers 401. No ERROR, CRITICAL or Traceback line since the restart, the alerts' INFO line left out.
     - Panel (pps.6): built by the assistant from a detached worktree of `origin/main` at `68ccaf6771d4`, 22 entries, SHA-256 `38e4482d4eb7a6e49f4c081af95005a4b5d329923797c9d2f3dfd1a766d547ea`; the owner's block printed `OK`, `readable`, and bundle and checkout `68ccaf6771d4`.
+    - The owner read `/users`: their own identity shown, every other user "Todavía no completó el alta", in simulation, with no exchange, 0 subscriptions and 0 positions ("Si, solo yo como admin tengo datos reales").
 
 ## From the lawyer's answers (specs written 2026-11-19)
 
