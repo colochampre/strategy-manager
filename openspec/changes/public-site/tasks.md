@@ -161,6 +161,21 @@ Written from the lawyer's notes in `proposal.md`, quoted verbatim where they set
   - **S7 The privacy policy follows** (CLAUDE.md: a change that stores a user's data in a new way): the suspension and its date are named in `privacy` (EN and ES), and the privacy version is bumped, so every user accepts again.
   - Decisions taken here, for the owner to overrule: no reason is stored and none is shown; the user learns of it from the panel's notice and the contact address, no e-mail is sent; suspension and lifting are immediate and can be repeated.
   - Tasks: T1 S2, S1 backend, S5 (inline; items 1 and 2). T2 S3, S4 (inline; money moves through it, item 4 for the locks; independent verifier after). T3 S1 and S6 panel, S7 (a Sonnet writer in parallel with T2: disjoint surfaces, `frontend/` and the locales, against the API T1 fixes).
+  - Evidence. T1 is `8aed031`. T2 went to a Sonnet writer, not inline (the parent's context backstop), and T3 to a Sonnet writer. Both rest on the RED seen on an assertion, or a mutation turning a test red.
+  - T2 ruled out several ways it could go wrong:
+    - The pre-lock and in-lock refusals for an account and for an author are each pinned by tests, and both `main.py` wirings by an integration test.
+    - The fence was proven on real PostgreSQL with the lock-hold harness.
+    - Taking the user row before the pool locks deadlocks the author's own opening, and a test pins that.
+    - The sweep does not close a suspended author's positions.
+  - The in-lock safety event is written on a second commit. A re-run is harmless (the delivery source is UNIQUE). A crash between the two commits leaves the REJECTED outcome without its event, which is documented.
+  - The independent verifier (Opus) passed S1 to S5 and S7. It found one blocker in S6: the strategy page did not show the pause. That was fixed in `SeatPanel`, with the RED seen on an assertion.
+  - Four advisories were fixed:
+    - Open positions keeps linking to a suspended author's page (`LINKED`).
+    - Subscribing says `AUTHOR_SUSPENDED` in words.
+    - The admin dialog says `ACCOUNT_CHANGED` in words.
+    - A stale test path was corrected.
+  - Its two probes are committed as `tests/identity/application/test_suspend_account_races.py`.
+  - One advisory is left, for the owner to weigh. A subscribe that read "not suspended" can wait on the strategy row and insert its seat after the suspension commits. That seat opens nothing, because every opening on it is refused in the lock, and the panel shows it paused.
 - [ ] PS.14 LS10 owner-run AAIP registration, once LQ4 is answered.
 - [x] PS.15 A way out before sign-up (owner, 2026-11-20: "Dale, vamos con tu sugerencia", then "Si, A", then "Si" to the disable exception). Route: inline; the backend unit names high-risk item 2 (a guard), so it gets its own commit and an independent verifier.
   - **S1** From the sign-up form and the acceptance box, a link opens one page where a user who has not signed up, or will not accept the versions in force, can get out without the rest of the panel: their open positions with "Close now", their subscriptions with "Leave", their own strategies with "Disable" and "Archive", their exchange keys with "Delete key", and "Delete account". The navigation stays hidden (LS2).
