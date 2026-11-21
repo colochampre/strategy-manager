@@ -116,6 +116,8 @@ async def test_the_table_holds_an_id_an_email_two_timestamps_the_mode_and_a_name
         "country": ("text", "YES"),
         "adult_declared_at": ("timestamp with time zone", "YES"),
         "truthful_declared_at": ("timestamp with time zone", "YES"),
+        # Added by 0047: when the admin suspended the account (public-site LS9).
+        "suspended_at": ("timestamp with time zone", "YES"),
     }
 
 

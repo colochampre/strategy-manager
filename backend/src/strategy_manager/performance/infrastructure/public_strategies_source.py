@@ -16,8 +16,9 @@ their seat is managed. A strategy off the list also opens to what its reader bri
 (decision 41, tasks.md K.4): a LINK one to its current token, a LINK or PRIVATE one
 to a code the caller checked for it. Any other strategy off the list is not
 reachable by its id.
-The open-positions read links to the public page through ``LISTED``, so a link
-cannot lead to a page that answers 404.
+The open-positions read links to the public page through ``LINKED`` (``LISTED``
+without the suspension of its author), so a link cannot lead to a page that answers
+404.
 
 **One statement each**, ``ANY`` over the ids, whatever their number. Nothing here
 locks or writes.
@@ -68,7 +69,19 @@ READABLE = (
     StrategyRow.archived_at.is_(None),
     UserRow.display_name.is_not(None),
 )
-LISTED = (StrategyRow.visibility == Visibility.PUBLIC.value, *READABLE)
+#: Public and readable: a page anyone holding something on it can be sent to.
+LINKED = (
+    StrategyRow.visibility == Visibility.PUBLIC.value,
+    *READABLE,
+)
+#: Linked, and not offered while its author is suspended (public-site LS9, PS.13 S4):
+#: nobody new can subscribe to it. Only the list asks: ``READABLE`` and ``LINKED`` do
+#: not, so a seat already held keeps reading its page, and the open positions still
+#: link to it.
+LISTED = (
+    *LINKED,
+    UserRow.suspended_at.is_(None),
+)
 
 
 def _held_by(reader_id: UUID) -> Any:

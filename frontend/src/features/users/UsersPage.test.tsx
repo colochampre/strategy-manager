@@ -1,4 +1,4 @@
-import { screen, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AppRoutes } from "@/app/router";
@@ -45,6 +45,134 @@ beforeEach(() => {
 afterEach(async () => {
   vi.unstubAllGlobals();
   await i18n.changeLanguage("en");
+});
+
+interface Put {
+  url: string;
+  body: unknown;
+}
+
+/** The list answers `users`; a PUT to a suspension is recorded and answered with `answer`. */
+function serveSuspension(users: Record<string, unknown>[], answer: () => Response = () => jsonResponse(null, 204)) {
+  const puts: Put[] = [];
+  stubApi({ kind: "ok", body: {} }, [], { kind: "ok", body: [] }, {}, (url, init) => {
+    if (url.endsWith("/suspension") && init?.method === "PUT") {
+      puts.push({ url, body: JSON.parse(String(init.body)) });
+      return Promise.resolve(answer());
+    }
+    if (url.endsWith("/api/admin/users")) return Promise.resolve(jsonResponse(users));
+    if (url.endsWith("/api/me")) {
+      return Promise.resolve(
+        jsonResponse({ email: "owner@example.com", is_admin: true, mode: "LIVE", dry_run_brake: false, ...SIGNED_UP }),
+      );
+    }
+    return undefined;
+  });
+  return puts;
+}
+
+describe("Users: suspension (public-site LS9)", () => {
+  it("says since when an account is suspended, and nothing for one that is not", async () => {
+    serveSuspension([adminUser({ suspended_at: "2026-11-20T10:00:00Z" }), adminUser({ id: "u2", email: "b@example.com" })]);
+    open();
+
+    const rows = await screen.findAllByTestId("admin-user-row");
+    expect(rows[0]).toHaveTextContent("Suspended since Nov 20, 2026, 10:00");
+    expect(rows[1]).not.toHaveTextContent("Suspended since");
+  });
+
+  it("offers Suspend, asks first, and sends exactly {suspended: true} only after confirming", async () => {
+    const puts = serveSuspension([adminUser()]);
+    open();
+    const row = await screen.findByTestId("admin-user-row");
+
+    fireEvent.click(within(row).getByRole("button", { name: "Suspend" }));
+
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog).toHaveTextContent("Suspend ana@example.com?");
+    expect(dialog).toHaveTextContent(
+      "They will open nothing new, and the strategies they publish will stop opening for every subscriber. Their closes keep running.",
+    );
+    expect(puts).toEqual([]);
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Suspend" }));
+
+    await waitFor(() => expect(puts).toHaveLength(1));
+    expect(puts[0]?.url).toMatch(/\/api\/admin\/users\/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa\/suspension$/);
+    expect(puts[0]?.body).toEqual({ suspended: true });
+  });
+
+  it("offers Lift suspension to a suspended account, and sends exactly {suspended: false} after confirming", async () => {
+    const puts = serveSuspension([adminUser({ suspended_at: "2026-11-20T10:00:00Z" })]);
+    open();
+    const row = await screen.findByTestId("admin-user-row");
+
+    expect(within(row).queryByRole("button", { name: "Suspend" })).toBeNull();
+    fireEvent.click(within(row).getByRole("button", { name: "Lift suspension" }));
+
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog).toHaveTextContent("Lift the suspension of ana@example.com?");
+    expect(dialog).toHaveTextContent("They can open positions and subscribe again.");
+    expect(puts).toEqual([]);
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Lift suspension" }));
+
+    await waitFor(() => expect(puts).toHaveLength(1));
+    expect(puts[0]?.body).toEqual({ suspended: false });
+  });
+
+  it("sends nothing when the dialog is cancelled", async () => {
+    const puts = serveSuspension([adminUser()]);
+    open();
+    const row = await screen.findByTestId("admin-user-row");
+
+    fireEvent.click(within(row).getByRole("button", { name: "Suspend" }));
+    fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Cancel" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(puts).toEqual([]);
+  });
+
+  it("offers no button on the admin's own row", async () => {
+    serveSuspension([adminUser({ email: "owner@example.com" }), adminUser({ id: "u2", email: "b@example.com" })]);
+    open();
+
+    const rows = await screen.findAllByTestId("admin-user-row");
+    await waitFor(() => expect(within(rows[1] as HTMLElement).queryByRole("button", { name: "Suspend" })).not.toBeNull());
+    expect(within(rows[0] as HTMLElement).queryByRole("button")).toBeNull();
+  });
+
+  it.each([
+    [409, { error: "CANNOT_SUSPEND_YOURSELF" }, "You cannot suspend your own account."],
+    [404, { error: "USER_NOT_FOUND" }, "The suspension could not be changed."],
+    [409, { error: "ACCOUNT_CHANGED" }, "The account changed while it was being suspended. Try again."],
+    [500, "boom", "The suspension could not be changed."],
+  ])("says a %s refusal inline, as an alert", async (status, detail, message) => {
+    serveSuspension([adminUser()], () => jsonResponse({ detail }, status));
+    open();
+    const row = await screen.findByTestId("admin-user-row");
+
+    fireEvent.click(within(row).getByRole("button", { name: "Suspend" }));
+    fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Suspend" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(message);
+  });
+
+  it("speaks Spanish with its own words", async () => {
+    await i18n.changeLanguage("es");
+    serveSuspension([adminUser({ id: "u2", suspended_at: "2026-11-20T10:00:00Z" }), adminUser()]);
+    open();
+
+    const rows = await screen.findAllByTestId("admin-user-row");
+    expect(rows[0]).toHaveTextContent("Suspendida desde");
+    fireEvent.click(within(rows[0] as HTMLElement).getByRole("button", { name: "Levantar la suspensión" }));
+    expect(await screen.findByRole("dialog")).toHaveTextContent("¿Levantar la suspensión de ana@example.com?");
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Cancelar" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+
+    fireEvent.click(within(rows[1] as HTMLElement).getByRole("button", { name: "Suspender" }));
+    expect(await screen.findByRole("dialog")).toHaveTextContent("¿Suspender a ana@example.com?");
+  });
 });
 
 describe("Users", () => {

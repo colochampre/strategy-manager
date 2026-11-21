@@ -76,7 +76,15 @@ describe("fetchHeldSubscriptions", () => {
     ]);
   });
 
+  it("carries whether the strategy's author is suspended", async () => {
+    stubFetch(jsonResponse([heldSubscription({ author_suspended: true })]));
+
+    await expect(fetchHeldSubscriptions()).resolves.toMatchObject([{ author_suspended: true }]);
+  });
+
   it.each([
+    ["a suspended-author flag that is missing", [heldSubscription({ author_suspended: undefined })]],
+    ["a suspended-author flag that is a string", [heldSubscription({ author_suspended: "yes" })]],
     ["an enabled flag that is missing", [heldSubscription({ strategy_enabled: undefined })]],
     ["an enabled flag that is a string", [heldSubscription({ strategy_enabled: "yes" })]],
     ["a stop level that is missing", [heldSubscription({ stop_loss_pct: undefined })]],

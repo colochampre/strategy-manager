@@ -224,6 +224,8 @@ export interface HeldSubscription extends Subscription {
   settlement_currency: string;
   /** Whether the strategy takes openings now; every holder may know it. */
   strategy_enabled: boolean;
+  /** Whether the author's account is suspended: the strategy opens nothing new for anyone, and closes keep running. */
+  author_suspended: boolean;
   strategy_uptime: StrategyUptime;
   /** The strategy's stop level (a string such as "10.00"): it caps this seat's leverage. */
   stop_loss_pct: string;

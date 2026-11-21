@@ -26,6 +26,8 @@
       "STRATEGY_STOPPED_CLOSED": "Cerrada al detenerse la estrategia",
       "MANUAL_CLOSE": "Cerrada por usted",
       "OPENING_REFUSED_LEVERAGE_CAP": "Apertura rechazada: tope de apalancamiento",
+      "OPENING_REFUSED_ACCOUNT_SUSPENDED": "Apertura rechazada: su cuenta está suspendida",
+      "OPENING_REFUSED_AUTHOR_SUSPENDED": "Apertura rechazada: el autor de la estrategia está suspendido",
       "unknown": "Evento de seguridad"
     },
     "detail": {
@@ -34,6 +36,8 @@
       "STRATEGY_STOPPED_CLOSED": "La estrategia se detuvo, así que se cerró la posición: {{quantity}} a {{price}}.",
       "MANUAL_CLOSE": "Usted cerró la posición: {{quantity}} a {{price}}.",
       "OPENING_REFUSED_LEVERAGE_CAP": "La apertura pedía {{requested_leverage}}x, por encima de los {{max_leverage}}x permitidos con un stop de {{stop_loss_pct}}%, así que no se abrió nada.",
+      "OPENING_REFUSED_ACCOUNT_SUSPENDED": "No se abrió nada: su cuenta está suspendida.",
+      "OPENING_REFUSED_AUTHOR_SUSPENDED": "No se abrió nada: el autor de la estrategia está suspendido.",
       "unknown": "No hay detalles disponibles para este evento.",
       "missing": "n/d"
     }
@@ -52,7 +56,23 @@
     "seen": "Último ingreso",
     "poolWithNoKey": "Pool habilitado sin clave activa: {{exchanges}}",
     "identity": "{{name}} · CUIT {{cuit}} · {{country}}",
-    "notSignedUp": "Todavía no completó el alta"
+    "notSignedUp": "Todavía no completó el alta",
+    "suspendedSince": "Suspendida desde {{date}}",
+    "suspend": "Suspender",
+    "lift": "Levantar la suspensión",
+    "cancel": "Cancelar",
+    "working": "Guardando…",
+    "suspendTitle": "¿Suspender a {{email}}?",
+    "suspendBody": "No abrirá nada nuevo, y las estrategias que publica dejarán de abrir para todos sus suscriptores. Sus cierres se siguen ejecutando.",
+    "liftTitle": "¿Levantar la suspensión de {{email}}?",
+    "liftBody": "Podrá volver a abrir posiciones y suscribirse.",
+    "failed": "No se pudo cambiar la suspensión.",
+    "yourself": "No puede suspender su propia cuenta.",
+    "accountChanged": "La cuenta cambió mientras se la suspendía. Inténtelo de nuevo."
+  },
+  "suspension": {
+    "title": "Su cuenta está suspendida",
+    "body": "Ya no puede abrir posiciones ni suscribirse a estrategias. Sus posiciones abiertas se siguen cerrando cuando sus estrategias lo indican. Para consultas, escriba a {{contact}}."
   },
   "scope": {
     "exchanges": "Exchanges",
@@ -267,6 +287,7 @@
       "by": "de {{name}}",
       "noAuthorName": "autor todavía sin nombre",
       "leaving": "Saliendo: ya no abre nada más y termina cuando se cierre su posición abierta.",
+      "paused": "En pausa: la cuenta de su autor está suspendida. No abre posiciones nuevas; sus posiciones abiertas se siguen cerrando.",
       "leverageValue": "x{{leverage}}",
       "figuresError": "No se pudieron cargar las cifras públicas, así que solo se muestran las suyas.",
       "leave": "Salir"
@@ -389,6 +410,7 @@
         "needsKey": "No tiene una clave en el exchange de esta estrategia. Agregue una en Ajustes para suscribirse.",
         "already": "Ya está suscrito a esta estrategia.",
         "archived": "Esta estrategia está archivada y no acepta suscriptores.",
+        "paused": "Esta estrategia está en pausa y no acepta suscriptores.",
         "gone": "Esta estrategia ya no acepta suscriptores.",
         "failed": "La suscripción no se guardó. Inténtelo de nuevo."
       }
@@ -1121,6 +1143,7 @@
         "strategies": "Las estrategias que crea y a las que se suscribe, y su configuración: la parte de su capital, el apalancamiento y si opera en simulación o en real.",
         "trades": "Cada orden hecha a su nombre y su resultado: precio, cantidad, comisiones y ganancia o pérdida.",
         "acceptances": "Cada aceptación de los términos y de esta política: qué versión aceptó y cuándo.",
+        "suspension": "Si el administrador suspende su cuenta, la fecha de la suspensión.",
         "logs": "Un registro técnico de los pedidos que responde el servidor: cuándo ocurrió cada uno, qué se pidió y el resultado.",
         "messages": "Lo que nos escriba, y la dirección desde la que escribe.",
         "never": "La app nunca guarda contraseñas, imágenes de documentos de identidad ni datos de pago, y no usa herramientas de analítica, publicidad ni seguimiento."

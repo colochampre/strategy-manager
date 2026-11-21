@@ -51,6 +51,8 @@ BODY_KEYS = {
     "open_positions",
     "last_seen_at",
     "identity",
+    "id",
+    "suspended_at",
 }
 
 #: The identity the sign-up form gave, as the privacy policy says the admin sees it

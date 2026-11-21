@@ -44,7 +44,7 @@ from strategy_manager.performance.domain.open_position import (
     PoolLabel,
     strategy_page_of,
 )
-from strategy_manager.performance.infrastructure.public_strategies_source import LISTED
+from strategy_manager.performance.infrastructure.public_strategies_source import LINKED
 from strategy_manager.strategies.infrastructure.models import StrategyRow
 
 _SUBMITTED = "SUBMITTED"
@@ -130,7 +130,7 @@ class SqlAlchemyOpenPositionFactsSource:
                 ReservationRow.venue,
                 ReservationRow.settlement_currency,
                 StrategyRow.author_id == user_id,
-                and_(*LISTED),
+                and_(*LINKED),
             )
             .join(StrategyRow, StrategyRow.id == ReservationRow.strategy_id)
             .join(UserRow, UserRow.id == StrategyRow.author_id)

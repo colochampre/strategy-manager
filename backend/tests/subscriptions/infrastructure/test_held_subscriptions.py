@@ -52,6 +52,7 @@ BODY_KEYS = {
     "venue",
     "settlement_currency",
     "strategy_enabled",
+    "author_suspended",
     "strategy_uptime",
     "stop_loss_pct",
 }
@@ -377,3 +378,33 @@ async def test_a_pool_whose_key_is_gone_takes_no_subscription(
             select(SubscriptionRow.id).where(SubscriptionRow.user_id == user_id)
         )
         assert stored.all() == []
+
+
+async def test_a_seat_says_whether_its_strategys_author_is_suspended(
+    pg_session_factory: Factory,  # noqa: F811
+    client_for: ClientFor,
+) -> None:
+    """Public-site LS9, PS.13 S6: the panel shows the strategy as paused. The flag is the
+    AUTHOR's, read live, and it is not ``strategy_enabled``: the strategy is not
+    disabled, so the sweep leaves its positions alone."""
+    author, _ = await seeds.user(pg_session_factory)
+    subscriber, pool = await seeds.user(pg_session_factory)
+    strategy_id = await seeds.strategy(pg_session_factory, author_id=author)
+    await seeds.subscription(pg_session_factory, subscriber, strategy_id, pool or 0)
+
+    before = await _only(client_for(subscriber))
+    await _set(
+        pg_session_factory, "UPDATE users SET suspended_at = now() WHERE id = :id", id=author
+    )
+    during = await _only(client_for(subscriber))
+    await _set(
+        pg_session_factory, "UPDATE users SET suspended_at = NULL WHERE id = :id", id=author
+    )
+    after = await _only(client_for(subscriber))
+
+    assert (before["author_suspended"], during["author_suspended"], after["author_suspended"]) == (
+        False,
+        True,
+        False,
+    )
+    assert during["strategy_enabled"] is True

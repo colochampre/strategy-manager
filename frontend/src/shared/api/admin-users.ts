@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { ApiError, apiFetch } from "@/shared/api/client";
 import type { Mode } from "@/shared/api/me";
@@ -17,7 +17,10 @@ export interface AdminIdentity {
  * one.
  */
 export interface AdminUser {
+  id: string;
   email: string;
+  /** When the administrator suspended the account, or `null` while it is not suspended. */
+  suspended_at: string | null;
   display_name: string | null;
   mode: Mode;
   exchanges_with_key: string[];
@@ -55,7 +58,9 @@ function isIdentity(value: unknown): value is AdminIdentity {
 function isAdminUser(value: unknown): value is AdminUser {
   if (!isRecord(value)) return false;
   return (
+    typeof value.id === "string" &&
     typeof value.email === "string" &&
+    (value.suspended_at === null || typeof value.suspended_at === "string") &&
     (value.display_name === null || typeof value.display_name === "string") &&
     (value.mode === "LIVE" || value.mode === "SIMULATION") &&
     isTextList(value.exchanges_with_key) &&
@@ -74,6 +79,43 @@ export async function fetchAdminUsers(): Promise<AdminUser[]> {
     throw new ApiError(200, { detail: "Unexpected response shape from GET /admin/users: expected a list" });
   }
   return body;
+}
+
+export type SetSuspensionResult =
+  | { kind: "changed" }
+  | { kind: "yourself" }
+  | { kind: "notFound" }
+  | { kind: "accountChanged" }
+  | { kind: "unknown" };
+
+/** `PUT /api/admin/users/{id}/suspension`: suspends or lifts, and answers a refusal by its code, never its wording. */
+export async function setSuspension(id: string, suspended: boolean): Promise<SetSuspensionResult> {
+  try {
+    await apiFetch<unknown>(`/admin/users/${encodeURIComponent(id)}/suspension`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ suspended }),
+    });
+    return { kind: "changed" };
+  } catch (error) {
+    if (!(error instanceof ApiError)) return { kind: "unknown" };
+    if (error.status === 409 && error.code === "CANNOT_SUSPEND_YOURSELF") return { kind: "yourself" };
+    if (error.status === 404 && error.code === "USER_NOT_FOUND") return { kind: "notFound" };
+    // A strategy or a seat appeared while the suspension took its locks: nothing was written.
+    if (error.status === 409 && error.code === "ACCOUNT_CHANGED") return { kind: "accountChanged" };
+    return { kind: "unknown" };
+  }
+}
+
+/** The change as a mutation; the list is read again whatever the answer, so the row shows the server's state. */
+export function useSetSuspension() {
+  const queryClient = useQueryClient();
+  return useMutation<SetSuspensionResult, Error, { id: string; suspended: boolean }>({
+    mutationFn: ({ id, suspended }) => setSuspension(id, suspended),
+    onSettled: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["admin-users"] });
+    },
+  });
 }
 
 export function useAdminUsers() {

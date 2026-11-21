@@ -26,8 +26,35 @@ describe("fetchMe", () => {
       profile: null,
       profileStatus: "COMPLETE",
       legalVersions: { terms: "terms-test", privacy: "privacy-test" },
+      suspended: false,
     });
     expect((fetchMock.mock.calls[0] as [string])[0]).toMatch(/\/api\/me$/);
+  });
+
+  it("reads a suspended account as suspended", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonResponse({ email: "a@example.com", is_admin: false, mode: "LIVE", dry_run_brake: false, ...SIGNED_UP, suspended: true }),
+      ),
+    );
+
+    await expect(fetchMe()).resolves.toMatchObject({ suspended: true });
+  });
+
+  it.each([
+    ["no suspended flag", undefined],
+    ["a suspended flag that is text", "no"],
+    ["a null suspended flag", null],
+  ])("refuses an answer with %s, so a malformed body never reads as not suspended", async (_label, value) => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonResponse({ email: "a@example.com", is_admin: false, mode: "LIVE", dry_run_brake: false, ...SIGNED_UP, suspended: value }),
+      ),
+    );
+
+    await expect(fetchMe()).rejects.toThrow();
   });
 
   it("reads the name the user chose", async () => {

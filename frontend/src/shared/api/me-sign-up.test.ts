@@ -4,7 +4,7 @@ import { acceptAgain, fetchMe, giveProfile, type SignUpForm } from "@/shared/api
 import { jsonResponse } from "@/test/harness";
 
 const VERSIONS = { terms: "2026-11-19-draft-1", privacy: "2026-11-19-draft-4" };
-const BASE = { email: "ana@example.com", is_admin: false, mode: "SIMULATION", dry_run_brake: false };
+const BASE = { email: "ana@example.com", is_admin: false, mode: "SIMULATION", dry_run_brake: false, suspended: false };
 const FORM: SignUpForm = {
   firstName: "Ana",
   lastName: "Pérez",

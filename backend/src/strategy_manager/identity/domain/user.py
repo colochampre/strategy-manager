@@ -42,3 +42,10 @@ class User:
     display_name: str | None = None
     # None until the sign-up form is sent (migration ``0046``, public-site LS3).
     profile: Profile | None = None
+    # When the admin suspended the account, None while it is not (migration
+    # ``0047``, public-site LS9).
+    suspended_at: datetime | None = None
+
+    @property
+    def suspended(self) -> bool:
+        return self.suspended_at is not None

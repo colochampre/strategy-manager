@@ -121,6 +121,7 @@ function isHeldSubscription(value: unknown): value is HeldSubscription {
     typeof row.venue === "string" &&
     typeof row.settlement_currency === "string" &&
     typeof row.strategy_enabled === "boolean" &&
+    typeof row.author_suspended === "boolean" &&
     isStrategyUptime(row.strategy_uptime) &&
     // The cap on this seat's leverage, a decimal string. Never absent.
     typeof row.stop_loss_pct === "string"

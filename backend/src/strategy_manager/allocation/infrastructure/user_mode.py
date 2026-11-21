@@ -12,6 +12,7 @@ Before the lock the row is read plainly. A row lock taken there would invert the
 order above, and that read decides nothing: the lock compares its own with it.
 """
 
+from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import Select, select
@@ -35,6 +36,26 @@ class SqlAlchemyUserMode:
 
     async def current_mode(self, user_id: UUID) -> Mode:
         return await self._read(select(UserRow.mode), user_id)
+
+    async def is_suspended_locked(self, user_id: UUID) -> bool:
+        """``FOR SHARE`` on the row ``effective_mode`` already holds, so this adds no lock
+        to the transaction: ``SuspendAccount`` takes it ``FOR UPDATE``."""
+        return await self._read_suspension(
+            select(UserRow.suspended_at).with_for_update(read=True), user_id
+        )
+
+    async def is_suspended(self, user_id: UUID) -> bool:
+        return await self._read_suspension(select(UserRow.suspended_at), user_id)
+
+    async def _read_suspension(self, statement: Select[tuple[datetime | None]], user_id: UUID
+    ) -> bool:
+        row = (await self._session.execute(statement.where(UserRow.id == user_id))).one_or_none()
+        if row is None:
+            raise InvariantViolation(
+                f"user {str(user_id)[:8]} has no row; an opening cannot take a suspension "
+                "from it"
+            )
+        return row[0] is not None
 
     async def _read(self, statement: Select[tuple[str]], user_id: UUID) -> Mode:
         stored = (

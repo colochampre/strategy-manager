@@ -54,6 +54,7 @@ from strategy_manager.subscriptions.application.change_share import ChangeShare
 from strategy_manager.subscriptions.application.errors import (
     AlreadySubscribed,
     AuthorCannotLeave,
+    AuthorSuspended,
     NoPoolForMarket,
     StrategyArchived,
     StrategyNotFound,
@@ -153,6 +154,8 @@ class HeldSubscriptionView(SubscriptionView):
     venue: str
     settlement_currency: str
     strategy_enabled: bool
+    # The strategy's author is suspended: it opens nothing, its closes keep running.
+    author_suspended: bool
     # How long the strategy has taken signals, as its author's card reads it (tasks.md L.1).
     strategy_uptime: UptimeView
     # The cap on this seat's leverage (subscriber-safety D5).
@@ -170,6 +173,7 @@ class HeldSubscriptionView(SubscriptionView):
             venue=venue,
             settlement_currency=settlement_currency,
             strategy_enabled=held.strategy_enabled,
+            author_suspended=held.author_suspended,
             strategy_uptime=UptimeView.of(active),
             stop_loss_pct=held.stop_loss_pct,
         )
@@ -216,6 +220,8 @@ async def subscribe(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except StrategyArchived as exc:
         raise _conflict("STRATEGY_ARCHIVED", str(exc)) from exc
+    except AuthorSuspended as exc:
+        raise _conflict("AUTHOR_SUSPENDED", str(exc)) from exc
     except LeverageAboveStopCap as exc:
         raise _conflict(exc.reason_code, str(exc)) from exc
     except NoPoolForMarket as exc:

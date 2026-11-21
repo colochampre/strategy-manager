@@ -49,6 +49,26 @@ class SqlAlchemyUserRepository:
             select(UserRow.id).where(UserRow.id == user_id).with_for_update()
         )
 
+    async def lock_for_suspension(self, user_id: UUID) -> bool:
+        deleted_at = (
+            await self._session.execute(
+                select(UserRow.deleted_at).where(UserRow.id == user_id).with_for_update()
+            )
+        ).one_or_none()
+        return deleted_at is not None and deleted_at[0] is None
+
+    async def suspend(self, user_id: UUID, now: datetime) -> None:
+        await self._session.execute(
+            update(UserRow)
+            .where(UserRow.id == user_id, UserRow.suspended_at.is_(None))
+            .values(suspended_at=now)
+        )
+
+    async def lift_suspension(self, user_id: UUID) -> None:
+        await self._session.execute(
+            update(UserRow).where(UserRow.id == user_id).values(suspended_at=None)
+        )
+
     async def wipe(self, user_id: UUID, now: datetime) -> None:
         """The row stops naming anyone (account-deletion S3): the e-mail becomes a
         placeholder no sign-in can match, which frees the real one, and the name
@@ -183,4 +203,5 @@ def _to_domain(row: UserRow) -> User:
         mode=Mode(row.mode),
         display_name=row.display_name,
         profile=profile,
+        suspended_at=row.suspended_at,
     )

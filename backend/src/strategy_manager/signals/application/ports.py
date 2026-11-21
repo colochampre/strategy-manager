@@ -335,6 +335,12 @@ class CurrentModePort(Protocol):
 
     async def current_mode(self, user_id: UUID) -> Mode: ...
 
+    async def is_suspended(self, user_id: UUID) -> bool:
+        """Whether the admin suspended the account (public-site LS9). The same plain,
+        lock-free read as ``current_mode`` and for the same reason: ``AllocateCapital``
+        asks again in the lock, so a stale answer here is refused there, never run."""
+        ...
+
 
 class TradeCapabilityPort(Protocol):
     """Whether an exchange's active key can trade, answered from the value

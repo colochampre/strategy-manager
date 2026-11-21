@@ -282,6 +282,7 @@ async def _page_seen_by_a_subscriber(
     visibility: str = "PUBLIC",
     archived: bool = False,
     author_named: bool = True,
+    author_suspended: bool = False,
 ) -> StrategyPage | None:
     """A strategy of another user, and the signed-in user holding a position in it.
     ``users`` outlives the fixtures, so the author is a fresh user, never the owner."""
@@ -305,6 +306,8 @@ async def _page_seen_by_a_subscriber(
             name=f"author{author.hex[:8]}",
             id=author,
         )
+    if author_suspended:
+        await _sql(factory, "UPDATE users SET suspended_at = now() WHERE id = :id", id=author)
 
     async with factory() as session:
         facts = await SqlAlchemyOpenPositionFactsSource(session).position_facts(
@@ -317,6 +320,16 @@ async def test_a_subscriber_reaches_the_public_page_of_a_listed_strategy(
     pg_session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     assert await _page_seen_by_a_subscriber(pg_session_factory) is StrategyPage.LISTED
+
+
+async def test_a_subscriber_still_reaches_the_page_of_a_strategy_whose_author_is_suspended(
+    pg_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """The list leaves it out so nobody new subscribes (PS.13 S4), but a holder's seat
+    keeps reading its page, where the panel says it is paused (S6)."""
+    page = await _page_seen_by_a_subscriber(pg_session_factory, author_suspended=True)
+
+    assert page is StrategyPage.LISTED
 
 
 @pytest.mark.parametrize(

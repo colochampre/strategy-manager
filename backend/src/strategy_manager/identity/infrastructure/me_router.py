@@ -137,6 +137,9 @@ class MeBody(BaseModel):
     profile_status: ProfileStatus
     #: The versions in force: what the form and the box accept.
     legal_versions: LegalVersionsBody
+    #: Whether the admin suspended the account (public-site LS9): the panel then
+    #: shows the notice and the way out instead of itself.
+    suspended: bool
 
     @classmethod
     def of(cls, user: User, settings: Settings, accepted: LegalVersions | None) -> "MeBody":
@@ -158,6 +161,7 @@ class MeBody(BaseModel):
             ),
             profile_status=profile_status(profile, accepted),
             legal_versions=LegalVersionsBody.of(CURRENT_VERSIONS),
+            suspended=user.suspended,
         )
 
 

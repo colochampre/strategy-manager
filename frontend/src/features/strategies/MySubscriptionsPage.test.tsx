@@ -87,9 +87,10 @@ beforeEach(() => {
   setViewport("wide");
 });
 
-afterEach(() => {
+afterEach(async () => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
+  await i18n.changeLanguage("en");
 });
 
 describe("the tabs of Strategies", () => {
@@ -244,6 +245,31 @@ describe("a card of My subscriptions shows what Explore shows", () => {
     const row = await screen.findByTestId("subscription-row");
     expect(within(row).getByTestId("subscription-enabled")).toHaveAccessibleName(i18n.t("strategies.detail.disabled"));
     expect(within(row).queryByTestId("subscription-uptime")).not.toBeInTheDocument();
+  });
+
+  it("says a seat is paused when its author is suspended, in both locales", async () => {
+    serve({ held: () => Promise.resolve(jsonResponse([heldSubscription({ author_suspended: true })])) });
+    open();
+
+    const row = await screen.findByTestId("subscription-row");
+    expect(row).toHaveTextContent("Paused: its author's account is suspended. It opens nothing new; your open positions still close.");
+  });
+
+  it("says the same in Spanish", async () => {
+    await i18n.changeLanguage("es");
+    serve({ held: () => Promise.resolve(jsonResponse([heldSubscription({ author_suspended: true })])) });
+    open();
+
+    const row = await screen.findByTestId("subscription-row");
+    expect(row).toHaveTextContent("En pausa: la cuenta de su autor está suspendida.");
+  });
+
+  it("says nothing of a pause while the author is not suspended", async () => {
+    serve({ held: () => Promise.resolve(jsonResponse([heldSubscription()])) });
+    open();
+
+    const row = await screen.findByTestId("subscription-row");
+    expect(row).not.toHaveTextContent("Paused");
   });
 
   it("opens the strategy from anywhere on the card, through the one link", async () => {

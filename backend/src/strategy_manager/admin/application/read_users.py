@@ -12,6 +12,7 @@ from strategy_manager.shared.domain.mode import Mode
 
 @dataclass(frozen=True, slots=True)
 class UserState:
+    id: UUID
     email: str
     display_name: str | None
     mode: Mode
@@ -22,6 +23,8 @@ class UserState:
     last_seen_at: datetime
     #: What the sign-up form gave (public-site LS3), or ``None`` before it.
     identity: Profile | None
+    #: When the admin suspended the account (public-site LS9), or ``None``.
+    suspended_at: datetime | None
 
 
 def _by_user(pairs: frozenset[UserExchange]) -> dict[UUID, list[str]]:
@@ -45,6 +48,7 @@ class ReadUsers:
         with_no_key = _by_user(coverage.enabled_pools - coverage.active_keys)
         return tuple(
             UserState(
+                id=user.id,
                 email=user.email,
                 display_name=user.display_name,
                 mode=user.mode,
@@ -54,6 +58,7 @@ class ReadUsers:
                 open_positions=positions[user.id],
                 last_seen_at=user.last_seen_at,
                 identity=user.profile,
+                suspended_at=user.suspended_at,
             )
             for user in users
         )

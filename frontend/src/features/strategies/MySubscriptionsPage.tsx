@@ -56,7 +56,15 @@ function SubscriptionCard({ held, card }: SubscriptionCardProps) {
         leverage: t("strategies.subscriptions.leverageValue", { leverage: held.leverage }),
       }}
       marks={<OpenMarks strategy={{ id: held.strategy_id, name: held.strategy_name, exchange: held.exchange }} />}
-      notice={held.status !== "ACTIVE" ? <p className="text-sm text-ink-2">{t("strategies.subscriptions.leaving")}</p> : undefined}
+      notice={
+        held.status !== "ACTIVE" ? (
+          <p className="text-sm text-ink-2">{t("strategies.subscriptions.leaving")}</p>
+        ) : held.author_suspended ? (
+          <p data-testid="subscription-paused" className="text-sm text-ink-2">
+            {t("strategies.subscriptions.paused")}
+          </p>
+        ) : undefined
+      }
     />
   );
 }

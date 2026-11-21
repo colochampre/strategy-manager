@@ -77,6 +77,20 @@ class CommitPort(Protocol):
     async def commit(self) -> None: ...
 
 
+class SuspensionUsersPort(Protocol):
+    async def lock_for_suspension(self, user_id: UUID) -> bool:
+        """Takes the user row ``FOR UPDATE``, as a mode change does, and answers
+        whether it is an account that exists and was not deleted."""
+        ...
+
+    async def suspend(self, user_id: UUID, now: datetime) -> None:
+        """Sets ``suspended_at`` to ``now`` unless it is already set: suspending
+        twice keeps the first date."""
+        ...
+
+    async def lift_suspension(self, user_id: UUID) -> None: ...
+
+
 # --- Account deletion (openspec/changes/account-deletion) -------------------------
 
 
@@ -209,3 +223,16 @@ class AccountPoolLockPort(Protocol):
 
 class AccountClockPort(Protocol):
     def now(self) -> datetime: ...
+
+
+class SuspensionFencePort(Protocol):
+    """What suspending an account reads to fence the openings of the strategies the
+    account authors (public-site LS9, PS.13 S4): the strategies, the pool of every live
+    seat on each, and the strategy row lock a seat insert waits for. A subset of
+    ``AuthoredStrategiesPort``, which ``SqlAlchemyAuthoredStrategies`` implements."""
+
+    async def authored(self, user_id: UUID) -> Sequence[AuthoredStrategy]: ...
+
+    async def subscriber_pools(self, strategy_id: UUID) -> Sequence[LockedPool]: ...
+
+    async def lock(self, strategy_id: UUID) -> None: ...

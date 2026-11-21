@@ -26,6 +26,8 @@ export interface Me {
   profileStatus: ProfileStatus;
   /** The terms and privacy versions in force: what the form and the box accept. */
   legalVersions: LegalVersions;
+  /** The administrator suspended this account (public-site LS9): it opens nothing, and the panel says so. */
+  suspended: boolean;
 }
 
 export type ProfileStatus = "COMPLETE" | "MISSING" | "ACCEPTANCE_OUTDATED";
@@ -51,6 +53,7 @@ interface MeWire {
   profile?: unknown;
   profile_status?: unknown;
   legal_versions?: unknown;
+  suspended?: unknown;
 }
 
 function isMode(value: unknown): value is Mode {
@@ -93,7 +96,9 @@ export async function fetchMe(): Promise<Me> {
   const dryRunBrake = body?.dry_run_brake;
   const profileStatus = body?.profile_status;
   const legalVersions = legalVersionsOf(body?.legal_versions);
+  const suspended = body?.suspended;
   if (
+    typeof suspended !== "boolean" ||
     typeof email !== "string" ||
     typeof isAdmin !== "boolean" ||
     !isMode(mode) ||
@@ -107,7 +112,7 @@ export async function fetchMe(): Promise<Me> {
   const displayName = typeof body?.display_name === "string" ? body.display_name : null;
   // Nor does the profile shown back: which step to show comes from the status alone.
   const profile = profileOf(body?.profile);
-  return { email, isAdmin, mode, dryRunBrake, displayName, profile, profileStatus, legalVersions };
+  return { email, isAdmin, mode, dryRunBrake, displayName, profile, profileStatus, legalVersions, suspended };
 }
 
 export type ChooseDisplayNameResult =
@@ -369,12 +374,13 @@ export function useMe() {
 }
 
 /**
- * True once `me` says the user has not signed up, or must accept the terms again (public-site LS2, LS6): the panel's
- * navigation and mode menu wait for it. While `me` loads or fails it is false, as the navigation was before.
+ * True once `me` says the user has not signed up, or must accept the terms again (public-site LS2, LS6), or is
+ * suspended (LS9): the panel's navigation and mode menu wait for it. While `me` loads or fails it is false, as the
+ * navigation was before.
  */
 export function useSignUpPending(): boolean {
-  const status = useMe().data?.profileStatus;
-  return status !== undefined && status !== "COMPLETE";
+  const me = useMe().data;
+  return me !== undefined && (me.suspended || me.profileStatus !== "COMPLETE");
 }
 
 /**

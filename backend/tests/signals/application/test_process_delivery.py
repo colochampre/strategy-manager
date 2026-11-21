@@ -126,6 +126,7 @@ def _rig(
     guard: object | None = None,
     leverage: Leverage = SUBSCRIPTION_LEVERAGE,
     mode: Mode = Mode.LIVE,
+    account_suspended: bool = False,
 ) -> Rig:
     from strategy_manager.signals.application.holding_guard import HoldingGuard
 
@@ -179,7 +180,7 @@ def _rig(
         tradable_pools=in_both_modes(TRADABLE),
         outcomes=outcomes,
         trade_capability=capability,
-        user_mode=FixedUserMode(mode=mode),
+        user_mode=FixedUserMode(mode=mode, suspended=account_suspended),
         allocation_modes=RecordedModes(),
         close_after_open=OpeningsSettled(),
         safety_events=safety_events,
@@ -730,3 +731,227 @@ async def test_a_close_is_never_refused_for_the_cap() -> None:
 
     assert result.executed is True
     assert [call.signal_id for call in rig.close.calls] == [SIGNAL]
+
+
+# --- a suspended account opens nothing; its closes keep running (PS.13 S3, S4) ------
+
+
+async def test_an_opening_for_a_suspended_account_is_refused_before_any_capital_is_reserved(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    rig = _rig(_open_long_context(), account_suspended=True)
+
+    with caplog.at_level(logging.WARNING):
+        result = await rig.handler.handle(DELIVERY, "open")
+
+    assert result.executed is False
+    assert result.refused is not None and "ACCOUNT_SUSPENDED" in result.refused
+    assert rig.allocate.calls == []
+    assert rig.place.calls == []
+    assert rig.refresh.calls == []
+    [(row_id, outcome)] = rig.outcomes.calls
+    assert (row_id, outcome.reason) == (DELIVERY, "ACCOUNT_SUSPENDED")
+    assert any("ACCOUNT_SUSPENDED" in record.getMessage() for record in caplog.records)
+
+
+async def test_a_suspended_accounts_refusal_is_a_safety_event_on_the_rejected_commit() -> None:
+    """The user reads it in the panel: no detail, the bare spelling of the market (the
+    alert's is ``SOLUSDT.P``), no allocation, and it rides the REJECTED outcome's commit."""
+    context = replace(_open_long_context(), symbol="SOLUSDT.P")
+    policy = _snapshot(author_id=AUTHOR, allowed_pairs=frozenset({"SOLUSDT"}))
+    rig = _rig(context, policy=policy, account_suspended=True)
+    commit = _CommitSeeingEvents(rig.safety_events)
+    rig.handler._commit = commit  # type: ignore[assignment]
+
+    await rig.handler.handle(DELIVERY, "open")
+
+    assert rig.safety_events.recorded == [
+        NewSafetyEvent(
+            user_id=SUBSCRIBER,
+            kind=SafetyEventKind.OPENING_REFUSED_ACCOUNT_SUSPENDED,
+            strategy_id=context.strategy_id,
+            allocation_id=None,
+            exchange="pionex",
+            venue="spot",
+            symbol="SOLUSDT",
+            detail={},
+            delivery_id=DELIVERY,
+        )
+    ]
+    assert commit.staged_at_commit == [1]
+
+
+async def test_a_simulated_opening_of_a_suspended_account_is_refused_too() -> None:
+    rig = _rig(_open_long_context(), account_suspended=True, mode=Mode.SIMULATION)
+
+    result = await rig.handler.handle(DELIVERY, "open")
+
+    assert result.executed is False
+    assert [outcome.reason for _, outcome in rig.outcomes.calls] == ["ACCOUNT_SUSPENDED"]
+
+
+async def test_the_suspension_is_asked_before_the_allowlist_and_the_leverage_cap() -> None:
+    rig = _rig(
+        _open_long_context(),
+        policy=_snapshot(
+            author_id=AUTHOR, allowed_pairs=frozenset({"ETHUSDT"}), stop_loss_pct=Decimal("15")
+        ),
+        leverage=Leverage(9),
+        account_suspended=True,
+    )
+
+    await rig.handler.handle(DELIVERY, "open")
+
+    assert [outcome.reason for _, outcome in rig.outcomes.calls] == ["ACCOUNT_SUSPENDED"]
+
+
+async def test_the_open_half_of_a_continuation_of_a_suspended_account_is_refused() -> None:
+    rig = _rig(_open_long_context(), account_suspended=True)
+
+    result = await rig.handler.open_now(DELIVERY)
+
+    assert result.executed is False
+    assert rig.allocate.calls == [] and rig.place.calls == []
+    assert [outcome.reason for _, outcome in rig.outcomes.calls] == ["ACCOUNT_SUSPENDED"]
+    assert [event.kind for event in rig.safety_events.recorded] == [
+        SafetyEventKind.OPENING_REFUSED_ACCOUNT_SUSPENDED
+    ]
+
+
+async def test_a_close_for_a_suspended_account_executes() -> None:
+    rig = _rig(_close_context(), account_suspended=True)
+
+    result = await rig.handler.handle(DELIVERY, "close")
+
+    assert result.executed is True
+    assert [call.signal_id for call in rig.close.calls] == [SIGNAL]
+    assert rig.outcomes.calls == [] and rig.safety_events.recorded == []
+
+
+async def test_a_reverse_for_a_suspended_account_closes_and_refuses_the_new_side() -> None:
+    rig = _rig(_reverse_context(), account_suspended=True)
+
+    closed = await rig.handler.handle(DELIVERY, "close")
+    opened = await rig.handler.handle(DELIVERY, "open")
+
+    assert closed.executed is True
+    assert [call.signal_id for call in rig.close.calls] == [SIGNAL]
+    assert opened.executed is False
+    assert rig.place.calls == []
+    assert [outcome.reason for _, outcome in rig.outcomes.calls] == ["ACCOUNT_SUSPENDED"]
+
+
+async def test_an_opening_on_a_suspended_authors_strategy_is_refused_before_any_capital() -> None:
+    context = replace(_open_long_context(), symbol="SOLUSDT.P")
+    policy = _snapshot(
+        author_id=AUTHOR, author_suspended=True, allowed_pairs=frozenset({"SOLUSDT"})
+    )
+    rig = _rig(context, policy=policy)
+    commit = _CommitSeeingEvents(rig.safety_events)
+    rig.handler._commit = commit  # type: ignore[assignment]
+
+    result = await rig.handler.handle(DELIVERY, "open")
+
+    assert result.executed is False
+    assert result.refused is not None and "AUTHOR_SUSPENDED" in result.refused
+    assert rig.allocate.calls == [] and rig.place.calls == []
+    assert [outcome.reason for _, outcome in rig.outcomes.calls] == ["AUTHOR_SUSPENDED"]
+    # The subscriber's own event, not the author's: the subscriber is who is refused.
+    assert rig.safety_events.recorded == [
+        NewSafetyEvent(
+            user_id=SUBSCRIBER,
+            kind=SafetyEventKind.OPENING_REFUSED_AUTHOR_SUSPENDED,
+            strategy_id=context.strategy_id,
+            allocation_id=None,
+            exchange="pionex",
+            venue="spot",
+            symbol="SOLUSDT",
+            detail={},
+            delivery_id=DELIVERY,
+        )
+    ]
+    assert commit.staged_at_commit == [1]
+
+
+async def test_a_suspended_account_is_named_before_a_suspended_author() -> None:
+    rig = _rig(
+        _open_long_context(),
+        policy=_snapshot(author_id=AUTHOR, author_suspended=True),
+        account_suspended=True,
+    )
+
+    await rig.handler.handle(DELIVERY, "open")
+
+    assert [outcome.reason for _, outcome in rig.outcomes.calls] == ["ACCOUNT_SUSPENDED"]
+
+
+async def test_a_close_on_a_suspended_authors_strategy_executes_for_its_subscribers() -> None:
+    rig = _rig(_close_context(), policy=_snapshot(author_id=AUTHOR, author_suspended=True))
+
+    result = await rig.handler.handle(DELIVERY, "close")
+
+    assert result.executed is True
+    assert [call.signal_id for call in rig.close.calls] == [SIGNAL]
+    assert rig.outcomes.calls == [] and rig.safety_events.recorded == []
+
+
+async def test_a_reverse_on_a_suspended_authors_strategy_closes_and_refuses_the_new_side() -> None:
+    rig = _rig(_reverse_context(), policy=_snapshot(author_id=AUTHOR, author_suspended=True))
+
+    closed = await rig.handler.handle(DELIVERY, "close")
+    opened = await rig.handler.handle(DELIVERY, "open")
+
+    assert closed.executed is True
+    assert [call.signal_id for call in rig.close.calls] == [SIGNAL]
+    assert opened.executed is False
+    assert [outcome.reason for _, outcome in rig.outcomes.calls] == ["AUTHOR_SUSPENDED"]
+
+
+async def test_a_suspended_account_that_is_not_suspended_still_opens() -> None:
+    rig = _rig(_open_long_context(), policy=_snapshot(author_id=AUTHOR))
+
+    result = await rig.handler.handle(DELIVERY, "open")
+
+    assert result.executed is True
+    assert rig.safety_events.recorded == []
+
+
+async def test_a_suspension_that_lands_in_the_lock_still_writes_the_subscribers_event() -> None:
+    """The plain read said "not suspended"; the lock said otherwise. ``AllocateCapital``
+    records the REJECTED skip, and ``ProcessDelivery`` writes the event the panel shows,
+    on a commit of its own."""
+    rig = _rig(_open_long_context())
+    rig.allocate._inner._user_mode = FixedUserMode(mode=Mode.LIVE, suspended_in_lock=True)  # type: ignore[attr-defined]
+
+    result = await rig.handler.handle(DELIVERY, "open")
+
+    assert result.executed is False
+    assert rig.place.calls == []
+    assert [event.kind for event in rig.safety_events.recorded] == [
+        SafetyEventKind.OPENING_REFUSED_ACCOUNT_SUSPENDED
+    ]
+    assert rig.safety_events.recorded[0].delivery_id == DELIVERY
+
+
+async def test_an_author_suspended_in_the_lock_writes_the_subscribers_event() -> None:
+    rig = _rig(_open_long_context())
+    rig.allocate._inner._strategy_policy = FakeStrategyPolicyPort(  # type: ignore[attr-defined]
+        _snapshot(author_id=AUTHOR, author_suspended=True)
+    )
+
+    await rig.handler.handle(DELIVERY, "open")
+
+    assert [event.kind for event in rig.safety_events.recorded] == [
+        SafetyEventKind.OPENING_REFUSED_AUTHOR_SUSPENDED
+    ]
+
+
+async def test_an_in_lock_skip_that_is_not_a_suspension_writes_no_event() -> None:
+    rig = _rig(_open_long_context())
+    rig.allocate._inner._strategy_policy = FakeStrategyPolicyPort(  # type: ignore[attr-defined]
+        _snapshot(author_id=AUTHOR, enabled=False)
+    )
+
+    await rig.handler.handle(DELIVERY, "open")
+
+    assert rig.safety_events.recorded == []

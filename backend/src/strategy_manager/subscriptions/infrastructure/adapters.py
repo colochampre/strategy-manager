@@ -22,6 +22,7 @@ from strategy_manager.ledger.infrastructure.repository import SqlAlchemyLedgerRe
 from strategy_manager.strategies.domain.invite_code import DeadCode, InviteCode, IssuedCode
 from strategy_manager.strategies.domain.strategy import Visibility
 from strategy_manager.strategies.infrastructure.author_names import SqlAlchemyAuthorNames
+from strategy_manager.strategies.infrastructure.author_standing import SqlAlchemyAuthorStanding
 from strategy_manager.strategies.infrastructure.invite_codes_adapter import live_at
 from strategy_manager.strategies.infrastructure.models import StrategyRow
 from strategy_manager.subscriptions.application.ports import (
@@ -56,6 +57,9 @@ class SqlAlchemyStrategyLookup:
             ),
             stop_loss_pct=row.stop_loss_pct,
             share_token=row.share_token,
+            author_suspended=await SqlAlchemyAuthorStanding(self._session).is_suspended(
+                row.author_id
+            ),
         )
 
 

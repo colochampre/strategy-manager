@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { fetchAdminUsers } from "@/shared/api/admin-users";
+import { fetchAdminUsers, setSuspension } from "@/shared/api/admin-users";
 import { adminUser, jsonResponse, stubApi, unlock } from "@/test/harness";
 
 function serve(body: unknown) {
@@ -15,6 +15,38 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+});
+
+describe("PUT /api/admin/users/{id}/suspension", () => {
+  function put(response: Response) {
+    const fetchMock = vi.fn().mockResolvedValue(response);
+    vi.stubGlobal("fetch", fetchMock);
+    return fetchMock;
+  }
+
+  it.each([true, false])("sends exactly {suspended: %s} to the user's id", async (suspended) => {
+    const fetchMock = put(jsonResponse(null, 204));
+
+    await expect(setSuspension("u-1", suspended)).resolves.toEqual({ kind: "changed" });
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toMatch(/\/api\/admin\/users\/u-1\/suspension$/);
+    expect(init.method).toBe("PUT");
+    expect(JSON.parse(String(init.body))).toEqual({ suspended });
+  });
+
+  it.each([
+    [409, { error: "CANNOT_SUSPEND_YOURSELF" }, { kind: "yourself" }],
+    [404, { error: "USER_NOT_FOUND" }, { kind: "notFound" }],
+    [409, { error: "ACCOUNT_CHANGED" }, { kind: "accountChanged" }],
+    [403, "forbidden", { kind: "unknown" }],
+    [500, "boom", { kind: "unknown" }],
+    [409, { error: "SOMETHING_ELSE" }, { kind: "unknown" }],
+  ])("maps a %s refusal to its result", async (status, detail, expected) => {
+    put(jsonResponse({ detail }, status));
+
+    await expect(setSuspension("u-1", true)).resolves.toEqual(expected);
+  });
 });
 
 describe("GET /api/admin/users", () => {
@@ -42,6 +74,15 @@ describe("GET /api/admin/users", () => {
     expect(users[1]?.identity).toBeNull();
   });
 
+  it("answers the id and when the user was suspended, or null", async () => {
+    serve([adminUser({ suspended_at: "2026-11-20T10:00:00Z" }), adminUser({ email: "b@example.com" })]);
+
+    const users = await fetchAdminUsers();
+
+    expect(users[0]).toMatchObject({ id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", suspended_at: "2026-11-20T10:00:00Z" });
+    expect(users[1]?.suspended_at).toBeNull();
+  });
+
   it("answers an empty list as an empty list", async () => {
     serve([]);
 
@@ -65,6 +106,10 @@ describe("GET /api/admin/users", () => {
     ["a fractional subscription count", [adminUser({ subscriptions: 1.5 })]],
     ["a position count that is text", [adminUser({ open_positions: "2" })]],
     ["no last sign-in", [adminUser({ last_seen_at: null })]],
+    ["no id", [adminUser({ id: undefined })]],
+    ["an id that is not text", [adminUser({ id: 1 })]],
+    ["no suspension field", [adminUser({ suspended_at: undefined })]],
+    ["a suspension that is not text", [adminUser({ suspended_at: true })]],
     ["no identity field", [adminUser({ identity: undefined })]],
     ["an identity that is a list", [adminUser({ identity: [] })]],
     ["an identity with no CUIT", [adminUser({ identity: { first_name: "Ana", last_name: "Pérez", country: "AR" } })]],
