@@ -82,6 +82,7 @@ The plan is in `proposal.md`. Each task records its evidence when done. Push, PR
     - The third run, 22 minutes into the candle, deployed. Backup `pre-0047-deploy-20261121T162215Z.dump`, then 0046 to 0047: the column present, 2 new kinds in the CHECK, 0 suspended users. Both services `active`. Unsigned, `PUT /api/admin/users/{id}/suspension` answers 401. No ERROR, CRITICAL or Traceback line since the restart, the alerts' INFO line left out.
     - Panel (pps.6): built by the assistant from a detached worktree of `origin/main` at `cf95299ef7f7`, 22 entries, SHA-256 `fce605c3af31ac0c2931e5a4c0a3860f0a4045b7d9a0684e5c3affa4d5235b37`; the owner's block printed `OK`, `readable`, and bundle and checkout `cf95299ef7f7`.
     - Every user meets the acceptance box again, for privacy `draft-7`.
+    - The owner suspended one of their own other accounts from `/users`. That account had not signed up and held no position.
 
 ## From the lawyer's answers (specs written 2026-11-19)
 
