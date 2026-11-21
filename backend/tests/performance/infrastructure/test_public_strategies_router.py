@@ -1167,3 +1167,30 @@ def test_the_public_read_imports_nothing_of_the_signals() -> None:
         ]
         assert imported, module
         assert not [name for name in imported if name and ".signals" in name], module
+
+
+async def test_a_suspended_authors_strategy_leaves_the_list_and_returns_with_the_lifting(
+    pg_session_factory: Factory, api: _Api
+) -> None:
+    """Public-site LS9, PS.13 S4: nobody new can subscribe to it, so it is not offered. A
+    seat already held keeps its page (``READABLE`` does not ask), and lifting the
+    suspension brings it back."""
+    author = await _new_user(pg_session_factory)
+    other_author = await _new_user(pg_session_factory)
+    suspended = await _strategy(pg_session_factory, author)
+    listed = await _strategy(pg_session_factory, other_author)
+    async with pg_session_factory() as session:
+        await session.execute(
+            text("UPDATE users SET suspended_at = now() WHERE id = :id"), {"id": author}
+        )
+        await session.commit()
+
+    assert [each["id"] for each in await api.listed()] == [str(listed)]
+
+    async with pg_session_factory() as session:
+        await session.execute(
+            text("UPDATE users SET suspended_at = NULL WHERE id = :id"), {"id": author}
+        )
+        await session.commit()
+
+    assert {each["id"] for each in await api.listed()} == {str(suspended), str(listed)}

@@ -11,6 +11,11 @@ class StrategyArchived(DomainError):
     """Archive is terminal (decision 14): nobody subscribes to an archived strategy."""
 
 
+class AuthorSuspended(DomainError):
+    """The strategy's author is suspended (public-site LS9, PS.13 S4): it opens nothing
+    for anyone until the admin lifts it, so a new seat would hold capital for nothing."""
+
+
 class NoPoolForMarket(DomainError):
     """The user holds no pool for the strategy's market. A subscription sits in the
     subscriber's own pool, so without one there is nothing to size it from."""

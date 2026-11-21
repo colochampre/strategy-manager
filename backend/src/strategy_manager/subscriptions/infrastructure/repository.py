@@ -160,6 +160,7 @@ class SqlAlchemySubscriptionRepository:
                 UserRow.display_name,
                 StrategyRow.enabled,
                 StrategyRow.stop_loss_pct,
+                UserRow.suspended_at.is_not(None),
             )
             .join(StrategyRow, StrategyRow.id == SubscriptionRow.strategy_id)
             .join(UserRow, UserRow.id == StrategyRow.author_id)
@@ -175,6 +176,7 @@ class SqlAlchemySubscriptionRepository:
                 market=(exchange, venue, currency),
                 strategy_enabled=enabled,
                 stop_loss_pct=stop_loss_pct,
+                author_suspended=author_suspended,
             )
             for (
                 row,
@@ -186,6 +188,7 @@ class SqlAlchemySubscriptionRepository:
                 author_name,
                 enabled,
                 stop_loss_pct,
+                author_suspended,
             ) in result.all()
         ]
 

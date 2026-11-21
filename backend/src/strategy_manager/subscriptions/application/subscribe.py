@@ -30,6 +30,7 @@ from strategy_manager.strategies.domain.share_token import link_opens
 from strategy_manager.strategies.domain.strategy import AllocationPercent, Entry, offered_to
 from strategy_manager.subscriptions.application.errors import (
     AlreadySubscribed,
+    AuthorSuspended,
     NoPoolForMarket,
     StrategyArchived,
     StrategyNotFound,
@@ -77,9 +78,9 @@ class Subscribe:
         link: str | None = None,
         code: str | None = None,
     ) -> Subscription:
-        """Raises ``StrategyNotFound``, ``StrategyArchived``, ``NoPoolForMarket`` or
-        ``AlreadySubscribed``, each before anything is written. A leverage above
-        the cap of the strategy's stop level raises ``LeverageAboveStopCap``, also
+        """Raises ``StrategyNotFound``, ``StrategyArchived``, ``AuthorSuspended``,
+        ``NoPoolForMarket`` or ``AlreadySubscribed``, each before anything is written.
+        A leverage above the cap of the strategy's stop level raises ``LeverageAboveStopCap``, also
         before anything is written. The last one is
         also what the repository raises when a concurrent request wins the race
         the ``has_live`` read cannot close. A code may also raise
@@ -96,6 +97,10 @@ class Subscribe:
             spent = await self._entered_with(strategy, user_id, link, code)
         if strategy.archived:
             raise StrategyArchived(f"strategy {strategy_id} is archived")
+        if strategy.author_suspended:
+            raise AuthorSuspended(
+                f"strategy {strategy_id} takes no new subscriber while its author is suspended"
+            )
         self._refuse_above_stop_cap(user_id, strategy, leverage)
 
         pool_id = await self._pools.pool_id(user_id, strategy.market)

@@ -340,7 +340,9 @@ from strategy_manager.signals.infrastructure.webhook_origin_router import (
 from strategy_manager.signals.infrastructure.webhook_secret_invariant import (
     assert_webhook_secret_configured,
 )
+from strategy_manager.strategies.application.author_standing_policy import AuthorStandingPolicy
 from strategy_manager.strategies.application.policy_adapter import StrategyPolicyAdapter
+from strategy_manager.strategies.infrastructure.author_standing import SqlAlchemyAuthorStanding
 from strategy_manager.strategies.infrastructure.invite_lookup_router import (
     router as invite_lookup_router,
 )
@@ -480,7 +482,10 @@ def _build_fan_out_signal(session: AsyncSession, settings: Settings) -> FanOutSi
     signal_repository = SqlAlchemySignalRepository(session)
     return FanOutSignal(
         facts=SignalFactsAdapter(signal_repository),
-        strategy_policy=StrategyPolicyAdapter(SqlAlchemyStrategyRepository(session)),
+        strategy_policy=AuthorStandingPolicy(
+            StrategyPolicyAdapter(SqlAlchemyStrategyRepository(session)),
+            SqlAlchemyAuthorStanding(session),
+        ),
         subscribers=SqlAlchemySubscribers(
             session, ReadSymbolHoldings(SqlAlchemyLedgerRepository(session))
         ),
@@ -531,7 +536,9 @@ def _build_process_delivery(
         subscription_reservations=SqlAlchemySubscriptionReservations(session),
     )
 
-    strategy_policy = StrategyPolicyAdapter(strategy_repository)
+    strategy_policy = AuthorStandingPolicy(
+        StrategyPolicyAdapter(strategy_repository), SqlAlchemyAuthorStanding(session)
+    )
     pool_balance = PoolBalanceAdapter(
         pools_by_key,
         DbBalanceSource(

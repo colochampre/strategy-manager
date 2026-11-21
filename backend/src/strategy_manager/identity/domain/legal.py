@@ -22,7 +22,7 @@ class LegalVersions:
 
 
 #: Drafts until the lawyer reviews them (public-site PS.11, PS.12).
-CURRENT_VERSIONS = LegalVersions(terms="2026-11-19-draft-1", privacy="2026-11-20-draft-6")
+CURRENT_VERSIONS = LegalVersions(terms="2026-11-19-draft-1", privacy="2026-11-21-draft-7")
 
 
 class ProfileStatus(StrEnum):

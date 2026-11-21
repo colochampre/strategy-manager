@@ -41,6 +41,9 @@ from strategy_manager.identity.application.suspend_account import (
 )
 from strategy_manager.identity.domain.profile import Profile
 from strategy_manager.identity.domain.user import User
+from strategy_manager.identity.infrastructure.account_deletion import (
+    SqlAlchemyAuthoredStrategies,
+)
 from strategy_manager.identity.infrastructure.dependencies import current_user, require_admin
 from strategy_manager.identity.infrastructure.user_repository import SqlAlchemyUserRepository
 from strategy_manager.performance.infrastructure.open_positions_router import (
@@ -48,6 +51,7 @@ from strategy_manager.performance.infrastructure.open_positions_router import (
 )
 from strategy_manager.shared.db import get_session
 from strategy_manager.shared.infrastructure.wire import Instant
+from strategy_manager.strategies.infrastructure.pool_lock_adapter import PoolLockAdapter
 
 router = APIRouter(
     prefix="/admin/users",
@@ -138,11 +142,18 @@ async def set_suspension(
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> None:
     """Suspends the account or lifts its suspension (public-site LS9, PS.13 S1)."""
-    use_case = SuspendAccount(SqlAlchemyUserRepository(session), session)
+    use_case = SuspendAccount(
+        SqlAlchemyUserRepository(session),
+        SqlAlchemyAuthoredStrategies(session, user_id),
+        PoolLockAdapter(session),
+        session,
+    )
     try:
         await use_case.execute(
             admin_id=admin.id, user_id=user_id, suspended=body.suspended, now=datetime.now(UTC)
         )
     except SuspensionRefusedError as refused:
+        # Nothing was written, but the pool locks may still be held: end the transaction.
+        await session.rollback()
         status = 404 if refused.refusal is SuspensionRefusal.USER_NOT_FOUND else 409
         raise HTTPException(status_code=status, detail={"error": refused.refusal.value}) from None

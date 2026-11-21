@@ -70,6 +70,8 @@ from typing import Protocol
 from uuid import UUID
 
 from strategy_manager.allocation.application.allocate_capital import (
+    ACCOUNT_SUSPENDED_SKIP_REASON,
+    AUTHOR_SUSPENDED_SKIP_REASON,
     AllocateCapital,
     AllocateCommand,
 )
@@ -144,6 +146,12 @@ def _consuming_side(next_position_size: Decimal) -> OrderSide:
 def _releasing_side(prior_position_size: Decimal) -> OrderSide:
     """Closing a long sells; closing a short buys."""
     return OrderSide.SELL if prior_position_size > 0 else OrderSide.BUY
+
+
+_SUSPENSION_EVENT_KINDS = {
+    ACCOUNT_SUSPENDED_SKIP_REASON: SafetyEventKind.OPENING_REFUSED_ACCOUNT_SUSPENDED,
+    AUTHOR_SUSPENDED_SKIP_REASON: SafetyEventKind.OPENING_REFUSED_AUTHOR_SUSPENDED,
+}
 
 
 def _pairs_text(policy: StrategyPolicySnapshot) -> str:
@@ -255,6 +263,27 @@ class PlaceOrderPort(Protocol):
     exchange to publish fills."""
 
     async def place(self, command: PlaceCommand) -> PlaceResult: ...
+
+
+def _suspension_event(
+    kind: SafetyEventKind,
+    delivery: Delivery,
+    context: SignalContext,
+    policy: StrategyPolicySnapshot,
+) -> NewSafetyEvent:
+    """The subscriber's own event for an opening refused for a suspension. No detail: the
+    kind says which suspension. Its source is the delivery, which has no order."""
+    return NewSafetyEvent(
+        user_id=delivery.user_id,
+        kind=kind,
+        strategy_id=context.strategy_id,
+        allocation_id=None,
+        exchange=str(policy.exchange),
+        venue=policy.venue,
+        symbol=market_key(context.symbol),
+        detail={},
+        delivery_id=delivery.delivery_id,
+    )
 
 
 class ClosePositionPort(Protocol):
@@ -629,6 +658,37 @@ class ProcessDelivery:
         close_executed: bool = False,
     ) -> ProcessSignalResult:
         signal_id = delivery.signal_id
+        # A suspended account opens nothing (public-site LS9, PS.13 S3), and neither does a
+        # strategy whose author is suspended (S4). Both gate the OPENING effect only, so
+        # they live in this method and never in ``_handle_releases`` or above the
+        # OPEN/CLOSE split of ``handle``: a close, and the close half of a REVERSE, must
+        # keep running. They come FIRST, before the allowlist and the leverage cap, so
+        # the reason a user reads is the suspension, whatever else is also wrong. The
+        # account is asked before the author: it is the subscriber's own state. Both are
+        # asked again in the pool lock by ``AllocateCapital``, in whatever mode.
+        if await self._user_mode.is_suspended(delivery.user_id):
+            return await self._refuse_suspension(
+                delivery,
+                context,
+                transition,
+                policy,
+                kind=SafetyEventKind.OPENING_REFUSED_ACCOUNT_SUSPENDED,
+                reason=ACCOUNT_SUSPENDED_SKIP_REASON,
+                why="the account is suspended",
+                close_executed=close_executed,
+            )
+        if policy.author_suspended:
+            return await self._refuse_suspension(
+                delivery,
+                context,
+                transition,
+                policy,
+                kind=SafetyEventKind.OPENING_REFUSED_AUTHOR_SUSPENDED,
+                reason=AUTHOR_SUSPENDED_SKIP_REASON,
+                why="the strategy's author is suspended",
+                close_executed=close_executed,
+            )
+
         # Unlisted-pair refusal (decision 1; design.md § 7, "Where the
         # allowlist applies: opens only") runs BEFORE even the Existing-
         # Position Guard -- it gates the OPENING effect only, so it belongs
@@ -820,6 +880,18 @@ class ProcessDelivery:
         )
 
         if result.reservation_id is None:
+            suspension_kind = _SUSPENSION_EVENT_KINDS.get(result.skip_reason or "")
+            if suspension_kind is not None:
+                # A suspension that landed in the lock (PS.13 S3, S4). ``AllocateCapital``
+                # has no safety-event port and already committed the REJECTED outcome, so
+                # the subscriber's event is written here, in a commit of its own. Its
+                # source (the delivery) is UNIQUE and ``record`` drops a repeat, so a
+                # re-run is harmless; a crash between the two commits is the one window
+                # that leaves the REJECTED outcome without its event.
+                await self._safety_events.record(
+                    _suspension_event(suspension_kind, delivery, context, policy)
+                )
+                await self._commit.commit()
             return ProcessSignalResult(transition.kind.value, None, False)
 
         await self._place_order.place(
@@ -1201,6 +1273,37 @@ class ProcessDelivery:
         logger.warning(refused)
         return await self._reject(
             delivery, transition, "PAIR_NOT_ALLOWED", refused, close_executed=close_executed
+        )
+
+    async def _refuse_suspension(
+        self,
+        delivery: Delivery,
+        context: SignalContext,
+        transition: PositionTransition,
+        policy: StrategyPolicySnapshot,
+        *,
+        kind: SafetyEventKind,
+        reason: str,
+        why: str,
+        close_executed: bool = False,
+    ) -> ProcessSignalResult:
+        """Refuse an OPENING before the guard, the refresh and the pool lock: no
+        reservation exists for it. A ``REJECTED`` outcome through ``_reject``, with the
+        subscriber's safety event on the same commit (detail empty: the reason is the
+        kind), so the user reads it in the panel and nothing is silent."""
+        refused = (
+            f"signal {delivery.signal_id} for strategy {policy.name} ({context.strategy_id}) "
+            f"refused: {reason}, {why}; user={delivery.user_id} "
+            f"subscription={delivery.subscription_id}; no capital reserved"
+        )
+        logger.warning("%s", refused)
+        return await self._reject(
+            delivery,
+            transition,
+            reason,
+            refused,
+            close_executed=close_executed,
+            safety_event=_suspension_event(kind, delivery, context, policy),
         )
 
     async def _refuse_leverage_above_stop_cap(

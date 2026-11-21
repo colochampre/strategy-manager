@@ -133,3 +133,56 @@ def test_downgrade_refuses_while_anyone_is_suspended(at_0046: str) -> None:
     assert _query(
         at_0046, "SELECT suspended_at IS NOT NULL FROM users WHERE id = :id", {"id": user_id}
     ) == [(True,)]
+
+
+_NEW_KINDS = ["OPENING_REFUSED_ACCOUNT_SUSPENDED", "OPENING_REFUSED_AUTHOR_SUSPENDED"]
+
+
+def _refused_opening_event(url: str, kind: str) -> None:
+    """One safety event of ``kind`` for a refused opening (a delivery of a world)."""
+    from tests.migrations.test_0041_protective_stops import World
+    from tests.migrations.test_0044_safety_events import _delivery, _event
+
+    world = World(url)
+    _event(world, kind=kind, delivery=_delivery(world))
+
+
+@pytest.mark.parametrize("kind", _NEW_KINDS)
+def test_the_safety_events_check_takes_the_two_suspension_kinds(at_0046: str, kind: str) -> None:
+    assert _alembic(at_0046, "upgrade", "0047").returncode == 0
+
+    _refused_opening_event(at_0046, kind)
+
+    assert _query(at_0046, "SELECT kind FROM safety_events") == [(kind,)]
+
+
+def test_the_safety_events_check_still_refuses_an_unknown_kind(at_0046: str) -> None:
+    from sqlalchemy.exc import DBAPIError
+
+    assert _alembic(at_0046, "upgrade", "0047").returncode == 0
+
+    with pytest.raises(DBAPIError):
+        _refused_opening_event(at_0046, "OPENING_REFUSED_SOMETHING")
+
+
+def test_the_downgrade_restores_the_0044_check(at_0046: str) -> None:
+    from sqlalchemy.exc import DBAPIError
+
+    assert _alembic(at_0046, "upgrade", "0047").returncode == 0
+    assert _alembic(at_0046, "downgrade", "0046").returncode == 0
+
+    with pytest.raises(DBAPIError):
+        _refused_opening_event(at_0046, _NEW_KINDS[0])
+
+
+@pytest.mark.parametrize("kind", _NEW_KINDS)
+def test_downgrade_refuses_while_a_suspension_event_exists(at_0046: str, kind: str) -> None:
+    assert _alembic(at_0046, "upgrade", "0047").returncode == 0
+    _refused_opening_event(at_0046, kind)
+
+    result = _alembic(at_0046, "downgrade", "0046")
+
+    assert result.returncode != 0
+    assert "Refusing to downgrade 0047" in result.stdout + result.stderr
+    assert _has_column(at_0046)
+    assert _query(at_0046, "SELECT kind FROM safety_events") == [(kind,)]

@@ -36,3 +36,9 @@ def test_a_change_of_either_version_asks_again() -> None:
 def test_the_versions_in_force_are_named() -> None:
     assert CURRENT_VERSIONS.terms
     assert CURRENT_VERSIONS.privacy
+
+
+def test_the_privacy_version_names_the_suspension() -> None:
+    """Public-site PS.13 S7: the policy now names the suspension and its date, so every
+    user accepts it again."""
+    assert CURRENT_VERSIONS.privacy == "2026-11-21-draft-7"

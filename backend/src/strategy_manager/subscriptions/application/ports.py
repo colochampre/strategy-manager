@@ -33,6 +33,8 @@ class StrategyMarket:
     stop_loss_pct: Decimal
     # The link's token while LINK (decision 41); ``repr`` never names it.
     share_token: str | None = field(default=None, repr=False)
+    # The author is suspended (public-site LS9, PS.13 S4): nobody new subscribes.
+    author_suspended: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,6 +52,9 @@ class HeldSubscription:
     strategy_enabled: bool
     # Where the strategy stops its positions: the cap on this seat's leverage.
     stop_loss_pct: Decimal
+    # The strategy's author is suspended (public-site LS9, PS.13 S6): it opens nothing
+    # for anyone while its closes keep running. Not ``strategy_enabled``: it is not off.
+    author_suspended: bool = False
 
 
 @dataclass(frozen=True, slots=True)

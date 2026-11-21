@@ -52,6 +52,12 @@ class StrategyPolicySnapshot:
     # Where the strategy stops its positions, as a percentage of price (D5): it caps
     # the leverage a seat may open at. Defaults to the level every old strategy got.
     stop_loss_pct: Decimal = Decimal("10")
+    # The strategy's author is suspended (public-site LS9, PS.13 S4): the strategy opens
+    # nothing for anyone, and its closes keep running. NOT ``enabled = false``: the sweep
+    # closes at market whatever sits on a disabled strategy. Defaults to False, so a
+    # policy port that does not fill it fails SILENTLY: ``AuthorStandingPolicy`` is what
+    # fills it, and ``tests/signals/infrastructure/test_suspension_integration.py`` pins its wiring.
+    author_suspended: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -157,6 +163,13 @@ class UserModePort(Protocol):
     The read is committed state of one row, never a remote call."""
 
     async def effective_mode(self, user_id: UUID) -> Mode: ...
+
+    async def is_suspended_locked(self, user_id: UUID) -> bool:
+        """Whether the account is suspended (public-site LS9, PS.13 S3), read on the same
+        user row, ``FOR SHARE``, as ``effective_mode``. ``SuspendAccount`` takes that row
+        ``FOR UPDATE``, so it either waits for this opening to commit or has landed and
+        this reads it: a suspension never lands between the check and the reservation."""
+        ...
 
 
 class DeliverySubscriptionPort(Protocol):

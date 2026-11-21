@@ -62,6 +62,12 @@ POOL_DISABLED_SKIP_REASON = "POOL_DISABLED"
 # opening was queued. ``Leave`` counts holdings and live reservations, so a queued
 # delivery is neither, and opening it would strand a position no close reaches.
 SUBSCRIPTION_NOT_ACTIVE_SKIP_REASON = "SUBSCRIPTION_NOT_ACTIVE"
+# Public-site LS9 (PS.13 S3, S4): the admin suspended the delivery's account, or the
+# strategy's author, while this opening waited for the lock. Neither is
+# ``STRATEGY_DISABLED``: a disabled strategy is swept closed at market, a suspended one
+# keeps its positions and only stops opening. Closes never reach this method.
+ACCOUNT_SUSPENDED_SKIP_REASON = "ACCOUNT_SUSPENDED"
+AUTHOR_SUSPENDED_SKIP_REASON = "AUTHOR_SUSPENDED"
 
 
 class UnknownPoolError(DomainError):
@@ -212,6 +218,18 @@ class AllocateCapital:
         # leaves nothing committed, like the UNIQUE loser ``open_now`` describes:
         # the rollback releases the lock and ``WorkerRunner`` runs the job again.
         mode = await self._user_mode.effective_mode(command.user_id)
+        # A suspension that landed between ``ProcessDelivery``'s plain read and this lock
+        # (PS.13 S3): read on the row ``effective_mode`` just locked ``FOR SHARE``, so
+        # ``SuspendAccount`` either waits for this transaction or has already committed.
+        # A recorded refusal, never a raise: a retry would only refuse again.
+        if await self._user_mode.is_suspended_locked(command.user_id):
+            return await self._skip_in_lock(
+                command,
+                ACCOUNT_SUSPENDED_SKIP_REASON,
+                f"in-lock re-check skips signal {command.signal_id} for strategy "
+                f"{command.strategy_id}: {ACCOUNT_SUSPENDED_SKIP_REASON}, the account was "
+                f"suspended while this opening was queued; no capital reserved",
+            )
         if mode is not command.pre_checked_mode:
             raise ModeChangedError(
                 f"signal {command.signal_id} was checked for {command.pre_checked_mode.value} "
@@ -255,6 +273,18 @@ class AllocateCapital:
                 granted=Decimal("0"),
                 reservation_id=None,
                 skip_reason=skip_reason,
+            )
+
+        # The author's suspension (PS.13 S4), from the policy just re-read: it is committed
+        # state, and ``SuspendAccount`` takes this pool's lock before it commits, so an
+        # opening that waited here reads it.
+        if policy.author_suspended:
+            return await self._skip_in_lock(
+                command,
+                AUTHOR_SUSPENDED_SKIP_REASON,
+                f"in-lock re-check skips signal {command.signal_id} for strategy "
+                f"{command.strategy_id}: {AUTHOR_SUSPENDED_SKIP_REASON}, the strategy's "
+                f"author was suspended while this opening was queued; no capital reserved",
             )
 
         # A user's own action, so an INFO and not a WARNING. It MUST follow
@@ -434,6 +464,21 @@ class AllocateCapital:
             total,
         )
         return None
+
+    async def _skip_in_lock(
+        self, command: AllocateCommand, reason: str, detail: str
+    ) -> AllocationResult:
+        """A refusal decided in the lock: a WARNING (the delivery's ``REJECTED`` outcome is
+        its record) staged before the commit that also releases the pool lock."""
+        logger.warning("%s", detail)
+        await self._skip_recorder.record_skip(command.delivery_id, reason, detail)
+        await self._commit.commit()
+        return AllocationResult(
+            outcome=DecisionOutcome.SKIP,
+            granted=Decimal("0"),
+            reservation_id=None,
+            skip_reason=reason,
+        )
 
     @staticmethod
     def _resume(reservation: Reservation, command: AllocateCommand) -> AllocationResult:

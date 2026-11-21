@@ -13,6 +13,7 @@ from uuid import UUID, uuid4
 
 import pytest
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from strategy_manager.allocation.domain.lock_key import LockKey
@@ -1076,3 +1077,34 @@ async def test_a_seat_above_a_widened_cap_still_changes_its_share_and_lowers_its
     assert (resized.status_code, lowered.status_code) == (200, 200)
     stored = await seeds.row_of(pg_session_factory, subscription_id)
     assert (stored.allocation_percent, stored.leverage) == (Decimal("35"), 6)
+
+
+async def test_a_suspended_authors_strategy_takes_no_new_subscriber_and_writes_nothing(
+    pg_session_factory: Factory,  # noqa: F811
+    client_for: ClientFor,
+) -> None:
+    """Public-site LS9, PS.13 S4: a suspended author's strategy opens nothing, so a seat
+    on it would hold capital for nothing. Lifting the suspension opens it again."""
+    author, _ = await seeds.user(pg_session_factory)
+    strategy_id = await seeds.strategy(pg_session_factory, author_id=author)
+    user_id, _ = await seeds.user(pg_session_factory)
+    async with pg_session_factory() as session:
+        await session.execute(
+            text("UPDATE users SET suspended_at = now() WHERE id = :id"), {"id": author}
+        )
+        await session.commit()
+    body = {"strategy_id": str(strategy_id), "allocation_percent": "30"}
+
+    refused = await client_for(user_id).post("/api/subscriptions", json=body)
+
+    assert refused.status_code == 409
+    assert refused.json()["detail"]["error"] == "AUTHOR_SUSPENDED"
+    assert await seeds.rows(pg_session_factory) == []
+
+    async with pg_session_factory() as session:
+        await session.execute(
+            text("UPDATE users SET suspended_at = NULL WHERE id = :id"), {"id": author}
+        )
+        await session.commit()
+
+    assert (await client_for(user_id).post("/api/subscriptions", json=body)).status_code == 201

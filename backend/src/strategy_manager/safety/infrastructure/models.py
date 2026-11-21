@@ -25,7 +25,8 @@ class SafetyEventRow(Base):
         UniqueConstraint("delivery_id", name="uq_safety_events_delivery"),
         CheckConstraint(
             "kind IN ('STOP_FIRED', 'STOP_FAILED_CLOSED', 'STRATEGY_STOPPED_CLOSED', "
-            "'MANUAL_CLOSE', 'OPENING_REFUSED_LEVERAGE_CAP')",
+            "'MANUAL_CLOSE', 'OPENING_REFUSED_LEVERAGE_CAP', "
+            "'OPENING_REFUSED_ACCOUNT_SUSPENDED', 'OPENING_REFUSED_AUTHOR_SUSPENDED')",
             name="ck_safety_events_kind",
         ),
         CheckConstraint(

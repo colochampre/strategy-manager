@@ -80,6 +80,13 @@ class FixedUserMode:
     mode: Mode = Mode.LIVE
     events: list[str] = field(default_factory=list)
     users: list[UUID] = field(default_factory=list)
+    suspended: bool = False
+    # Whether the lock's suspension read joins ``events`` (a test about its place in the
+    # order); never ``users``, which tests count to prove one mode read per pass.
+    track_suspension: bool = False
+    # What the lock's read says, when a test makes the suspension land between the two
+    # reads; ``None`` means the same answer as the plain one.
+    suspended_in_lock: bool | None = None
 
     async def effective_mode(self, user_id: UUID) -> Mode:
         self.users.append(user_id)
@@ -89,6 +96,14 @@ class FixedUserMode:
     async def current_mode(self, user_id: UUID) -> Mode:
         self.users.append(user_id)
         return self.mode
+
+    async def is_suspended(self, user_id: UUID) -> bool:
+        return self.suspended
+
+    async def is_suspended_locked(self, user_id: UUID) -> bool:
+        if self.track_suspension:
+            self.events.append("user_suspended")
+        return self.suspended if self.suspended_in_lock is None else self.suspended_in_lock
 
 
 @dataclass
