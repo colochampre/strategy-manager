@@ -140,9 +140,17 @@ async def require_complete_profile(
     Attached to every route that stores or trades for the user: saving a key, a
     subscription, a strategy, a mode change. Not to the ways out (reading, Close
     now, leaving a subscription, archiving or deleting a strategy, removing a key,
-    deleting the account) nor to the way in (the form and the box).
+    deleting the account) nor to the way in (the form and the box). Changing a
+    strategy runs ``require_complete_profile_unless_disabling`` instead, which lets
+    a bare ``{"enabled": false}`` through: archiving needs a disabled strategy.
     ``test_every_api_route_is_guarded`` lists both sets, so a new route must be
     placed in one of them."""
+    await ensure_complete_profile(user, session)
+
+
+async def ensure_complete_profile(user: User, session: AsyncSession) -> None:
+    """The gate's check and its 409, for a dependency that decides first whether
+    the gate applies (``require_complete_profile_unless_disabling``)."""
     status = await profile_status_of(user, session)
     if status is not ProfileStatus.COMPLETE:
         raise HTTPException(

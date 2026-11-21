@@ -104,11 +104,16 @@ GATED_UNTIL_SIGNED_UP = {
     ("POST", "/api/subscriptions"),
     ("PATCH", "/api/subscriptions/{subscription_id}"),
     ("POST", "/api/strategies"),
-    ("PATCH", "/api/strategies/{strategy_id}"),
     ("PUT", "/api/strategies/{strategy_id}/allowed-pairs"),
     ("POST", "/api/strategies/{strategy_id}/webhook-secret"),
     ("POST", "/api/strategies/{strategy_id}/invite-codes"),
     ("POST", "/api/me/mode"),
+}
+#: Gated like the set above, with one way out: a body of exactly
+#: ``{"enabled": false}``. An author who has not signed up can stop their strategy
+#: (and then archive it); every other change still waits for the sign-up.
+GATED_BUT_FOR_DISABLING = {
+    ("PATCH", "/api/strategies/{strategy_id}"),
 }
 #: What a user who has not signed up may still do: get out, or get in.
 WAYS_OUT_AND_IN = {
@@ -251,7 +256,8 @@ def test_every_write_a_user_reaches_is_either_gated_or_a_way_out_or_in() -> None
     }
 
     assert GATED_UNTIL_SIGNED_UP.isdisjoint(WAYS_OUT_AND_IN)
-    assert user_writes == GATED_UNTIL_SIGNED_UP | WAYS_OUT_AND_IN
+    assert GATED_BUT_FOR_DISABLING.isdisjoint(GATED_UNTIL_SIGNED_UP | WAYS_OUT_AND_IN)
+    assert user_writes == GATED_UNTIL_SIGNED_UP | GATED_BUT_FOR_DISABLING | WAYS_OUT_AND_IN
 
 
 def test_the_gated_routes_require_a_complete_profile_and_the_others_do_not() -> None:
@@ -260,6 +266,17 @@ def test_the_gated_routes_require_a_complete_profile_and_the_others_do_not() -> 
     for key in sorted(GATED_UNTIL_SIGNED_UP):
         assert require_complete_profile in routes[key], key
     for key in sorted(WAYS_OUT_AND_IN):
+        assert require_complete_profile not in routes[key], key
+
+
+def test_the_routes_gated_but_for_disabling_run_that_gate_and_not_the_whole_one() -> None:
+    """Their gate reads the body before it decides, so it is a dependency of its own;
+    what it lets through is pinned in ``test_me_profile_router``."""
+    routes = _routes()
+
+    for key in sorted(GATED_BUT_FOR_DISABLING):
+        names = {call.__name__ for call in routes[key]}
+        assert "require_complete_profile_unless_disabling" in names, key
         assert require_complete_profile not in routes[key], key
 
 
