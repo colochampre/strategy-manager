@@ -65,6 +65,10 @@ The plan is in `proposal.md`. Each task records its evidence when done. Push, PR
     - Panel (pps.6): built by the assistant from a detached worktree of `origin/main` at `0ad530e890c9`, 22 entries, SHA-256 `9e4018cc9ab82181fc2b4df0a919dbe641851a3d2ba835d34e4501bd09bd842c`; the owner's block printed `OK`, `readable`, and bundle and checkout `0ad530e890c9`.
     - Every user meets the acceptance box again, for privacy `draft-6`.
     - The owner read the panel: the acceptance asked again, "Your details" in Settings, and the policy opening at its top from the terms' link ("Todo correcto").
+  - *Delivered 2026-11-21 as PR #124* (merge `914690bea6b8`, 4 commits): PS.15, the way out before sign-up (`/way-out`) and the bare disable the gate lets through. No migration, no version bump.
+    - Production (`deploy_914690b.sh`), 91 minutes into the 4h candle: checkout `914690bea6b8`, still at 0046, 1 user with a profile and 2 acceptances (the owner's, `draft-5` and `draft-6`: the rows are append-only). Both services `active`. Unsigned, `PATCH /api/strategies/{id}` with `{"enabled": false}` answers 401. No ERROR, CRITICAL or Traceback line since the restart, the alerts' INFO line left out.
+    - Panel (pps.6): built by the assistant from a detached worktree of `origin/main` at `914690bea6b8`, 22 entries, SHA-256 `f9a29eb8cbaa51bc4e869ef709729456b53037c0b3b13cfa25fc2c705b847e99`; the owner's block printed `OK`, `readable`, and bundle and checkout `914690bea6b8`.
+    - The owner, already signed up, opened `/way-out` directly and read it in the panel ("Correcta en el panel").
 
 ## From the lawyer's answers (specs written 2026-11-19)
 
@@ -144,7 +148,7 @@ Written from the lawyer's notes in `proposal.md`, quoted verbatim where they set
   - Strict TDD: 6 tests RED on assertions first (the section list, eligibility, commitments, third-party strategies, the three failures, records and the deletion button). `TERMS_VERSION` comes with the acceptance record (PS.9, PS.10).
 - [ ] PS.13 LS9 suspension, once decided.
 - [ ] PS.14 LS10 owner-run AAIP registration, once LQ4 is answered.
-- [ ] PS.15 A way out before sign-up (owner, 2026-11-20: "Dale, vamos con tu sugerencia", then "Si, A", then "Si" to the disable exception). Route: inline; the backend unit names high-risk item 2 (a guard), so it gets its own commit and an independent verifier.
+- [x] PS.15 A way out before sign-up (owner, 2026-11-20: "Dale, vamos con tu sugerencia", then "Si, A", then "Si" to the disable exception). Route: inline; the backend unit names high-risk item 2 (a guard), so it gets its own commit and an independent verifier.
   - **S1** From the sign-up form and the acceptance box, a link opens one page where a user who has not signed up, or will not accept the versions in force, can get out without the rest of the panel: their open positions with "Close now", their subscriptions with "Leave", their own strategies with "Disable" and "Archive", their exchange keys with "Delete key", and "Delete account". The navigation stays hidden (LS2).
   - **S2** Before sign-up, `PATCH /api/strategies/{id}` is accepted only with a body of exactly `{"enabled": false}`; any other body, even with that field beside others, still answers 409 `PROFILE_INCOMPLETE`. It reaches only the author's own strategy, and keeps every refusal disabling already has (an open position on it). Found 2026-11-20: archiving needs a disabled strategy (`StillEnabled`) and disabling was gated, so an author who had not signed up could not stop a strategy at all.
   - Not done here, a separate decision: the worker still executes signals for a subscriber who has not signed up or accepted new terms (PS.9's note); the page's "Leave" is how such a user stops it.
