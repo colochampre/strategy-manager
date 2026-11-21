@@ -363,7 +363,10 @@ export function publicRecord(overrides: Record<string, unknown> = {}) {
   };
 }
 
-/** One row of `GET /api/admin/users`: Ana, live, with a Bybit key, three subscriptions and two open positions. */
+/**
+ * One row of `GET /api/admin/users`: Ana, signed up as Ana María Pérez, live, with a Bybit key, three subscriptions
+ * and two open positions.
+ */
 export function adminUser(overrides: Record<string, unknown> = {}) {
   return {
     email: "ana@example.com",
@@ -374,6 +377,7 @@ export function adminUser(overrides: Record<string, unknown> = {}) {
     subscriptions: 3,
     open_positions: 2,
     last_seen_at: "2026-10-30T12:34:56Z",
+    identity: { first_name: "Ana María", last_name: "Pérez", cuit: "20123456786", country: "AR" },
     ...overrides,
   };
 }

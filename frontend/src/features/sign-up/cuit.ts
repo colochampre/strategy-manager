@@ -25,3 +25,8 @@ export function cuitState(raw: string): CuitState {
   if (!/^[0-9]{11}$/.test(digits)) return "invalid";
   return checkDigit(digits.slice(0, 10)) === Number(digits[10]) ? "valid" : "invalid";
 }
+
+/** A stored CUIT, `20123456786`, as people write it: `20-12345678-6`. */
+export function formatCuit(cuit: string): string {
+  return `${cuit.slice(0, 2)}-${cuit.slice(2, 10)}-${cuit.slice(10)}`;
+}

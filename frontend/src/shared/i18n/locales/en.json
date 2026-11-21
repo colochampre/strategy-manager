@@ -50,7 +50,9 @@
     "subscriptions": "Subscriptions",
     "positions": "Open positions",
     "seen": "Last sign-in",
-    "poolWithNoKey": "Enabled pool with no active key: {{exchanges}}"
+    "poolWithNoKey": "Enabled pool with no active key: {{exchanges}}",
+    "identity": "{{name}} · CUIT {{cuit}} · {{country}}",
+    "notSignedUp": "Not signed up yet"
   },
   "scope": {
     "exchanges": "Exchanges",

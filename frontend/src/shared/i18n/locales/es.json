@@ -50,7 +50,9 @@
     "subscriptions": "Suscripciones",
     "positions": "Posiciones abiertas",
     "seen": "Último ingreso",
-    "poolWithNoKey": "Pool habilitado sin clave activa: {{exchanges}}"
+    "poolWithNoKey": "Pool habilitado sin clave activa: {{exchanges}}",
+    "identity": "{{name}} · CUIT {{cuit}} · {{country}}",
+    "notSignedUp": "Todavía no completó el alta"
   },
   "scope": {
     "exchanges": "Exchanges",

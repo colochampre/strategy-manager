@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
+import { formatCuit } from "@/features/sign-up/cuit";
 import type { AdminUser } from "@/shared/api/admin-users";
 import { useAdminUsers } from "@/shared/api/admin-users";
 import { useMe } from "@/shared/api/me";
@@ -33,6 +34,15 @@ function UserRow({ user }: { user: AdminUser }) {
         </p>
         <p data-testid="admin-user-name" className="text-xs text-ink-2">
           {user.display_name ?? t("users.noName")}
+        </p>
+        <p data-testid="admin-user-identity" className="text-sm text-ink">
+          {user.identity === null
+            ? t("users.notSignedUp")
+            : t("users.identity", {
+                name: `${user.identity.first_name} ${user.identity.last_name}`,
+                cuit: formatCuit(user.identity.cuit),
+                country: user.identity.country === "AR" ? t("signUp.countryAR") : user.identity.country,
+              })}
         </p>
       </div>
       <dl className="grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-3 lg:grid-cols-5">

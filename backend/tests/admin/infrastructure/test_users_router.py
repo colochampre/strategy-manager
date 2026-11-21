@@ -50,7 +50,12 @@ BODY_KEYS = {
     "subscriptions",
     "open_positions",
     "last_seen_at",
+    "identity",
 }
+
+#: The identity the sign-up form gave, as the privacy policy says the admin sees it
+#: (public-site LS3): nothing of the declarations or the acceptance record.
+IDENTITY_KEYS = {"first_name", "last_name", "cuit", "country"}
 
 
 @pytest.fixture(autouse=True)
@@ -210,6 +215,66 @@ async def test_a_new_user_has_no_name_nothing_held_and_simulation(
     assert state["exchanges_with_no_key"] == []
     assert state["subscriptions"] == 0
     assert state["open_positions"] == 0
+    assert state.get("identity", "no identity field") is None
+
+
+async def test_a_signed_up_user_is_listed_with_the_identity_they_gave(
+    pg_session_factory: Factory,  # noqa: F811
+    admin: AsyncClient,
+) -> None:
+    user_id, email = await _user(pg_session_factory)
+    other_id, other_email = await _user(pg_session_factory)
+    async with pg_session_factory() as session:
+        for each, first, last, cuit in (
+            (user_id, "Ana María", "Pérez", "20123456786"),
+            (other_id, "Juan", "Gómez", "27111111117"),
+        ):
+            await session.execute(
+                text(
+                    "UPDATE users SET first_name = :first, last_name = :last, cuit = :cuit, "
+                    "country = 'AR', adult_declared_at = now(), truthful_declared_at = now() "
+                    "WHERE id = :id"
+                ),
+                {"first": first, "last": last, "cuit": cuit, "id": each},
+            )
+        await session.commit()
+
+    identity = (await _state_of(admin, email)).get("identity")
+    other = (await _state_of(admin, other_email)).get("identity") or {}
+
+    assert identity == {
+        "first_name": "Ana María",
+        "last_name": "Pérez",
+        "cuit": "20123456786",
+        "country": "AR",
+    }
+    assert set(identity) == IDENTITY_KEYS
+    assert other["cuit"] == "27111111117"
+    assert other["last_name"] == "Gómez"
+
+
+async def test_another_user_is_not_shown_anyones_identity(
+    pg_session_factory: Factory,  # noqa: F811
+    admin: AsyncClient,
+) -> None:
+    """The list is the admin's alone: a signed-in user who is not the admin is
+    refused, and the body names no CUIT."""
+    user_id, _ = await _user(pg_session_factory)
+    async with pg_session_factory() as session:
+        await session.execute(
+            text(
+                "UPDATE users SET first_name = 'Ana', last_name = 'Pérez', "
+                "cuit = '20123456786', country = 'AR', adult_declared_at = now(), "
+                "truthful_declared_at = now() WHERE id = :id"
+            ),
+            {"id": user_id},
+        )
+        await session.commit()
+
+    response = await admin.get(USERS, headers=OTHER_HEADERS)
+
+    assert response.status_code == 403, response.text
+    assert "20123456786" not in response.text
 
 
 async def test_the_body_holds_no_amount_and_no_performance(

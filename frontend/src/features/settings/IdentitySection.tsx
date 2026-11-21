@@ -2,6 +2,7 @@ import { Save } from "lucide-react";
 import { useId, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 
+import { formatCuit } from "@/features/sign-up/cuit";
 import { useCorrectName, useMe, type CorrectNameResult } from "@/shared/api/me";
 import { LEGAL_CONTACT } from "@/shared/legal/LegalDocument";
 import { InfoButton, InfoText, useInfoDisclosure } from "@/shared/ui/InfoDisclosure";
@@ -11,9 +12,6 @@ import { StatusButton } from "@/shared/ui/StatusButton";
 const FIELD =
   "min-h-11 w-full min-w-0 rounded-md border border-rule bg-ground px-3 text-sm text-ink focus-visible:outline-2 focus-visible:outline-gain";
 const NAME_MAX_LENGTH = 80;
-
-/** `20123456786` as people write it, `20-12345678-6`. */
-const formatCuit = (cuit: string) => `${cuit.slice(0, 2)}-${cuit.slice(2, 10)}-${cuit.slice(10)}`;
 
 function failureKey(result: CorrectNameResult | undefined): string | null {
   return result?.kind === "unknown" || result?.kind === "unauthorized" ? "settings.identity.failed" : null;

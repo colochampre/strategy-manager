@@ -8,6 +8,14 @@ import type { Mode } from "@/shared/api/me";
  * `exchanges_with_no_key` has an enabled pool and no active key, which is what the database can say of a degraded
  * one.
  */
+/** What the user gave at sign-up, as the privacy policy says the admin sees it (public-site LS3). */
+export interface AdminIdentity {
+  first_name: string;
+  last_name: string;
+  cuit: string;
+  country: string;
+}
+
 export interface AdminUser {
   email: string;
   display_name: string | null;
@@ -17,6 +25,8 @@ export interface AdminUser {
   subscriptions: number;
   open_positions: number;
   last_seen_at: string;
+  /** `null` until the user signs up. */
+  identity: AdminIdentity | null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -31,6 +41,16 @@ function isTextList(value: unknown): boolean {
   return Array.isArray(value) && value.every((item) => typeof item === "string");
 }
 
+function isIdentity(value: unknown): value is AdminIdentity {
+  if (!isRecord(value)) return false;
+  return (
+    typeof value.first_name === "string" &&
+    typeof value.last_name === "string" &&
+    typeof value.cuit === "string" &&
+    typeof value.country === "string"
+  );
+}
+
 /** An `AdminUserBody`, field by field. A null name is a user who has not chosen one, so it is an answer; a missing one is not. */
 function isAdminUser(value: unknown): value is AdminUser {
   if (!isRecord(value)) return false;
@@ -42,7 +62,8 @@ function isAdminUser(value: unknown): value is AdminUser {
     isTextList(value.exchanges_with_no_key) &&
     isCount(value.subscriptions) &&
     isCount(value.open_positions) &&
-    typeof value.last_seen_at === "string"
+    typeof value.last_seen_at === "string" &&
+    (value.identity === null || isIdentity(value.identity))
   );
 }
 

@@ -6,6 +6,7 @@ from datetime import datetime
 from uuid import UUID
 
 from strategy_manager.admin.application.ports import UserExchange, UsersSourcePort
+from strategy_manager.identity.domain.profile import Profile
 from strategy_manager.shared.domain.mode import Mode
 
 
@@ -19,6 +20,8 @@ class UserState:
     subscriptions: int
     open_positions: int
     last_seen_at: datetime
+    #: What the sign-up form gave (public-site LS3), or ``None`` before it.
+    identity: Profile | None
 
 
 def _by_user(pairs: frozenset[UserExchange]) -> dict[UUID, list[str]]:
@@ -50,6 +53,7 @@ class ReadUsers:
                 subscriptions=subscriptions.get(user.id, 0),
                 open_positions=positions[user.id],
                 last_seen_at=user.last_seen_at,
+                identity=user.profile,
             )
             for user in users
         )
