@@ -68,6 +68,7 @@ The plan is in `proposal.md`. Each task records its evidence when done. Push, PR
   - *Delivered 2026-11-21 as PR #124* (merge `914690bea6b8`, 4 commits): PS.15, the way out before sign-up (`/way-out`) and the bare disable the gate lets through. No migration, no version bump.
     - Production (`deploy_914690b.sh`), 91 minutes into the 4h candle: checkout `914690bea6b8`, still at 0046, 1 user with a profile and 2 acceptances (the owner's, `draft-5` and `draft-6`: the rows are append-only). Both services `active`. Unsigned, `PATCH /api/strategies/{id}` with `{"enabled": false}` answers 401. No ERROR, CRITICAL or Traceback line since the restart, the alerts' INFO line left out.
     - Panel (pps.6): built by the assistant from a detached worktree of `origin/main` at `914690bea6b8`, 22 entries, SHA-256 `f9a29eb8cbaa51bc4e869ef709729456b53037c0b3b13cfa25fc2c705b847e99`; the owner's block printed `OK`, `readable`, and bundle and checkout `914690bea6b8`.
+    - The owner, already signed up, opened `/way-out` directly and read it in the panel ("Correcta en el panel").
 
 ## From the lawyer's answers (specs written 2026-11-19)
 
