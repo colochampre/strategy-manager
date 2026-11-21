@@ -105,6 +105,16 @@ describe("privacy policy page", () => {
     expect(screen.getByText(/Every acceptance of the terms and of this policy/)).toBeInTheDocument();
   });
 
+  it("says the date of a suspension is stored, in both locales", async () => {
+    const { unmount } = renderAt(<PrivacyPage />);
+    expect(document.body).toHaveTextContent("If the administrator suspends your account, the date of the suspension.");
+    unmount();
+
+    await i18n.changeLanguage("es");
+    renderAt(<PrivacyPage />);
+    expect(document.body).toHaveTextContent("Si el administrador suspende su cuenta, la fecha de la suspensión.");
+  });
+
   it("asks the express consent the transfer abroad needs", () => {
     renderAt(<PrivacyPage />);
 

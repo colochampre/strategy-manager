@@ -473,6 +473,7 @@ describe("the sign-up step in the shell (public-site LS2)", () => {
                 profile: null,
                 profile_status: profileStatus,
                 legal_versions: { terms: "t", privacy: "p" },
+                suspended: false,
               }),
               { status: 200, headers: { "Content-Type": "application/json" } },
             ),

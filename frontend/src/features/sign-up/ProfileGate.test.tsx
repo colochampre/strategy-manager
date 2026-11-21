@@ -18,6 +18,7 @@ type Status = "COMPLETE" | "MISSING" | "ACCEPTANCE_OUTDATED";
 interface Server {
   status: Status;
   versions: { terms: string; privacy: string };
+  suspended?: boolean;
   /** What the next write answers: a refusal's status and detail, or nothing for a success. */
   refusal?: { status: number; detail: unknown } | undefined;
 }
@@ -44,6 +45,7 @@ function serve(server: Server) {
           is_admin: false,
           mode: "SIMULATION",
           dry_run_brake: false,
+          suspended: server.suspended ?? false,
           profile: server.status === "MISSING" ? null : PROFILE,
           profile_status: server.status,
           legal_versions: server.versions,
@@ -328,6 +330,57 @@ describe("ProfileGate (public-site LS2, LS6)", () => {
     fireEvent.click(submit());
 
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(en.signUp.again.failed));
+  });
+});
+
+describe("ProfileGate for a suspended account (public-site LS9)", () => {
+  afterEach(async () => {
+    vi.unstubAllGlobals();
+    await i18n.changeLanguage("en");
+  });
+
+  it.each(["COMPLETE", "MISSING", "ACCEPTANCE_OUTDATED"] as const)(
+    "replaces the panel of a %s user with the notice, and the way out under it",
+    async (status) => {
+      serve({ status, versions: VERSIONS, suspended: true });
+
+      renderGate();
+
+      expect(await screen.findByRole("heading", { name: "Your account is suspended" })).toBeInTheDocument();
+      expect(document.body).toHaveTextContent("You can no longer open positions or subscribe to strategies.");
+      expect(document.body).toHaveTextContent("write to privacy@strategymanager.trade.");
+      expect(screen.queryByText("the panel")).toBeNull();
+      expect(screen.queryByRole("form")).toBeNull();
+      expect(screen.getByRole("link", { name: en.wayOut.link }).getAttribute("href")).toBe("/way-out");
+    },
+  );
+
+  it("speaks Spanish with its own words", async () => {
+    await i18n.changeLanguage("es");
+    serve({ status: "COMPLETE", versions: VERSIONS, suspended: true });
+
+    renderGate();
+
+    expect(await screen.findByRole("heading", { name: "Su cuenta está suspendida" })).toBeInTheDocument();
+    expect(document.body).toHaveTextContent("Ya no puede abrir posiciones ni suscribirse a estrategias.");
+    expect(screen.getByRole("link", { name: es.wayOut.link })).toBeInTheDocument();
+  });
+
+  it.each(["/way-out", "/terms", "/privacy"])("keeps %s reachable", async (path) => {
+    serve({ status: "COMPLETE", versions: VERSIONS, suspended: true });
+
+    renderGate(path);
+
+    expect(await screen.findByText("the panel")).toBeInTheDocument();
+  });
+
+  it("shows an account that is not suspended the panel", async () => {
+    serve({ status: "COMPLETE", versions: VERSIONS, suspended: false });
+
+    renderGate();
+
+    expect(await screen.findByText("the panel")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Your account is suspended" })).toBeNull();
   });
 });
 

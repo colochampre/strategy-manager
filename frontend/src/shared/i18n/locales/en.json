@@ -26,6 +26,8 @@
       "STRATEGY_STOPPED_CLOSED": "Closed after the strategy stopped",
       "MANUAL_CLOSE": "Closed by you",
       "OPENING_REFUSED_LEVERAGE_CAP": "Opening refused: leverage cap",
+      "OPENING_REFUSED_ACCOUNT_SUSPENDED": "Opening refused: your account is suspended",
+      "OPENING_REFUSED_AUTHOR_SUSPENDED": "Opening refused: the strategy's author is suspended",
       "unknown": "Safety event"
     },
     "detail": {
@@ -34,6 +36,8 @@
       "STRATEGY_STOPPED_CLOSED": "The strategy stopped, so the position was closed: {{quantity}} at {{price}}.",
       "MANUAL_CLOSE": "You closed the position: {{quantity}} at {{price}}.",
       "OPENING_REFUSED_LEVERAGE_CAP": "The opening asked for {{requested_leverage}}x, above the {{max_leverage}}x allowed with a {{stop_loss_pct}}% stop, so nothing was opened.",
+      "OPENING_REFUSED_ACCOUNT_SUSPENDED": "Nothing was opened: your account is suspended.",
+      "OPENING_REFUSED_AUTHOR_SUSPENDED": "Nothing was opened: the strategy's author is suspended.",
       "unknown": "No details are available for this event.",
       "missing": "n/a"
     }
@@ -52,7 +56,23 @@
     "seen": "Last sign-in",
     "poolWithNoKey": "Enabled pool with no active key: {{exchanges}}",
     "identity": "{{name}} · CUIT {{cuit}} · {{country}}",
-    "notSignedUp": "Not signed up yet"
+    "notSignedUp": "Not signed up yet",
+    "suspendedSince": "Suspended since {{date}}",
+    "suspend": "Suspend",
+    "lift": "Lift suspension",
+    "cancel": "Cancel",
+    "working": "Saving…",
+    "suspendTitle": "Suspend {{email}}?",
+    "suspendBody": "They will open nothing new, and the strategies they publish will stop opening for every subscriber. Their closes keep running.",
+    "liftTitle": "Lift the suspension of {{email}}?",
+    "liftBody": "They can open positions and subscribe again.",
+    "failed": "The suspension could not be changed.",
+    "yourself": "You cannot suspend your own account.",
+    "accountChanged": "The account changed while it was being suspended. Try again."
+  },
+  "suspension": {
+    "title": "Your account is suspended",
+    "body": "You can no longer open positions or subscribe to strategies. Your open positions still close when their strategies signal. To ask about it, write to {{contact}}."
   },
   "scope": {
     "exchanges": "Exchanges",
@@ -267,6 +287,7 @@
       "by": "by {{name}}",
       "noAuthorName": "author with no name yet",
       "leaving": "Leaving: it opens nothing more, and it ends when its open position closes.",
+      "paused": "Paused: its author's account is suspended. It opens nothing new; your open positions still close.",
       "leverageValue": "x{{leverage}}",
       "figuresError": "The public figures could not be loaded, so only your own are shown.",
       "leave": "Leave"
@@ -389,6 +410,7 @@
         "needsKey": "You have no key on this strategy's exchange. Add one in Settings to subscribe.",
         "already": "You are already subscribed to this strategy.",
         "archived": "This strategy is archived and takes no subscribers.",
+        "paused": "This strategy is paused and takes no subscribers.",
         "gone": "This strategy no longer takes subscribers.",
         "failed": "The subscription was not saved. Try again."
       }
@@ -1121,6 +1143,7 @@
         "strategies": "The strategies you create and subscribe to, and your settings: the share of your capital, the leverage, and whether you trade in simulation or live.",
         "trades": "Every order placed for you and its result: price, quantity, fees and profit or loss.",
         "acceptances": "Every acceptance of the terms and of this policy: which version you accepted and when.",
+        "suspension": "If the administrator suspends your account, the date of the suspension.",
         "logs": "A technical log of the requests the server answers: when each happened, what was asked and the result.",
         "messages": "What you write to us, and the address you write from.",
         "never": "The app never stores a password, images of identity documents or payment details, and it uses no analytics, advertising or tracking tools."

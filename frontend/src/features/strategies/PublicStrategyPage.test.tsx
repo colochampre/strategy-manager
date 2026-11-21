@@ -549,6 +549,22 @@ describe("whether this user can subscribe", () => {
     expect(screen.getByText(i18n.t("strategies.detail.share.leaving"))).toBeInTheDocument();
   });
 
+  it("a seat on a strategy whose author is suspended reads as paused on its page (PS.13 S6)", async () => {
+    serve({ held: () => Promise.resolve(jsonResponse([heldSubscription({ strategy_id: ID, author_suspended: true })])) });
+    open();
+
+    const seat = await screen.findByRole("complementary", { name: i18n.t("strategies.subscribe.seatTitle") });
+    await waitFor(() => expect(seat).toHaveTextContent(i18n.t("strategies.subscriptions.paused")));
+  });
+
+  it("a seat on a strategy whose author is not suspended says nothing of a pause", async () => {
+    serve({ held: () => Promise.resolve(jsonResponse([heldSubscription({ strategy_id: ID })])) });
+    open();
+
+    const seat = await screen.findByRole("complementary", { name: i18n.t("strategies.subscribe.seatTitle") });
+    expect(seat).not.toHaveTextContent(i18n.t("strategies.subscriptions.paused"));
+  });
+
   it("is not fooled by a subscription to another strategy", async () => {
     serve({
       held: () =>
@@ -887,6 +903,7 @@ describe("subscribing", () => {
     [409, { error: "NO_POOL_FOR_MARKET", message: "no" }, "strategies.subscribe.refused.needsKey"],
     [409, { error: "ALREADY_SUBSCRIBED", message: "no" }, "strategies.subscribe.refused.already"],
     [409, { error: "STRATEGY_ARCHIVED", message: "no" }, "strategies.subscribe.refused.archived"],
+    [409, { error: "AUTHOR_SUSPENDED", message: "no" }, "strategies.subscribe.refused.paused"],
     [409, { error: "LEVERAGE_ABOVE_STOP_CAP", message: "no" }, "strategies.leverage.aboveCapRefused"],
     [409, { error: "SOMETHING_NEW", message: "no" }, "strategies.subscribe.refused.failed"],
     [404, "no strategy", "strategies.subscribe.refused.gone"],

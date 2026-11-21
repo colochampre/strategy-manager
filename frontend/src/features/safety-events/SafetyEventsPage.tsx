@@ -12,6 +12,8 @@ const KNOWN_KINDS: readonly string[] = [
   "STRATEGY_STOPPED_CLOSED",
   "MANUAL_CLOSE",
   "OPENING_REFUSED_LEVERAGE_CAP",
+  "OPENING_REFUSED_ACCOUNT_SUSPENDED",
+  "OPENING_REFUSED_AUTHOR_SUSPENDED",
 ];
 
 /** The detail keys each kind's sentence interpolates; a key the event lacks is written as "n/a", never "undefined". */

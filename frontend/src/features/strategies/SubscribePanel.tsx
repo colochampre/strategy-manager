@@ -43,6 +43,7 @@ function refusalText(error: unknown): string {
     if (error.code === "NO_POOL_FOR_MARKET") return "strategies.subscribe.refused.needsKey";
     if (error.code === "ALREADY_SUBSCRIBED") return "strategies.subscribe.refused.already";
     if (error.code === "STRATEGY_ARCHIVED") return "strategies.subscribe.refused.archived";
+    if (error.code === "AUTHOR_SUSPENDED") return "strategies.subscribe.refused.paused";
     if (error.code === "LEVERAGE_ABOVE_STOP_CAP") return "strategies.leverage.aboveCapRefused";
   }
   return "strategies.subscribe.refused.failed";
@@ -249,6 +250,8 @@ function SeatPanel({ strategy, seat }: { strategy: PublicStrategy; seat: HeldSub
           stop_loss_pct: seat.stop_loss_pct,
         }}
       />
+      {/* Its author is suspended (public-site LS9): it opens nothing new, and its closes keep running. */}
+      {seat.author_suspended && <p className="text-sm text-ink-2">{t("strategies.subscriptions.paused")}</p>}
       {!active && <p className="text-sm text-ink-2">{t("strategies.subscriptions.leaving")}</p>}
       {active && (
         <div>

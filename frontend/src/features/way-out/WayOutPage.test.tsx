@@ -70,6 +70,7 @@ function setup(status: Status, holdings: Holdings = {}, path = "/") {
           profile: null,
           profile_status: status,
           legal_versions: { terms: "t", privacy: "p" },
+          suspended: false,
         }),
       );
     }

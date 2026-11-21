@@ -13,7 +13,7 @@ const SECTIONS: ReadonlyArray<LegalSection> = [
   {
     id: "stores",
     paragraphs: ["intro"],
-    items: ["email", "identity", "name", "keys", "balances", "strategies", "trades", "acceptances", "logs", "messages"],
+    items: ["email", "identity", "name", "keys", "balances", "strategies", "trades", "acceptances", "suspension", "logs", "messages"],
     after: ["never"],
   },
   { id: "use", paragraphs: ["body", "identity", "required", "basis"] },

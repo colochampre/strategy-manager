@@ -97,6 +97,40 @@ describe("SafetyEventsPage", () => {
     expect(row).toHaveTextContent("Nov 17, 2026, 10:05");
   });
 
+  it.each([
+    [
+      "en",
+      "OPENING_REFUSED_ACCOUNT_SUSPENDED",
+      "Opening refused: your account is suspended",
+      "Nothing was opened: your account is suspended.",
+    ],
+    [
+      "en",
+      "OPENING_REFUSED_AUTHOR_SUSPENDED",
+      "Opening refused: the strategy's author is suspended",
+      "Nothing was opened: the strategy's author is suspended.",
+    ],
+    [
+      "es",
+      "OPENING_REFUSED_ACCOUNT_SUSPENDED",
+      "Apertura rechazada: su cuenta está suspendida",
+      "No se abrió nada: su cuenta está suspendida.",
+    ],
+    [
+      "es",
+      "OPENING_REFUSED_AUTHOR_SUSPENDED",
+      "Apertura rechazada: el autor de la estrategia está suspendido",
+      "No se abrió nada: el autor de la estrategia está suspendido.",
+    ],
+  ])("draws the suspension refusal in %s: %s", async (language, kind, label, sentence) => {
+    await i18n.changeLanguage(language);
+    serve(() => Promise.resolve(jsonResponse({ events: [event("e1", kind, {})] })));
+    open();
+    const row = within(await screen.findByRole("list")).getByRole("listitem");
+    expect(row).toHaveTextContent(label);
+    expect(row).toHaveTextContent(sentence);
+  });
+
   it("keeps the order the server gave, one row per event", async () => {
     serve(() =>
       Promise.resolve(

@@ -369,7 +369,9 @@ export function publicRecord(overrides: Record<string, unknown> = {}) {
  */
 export function adminUser(overrides: Record<string, unknown> = {}) {
   return {
+    id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
     email: "ana@example.com",
+    suspended_at: null,
     display_name: "Ana",
     mode: "LIVE",
     exchanges_with_key: ["bybit"],
@@ -393,6 +395,7 @@ export function heldSubscription(overrides: Record<string, unknown> = {}) {
     venue: "usdt-m",
     settlement_currency: "USDT",
     strategy_enabled: true,
+    author_suspended: false,
     strategy_uptime: { seconds: 12 * 86_400 + 3600, first_enabled_at: "2026-09-18T10:00:00Z", baseline: false },
     stop_loss_pct: "10.00",
     ...overrides,
@@ -467,6 +470,7 @@ const DEFAULT_AVAILABLE_PAIRS = ["AAVEUSDT", "SFPUSDT", "STXUSDT"] as const;
  * Spread into every fabricated `/me` answer of a test that is about something else.
  */
 export const SIGNED_UP = {
+  suspended: false,
   profile: null,
   profile_status: "COMPLETE",
   legal_versions: { terms: "terms-test", privacy: "privacy-test" },
