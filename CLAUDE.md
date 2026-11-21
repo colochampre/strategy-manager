@@ -381,10 +381,13 @@ fired stop is found by the stop watcher, which books its fills.
   while the account was demonstrably on isolated margin (UI and
   `account/info` both said so). The account-level `marginMode` is what
   governs; nothing here reads `tradeMode`, and nothing should start.
-- A REVERSE still ends flat, not flipped. The venue is no longer the blocker —
-  futures holds either side. The close's proceeds are not spendable until it
-  settles and the balance snapshot refreshes, so the second half needs a job
-  after settlement, not a retry.
+- On a perpetual, a REVERSE flips. The close runs first. The opening of the
+  new side is a job, `OpenAfterClose`, seeded with the close. Once the close
+  settles FILLED, the job calls `ProcessDelivery.open_now`, which decides
+  that opening from scratch: allocation, mode, archived, suspension. It is a
+  job and not a retry, because the close's proceeds cannot be spent until it
+  settles. Only a reverse to SHORT on spot still ends flat: spot cannot hold
+  a short (`_new_side_holdable` in `process_signal.py`).
 - COIN-M is reachable: the catalogue lists 43 non-USDT-settled perpetuals
   across 22 settlement currencies. It reaches the same `/uapi/v1/` API, but
   those currencies are not in the `Currency` enum or the `capital_pools`
