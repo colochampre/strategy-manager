@@ -3,11 +3,6 @@ import { useQuery } from "@tanstack/react-query";
 import { ApiError, apiFetch } from "@/shared/api/client";
 import type { Mode } from "@/shared/api/me";
 
-/**
- * One user as the admin sees them (decision 8): their state, and no amount and no performance. An exchange in
- * `exchanges_with_no_key` has an enabled pool and no active key, which is what the database can say of a degraded
- * one.
- */
 /** What the user gave at sign-up, as the privacy policy says the admin sees it (public-site LS3). */
 export interface AdminIdentity {
   first_name: string;
@@ -16,6 +11,11 @@ export interface AdminIdentity {
   country: string;
 }
 
+/**
+ * One user as the admin sees them (decision 8): their state, and no amount and no performance. An exchange in
+ * `exchanges_with_no_key` has an enabled pool and no active key, which is what the database can say of a degraded
+ * one.
+ */
 export interface AdminUser {
   email: string;
   display_name: string | null;

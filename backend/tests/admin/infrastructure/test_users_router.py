@@ -20,7 +20,7 @@ from strategy_manager.accounts.infrastructure.models import ExchangeCredentialRo
 from strategy_manager.ledger.infrastructure.models import LedgerEntryRow
 from strategy_manager.main import create_app
 from strategy_manager.shared import db as shared_db
-from tests.identity_auth import ADMIN_HEADERS, OTHER_HEADERS, sign_in_as_admin
+from tests.identity_auth import ADMIN_HEADERS, FORGED_HEADERS, OTHER_HEADERS, sign_in_as_admin
 from tests.ledger.infrastructure.conftest import (  # noqa: F401
     pg_engine,
     pg_session_factory,
@@ -275,6 +275,39 @@ async def test_another_user_is_not_shown_anyones_identity(
 
     assert response.status_code == 403, response.text
     assert "20123456786" not in response.text
+
+
+async def test_no_assertion_or_a_forged_one_gets_no_identity(
+    pg_session_factory: Factory,  # noqa: F811
+) -> None:
+    """Kept from the independent verifier's probe (PS.16): without a valid
+    assertion the list answers 401, and no CUIT is in the body. Two guards give
+    that 401, ``require_admin`` and the snapshot session's ``current_user``: it
+    goes red only with both removed. ``OTHER_HEADERS`` above pins the first."""
+    user_id, _ = await _user(pg_session_factory)
+    async with pg_session_factory() as session:
+        await session.execute(
+            text(
+                "UPDATE users SET first_name = 'Ana', last_name = 'Pérez', "
+                "cuit = '20123456786', country = 'AR', adult_declared_at = now(), "
+                "truthful_declared_at = now() WHERE id = :id"
+            ),
+            {"id": user_id},
+        )
+        await session.commit()
+    app = create_app()
+
+    async def _session() -> AsyncIterator[AsyncSession]:
+        async with pg_session_factory() as session:
+            yield session
+
+    app.dependency_overrides[shared_db.get_session] = _session
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as bare:
+        for headers in ({}, FORGED_HEADERS):
+            response = await bare.get(USERS, headers=headers)
+
+            assert response.status_code == 401, response.text
+            assert "20123456786" not in response.text
 
 
 async def test_the_body_holds_no_amount_and_no_performance(

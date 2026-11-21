@@ -93,6 +93,13 @@ describe("Users", () => {
     expect(row).toHaveTextContent("Todavía no completó el alta");
   });
 
+  it("shows a signed-up user's identity in Spanish", async () => {
+    await i18n.changeLanguage("es");
+    const row = await rowOf(adminUser());
+
+    expect(row).toHaveTextContent("Ana María Pérez · CUIT 20-12345678-6 · Argentina");
+  });
+
   it("draws one row per user, in the order the server gave", async () => {
     serve(() =>
       Promise.resolve(jsonResponse([adminUser({ email: "a@example.com" }), adminUser({ email: "b@example.com" })])),
