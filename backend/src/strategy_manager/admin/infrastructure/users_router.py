@@ -11,6 +11,11 @@ pool and no active key. The worker's own degraded tracking lives in its process.
 
 **Last seen** is ``last_seen_at``, at most a minute stale.
 
+**The identity** is what the sign-up form gave: first and last name, CUIT and
+country, as the privacy policy says the admin sees them (public-site LS3). It is
+``null`` until the user signs up. Neither the declarations nor the acceptance
+record are part of it.
+
 **A deleted account is not listed** (account-deletion S6): its row names nobody.
 ``GET /admin/users/deleted-count`` says how many there are, a route of its own so
 the list's body stays the list it was.
@@ -24,6 +29,7 @@ from pydantic import BaseModel
 
 from strategy_manager.admin.application.read_users import ReadUsers, UserState
 from strategy_manager.admin.infrastructure.users_source import SqlAlchemyUsersSource
+from strategy_manager.identity.domain.profile import Profile
 from strategy_manager.identity.infrastructure.dependencies import require_admin
 from strategy_manager.identity.infrastructure.user_repository import SqlAlchemyUserRepository
 from strategy_manager.performance.infrastructure.open_positions_router import (
@@ -38,6 +44,13 @@ router = APIRouter(
 )
 
 
+class AdminIdentityBody(BaseModel):
+    first_name: str
+    last_name: str
+    cuit: str
+    country: str
+
+
 class AdminUserBody(BaseModel):
     email: str
     display_name: str | None
@@ -47,6 +60,18 @@ class AdminUserBody(BaseModel):
     subscriptions: int
     open_positions: int
     last_seen_at: Instant
+    identity: AdminIdentityBody | None
+
+
+def _identity(profile: Profile | None) -> AdminIdentityBody | None:
+    if profile is None:
+        return None
+    return AdminIdentityBody(
+        first_name=profile.first_name,
+        last_name=profile.last_name,
+        cuit=profile.cuit,
+        country=profile.country,
+    )
 
 
 def _body(state: UserState) -> AdminUserBody:
@@ -59,6 +84,7 @@ def _body(state: UserState) -> AdminUserBody:
         subscriptions=state.subscriptions,
         open_positions=state.open_positions,
         last_seen_at=state.last_seen_at,
+        identity=_identity(state.identity),
     )
 
 

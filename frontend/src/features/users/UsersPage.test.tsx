@@ -72,6 +72,34 @@ describe("Users", () => {
     expect(within(row).getByTestId("admin-user-seen")).toHaveTextContent("Oct 30, 2026, 12:34");
   });
 
+  it("shows the identity the user gave at sign-up, with the CUIT as people write it", async () => {
+    const row = await rowOf(adminUser());
+
+    expect(row).toHaveTextContent("Ana María Pérez");
+    expect(row).toHaveTextContent("20-12345678-6");
+    expect(row).toHaveTextContent("Argentina");
+  });
+
+  it("says a user has not signed up yet when there is no identity", async () => {
+    const row = await rowOf(adminUser({ identity: null }));
+
+    expect(row).toHaveTextContent("Not signed up yet");
+  });
+
+  it("shows the identity in Spanish too", async () => {
+    await i18n.changeLanguage("es");
+    const row = await rowOf(adminUser({ identity: null }));
+
+    expect(row).toHaveTextContent("Todavía no completó el alta");
+  });
+
+  it("shows a signed-up user's identity in Spanish", async () => {
+    await i18n.changeLanguage("es");
+    const row = await rowOf(adminUser());
+
+    expect(row).toHaveTextContent("Ana María Pérez · CUIT 20-12345678-6 · Argentina");
+  });
+
   it("draws one row per user, in the order the server gave", async () => {
     serve(() =>
       Promise.resolve(jsonResponse([adminUser({ email: "a@example.com" }), adminUser({ email: "b@example.com" })])),

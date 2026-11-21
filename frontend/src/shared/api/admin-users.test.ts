@@ -28,6 +28,20 @@ describe("GET /api/admin/users", () => {
     expect(users[1]?.email).toBe("b@example.com");
   });
 
+  it("answers the identity the user gave, and none before they signed up", async () => {
+    serve([adminUser(), adminUser({ email: "b@example.com", identity: null })]);
+
+    const users = await fetchAdminUsers();
+
+    expect(users[0]?.identity).toEqual({
+      first_name: "Ana María",
+      last_name: "Pérez",
+      cuit: "20123456786",
+      country: "AR",
+    });
+    expect(users[1]?.identity).toBeNull();
+  });
+
   it("answers an empty list as an empty list", async () => {
     serve([]);
 
@@ -51,6 +65,17 @@ describe("GET /api/admin/users", () => {
     ["a fractional subscription count", [adminUser({ subscriptions: 1.5 })]],
     ["a position count that is text", [adminUser({ open_positions: "2" })]],
     ["no last sign-in", [adminUser({ last_seen_at: null })]],
+    ["no identity field", [adminUser({ identity: undefined })]],
+    ["an identity that is a list", [adminUser({ identity: [] })]],
+    ["an identity with no CUIT", [adminUser({ identity: { first_name: "Ana", last_name: "Pérez", country: "AR" } })]],
+    [
+      "an identity with a CUIT that is a number",
+      [adminUser({ identity: { first_name: "Ana", last_name: "Pérez", cuit: 20123456786, country: "AR" } })],
+    ],
+    [
+      "an identity with no last name",
+      [adminUser({ identity: { first_name: "Ana", cuit: "20123456786", country: "AR" } })],
+    ],
   ])("refuses %s", async (_name, body) => {
     serve(body);
 
