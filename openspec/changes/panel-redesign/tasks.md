@@ -93,7 +93,7 @@ The owner's words (2026-11-24) are quoted as written.
     - `PAGE_ASIDE`'s minimum height assumes the old top bar. RD.1 recalculates it.
     - Copy invented for the prototype: the two descriptions, the activation history lines and the share link.
   - *Delivered 2026-11-24 as PR #131*: the specs and the prototype. The PR holds documentation only, so nothing was deployed.
-- [ ] RD.1 PR 1, the shell, on branch `feat/panel-shell` (S2, S3, S4, S7, S11, and S13's shell motion):
+- [x] RD.1 PR 1, the shell, on branch `feat/panel-shell` (S2, S3, S4, S7, S11, and S13's shell motion):
   - the sidebar, the mobile drawer, the icons at the top right and the centred main;
   - the page header (breadcrumb, title, subtitle) on every page;
   - the favicon.
@@ -116,6 +116,15 @@ The owner's words (2026-11-24) are quoted as written.
       - Some copy still says "Configuración", such as "Agregue una en Configuración". RD.2 rewrites it.
       - The writer invented copy for the page headers of Mi cuenta, Usuarios and Not found, and for the labels "Administración" and "Herramientas".
     - Risk: none of the high-risk items. The change is UI only, with no backend change, and the CSP and the static serving are unchanged.
+    - L9 and L10 resolve the first two items left open: the top row is now 36 px, and the legal pages stay centred by the owner's decision.
+  - *Delivered 2026-11-24 as PR #132*, six commits. The owner merged it with a merge commit, `2cbd857cb90e`.
+    - **Deploy (pps.6), run by the owner.** The bundle was built from a clean worktree of `origin/main` at `2cbd857cb90e` (SHA-256 `f9920345…307f146e`), copied with `scp`, and published by `panel_2cbd857cb90e.sh`.
+    - Nothing in `backend/` changed since `cf95299ef7f7`, so the checkout was fast-forwarded as `strategy` and no service was restarted.
+    - The VPS answered:
+      - the archive's checksum `OK`, and `readable`;
+      - `backend files changed by the pull: 0`;
+      - `bundle: 2cbd857cb90e` and `checkout: 2cbd857cb90e`;
+      - `favicon: 200 image/png` and `manifest: 200 application/manifest+json`, both on loopback.
 - [ ] RD.2 PR 2: Mi cuenta and Vincular exchange separated (S4, S9).
 - [ ] RD.3 PR 3: the dashboard's header card, and hide balances (S1, S8).
 - [ ] RD.4 PR 4: My trades (S5).
