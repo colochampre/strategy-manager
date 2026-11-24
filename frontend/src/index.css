@@ -48,6 +48,29 @@
   --font-display: "Archivo", system-ui, sans-serif;
   --font-sans: "IBM Plex Sans", system-ui, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+
+  /* The shell's own motion (S13): the mobile drawer slides in over a scrim that fades, 180 ms, ease-out.
+     The elements carry `motion-reduce:animate-none`, so under prefers-reduced-motion they simply appear. */
+  --animate-drawer-in: drawer-in 180ms ease-out;
+  --animate-scrim-in: scrim-in 180ms ease-out;
+
+  @keyframes drawer-in {
+    from {
+      transform: translateX(-100%);
+    }
+    to {
+      transform: translateX(0);
+    }
+  }
+
+  @keyframes scrim-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
 }
 
 html,

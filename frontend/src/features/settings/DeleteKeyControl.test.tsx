@@ -518,7 +518,7 @@ describe("the page, an open form and an open dialog read in Spanish", () => {
     await i18n.changeLanguage("es");
     deletePage({ onDelete, serverDeletes });
     await cardsDrawn();
-    expect(screen.queryByRole("heading", { level: 1, name: "Configuración" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { level: 1, name: "Mi cuenta" })).toBeInTheDocument();
 
     // An open form.
     fireEvent.click(screen.getByRole("button", { name: "Reemplazar clave Bybit" }));

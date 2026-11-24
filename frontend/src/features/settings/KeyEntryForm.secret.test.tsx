@@ -369,8 +369,8 @@ describe("row 10: leaving, switching exchange and a 401", () => {
     fireEvent.click(screen.getAllByRole("link", { name: "Overview" })[0] as HTMLElement);
     await screen.findByRole("heading", { level: 1, name: "Overview" });
     expect(screen.queryByLabelText("API key")).not.toBeInTheDocument();
-    fireEvent.click(screen.getAllByRole("link", { name: "Settings" })[0] as HTMLElement);
-    await screen.findByRole("heading", { level: 1, name: "Settings" });
+    fireEvent.click(screen.getAllByRole("link", { name: /My account/ })[0] as HTMLElement);
+    await screen.findByRole("heading", { level: 1, name: "My account" });
     await card("Bybit");
 
     expect(screen.queryByLabelText("API key")).not.toBeInTheDocument();

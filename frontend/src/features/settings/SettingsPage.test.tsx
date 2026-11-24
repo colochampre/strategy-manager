@@ -86,15 +86,15 @@ function credentialCalls(fetchMock: ReturnType<typeof stubApi>) {
 }
 
 describe("the page's structure", () => {
-  it("keeps the h1 `Settings` and adds the h2 `Exchange keys`, with its intro word for word behind an information button", async () => {
+  it("names the h1 `My account` as the sidebar does and adds the h2 `Exchange keys`, with its intro word for word behind an information button", async () => {
     stub(ok(storedKey("bybit")));
     mountPage();
 
-    expect(screen.queryByRole("heading", { level: 1, name: "Settings" })).toBeInTheDocument();
-    // The sections stack 4 apart; the title alone steps 6 to them (L.13).
-    const title = screen.getByRole("heading", { level: 1, name: "Settings" });
-    expect(title).toHaveClass("mb-2");
-    expect(title.parentElement).toHaveClass("gap-4");
+    expect(screen.queryByRole("heading", { level: 1, name: "My account" })).toBeInTheDocument();
+    // The sections stack 4 apart; the page header alone is 8 further (24 in all, L.13) and holds the title.
+    const title = screen.getByRole("heading", { level: 1, name: "My account" });
+    expect(title.closest("header")).toHaveClass("mb-2");
+    expect(title.closest("header")?.parentElement).toHaveClass("gap-4");
     expect(screen.queryByRole("heading", { level: 2, name: "Exchange keys" })).toBeInTheDocument();
     const info = screen.getByRole("button", { name: "About exchange keys" });
     expect(info).toHaveAttribute("aria-expanded", "false");
@@ -114,7 +114,7 @@ describe("the page's structure", () => {
     await screen.findByRole("heading", { level: 2, name: "Profile" });
 
     const outline = screen.getAllByRole("heading").map((heading) => `${heading.tagName} ${headingName(heading)}`);
-    expect(outline).toEqual(["H1 Settings", "H2 Profile", "H2 Exchange keys", "H3 Bybit", "H2 Delete account"]);
+    expect(outline).toEqual(["H1 My account", "H2 Profile", "H2 Exchange keys", "H3 Bybit", "H2 Delete account"]);
   });
 
   it("draws the cards as a list, one item per exchange, each holding its article", async () => {

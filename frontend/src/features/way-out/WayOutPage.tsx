@@ -16,6 +16,7 @@ import { useHeldSubscriptions, useLeaveSubscription } from "@/shared/api/subscri
 import type { HeldSubscription, Strategy } from "@/shared/api/types";
 import { exchangeName } from "@/shared/exchanges/exchange-name";
 import { DANGER_CONTROL } from "@/shared/ui/danger-control";
+import { PageHeader } from "@/shared/ui/PageHeader";
 import { ReportSection } from "@/shared/ui/ReportSection";
 
 /** Where the sign-up form and the acceptance box send a user who will not go on (public-site PS.15). */
@@ -36,8 +37,11 @@ export function WayOutPage() {
   return (
     // The parts stack 4 apart, as every view's blocks do; the title alone steps 6 to them (L.13).
     <div className="flex max-w-3xl flex-col gap-4">
-      <h1 className="font-display text-2xl font-bold text-ink">{t("wayOut.title")}</h1>
-      <p className="text-sm text-ink-2">{t("wayOut.intro")}</p>
+      <PageHeader
+        crumbs={[{ label: t("wayOut.title") }]}
+        title={t("wayOut.title")}
+        subtitle={t("wayOut.intro")}
+      />
       <Link to="/" className="mb-2 self-start text-sm text-ink-2 underline hover:text-ink">
         {t("wayOut.back")}
       </Link>

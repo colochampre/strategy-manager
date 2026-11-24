@@ -11,6 +11,7 @@ import { EnableToggle } from "@/features/strategies/EnableToggle";
 import { PAGE_ASIDE } from "@/features/strategies/page-aside";
 import { SeatSettings } from "@/features/strategies/SeatSettings";
 import { AuthorFigures } from "@/features/strategies/RecordFigures";
+import { StrategyCrumbs } from "@/features/strategies/StrategyPageHeader";
 import { StopLevelEditor } from "@/features/strategies/StopLevelEditor";
 import { AuthorDescription } from "@/features/strategies/StrategyDescription";
 import { BackToStrategies, StrategyHeader } from "@/features/strategies/StrategyHeader";
@@ -71,7 +72,13 @@ export function StrategyDetailPage() {
   }
 
   const subject = strategy.data;
+  const crumbs = [
+    { label: t("nav.strategies") },
+    { label: t("nav.authored"), to: "/strategies/authored" },
+    { label: subject.name },
+  ];
   return (
+    <StrategyCrumbs value={crumbs}>
     <div className="flex flex-col gap-4">
       <div className="grid gap-9 lg:grid-cols-[minmax(0,1fr)_25rem]">
         {/* The header, the description and Performance as another author's page draws them (owner, 2026-11-17). */}
@@ -114,5 +121,6 @@ export function StrategyDetailPage() {
       <TradesTable strategyId={subject.id} currency={subject.settlement_currency} />
       <DeleteStrategyControl strategy={subject} />
     </div>
+    </StrategyCrumbs>
   );
 }

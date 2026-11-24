@@ -1,4 +1,4 @@
-import { screen } from "@testing-library/react";
+import { fireEvent, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AppRoutes } from "@/app/router";
@@ -20,10 +20,10 @@ describe("route map", () => {
     stubApi({ kind: "ok", body: { status: "ok", dry_run: true } }, [], undefined, {}, strategyRoute(STRATEGY_ID, "Strategy"));
     const cases: Array<[string, string]> = [
       ["/", "Overview"],
-      ["/strategies", "Strategies"],
+      ["/strategies", "My subscriptions"],
       [`/strategies/${STRATEGY_ID}`, "Strategy"],
       ["/discrepancies", "Discrepancies"],
-      ["/settings", "Settings"],
+      ["/settings", "My account"],
     ];
     for (const [path, title] of cases) {
       const { unmount } = renderAt(<AppRoutes />, path);
@@ -50,14 +50,16 @@ describe("route map", () => {
   it("keeps the shell around the not-found page", async () => {
     renderAt(<AppRoutes />, "/no/such/page");
 
-    expect(await screen.findAllByRole("navigation", { name: "Sections" })).toHaveLength(2);
+    expect(await screen.findAllByRole("navigation", { name: "Sections" })).toHaveLength(1);
   });
 
   it("keeps the confirmed discrepancies reachable from the overview, behind the token gate", async () => {
     renderAt(<AppRoutes />, "/");
 
+    // The admin's Administration group holds it, closed until it is pressed.
+    fireEvent.click(await screen.findByRole("button", { name: /^Administration/ }));
     const links = await screen.findAllByRole("link", { name: /^Discrepancies/ });
-    expect(links).toHaveLength(2);
+    expect(links).toHaveLength(1);
     for (const link of links) expect(link).toHaveAttribute("href", "/discrepancies");
   });
 
@@ -66,6 +68,6 @@ describe("route map", () => {
     renderAt(<AppRoutes />, "/settings");
 
     expect(await screen.findByRole("button", { name: "Sign in again" })).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { level: 1, name: "Settings" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { level: 1, name: "My account" })).not.toBeInTheDocument();
   });
 });

@@ -1,8 +1,16 @@
 import { Calendar } from "lucide-react";
-import type { ReactNode } from "react";
+import { createContext, type ReactNode, use } from "react";
 import { useTranslation } from "react-i18next";
 
 import { dateRange, NamedValue } from "@/features/strategies/StrategyCard";
+import { Breadcrumb, type Crumb } from "@/shared/ui/PageHeader";
+
+/**
+ * The trail the page above the header draws in place of a link back: Home > Strategies > the list it came from > the
+ * strategy. The pages provide it because they know the name as text; the header is drawn by a component that
+ * takes the name as an element (it may be the rename field).
+ */
+export const StrategyCrumbs = createContext<readonly Crumb[] | null>(null);
 
 interface StrategyPageHeaderProps {
   /** The prefix of the header's test ids: `public` on another author's page, `strategy` on the author's own. */
@@ -43,11 +51,12 @@ export function StrategyPageHeader({
 }: StrategyPageHeaderProps) {
   const { t, i18n } = useTranslation();
   const dates = dateRange(since, i18n.language);
+  const crumbs = use(StrategyCrumbs);
 
   return (
     // The title steps 6 to the page below it, whose blocks stack 4 apart (L.13).
     <header className="mb-2 flex flex-col gap-1.5">
-      {back}
+      {crumbs === null ? back : <Breadcrumb crumbs={crumbs} />}
       <div className="flex min-h-11 flex-wrap items-center gap-x-3 gap-y-1">
         {title}
         {status}
@@ -73,4 +82,4 @@ export function StrategyPageHeader({
 }
 
 /** The `h1` both pages draw: one size, so the name never jumps between them. */
-export const STRATEGY_TITLE = "font-display text-2xl font-bold text-ink";
+export const STRATEGY_TITLE = "font-display text-[28px] font-semibold leading-[1.15] text-ink";

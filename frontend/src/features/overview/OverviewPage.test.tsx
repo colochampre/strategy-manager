@@ -22,14 +22,15 @@ afterEach(async () => {
   await act(() => i18n.changeLanguage("en"));
 });
 
-/** The page's own content: the shell's tabs say "Loading exchanges…" too, so a message is looked for inside `main`. */
+/** The page's own content: the shell's exchange buttons say "Loading exchanges…" too, so a message is looked for inside the page's own column. */
 async function inPage() {
-  return within(await screen.findByRole("main"));
+  return within((await title()).parentElement as HTMLElement);
 }
 
-/** The page's title, asserted to exist before it is returned. */
+/** The page's header (breadcrumb, title, subtitle), asserted to exist before it is returned: the messages come right under it. */
 async function title(): Promise<HTMLElement> {
-  return screen.findByRole("heading", { level: 1, name: /^(Overview|Resumen)$/ });
+  const heading = await screen.findByRole("heading", { level: 1, name: /^(Overview|Panel de control)$/ });
+  return heading.closest("header") as HTMLElement;
 }
 
 describe("the Overview has no decision rail (spec: no rail, on any width; prototype example 12)", () => {
@@ -96,7 +97,7 @@ describe("the Overview carries its own scope messages (spec; prototype example 1
       loading: "Cargando exchanges…",
       error: "Los pools están ocultos porque no se pudieron cargar los exchanges y no se pueden filtrar.",
       none: "No hay ningún exchange configurado, por lo que no hay pools que mostrar.",
-      title: "Resumen",
+      title: "Panel de control",
     },
   } as const;
 

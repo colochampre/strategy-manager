@@ -170,6 +170,6 @@ describe("privacy policy page", () => {
     renderAt(<AppRoutes />, "/privacy");
 
     expect(await screen.findByRole("heading", { level: 1, name: "Privacy policy" })).toBeInTheDocument();
-    expect(screen.getAllByRole("navigation", { name: "Sections" })).toHaveLength(2);
+    expect(screen.getAllByRole("navigation", { name: "Sections" })).toHaveLength(1);
   });
 });

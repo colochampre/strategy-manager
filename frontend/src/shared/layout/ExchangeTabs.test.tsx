@@ -94,15 +94,15 @@ describe("tabs only where something runs (owner decision 37)", () => {
 describe("which routes show the tabs", () => {
   it.each([
     ["/", "Overview"],
-    ["/strategies/authored", "Strategies"],
+    ["/strategies/authored", "My strategies"],
     [`/strategies/${STRATEGY_ID}`, "Strategy"],
-  ])("shows one tab per distinct exchange on %s, in both surfaces", async (path, title) => {
+  ])("shows one tab per distinct exchange on %s, in one bar", async (path, title) => {
     stubApi(HEALTH, [], TWO_EXCHANGES, {}, strategyRoute(STRATEGY_ID, "Strategy"));
     renderAt(<AppRoutes />, path);
 
     await screen.findByRole("heading", { level: 1, name: title });
     const bars = await screen.findAllByRole("navigation", { name: "Exchanges" });
-    expect(bars).toHaveLength(2);
+    expect(bars).toHaveLength(1);
     for (const bar of bars) {
       expect(within(bar).getAllByRole("button").map(drawnName)).toEqual(["Bybit", "Binance"]);
     }
@@ -113,7 +113,7 @@ describe("which routes show the tabs", () => {
     stubApi(HEALTH, [], TWO_EXCHANGES);
     renderAt(<AppRoutes />, "/settings");
 
-    await screen.findByRole("heading", { level: 1, name: "Settings" });
+    await screen.findByRole("heading", { level: 1, name: "My account" });
     await screen.findByText("Simulation forced");
     expect(screen.queryByRole("navigation", { name: "Exchanges" })).not.toBeInTheDocument();
   });
@@ -142,20 +142,20 @@ describe("which routes show the tabs", () => {
     renderAt(<AppRoutes />, "/");
     await screen.findAllByRole("navigation", { name: "Exchanges" });
 
-    fireEvent.click(screen.getAllByRole("link", { name: "Settings" })[0] as HTMLElement);
+    fireEvent.click(screen.getAllByRole("link", { name: /My account/ })[0] as HTMLElement);
 
-    await screen.findByRole("heading", { level: 1, name: "Settings" });
+    await screen.findByRole("heading", { level: 1, name: "My account" });
     expect(screen.queryByRole("navigation", { name: "Exchanges" })).not.toBeInTheDocument();
   });
 });
 
 describe("selection", () => {
-  it("marks the first exchange as selected by default, in both surfaces", async () => {
+  it("marks the first exchange as selected by default", async () => {
     stubApi(HEALTH, [], TWO_EXCHANGES);
     renderAt(<AppRoutes />, "/");
 
     const pressed = await screen.findAllByRole("button", { name: "Bybit", pressed: true });
-    expect(pressed).toHaveLength(2);
+    expect(pressed).toHaveLength(1);
     expect(screen.queryByRole("button", { name: "Binance", pressed: true })).not.toBeInTheDocument();
   });
 
@@ -166,7 +166,7 @@ describe("selection", () => {
     const tabs = await screen.findAllByRole("button", { name: "Binance" });
     fireEvent.click(tabs[0] as HTMLElement);
 
-    expect(await screen.findAllByRole("button", { name: "Binance", pressed: true })).toHaveLength(2);
+    expect(await screen.findAllByRole("button", { name: "Binance", pressed: true })).toHaveLength(1);
     expect(screen.queryByRole("button", { name: "Bybit", pressed: true })).not.toBeInTheDocument();
     const raw = window.localStorage.getItem("sm.exchange");
     expect(JSON.parse(raw as string).state.selected).toBe("binance");
@@ -177,10 +177,9 @@ describe("selection", () => {
     renderAt(<AppRoutes />, "/");
     fireEvent.click((await screen.findAllByRole("button", { name: "Binance" }))[0] as HTMLElement);
 
-    fireEvent.click(screen.getAllByRole("link", { name: "Strategies" })[0] as HTMLElement);
-    fireEvent.click(await screen.findByRole("link", { name: "My strategies" }));
+    fireEvent.click(screen.getByRole("link", { name: "My strategies" }));
 
-    expect(await screen.findAllByRole("button", { name: "Binance", pressed: true })).toHaveLength(2);
+    expect(await screen.findAllByRole("button", { name: "Binance", pressed: true })).toHaveLength(1);
   });
 
   it("starts from a persisted exchange that is still an option", async () => {
@@ -193,7 +192,7 @@ describe("selection", () => {
     stubApi(HEALTH, [], TWO_EXCHANGES);
     renderAt(<AppRoutes />, "/");
 
-    expect(await screen.findAllByRole("button", { name: "Binance", pressed: true })).toHaveLength(2);
+    expect(await screen.findAllByRole("button", { name: "Binance", pressed: true })).toHaveLength(1);
   });
 
   it("falls back to the first exchange when the persisted one is gone", async () => {
@@ -206,7 +205,7 @@ describe("selection", () => {
     stubApi(HEALTH, [], TWO_EXCHANGES);
     renderAt(<AppRoutes />, "/");
 
-    expect(await screen.findAllByRole("button", { name: "Bybit", pressed: true })).toHaveLength(2);
+    expect(await screen.findAllByRole("button", { name: "Bybit", pressed: true })).toHaveLength(1);
     expect(screen.queryByRole("button", { name: "Kraken" })).not.toBeInTheDocument();
   });
 });
@@ -242,7 +241,7 @@ describe("pools loading and failure", () => {
     stubApi(HEALTH, [], { kind: "status", status: 503, body: {} });
     renderAt(<AppRoutes />, "/");
 
-    expect(await screen.findAllByRole("navigation", { name: "Sections" })).toHaveLength(2);
+    expect(await screen.findAllByRole("navigation", { name: "Sections" })).toHaveLength(1);
     expect(await screen.findByText("Simulation forced")).toBeInTheDocument();
   });
 
@@ -259,44 +258,38 @@ describe("pools loading and failure", () => {
 });
 
 describe("layout contract", () => {
-  it("puts the tabs in the top bar on wide screens and in a scrollable row below it on narrow ones", async () => {
+  it("puts the tabs in the row above the page: beside the tools from lg, in a full-width scrollable row of their own below it", async () => {
     stubApi(HEALTH, [], TWO_EXCHANGES);
     renderAt(<AppRoutes />, "/");
 
     await screen.findAllByRole("button", { name: "Bybit" });
-    const [wide, narrow] = screen.getAllByRole("navigation", { name: "Exchanges" });
-    const header = screen.getByRole("banner");
+    const bar = screen.getByRole("navigation", { name: "Exchanges" });
+    const tools = screen.getByRole("group", { name: "Tools" });
 
-    expect(wide).toHaveClass("hidden", "lg:flex");
-    expect(narrow).toHaveClass("lg:hidden");
-    expect(narrow).not.toHaveClass("hidden");
-
-    // Both live in the header, and the narrow one is its LAST row.
-    expect(header).toContainElement(wide as HTMLElement);
-    expect(header).toContainElement(narrow as HTMLElement);
-    expect(header.lastElementChild).toBe(narrow);
-    expect(header.firstElementChild).not.toBe(narrow);
+    // One row holds both, the bar after the tools on a phone and before them from `lg`.
+    expect(bar.parentElement).toBe(tools.parentElement);
+    expect(bar).toHaveClass("order-3", "w-full", "lg:order-2", "lg:w-auto");
+    expect(tools).toHaveClass("order-2", "lg:order-3");
 
     // The row scrolls sideways instead of wrapping or stretching the page.
-    for (const bar of [wide, narrow]) {
-      expect(bar).toHaveClass("overflow-x-auto", "min-w-0");
-      expect(bar).not.toHaveClass("flex-wrap");
-    }
+    expect(bar).toHaveClass("overflow-x-auto", "min-w-0");
+    expect(bar).not.toHaveClass("flex-wrap");
     // Below `lg` the tabs share the row's whole width, each the same, and never shrink under their
     // own name (design § E, decision 59); the height is on the inner span, 52 px on every tab.
-    for (const tab of within(narrow as HTMLElement).getAllByRole("button")) {
-      expect(tab).toHaveClass("flex-1", "min-w-fit", "lg:flex-none", "whitespace-nowrap");
+    for (const tab of within(bar).getAllByRole("button")) {
+      expect(tab).toHaveClass("flex-1", "min-w-fit", "lg:flex-none", "whitespace-nowrap", "border");
       expect(tab).not.toHaveClass("shrink-0");
       expect(tab.firstElementChild).toHaveClass("min-h-13");
     }
   });
 
-  it("keeps the header out of the content's scroll: it never shrinks", async () => {
+  it("draws the selected tab with the gain border and the others with the rule's", async () => {
     stubApi(HEALTH, [], TWO_EXCHANGES);
     renderAt(<AppRoutes />, "/");
 
-    await screen.findAllByRole("navigation", { name: "Exchanges" });
-    expect(screen.getByRole("banner")).toHaveClass("shrink-0");
+    await screen.findAllByRole("button", { name: "Bybit" });
+    expect(screen.getByRole("button", { name: "Bybit", pressed: true })).toHaveClass("border-gain");
+    expect(screen.getByRole("button", { name: "Binance", pressed: false })).toHaveClass("border-rule");
   });
 
   it("uses no hex colour or var() in any tab class", async () => {
@@ -331,11 +324,11 @@ function credentialCalls(fetchMock: ReturnType<typeof stubApi>) {
   return fetchMock.mock.calls.filter(([url]) => String(url).endsWith("/credentials"));
 }
 
-/** The two surfaces of the tabs: the bar from `lg` and the row below it on a phone. */
+/** The tabs' bar: one for every width (the same bar scrolls sideways on a phone). Kept as a list so the checks read as before. */
 async function bothBars(): Promise<HTMLElement[]> {
   await screen.findAllByRole("button", { name: /Bybit/ });
   const bars = screen.getAllByRole("navigation", { name: "Exchanges" });
-  expect(bars).toHaveLength(2);
+  expect(bars).toHaveLength(1);
   return bars;
 }
 
@@ -571,7 +564,8 @@ describe("the tabs read the credentials", () => {
     const index = fetchMock.mock.calls.findIndex(([url]) => String(url).endsWith("/credentials"));
     const answer = (await fetchMock.mock.results[index]?.value) as Response;
     expect(answer.ok).toBe(true);
-    expect(fetchMock.unexpected).toEqual([]);
+    // The sidebar asks for `/build.txt`, which a development server does not have: the build tag stays hidden.
+    expect(fetchMock.unexpected.filter((url) => url !== "/build.txt")).toEqual([]);
   });
 
   it("takes each mark from keyMark(keyState(...)) of the shared module and adds no amber class of its own", () => {

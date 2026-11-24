@@ -7,7 +7,8 @@ import { cn } from "@/shared/lib/cn";
 import { InfoTip } from "@/shared/ui/Tooltip";
 import { ModeDialog } from "@/shared/layout/ModeDialog";
 
-const PILL = "rounded-sm border px-2 py-1 font-mono text-xs uppercase tracking-widest";
+/** 36 px high like the icon buttons beside it in the shell's top row (S7). */
+const PILL = "inline-flex h-9 items-center rounded-lg border px-3.5 font-mono text-xs uppercase tracking-widest";
 const NEUTRAL = "border-rule text-ink-3";
 const AMBER = "border-decision text-decision";
 
@@ -74,7 +75,7 @@ function ModeMenu({ current, onPick }: ModeMenuProps) {
         aria-expanded={expanded}
         aria-controls={expanded ? menuId : undefined}
         onClick={() => setExpanded((open) => !open)}
-        className="inline-flex min-h-11 items-center rounded-sm hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gain"
+        className="inline-flex items-center rounded-lg hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gain"
       >
         <span className={cn(PILL, "inline-flex items-center gap-1", live ? "border-gain text-gain" : AMBER)}>
           {label}

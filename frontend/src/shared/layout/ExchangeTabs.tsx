@@ -16,7 +16,7 @@ interface ExchangeTabsProps {
 /**
  * The exchange selector of the scoped routes, for anyone signed in. Until the
  * API has said who that is there is nothing to scope, and `GET /pools` would
- * only answer 401, so it renders nothing and asks for nothing; `TopBar` mounts
+ * only answer 401, so it renders nothing and asks for nothing; `ShellTopRow` mounts
  * it only on the scoped routes, which is why Settings never reads the scope.
  *
  * The row scrolls sideways and never wraps, so a long exchange list on a phone
@@ -56,7 +56,7 @@ function ExchangeTabsBar({ className }: ExchangeTabsProps) {
   return (
     <nav
       aria-label={t("scope.exchanges")}
-      className={cn("flex min-w-0 items-center gap-1 overflow-x-auto", className)}
+      className={cn("flex min-w-0 items-center gap-2 overflow-x-auto", className)}
     >
       {scope.status === "loading" && (
         <p role="status" className="whitespace-nowrap text-xs text-ink-3">
@@ -79,10 +79,10 @@ function ExchangeTabsBar({ className }: ExchangeTabsProps) {
               aria-pressed={selected}
               onClick={() => scope.select(exchange)}
               className={cn(
-                "min-w-fit flex-1 whitespace-nowrap rounded-md px-3.5 text-sm transition-colors lg:flex-none",
+                "min-w-fit flex-1 whitespace-nowrap rounded-lg border px-4.5 text-sm transition-colors motion-reduce:transition-none lg:flex-none",
                 selected
-                  ? "bg-panel-2 font-semibold text-ink"
-                  : "text-ink-3 hover:bg-panel-2 hover:text-ink",
+                  ? "border-gain bg-panel-2 font-semibold text-ink"
+                  : "border-rule bg-panel text-ink-3 hover:bg-panel-2 hover:text-ink",
               )}
             >
               <span className="grid min-h-13 grid-rows-[minmax(0,1fr)_auto_minmax(0,1fr)] justify-items-center">

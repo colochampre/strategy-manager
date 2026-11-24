@@ -1,11 +1,10 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { Route, Routes } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AdminRoute } from "@/shared/auth/AdminRoute";
 import { AppShell } from "@/shared/layout/AppShell";
-import { BottomNav } from "@/shared/layout/BottomNav";
-import { SideNav } from "@/shared/layout/SideNav";
+import { Sidebar } from "@/shared/layout/Sidebar";
 import { jsonResponse, renderAt, SIGNED_UP, stubApi, unlock } from "@/test/harness";
 
 const USER = { email: "a@example.com", mode: "SIMULATION", dry_run_brake: true, ...SIGNED_UP };
@@ -20,18 +19,19 @@ function asUser(isAdmin: boolean) {
   return serveMe(() => Promise.resolve(jsonResponse({ ...USER, is_admin: isAdmin })));
 }
 
-function bothNavs() {
-  return renderAt(
-    <>
-      <SideNav />
-      <BottomNav />
-    </>,
-    "/",
-  );
+function sidebar() {
+  return renderAt(<Sidebar />, "/");
 }
 
-function navs() {
-  return screen.getAllByRole("navigation", { name: "Sections" });
+function nav() {
+  return screen.getByRole("navigation", { name: "Sections" });
+}
+
+/** Every href the sidebar offers while the groups are open, so a closed group does not hide a link from the list. */
+function hrefs() {
+  return within(nav())
+    .getAllByRole("link", { hidden: true })
+    .map((link) => link.getAttribute("href"));
 }
 
 function requestsTo(fetchMock: ReturnType<typeof stubApi>, path: string) {
@@ -47,76 +47,72 @@ afterEach(() => {
 });
 
 describe("what the navigation offers", () => {
-  it("offers the admin Discrepancies and Users in both navigations", async () => {
+  it("offers the admin Discrepancies and Users, in a group of their own", async () => {
     asUser(true);
-    bothNavs();
+    sidebar();
 
-    await screen.findAllByRole("link", { name: "Users" });
-    for (const nav of navs()) {
-      expect(within(nav).getByRole("link", { name: "Discrepancies" })).toHaveAttribute("href", "/discrepancies");
-      expect(within(nav).getByRole("link", { name: "Users" })).toHaveAttribute("href", "/users");
-    }
+    const group = await screen.findByRole("button", { name: "Administration" });
+    fireEvent.click(group);
+    expect(within(nav()).getByRole("link", { name: "Discrepancies" })).toHaveAttribute("href", "/discrepancies");
+    expect(within(nav()).getByRole("link", { name: "Users" })).toHaveAttribute("href", "/users");
   });
 
-  it("offers the admin every section, in order", async () => {
+  it("offers the admin every section, in order: the pages, the Strategies group, the Administration group, the account", async () => {
     asUser(true);
-    bothNavs();
+    sidebar();
 
-    await screen.findAllByRole("link", { name: "Users" });
-    for (const nav of navs()) {
-      expect(within(nav).getAllByRole("link").map((link) => link.getAttribute("href"))).toEqual([
-        "/",
-        "/strategies",
-        "/discrepancies",
-        "/users",
-        "/safety-events",
-        "/settings",
-      ]);
-    }
+    await screen.findByRole("button", { name: "Administration" });
+    expect(hrefs()).toEqual([
+      "/",
+      "/strategies/authored",
+      "/strategies",
+      "/strategies/explore",
+      "/safety-events",
+      "/discrepancies",
+      "/users",
+      "/settings",
+      "/cdn-cgi/access/logout",
+    ]);
   });
 
-  it("offers anyone else neither, in either navigation, and never reads the discrepancies", async () => {
+  it("offers anyone else neither, and never reads the discrepancies", async () => {
     const fetchMock = asUser(false);
-    bothNavs();
+    sidebar();
 
     await waitFor(() => expect(requestsTo(fetchMock, "/api/me").length).toBeGreaterThan(0));
     await new Promise((resolve) => setTimeout(resolve, 0));
-    for (const nav of navs()) {
-      expect(within(nav).getAllByRole("link").map((link) => link.getAttribute("href"))).toEqual([
-        "/",
-        "/strategies",
-        "/safety-events",
-        "/settings",
-      ]);
-    }
+    expect(hrefs()).toEqual([
+      "/",
+      "/strategies/authored",
+      "/strategies",
+      "/strategies/explore",
+      "/safety-events",
+      "/settings",
+      "/cdn-cgi/access/logout",
+    ]);
+    expect(screen.queryByRole("button", { name: "Administration" })).not.toBeInTheDocument();
     expect(requestsTo(fetchMock, "/reconciliation/confirmed")).toEqual([]);
   });
 
   it("offers neither before it knows who is signed in", () => {
     serveMe(() => new Promise<Response>(() => undefined));
-    bothNavs();
+    sidebar();
 
-    for (const nav of navs()) {
-      expect(within(nav).getAllByRole("link").map((link) => link.getAttribute("href"))).toEqual([
-        "/",
-        "/strategies",
-        "/safety-events",
-        "/settings",
-      ]);
-    }
+    expect(screen.queryByRole("button", { name: "Administration" })).not.toBeInTheDocument();
+    expect(hrefs()).not.toContain("/users");
   });
 
   it("offers neither when it cannot tell", async () => {
     const fetchMock = serveMe(() => Promise.resolve(jsonResponse({ detail: "boom" }, 500)));
-    bothNavs();
+    sidebar();
 
     await waitFor(() => expect(requestsTo(fetchMock, "/api/me").length).toBeGreaterThan(0));
-    expect(screen.queryByRole("link", { name: "Users" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Administration" })).not.toBeInTheDocument();
   });
 
   it("keeps the badge's read for the admin", async () => {
     const fetchMock = stubApi({ kind: "ok", body: {} });
-    bothNavs();
+    sidebar();
 
     await waitFor(() => expect(requestsTo(fetchMock, "/reconciliation/confirmed").length).toBeGreaterThan(0));
   });

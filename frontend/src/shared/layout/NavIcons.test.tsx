@@ -1,4 +1,4 @@
-import { fireEvent, screen, within } from "@testing-library/react";
+import { screen, within } from "@testing-library/react";
 import { Route, Routes } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -16,7 +16,7 @@ async function renderShell() {
     </Routes>,
     "/",
   );
-  await screen.findAllByRole("link", { name: "Users" });
+  await screen.findByRole("button", { name: "Administration" });
   return view;
 }
 
@@ -31,78 +31,39 @@ afterEach(async () => {
 });
 
 const ICONS = [
-  ["Overview", "lucide-layout-dashboard"],
-  ["Strategies", "lucide-chart-candlestick"],
-  ["Discrepancies", "lucide-scale"],
-  ["Users", "lucide-users"],
-  ["Safety events", "lucide-shield-alert"],
-  ["Settings", "lucide-settings"],
+  ["link", "Overview", "lucide-layout-dashboard"],
+  ["button", "Strategies", "lucide-trending-up"],
+  ["link", "Safety events", "lucide-shield-alert"],
+  ["button", "Administration", "lucide-shield-check"],
+  ["link", /My account/, "lucide-user"],
+  ["link", "Sign out", "lucide-log-out"],
 ] as const;
 
-function navs() {
-  const all = screen.getAllByRole("navigation", { name: "Sections" });
-  return {
-    side: all.find((nav) => nav.className.includes("lg:flex"))!,
-    bottom: all.find((nav) => nav.className.includes("lg:hidden"))!,
-  };
+function sidebar() {
+  return screen.getAllByRole("navigation", { name: "Sections" })[0] as HTMLElement;
 }
 
 describe("the navigation icons", () => {
-  it.each(ICONS)("%s carries its own aria-hidden icon in both navigations", async (label, iconClass) => {
-    await renderShell();
-    const { side, bottom } = navs();
-
-    for (const nav of [side, bottom]) {
-      const link = within(nav).getByRole("link", { name: label });
-      const svgs = link.querySelectorAll("svg");
-      expect(svgs).toHaveLength(1);
-      expect(svgs[0]).toHaveAttribute("aria-hidden", "true");
-      expect(svgs[0]).toHaveClass(iconClass);
-    }
-  });
-
-  it("draws the bottom bar's icon at 20 px", async () => {
+  it.each(ICONS)("%s %s carries its own aria-hidden icon, at 16 px, left of the name", async (role, name, iconClass) => {
     await renderShell();
 
-    for (const [label] of ICONS) {
-      const svg = within(navs().bottom).getByRole("link", { name: label }).querySelector("svg");
-      expect(svg).toHaveClass("size-5");
-    }
+    const item = within(sidebar()).getByRole(role, { name });
+    const svgs = Array.from(item.querySelectorAll("svg")).filter((svg) => !svg.classList.contains("lucide-chevron-down"));
+    expect(svgs).toHaveLength(1);
+    expect(svgs[0]).toHaveAttribute("aria-hidden", "true");
+    expect(svgs[0]).toHaveClass(iconClass, "size-4");
+    expect(item.firstElementChild).toBe(svgs[0]);
   });
 
-  it("draws the side rail's icon at 16 px, left of the name", async () => {
+  it("names the Overview in Spanish as the owner's panel de control", async () => {
     await renderShell();
 
-    const link = within(navs().side).getByRole("link", { name: "Overview" });
-    expect(link.querySelector("svg")).toHaveClass("size-4");
-    const svg = link.querySelector("svg");
-    expect(link.firstElementChild).toBe(svg?.parentElement);
-    expect(svg?.parentElement?.firstElementChild).toBe(svg);
-    expect(svg?.parentElement).toHaveTextContent("Overview");
+    screen.getByRole("button", { name: /^(Language|Idioma):/ }).click();
+
+    expect(await within(sidebar()).findByRole("link", { name: "Panel de control" })).toHaveAttribute("href", "/");
   });
 
-  it("shows no visible label in the bottom bar: the name is sr-only text and the title", async () => {
-    await renderShell();
-
-    for (const [label] of ICONS) {
-      const link = within(navs().bottom).getByRole("link", { name: label });
-      expect(link).toHaveAttribute("title", label);
-      const text = within(link).getByText(label);
-      expect(text).toHaveClass("sr-only");
-    }
-  });
-
-  it("titles the bottom bar's links in Spanish too", async () => {
-    await renderShell();
-    const { bottom } = navs();
-
-    fireEvent.click(screen.getByRole("button", { name: /^(Language|Idioma):/ }));
-
-    const link = within(bottom).getByRole("link", { name: "Resumen" });
-    expect(link).toHaveAttribute("title", "Resumen");
-  });
-
-  it("draws the round flag of the language in use left of its code, and names what pressing it does (L.10, L.11)", async () => {
+  it("draws the round flag of the language in use, alone in the button, which names what pressing it does (L.10, L.11)", async () => {
     await renderShell();
 
     const button = screen.getByRole("button", { name: /^(Language|Idioma):/ });

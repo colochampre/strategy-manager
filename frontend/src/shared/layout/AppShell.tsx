@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, Outlet, useLocation } from "react-router";
 
@@ -6,24 +6,22 @@ import { ProfileGate } from "@/features/sign-up/ProfileGate";
 import { useSignUpPending } from "@/shared/api/me";
 
 import { SignInGate } from "@/shared/auth/SignInGate";
-import { BottomNav } from "@/shared/layout/BottomNav";
-import { SideNav } from "@/shared/layout/SideNav";
-import { TopBar } from "@/shared/layout/TopBar";
+import { MobileDrawer } from "@/shared/layout/MobileDrawer";
+import { ShellTopRow } from "@/shared/layout/ShellTopRow";
+import { Sidebar } from "@/shared/layout/Sidebar";
 
 /**
- * The page frame. It is exactly one viewport tall (`#root` is 100% high), a
- * flex column of top bar, body and (on phones) bottom bar, and only `main`
- * scrolls. `min-h-0` on the flex children lets them shrink below their
- * content so the scroll happens inside `main` instead of on the page.
+ * The page frame. It is exactly one viewport tall (`#root` is 100% high), a flex row of the sidebar (from `lg`; below
+ * it the hamburger in the top row opens the same pages in a drawer) and `main`, and only `main` scrolls. `min-h-0`
+ * on the flex children lets them shrink below their content so the scroll happens inside `main` instead of on the
+ * page. There is no top bar: what it held is the row at the top of `main` (`ShellTopRow`).
  *
- * The sign-in gate sits inside `main`, so the badge and navigation stay visible
- * while it checks who is signed in (`/health` is outside Access's check in the
- * API) and the gate card fills the space `main` leaves over.
+ * The sign-in gate sits inside `main`, so the sidebar and the top row stay visible while it checks who is signed in
+ * (`/health` is outside Access's check in the API) and the gate card fills the space `main` leaves over.
  *
- * `main` stays full width, so its scrollbar sits at the window edge. Every page
- * lives in one centred column capped at 90rem (decision 38), so a very wide
- * screen adds margin around the content instead of stretching it, and the
- * space between the pool panel and the decision rail never grows.
+ * `main` stays full width, so its scrollbar sits at the window edge. Every page lives in one centred column capped at
+ * 1100 px (owner, 2026-11-24: "sin alargarse para ocupar todo el ancho"), with the same padding on every page so
+ * nothing jumps when navigating, and a very wide screen adds margin around the content instead of stretching it.
  *
  * Because `main` is the scroll container, a change of page puts it back at its
  * top; the browser does that for the window only, so a link followed from the
@@ -49,48 +47,53 @@ import { TopBar } from "@/shared/layout/TopBar";
  * where the user is informed (Ley 25.326 art. 6): it links the policy and records
  * the version accepted, and asks again when it changes. The footer stays,
  * so the terms and the policy the form asks to accept are one click away. The
- * navigation (and, in the top bar, the exchange tabs and the mode badge) waits
- * for it too: nothing of the panel to go to or act on. While `me` loads it
- * shows, as before sign-up existed.
+ * sidebar, the hamburger, the exchange buttons and the mode badge wait for it
+ * too: nothing of the panel to go to or act on. While `me` loads it shows, as
+ * before sign-up existed.
  */
 export function AppShell() {
   const { t } = useTranslation();
   const signUpPending = useSignUpPending();
   const { pathname } = useLocation();
   const mainRef = useRef<HTMLElement>(null);
+  const menuRef = useRef<HTMLButtonElement>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   // `main` scrolls, not the window, so the browser's own reset on navigation never reaches it.
   useEffect(() => {
     if (mainRef.current !== null) mainRef.current.scrollTop = 0;
   }, [pathname]);
 
+  const closeMenu = useCallback((restoreFocus: boolean) => {
+    setMenuOpen(false);
+    if (restoreFocus) menuRef.current?.focus();
+  }, []);
+
   return (
-    <div className="flex h-full flex-col bg-ground">
-      <TopBar />
-      <div className="flex min-h-0 flex-1">
-        {!signUpPending && <SideNav />}
-        <main ref={mainRef} className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-auto p-4 lg:px-9 lg:py-7">
-          <div className="mx-auto flex w-full max-w-[90rem] flex-1 flex-col">
-            <SignInGate>
-              <ProfileGate>
-                <Outlet />
-              </ProfileGate>
-              <div className="mt-auto pt-10">
-                <footer className="flex flex-wrap items-center gap-x-6 gap-y-2 border-t border-rule pt-5 text-xs text-ink-3">
-                  <span>{t("privacy.copyright", { year: new Date().getFullYear() })}</span>
-                  <Link to="/privacy" className="text-ink-2 hover:text-ink">
-                    {t("privacy.link")}
-                  </Link>
-                  <Link to="/terms" className="text-ink-2 hover:text-ink">
-                    {t("terms.link")}
-                  </Link>
-                </footer>
-              </div>
-            </SignInGate>
-          </div>
-        </main>
-      </div>
-      {!signUpPending && <BottomNav />}
+    <div className="flex h-full bg-ground">
+      {!signUpPending && <Sidebar />}
+      <main ref={mainRef} className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-auto px-4 pb-10 pt-4 lg:px-10 lg:pb-14 lg:pt-6">
+        <div className="mx-auto flex w-full max-w-[1100px] flex-1 flex-col">
+          <ShellTopRow pending={signUpPending} onOpenMenu={() => setMenuOpen(true)} menuRef={menuRef} />
+          <SignInGate>
+            <ProfileGate>
+              <Outlet />
+            </ProfileGate>
+            <div className="mt-auto pt-10">
+              <footer className="flex flex-wrap items-center gap-x-6 gap-y-2 border-t border-rule pt-5 text-xs text-ink-3">
+                <span>{t("privacy.copyright", { year: new Date().getFullYear() })}</span>
+                <Link to="/privacy" className="text-ink-2 hover:text-ink">
+                  {t("privacy.link")}
+                </Link>
+                <Link to="/terms" className="text-ink-2 hover:text-ink">
+                  {t("terms.link")}
+                </Link>
+              </footer>
+            </div>
+          </SignInGate>
+        </div>
+      </main>
+      {menuOpen && !signUpPending && <MobileDrawer onClose={closeMenu} />}
     </div>
   );
 }

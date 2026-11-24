@@ -165,6 +165,6 @@ describe("terms of service page", () => {
     renderAt(<AppRoutes />, "/terms");
 
     expect(await screen.findByRole("heading", { level: 1, name: "Terms of service" })).toBeInTheDocument();
-    expect(screen.getAllByRole("navigation", { name: "Sections" })).toHaveLength(2);
+    expect(screen.getAllByRole("navigation", { name: "Sections" })).toHaveLength(1);
   });
 });

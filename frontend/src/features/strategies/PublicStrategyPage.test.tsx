@@ -107,10 +107,11 @@ describe("the public page", () => {
     expect(screen.getByTestId("public-origin")).toHaveTextContent(i18n.t("strategies.public.by", { name: "Ana" }));
     expect(screen.getByTestId("public-market")).toHaveTextContent("bybit · usdt-m · USDT");
     await waitFor(() => expect(screen.getByTestId("public-return")).toHaveTextContent("+5.1%"));
-    expect(screen.getByRole("link", { name: i18n.t("strategies.public.back") })).toHaveAttribute(
-      "href",
-      "/strategies/explore",
-    );
+    // The way back is the breadcrumb: Home > Strategies > Explore > the strategy (S12).
+    const trail = screen.getByRole("navigation", { name: "Breadcrumb" });
+    expect(within(trail).getByRole("link", { name: "Explore" })).toHaveAttribute("href", "/strategies/explore");
+    expect(within(trail).getByText("Alpha")).toHaveAttribute("aria-current", "page");
+    expect(screen.queryByRole("link", { name: i18n.t("strategies.public.back") })).not.toBeInTheDocument();
   });
 
   it("shows the capital's dash, not words, where there is no return yet (owner, 2026-11-08)", async () => {
@@ -287,7 +288,8 @@ describe("the public page", () => {
       open();
 
       const title = await screen.findByRole("heading", { level: 1, name: "Alpha" });
-      expect(title).toHaveClass("font-display", "text-2xl", "font-bold", "text-ink");
+      // The size of every page's title (the page header's `h1`, 28 px), so the name never jumps between pages.
+      expect(title).toHaveClass("font-display", "text-[28px]", "font-semibold", "text-ink");
       expect(title.parentElement).toHaveClass("min-h-11");
       const market = screen.getByTestId("public-market");
       expect(market).toHaveTextContent(/^bybit · usdt-m · USDT/);
@@ -455,11 +457,12 @@ describe("whether this user can subscribe", () => {
     // The danger look of Disable and Archive, and the whole width of the aside like them.
     expect(leave.className).toBe(`${DANGER_CONTROL} w-full justify-center`);
     // The sections stand apart as on the owner's settings (gap-4), more than each section's own 1.5 (owner, 2026-11-17).
-    expect(leave.closest("aside")).toHaveClass("gap-4", "lg:min-h-[calc(100dvh-7.5rem-1px)]");
+    expect(leave.closest("aside")).toHaveClass("gap-4", "lg:min-h-[calc(100dvh-10rem)]");
     expect(screen.getByRole("button", { name: "Set the leverage to x5" }).parentElement).toHaveClass("h-6", "mb-1");
     expect(screen.queryByRole("button", { name: i18n.t("strategies.subscribe.submit") })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { level: 2, name: i18n.t("strategies.subscribe.title") })).not.toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: /My subscriptions/ })).not.toBeInTheDocument();
+    // The page itself offers no link there (the sidebar's own Strategies group is outside `main`).
+    expect(within(screen.getByRole("main")).queryByRole("link", { name: /My subscriptions/ })).not.toBeInTheDocument();
   });
 
   it("without a seat, still offers Subscribe and neither setting nor Leave", async () => {
@@ -468,7 +471,7 @@ describe("whether this user can subscribe", () => {
 
     expect(await subscribeButton()).toBeInTheDocument();
     // However little it holds, the aside is as tall as main leaves room for, as Strategy settings (owner, 2026-11-17).
-    expect((await subscribeButton()).closest("aside")).toHaveClass("lg:min-h-[calc(100dvh-7.5rem-1px)]");
+    expect((await subscribeButton()).closest("aside")).toHaveClass("lg:min-h-[calc(100dvh-10rem)]");
     expect(screen.queryByRole("textbox", { name: i18n.t("strategies.leverage.label") })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: i18n.t("strategies.subscriptions.leave") })).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { level: 2, name: i18n.t("strategies.subscribe.title") })).toBeInTheDocument();
@@ -1041,8 +1044,9 @@ describe("the Authored list", () => {
     );
     renderAt(<AppRoutes />, "/strategies/authored");
 
-    const tabs = await screen.findByRole("navigation", { name: i18n.t("strategies.tabs.label") });
-    expect(within(tabs).getByRole("link", { name: i18n.t("strategies.tabs.authored") })).toHaveAttribute(
+    // The tabs became the sidebar's Strategies group (S4): the current list is the one marked there.
+    const [sections] = await screen.findAllByRole("navigation", { name: i18n.t("nav.sections") });
+    expect(within(sections as HTMLElement).getByRole("link", { name: i18n.t("nav.authored") })).toHaveAttribute(
       "aria-current",
       "page",
     );

@@ -5,7 +5,7 @@ import { Link, useParams, useSearchParams } from "react-router";
 import { entryRefusal } from "@/features/strategies/entry-refusal";
 import { EnabledBadge } from "@/features/strategies/StrategyCard";
 import { PublicDescription } from "@/features/strategies/StrategyDescription";
-import { STRATEGY_TITLE, StrategyPageHeader } from "@/features/strategies/StrategyPageHeader";
+import { STRATEGY_TITLE, StrategyCrumbs, StrategyPageHeader } from "@/features/strategies/StrategyPageHeader";
 import { StrategyReportViews } from "@/features/strategies/StrategyReportViews";
 import { SubscribePanel } from "@/features/strategies/SubscribePanel";
 import { ApiError } from "@/shared/api/client";
@@ -27,24 +27,31 @@ function PublicRecord({ strategy }: { strategy: PublicStrategy }) {
   const { t } = useTranslation();
   // Two columns from lg up, as on an own strategy: the record on the left, Subscribe or the reader's seat in the
   // aside on the right. Stacked on a phone, the aside comes last.
+  const crumbs = [
+    { label: t("nav.strategies") },
+    { label: t("nav.explore"), to: "/strategies/explore" },
+    { label: strategy.name },
+  ];
   return (
-    <div className="grid gap-9 lg:grid-cols-[minmax(0,1fr)_25rem]">
-      {/* Blocks 4 apart, as on every view; the header, the description and Performance as the own page draws them. */}
-      <div className="flex min-w-0 flex-col gap-4">
-        <StrategyPageHeader
-          prefix="public"
-          back={<BackToExplore />}
-          title={<h1 className={STRATEGY_TITLE}>{strategy.name}</h1>}
-          status={<EnabledBadge enabled={strategy.enabled} testId="public-enabled" />}
-          byline={t("strategies.public.by", { name: strategy.author_name })}
-          market={`${strategy.exchange} · ${strategy.venue} · ${strategy.settlement_currency}`}
-          since={strategy.created_at}
-        />
-        <PublicDescription text={strategy.description} />
-        <StrategyReportViews strategy={strategy} />
+    <StrategyCrumbs value={crumbs}>
+      <div className="grid gap-9 lg:grid-cols-[minmax(0,1fr)_25rem]">
+        {/* Blocks 4 apart, as on every view; the header, the description and Performance as the own page draws them. */}
+        <div className="flex min-w-0 flex-col gap-4">
+          <StrategyPageHeader
+            prefix="public"
+            back={<BackToExplore />}
+            title={<h1 className={STRATEGY_TITLE}>{strategy.name}</h1>}
+            status={<EnabledBadge enabled={strategy.enabled} testId="public-enabled" />}
+            byline={t("strategies.public.by", { name: strategy.author_name })}
+            market={`${strategy.exchange} · ${strategy.venue} · ${strategy.settlement_currency}`}
+            since={strategy.created_at}
+          />
+          <PublicDescription text={strategy.description} />
+          <StrategyReportViews strategy={strategy} />
+        </div>
+        <SubscribePanel strategy={strategy} />
       </div>
-      <SubscribePanel strategy={strategy} />
-    </div>
+    </StrategyCrumbs>
   );
 }
 
