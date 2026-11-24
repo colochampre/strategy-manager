@@ -129,8 +129,7 @@ a{color:inherit;text-decoration:none}
 
 /* main */
 .main{flex:1;min-width:0;padding:24px 40px 56px}
-.wrap{max-width:1040px;margin:0 auto}
-.wrap.wide{max-width:1100px}
+.wrap{max-width:1100px;margin:0 auto}
 .top{display:flex;justify-content:space-between;align-items:center;margin-bottom:30px}
 .exs{display:flex;gap:8px}
 .ex{height:36px;display:inline-flex;align-items:center;padding:0 18px;border:1px solid var(--rule);border-radius:8px;background:var(--panel);flex:none}
@@ -286,7 +285,7 @@ tr:last-child td{border-bottom:0}
 .sub a.on{position:relative;border-top-left-radius:0;border-bottom-left-radius:0}
 .sub a.on::before{content:"";position:absolute;left:-1px;top:6px;bottom:6px;width:2px;background:var(--gain)}
 .tb{display:flex;align-items:center;justify-content:space-between;gap:16px}
-.tb .inp{margin-top:0;flex:1;max-width:380px;height:40px}
+.tb .inp{margin-top:0;flex:0 1 50%;height:40px}
 .tb-r{display:flex;align-items:center;gap:20px}
 .chk{display:inline-flex;align-items:center;gap:8px;color:var(--ink-2);font-size:13.5px}
 .chk i{width:16px;height:16px;border:1px solid var(--rule-strong);border-radius:4px;background:var(--ground);display:inline-flex;align-items:center;justify-content:center;color:var(--ground)}
@@ -368,9 +367,9 @@ tr:last-child td{border-bottom:0}
       <div class="exs"><button class="ex on"><span class="wm binance">BINANCE</span></button><button class="ex"><span class="wm bybit">BYBIT</span></button></div>
       <div class="tools">
         <span class="badge-live"><i></i>En vivo</span>
-        <button class="icon-btn" aria-label="Idioma: español"><span class="flag"></span></button>
         <button class="icon-btn" aria-label="Mi cuenta"><i class="ic i-user"></i></button>
         <button class="icon-btn" aria-label="Notificaciones"><i class="ic i-bell"></i></button>
+        <button class="icon-btn" aria-label="Idioma: español"><span class="flag"></span></button>
       </div>
     </div>
     <div class="crumb"><i class="ic i-home"></i><i class="ic i-right"></i><b>Panel de control</b></div>
@@ -453,9 +452,9 @@ tr:last-child td{border-bottom:0}
     <div class="exs"><button class="ex on"><span class="wm binance">BINANCE</span></button><button class="ex"><span class="wm bybit">BYBIT</span></button></div>
     <div class="tools">
       <span class="badge-live"><i></i>En vivo</span>
-      <button class="icon-btn" aria-label="Idioma: español"><span class="flag"></span></button>
       <button class="icon-btn" aria-label="Mi cuenta"><i class="ic i-user"></i></button>
       <button class="icon-btn" aria-label="Notificaciones"><i class="ic i-bell"></i></button>
+      <button class="icon-btn" aria-label="Idioma: español"><span class="flag"></span></button>
     </div>
   </div>
   <div class="crumb"><i class="ic i-home"></i><i class="ic i-right"></i><b>Panel de control</b></div>
@@ -511,9 +510,9 @@ tr:last-child td{border-bottom:0}
       <button class="icon-btn" aria-label="Abrir el menú"><i class="ic i-menu"></i></button>
       <div class="tools">
         <span class="badge-live"><i></i>En vivo</span>
-        <button class="icon-btn" aria-label="Idioma: español"><span class="flag"></span></button>
         <button class="icon-btn" aria-label="Mi cuenta"><i class="ic i-user"></i></button>
         <button class="icon-btn" aria-label="Notificaciones"><i class="ic i-bell"></i></button>
+        <button class="icon-btn" aria-label="Idioma: español"><span class="flag"></span></button>
       </div>
     </div>
     <div class="exs"><button class="ex on"><span class="wm binance">BINANCE</span></button><button class="ex"><span class="wm bybit">BYBIT</span></button></div>
@@ -546,9 +545,9 @@ tr:last-child td{border-bottom:0}
       <button class="icon-btn" aria-label="Abrir el menú"><i class="ic i-menu"></i></button>
       <div class="tools">
         <span class="badge-live"><i></i>En vivo</span>
-        <button class="icon-btn"><span class="flag"></span></button>
         <button class="icon-btn"><i class="ic i-user"></i></button>
         <button class="icon-btn"><i class="ic i-bell"></i></button>
+        <button class="icon-btn"><span class="flag"></span></button>
       </div>
     </div>
     <div class="exs"><button class="ex on"><span class="wm binance">BINANCE</span></button><button class="ex"><span class="wm bybit">BYBIT</span></button></div>
@@ -608,14 +607,14 @@ tr:last-child td{border-bottom:0}
       <div class="build"><span class="lbl">build </span>cf95299<span class="lbl">ef7f7</span></div>
     </div>
   </aside>
-  <main class="main"><div class="wrap wide">
+  <main class="main"><div class="wrap">
     <div class="top">
       <div class="exs"><button class="ex on"><span class="wm binance">BINANCE</span></button><button class="ex"><span class="wm bybit">BYBIT</span></button></div>
       <div class="tools">
         <span class="badge-live"><i></i>En vivo</span>
-        <button class="icon-btn"><span class="flag"></span></button>
         <button class="icon-btn"><i class="ic i-user"></i></button>
         <button class="icon-btn"><i class="ic i-bell"></i></button>
+        <button class="icon-btn"><span class="flag"></span></button>
       </div>
     </div>
     <div class="crumb"><i class="ic i-home"></i><i class="ic i-right"></i><b>Mis operaciones</b></div>
@@ -681,9 +680,9 @@ tr:last-child td{border-bottom:0}
       <div class="exs"><button class="ex on"><span class="wm binance">BINANCE</span></button><button class="ex"><span class="wm bybit">BYBIT</span></button></div>
       <div class="tools">
         <span class="badge-live"><i></i>En vivo</span>
-        <button class="icon-btn"><span class="flag"></span></button>
         <button class="icon-btn"><i class="ic i-user"></i></button>
         <button class="icon-btn"><i class="ic i-bell"></i></button>
+        <button class="icon-btn"><span class="flag"></span></button>
       </div>
     </div>
     <div class="crumb"><i class="ic i-home"></i><i class="ic i-right"></i><b>Notificaciones</b></div>
@@ -748,9 +747,9 @@ tr:last-child td{border-bottom:0}
       <div class="exs"><button class="ex on"><span class="wm binance">BINANCE</span></button><button class="ex"><span class="wm bybit">BYBIT</span></button></div>
       <div class="tools">
         <span class="badge-live"><i></i>En vivo</span>
-        <button class="icon-btn"><span class="flag"></span></button>
         <button class="icon-btn"><i class="ic i-user"></i></button>
         <button class="icon-btn"><i class="ic i-bell"></i></button>
+        <button class="icon-btn"><span class="flag"></span></button>
       </div>
     </div>
     <div class="crumb"><i class="ic i-home"></i><i class="ic i-right"></i><b>Vincular exchange</b></div>
@@ -805,9 +804,9 @@ tr:last-child td{border-bottom:0}
       <div class="exs"><button class="ex on"><span class="wm binance">BINANCE</span></button><button class="ex"><span class="wm bybit">BYBIT</span></button></div>
       <div class="tools">
         <span class="badge-live"><i></i>En vivo</span>
-        <button class="icon-btn"><span class="flag"></span></button>
         <button class="icon-btn"><i class="ic i-user"></i></button>
         <button class="icon-btn"><i class="ic i-bell"></i></button>
+        <button class="icon-btn"><span class="flag"></span></button>
       </div>
     </div>
     <div class="crumb"><i class="ic i-home"></i><i class="ic i-right"></i><b>Mi cuenta</b></div>
@@ -877,13 +876,13 @@ tr:last-child td{border-bottom:0}
       <div class="build"><span class="lbl">build </span>cf95299<span class="lbl">ef7f7</span></div>
     </div>
   </aside>
-  <main class="main"><div class="wrap wide">
+  <main class="main"><div class="wrap">
     <div class="top end">
       <div class="tools">
         <span class="badge-live"><i></i>En vivo</span>
-        <button class="icon-btn" aria-label="Idioma: español"><span class="flag"></span></button>
         <button class="icon-btn" aria-label="Mi cuenta"><i class="ic i-user"></i></button>
         <button class="icon-btn" aria-label="Notificaciones"><i class="ic i-bell"></i></button>
+        <button class="icon-btn" aria-label="Idioma: español"><span class="flag"></span></button>
       </div>
     </div>
     <div class="crumb"><i class="ic i-home"></i><i class="ic i-right"></i>Estrategias<i class="ic i-right"></i><b>Mis suscripciones</b></div>
@@ -989,13 +988,13 @@ tr:last-child td{border-bottom:0}
       <div class="build"><span class="lbl">build </span>cf95299<span class="lbl">ef7f7</span></div>
     </div>
   </aside>
-  <main class="main"><div class="wrap wide">
+  <main class="main"><div class="wrap">
     <div class="top end">
       <div class="tools">
         <span class="badge-live"><i></i>En vivo</span>
-        <button class="icon-btn" aria-label="Idioma: español"><span class="flag"></span></button>
         <button class="icon-btn" aria-label="Mi cuenta"><i class="ic i-user"></i></button>
         <button class="icon-btn" aria-label="Notificaciones"><i class="ic i-bell"></i></button>
+        <button class="icon-btn" aria-label="Idioma: español"><span class="flag"></span></button>
       </div>
     </div>
     <div class="crumb"><i class="ic i-home"></i><i class="ic i-right"></i>Estrategias<i class="ic i-right"></i><b>Explorar</b></div>
@@ -1122,14 +1121,14 @@ tr:last-child td{border-bottom:0}
       <div class="build"><span class="lbl">build </span>cf95299<span class="lbl">ef7f7</span></div>
     </div>
   </aside>
-  <main class="main"><div class="wrap wide">
+  <main class="main"><div class="wrap">
     <div class="top">
       <div class="exs"><button class="ex"><span class="wm binance">BINANCE</span></button><button class="ex on"><span class="wm bybit">BYBIT</span></button></div>
       <div class="tools">
         <span class="badge-live"><i></i>En vivo</span>
-        <button class="icon-btn" aria-label="Idioma: español"><span class="flag"></span></button>
         <button class="icon-btn" aria-label="Mi cuenta"><i class="ic i-user"></i></button>
         <button class="icon-btn" aria-label="Notificaciones"><i class="ic i-bell"></i></button>
+        <button class="icon-btn" aria-label="Idioma: español"><span class="flag"></span></button>
       </div>
     </div>
     <div class="crumb"><i class="ic i-home"></i><i class="ic i-right"></i>Estrategias<i class="ic i-right"></i><b>Mis estrategias</b></div>

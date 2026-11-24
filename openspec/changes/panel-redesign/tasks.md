@@ -12,6 +12,7 @@ The owner's words (2026-11-24) are quoted as written.
   - The toggle is an eye beside the balance, as on Binance.
 - **S2 Layout.** "Rediseño de la página, manteniendo la paleta de colores - inspirado en oficinavirtual.edelap.com.ar y binance.com". "Me gusta el espaciado de main de oficinavirtual, centrado y con buen margen, sin alargarse para ocupar todo el ancho. Lo mismo pasa en Binance."
   - Agreed: every page gets a breadcrumb, a title and a subtitle, as in Edelap's "Mis facturas".
+  - "Noto diferencias entre los espaciados de main entre algunas vistas. A lo mejor es solo algo del prototipo, pero las vistas deben ser consistentes entre sí para no dar saltos al navegar." Every view shares one main width and one header (top row, breadcrumb, title, subtitle).
 - **S3 Mobile.** "En mobile, el sidebar puede ser desplegable lateral para poder seguir leyendo las opciones, con su botón hamburguesa."
   - Agreed: the drawer replaces today's `BottomNav`.
   - Agreed: the exchange buttons scroll sideways when they do not fit.
@@ -40,11 +41,15 @@ The owner's words (2026-11-24) are quoted as written.
   - "El nombre de usuario pasa a ser un icono de persona y se muestra junto al lenguaje y modo en vivo/simulación a la misma altura que los botones de Exchange del lado derecho. El botón lleva a Mi cuenta"
   - "El estado En Vivo/Simulación queda a la izquierda de los iconos de usuario y lenguaje."
   - "Que los iconos queden del mismo tamaño."
+  - "El orden de los botones de usuario, lenguaje y notificaciones, que sea: En vivo, usuario, notificaciones, lenguaje."
 - **S8 Dashboard.** "La primer tarjeta muestra la fila de datos de la cuenta, como saldo, PnL y return, drawdown, etc." "Tarjeta header con el saldo del Exchange seleccionado activo, valores de rendimiento y drawdown".
   - Rule 7 applies: there is no total blended across currencies. An exchange with several pools shows one figure per currency.
 - **S9 Link an exchange.** The owner sent Edelap's "Mis suministros" as the example for managing API keys, "una mejora con respecto al nuestro". It shows:
   - a "Vincular" button across the top;
   - a "Vinculados" card with a filter, the total, and a table with actions on each row.
+- **S10 Strategy lists.** "En la tarjeta de búsqueda de estrategias, se puede hacer que la barra de busqueda ocupe la mitad del ancho disponible en pantalla grande?" The search field takes half the card's width on desktop, in My strategies, My subscriptions and Explore.
+- **S11 Favicon.** "dejo los assets para favicon de la página en D:/Code/favicon_assets/ para usar". The set: `favicon.ico`, `favicon-16x16.png`, `favicon-32x32.png`, `apple-touch-icon.png`, `android-chrome-192x192.png`, `android-chrome-512x512.png` and `site.webmanifest`.
+  - Assumption, for the owner to correct: the manifest comes with an empty `name` and a white `theme_color`; the panel's copy names the app and uses the ground colour.
 
 ## Tasks
 
@@ -60,7 +65,11 @@ The owner's words (2026-11-24) are quoted as written.
     - The sidebar's sub-items replace today's three tabs.
     - The line "Hay 1 estrategia archivada oculta" in `ex10` is new; the app does not show it today.
     - In `ex3`, the build tag sits higher in the drawer.
-- [ ] RD.1 PR 1, the shell: sidebar, drawer, top-right icons, centred main (S2, S3, S4, S7).
+  - *Adjusted 2026-11-24 (L4), inline by the parent.* The parent looked at `ex9` and `ex10` rendered.
+    - The jump came from two main widths, 1040 px on some views and 1100 px on others; every view now uses 1100 px.
+    - The icons at the top right read En vivo, person, bell, flag on all eleven toolbars.
+    - The search field takes half the width (S10).
+- [ ] RD.1 PR 1, the shell: sidebar, drawer, top-right icons, centred main, favicon (S2, S3, S4, S7, S11).
 - [ ] RD.2 PR 2: Mi cuenta and Vincular exchange separated (S4, S9).
 - [ ] RD.3 PR 3: the dashboard's header card, and hide balances (S1, S8).
 - [ ] RD.4 PR 4: My trades (S5).
@@ -71,3 +80,4 @@ The owner's words (2026-11-24) are quoted as written.
 - L1 (2026-11-24, owner): "Quiero hacer un rediseño general de la app. Comentame si te parece bien, qué cambiarías o si falta algo:" followed by S1 to S8 as quoted, with screenshots of Edelap's home, Binance's assets overview and Edelap's "Mis facturas".
 - L2 (2026-11-24, owner): the assistant proposed the additions marked "Agreed" above, and the five sequential PRs. The owner answered: "Me parece bien todo. Agrego un ejemplo más para vincular las api key que me pareció una mejora con respecto al nuestro: [Edelap, Mis suministros]. Dale, vamos con un prototipo".
 - L3 (2026-11-24, owner, after reading the prototype): "Esta muy bien todo. Los porcentajes visibles me parecen bien. Lo único que faltaría en el prototipo son las vistas de estrategias, las suscritas, explore y propias. Si podemos agregarlas al prototipo, mejor". RD.0 reopened for three more screens: My subscriptions, Explore, and My strategies.
+- L4 (2026-11-24, owner, after the strategy views): "En la tarjeta de búsqueda de estrategias, se puede hacer que la barra de busqueda ocupe la mitad del ancho disponible en pantalla grande? El orden de los botones de usuario, lenguaje y notificaciones, que sea: En vivo, usuario, notificaciones, lenguaje. Noto diferencias entre los espaciados de main entre algunas vistas. A lo mejor es solo algo del prototipo, pero las vistas deben ser consistentes entre sí para no dar saltos al navegar. De paso, dejo los assets para favicon de la página en D:/Code/favicon_assets/ para usar". S2, S7 extended; S10 and S11 added.
