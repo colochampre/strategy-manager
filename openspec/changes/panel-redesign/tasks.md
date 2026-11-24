@@ -51,10 +51,17 @@ The owner's words (2026-11-24) are quoted as written.
 - **S11 Favicon.** "dejo los assets para favicon de la página en D:/Code/favicon_assets/ para usar". The set: `favicon.ico`, `favicon-16x16.png`, `favicon-32x32.png`, `apple-touch-icon.png`, `android-chrome-192x192.png`, `android-chrome-512x512.png` and `site.webmanifest`.
   - Assumption, for the owner to correct: the manifest comes with an empty `name` and a white `theme_color`; the panel's copy names the app and uses the ground colour.
 - **S12 Strategy page.** "Lo único que faltaría antes de aprobarlo, es la vista de una estrategia, tanto ajena como propia con el nuevo estilo. Habría que ver si con el nuevo ancho, el aside sigue quedando bien." Two more screens: someone else's strategy (`PublicStrategyPage`, `/strategies/explore/:strategyId`) and the user's own (`StrategyDetailPage`, `/strategies/:strategyId`), each with its aside, inside the 1100 px main.
+  - The owner decided (L6): "Titulos y subtitulos alineados con aside quedan bien." On the strategy page the title and subtitle stay in the left column, beside the aside.
+- **S13 Info tooltips and motion.** "en el rediseño quiero que los botones info (i) a partir de ahora, en lugar de desplegar el texto, que ocupa espacio vertical, aparezca en un tooltip flotante. Agregarle una animación suave, simple y rápida. Si se le puede agregar animación a otros elementos, recomendame cuáles"
+  - Today `shared/ui/InfoDisclosure.tsx` (18 callers) expands the text inline below the button. In the redesign it opens a floating tooltip instead, keeping what the button does now:
+    - It is a real button: click and tap open it, and Escape closes it and returns focus.
+    - The state is carried by `aria-expanded`.
+  - The animation is a short fade with a slight offset.
+  - Which other elements get motion waits on the owner's choice from the assistant's recommendation (L6).
 
 ## Tasks
 
-- [ ] RD.0 Static prototype in `visual/project/Redesign.html`, covering S1 to S9 with fictitious data. Route: delegated, as a Sonnet writer, for the parent's context backstop. Rendered with headless Edge before the owner sees it.
+- [x] RD.0 Static prototype in `visual/project/Redesign.html`, covering S1 to S9 with fictitious data. Route: delegated, as a Sonnet writer, for the parent's context backstop. Rendered with headless Edge before the owner sees it.
   - *Drawn 2026-11-24.* Seven screens, `ex1` to `ex7`, in 785 lines. The parent looked at `ex1` and `ex3` rendered. Waiting on the owner's review.
   - The notification tokens are `notif-operation` (gain), `notif-safety` (loss), `notif-discrepancy` (decision) and `notif-notice` (ink-2). Each has an edge colour, a soft fill made with `color-mix` over the panel, and an ink colour.
   - The writer assumed these, for the owner to correct:
@@ -82,6 +89,7 @@ The owner's words (2026-11-24) are quoted as written.
 - [ ] RD.3 PR 3: the dashboard's header card, and hide balances (S1, S8).
 - [ ] RD.4 PR 4: My trades (S5).
 - [ ] RD.5 PR 5: Notifications (S6).
+- [ ] RD.6 PR 6: info tooltips and motion (S13).
 
 ## Log
 
@@ -90,3 +98,4 @@ The owner's words (2026-11-24) are quoted as written.
 - L3 (2026-11-24, owner, after reading the prototype): "Esta muy bien todo. Los porcentajes visibles me parecen bien. Lo único que faltaría en el prototipo son las vistas de estrategias, las suscritas, explore y propias. Si podemos agregarlas al prototipo, mejor". RD.0 reopened for three more screens: My subscriptions, Explore, and My strategies.
 - L4 (2026-11-24, owner, after the strategy views): "En la tarjeta de búsqueda de estrategias, se puede hacer que la barra de busqueda ocupe la mitad del ancho disponible en pantalla grande? El orden de los botones de usuario, lenguaje y notificaciones, que sea: En vivo, usuario, notificaciones, lenguaje. Noto diferencias entre los espaciados de main entre algunas vistas. A lo mejor es solo algo del prototipo, pero las vistas deben ser consistentes entre sí para no dar saltos al navegar. De paso, dejo los assets para favicon de la página en D:/Code/favicon_assets/ para usar". S2, S7 extended; S10 and S11 added.
 - L5 (2026-11-24, owner): "Quedo bien. Lo único que faltaría antes de aprobarlo, es la vista de una estrategia, tanto ajena como propia con el nuevo estilo. Habría que ver si con el nuevo ancho, el aside sigue quedando bien." S12 added; RD.0 reopened for two screens.
+- L6 (2026-11-24, owner, approving the prototype): "Titulos y subtitulos alineados con aside quedan bien. Esta todo correcto. Un detalle para cuando implementemos: en el rediseño quiero que los botones info (i) a partir de ahora, en lugar de desplegar el texto, que ocupa espacio vertical, aparezca en un tooltip flotante. Agregarle una animación suave, simple y rápida. Si se le puede agregar animación a otros elementos, recomendame cuáles". RD.0 is closed; S13 and RD.6 are added.
