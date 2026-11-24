@@ -1,0 +1,1539 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Strategy Manager - Rediseño del panel (prototipo RD.0)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  /* Palette: the same values as @theme in frontend/src/index.css */
+  --ground:#0C1116; --panel:#141B22; --panel-2:#1B242C;
+  --rule:#28333C; --rule-soft:#1E272F; --rule-strong:#3D4E5C;
+  --ink:#E7EDF1; --ink-2:#A9B8C3; --ink-3:#7A8C99;
+  --gain:#1FA6B8; --gain-bright:#6FD0DC; --loss:#E0644B; --decision:#CE8018;
+  --brand-binance:#F3BA2F; --brand-bybit:#F7A600;
+  --flag-white:#FFFFFF; --flag-ar-blue:#74ACDF; --flag-ar-sun:#F6B40E;
+  --gain-1:color-mix(in srgb,#1FA6B8 20%,#1E272F); --gain-2:color-mix(in srgb,#1FA6B8 32%,#1E272F);
+  --loss-1:color-mix(in srgb,#E0644B 20%,#1E272F); --loss-2:color-mix(in srgb,#E0644B 32%,#1E272F);
+  --font-display:"Archivo",system-ui,sans-serif; --font-sans:"IBM Plex Sans",system-ui,sans-serif;
+  --font-mono:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;
+
+  /* NEW semantic tokens for S6 (proposed for @theme). Each has an edge (the left bar and icon),
+     a soft fill (the pill background) and an ink (the pill text, lightened to pass on the dark panel). */
+  /* notif-operation: an opening or a close of a subscribed strategy. Teal family, derived from gain. */
+  --notif-operation:var(--gain);
+  --notif-operation-soft:color-mix(in srgb,var(--gain) 14%,var(--panel));
+  --notif-operation-ink:var(--gain-bright);
+  /* notif-safety: a stop fired, an opening refused, a close now. Ember family, derived from loss. */
+  --notif-safety:var(--loss);
+  --notif-safety-soft:color-mix(in srgb,var(--loss) 14%,var(--panel));
+  --notif-safety-ink:color-mix(in srgb,var(--loss) 72%,#fff);
+  /* notif-discrepancy: reconciliation found something. It needs a decision, so it takes the amber. */
+  --notif-discrepancy:var(--decision);
+  --notif-discrepancy-soft:color-mix(in srgb,var(--decision) 14%,var(--panel));
+  --notif-discrepancy-ink:color-mix(in srgb,var(--decision) 72%,#fff);
+  /* notif-notice: an informational notice (policy change). Neutral, derived from ink-2. */
+  --notif-notice:var(--ink-2);
+  --notif-notice-soft:color-mix(in srgb,var(--ink-2) 11%,var(--panel));
+  --notif-notice-ink:var(--ink-2);
+}
+*{box-sizing:border-box;margin:0}
+body{background:#080B0E;color:var(--ink);font:400 14px/1.45 var(--font-sans);-webkit-font-smoothing:antialiased;padding:8px 24px 40px}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+a{color:inherit;text-decoration:none}
+.num{font-family:var(--font-mono);font-variant-numeric:tabular-nums}
+.gain{color:var(--gain)} .loss{color:var(--loss)} .mute{color:var(--ink-3)}
+.mask{font-family:var(--font-mono);letter-spacing:.08em;color:var(--ink-2)}
+
+/* presentation */
+.screen{padding-top:28px}
+.cap{font:500 13px var(--font-mono);color:var(--ink-3);margin-bottom:10px}
+.frame{width:1440px;display:flex;background:var(--ground);border:1px solid var(--rule);min-height:880px;position:relative}
+.frame.nosb{display:block;min-height:0}
+.frame.m{width:390px;min-height:0;height:844px;overflow:hidden;display:block;border-radius:22px}
+.pair{display:flex;gap:40px;align-items:flex-start}
+
+/* icons: one size, drawn as masks so each screen stays standalone */
+.ic{display:inline-block;flex:none;width:18px;height:18px;background:currentColor;-webkit-mask:var(--i) center/contain no-repeat;mask:var(--i) center/contain no-repeat}
+.i-dash{--i:url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><rect width='7' height='9' x='3' y='3' rx='1'/><rect width='7' height='5' x='14' y='3' rx='1'/><rect width='7' height='9' x='14' y='12' rx='1'/><rect width='7' height='5' x='3' y='16' rx='1'/></svg>")}
+.i-bell{--i:url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9'/><path d='M10.3 21a1.94 1.94 0 0 0 3.4 0'/></svg>")}
+.i-ops{--i:url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='m16 3 4 4-4 4'/><path d='M20 7H4'/><path d='m8 21-4-4 4-4'/><path d='M4 17h16'/></svg>")}
+.i-trend{--i:url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M16 7h6v6'/><path d='m22 7-8.5 8.5-5-5L2 17'/></svg>")}
+.i-link{--i:url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M9 17H7A5 5 0 0 1 7 7h2'/><path d='M15 7h2a5 5 0 1 1 0 10h-2'/><path d='M8 12h8'/></svg>")}
+.i-shield{--i:url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z'/></svg>")}
+.i-user{--i:url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2'/><circle cx='12' cy='7' r='4'/></svg>")}
+.i-users{--i:url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2'/><circle cx='9' cy='7' r='4'/><path d='M22 21v-2a4 4 0 0 0-3-3.87'/><path d='M16 3.13a4 4 0 0 1 0 7.75'/></svg>")}
+.i-out{--i:url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4'/><path d='m16 17 5-5-5-5'/><path d='M21 12H9'/></svg>")}
+.i-down{--i:url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='m6 9 6 6 6-6'/></svg>")}
+.i-up{--i:url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='m18 15-6-6-6 6'/></svg>")}
+.i-right{--i:url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='m9 18 6-6-6-6'/></svg>")}
+.i-eye{--i:url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M2.06 12.35a1 1 0 0 1 0-.7 10.75 10.75 0 0 1 19.88 0 1 1 0 0 1 0 .7 10.75 10.75 0 0 1-19.88 0'/><circle cx='12' cy='12' r='3'/></svg>")}
+.i-eyeoff{--i:url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M10.73 5.08a10.74 10.74 0 0 1 11.21 6.57 1 1 0 0 1 0 .7 10.75 10.75 0 0 1-1.44 2.49'/><path d='M14.08 14.16a3 3 0 0 1-4.24-4.24'/><path d='M17.48 17.5a10.75 10.75 0 0 1-15.42-5.15 1 1 0 0 1 0-.7 10.75 10.75 0 0 1 4.45-5.14'/><path d='m2 2 20 20'/></svg>")}
+.i-menu{--i:url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M4 12h16'/><path d='M4 6h16'/><path d='M4 18h16'/></svg>")}
+.i-x{--i:url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M18 6 6 18'/><path d='m6 6 12 12'/></svg>")}
+.i-panel{--i:url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><rect width='18' height='18' x='3' y='3' rx='2'/><path d='M9 3v18'/></svg>")}
+.i-plus{--i:url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='10'/><path d='M8 12h8'/><path d='M12 8v8'/></svg>")}
+.i-search{--i:url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><circle cx='11' cy='11' r='8'/><path d='m21 21-4.3-4.3'/></svg>")}
+.i-key{--i:url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M2.59 17.41A2 2 0 0 0 2 18.83V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.17a2 2 0 0 0 1.41-.59l.81-.81a6.5 6.5 0 1 0-4-4z'/><circle cx='16.5' cy='7.5' r='.5'/></svg>")}
+.i-unlink{--i:url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='m18.84 12.25 1.72-1.71a5 5 0 0 0-7.07-7.07l-1.72 1.71'/><path d='m5.17 11.75-1.71 1.71a5 5 0 0 0 7.07 7.07l1.71-1.71'/><path d='M8 2v3'/><path d='M2 8h3'/><path d='M16 22v-3'/><path d='M19 16h3'/></svg>")}
+.i-pencil{--i:url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M21.17 6.81a1 1 0 0 0-3.99-3.99L3.84 16.17a2 2 0 0 0-.5.83l-1.32 4.35a.5.5 0 0 0 .62.62l4.35-1.32a2 2 0 0 0 .83-.5z'/></svg>")}
+.i-alert{--i:url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='10'/><path d='M12 8v4'/><path d='M12 16h.01'/></svg>")}
+.i-info{--i:url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='10'/><path d='M12 16v-4'/><path d='M12 8h.01'/></svg>")}
+.i-trash{--i:url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M3 6h18'/><path d='M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6'/><path d='M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2'/></svg>")}
+.i-home{--i:url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8'/><path d='M3 10a2 2 0 0 1 .71-1.53l7-6a2 2 0 0 1 2.58 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z'/></svg>")}
+.i-lock{--i:url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><rect width='18' height='11' x='3' y='11' rx='2'/><path d='M7 11V7a5 5 0 0 1 10 0v4'/></svg>")}
+.i-zap{--i:url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z'/></svg>")}
+.i-flask{--i:url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M10 2v7.5'/><path d='M14 2v7.5'/><path d='M8.5 2h7'/><path d='M14 9.5 19.7 19a1.3 1.3 0 0 1-1.1 2H5.4a1.3 1.3 0 0 1-1.1-2L10 9.5'/></svg>")}
+.i-brand{--i:url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'><path d='M5 19V11'/><path d='M12 19V5'/><path d='M19 19v-6'/></svg>")}
+
+/* buttons and badges */
+.icon-btn{width:36px;height:36px;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--rule);border-radius:8px;background:var(--panel);color:var(--ink-2)}
+.icon-btn.ghost{border-color:transparent;background:none}
+.badge-live{height:36px;display:inline-flex;align-items:center;gap:8px;padding:0 14px;border:1px solid color-mix(in srgb,var(--gain) 45%,transparent);border-radius:8px;background:color-mix(in srgb,var(--gain) 12%,transparent);color:var(--gain-bright);font-weight:500}
+.badge-live i{width:7px;height:7px;border-radius:50%;background:var(--gain);box-shadow:0 0 0 3px color-mix(in srgb,var(--gain) 25%,transparent)}
+.flag{width:20px;height:20px;border-radius:50%;position:relative;background:linear-gradient(var(--flag-ar-blue) 0 33.3%,var(--flag-white) 33.3% 66.6%,var(--flag-ar-blue) 66.6%)}
+.flag::after{content:"";position:absolute;left:7px;top:7px;width:6px;height:6px;border-radius:50%;background:var(--flag-ar-sun)}
+.btn{height:36px;display:inline-flex;align-items:center;gap:8px;padding:0 14px;border:1px solid var(--rule-strong);border-radius:8px;background:var(--panel-2);color:var(--ink);font-weight:500}
+.btn.danger{border-color:color-mix(in srgb,var(--loss) 55%,transparent);background:none;color:var(--loss)}
+.btn.sm{height:30px;padding:0 11px;font-size:13px}
+.btn.line{background:none;color:var(--gain-bright);border-color:color-mix(in srgb,var(--gain) 45%,transparent)}
+.wm{font-family:var(--font-display);font-weight:700;letter-spacing:.02em}
+.wm.binance{color:var(--brand-binance)} .wm.bybit{color:var(--brand-bybit)}
+
+/* sidebar */
+.side{width:248px;flex:none;display:flex;flex-direction:column;background:var(--panel);border-right:1px solid var(--rule);padding:16px 12px}
+.side-top{display:flex;align-items:center;justify-content:space-between;padding:0 4px 20px 6px}
+.brand{display:flex;align-items:center;gap:10px}
+.mark{width:32px;height:32px;border-radius:8px;background:var(--gain);color:var(--ground);display:inline-flex;align-items:center;justify-content:center}
+.brand-name{font:600 15px var(--font-display);letter-spacing:.01em}
+.nav,.side-foot{display:flex;flex-direction:column;gap:2px}
+.side-foot{margin-top:auto;border-top:1px solid var(--rule);padding-top:12px}
+.nav a,.side-foot a{display:flex;align-items:center;gap:12px;height:40px;padding:0 12px;border-radius:8px;color:var(--ink-2)}
+.nav a.on{background:var(--panel-2);color:var(--ink)}
+.nav a.on .ic{color:var(--gain)}
+.nav .chev,.side-foot .chev{margin-left:auto;width:16px;height:16px;color:var(--ink-3)}
+.sub{display:flex;flex-direction:column;margin:2px 0 4px 21px;border-left:1px solid var(--rule)}
+.sub a{height:34px;padding-left:22px;font-size:13.5px}
+.badge-n{margin-left:auto;min-width:20px;height:20px;padding:0 6px;border-radius:10px;background:var(--decision);color:var(--ground);font:600 12px/20px var(--font-mono);text-align:center}
+.two{display:flex;flex-direction:column;line-height:1.2}
+.two b{font-weight:500;color:var(--ink)} .two small{font-size:12px;color:var(--ink-3)}
+.build{margin-top:8px;padding:6px 12px 0;font:400 11.5px var(--font-mono);color:var(--ink-3)}
+.side.collapsed{width:72px;padding:16px 10px}
+.side.collapsed .side-top{flex-direction:column;gap:12px;padding:0 0 18px}
+.side.collapsed .brand-name,.side.collapsed .nav a span,.side.collapsed .side-foot a span,.side.collapsed .chev,.side.collapsed .sub,.side.collapsed .lbl{display:none}
+.side.collapsed .nav a,.side.collapsed .side-foot a{justify-content:center;padding:0}
+.side.collapsed .build{padding:6px 0 0;text-align:center;font-size:10px}
+
+/* main */
+.main{flex:1;min-width:0;padding:24px 40px 56px}
+.wrap{max-width:1100px;margin:0 auto}
+.top{display:flex;justify-content:space-between;align-items:center;margin-bottom:30px}
+.exs{display:flex;gap:8px}
+.ex{height:36px;display:inline-flex;align-items:center;padding:0 18px;border:1px solid var(--rule);border-radius:8px;background:var(--panel);flex:none}
+.ex.on{border-color:var(--gain);background:var(--panel-2)}
+.ex:not(.on) .wm{opacity:.62}
+.tools{display:flex;gap:8px;align-items:center}
+.crumb{display:flex;align-items:center;gap:8px;color:var(--ink-3);font-size:13px;margin-bottom:14px}
+.crumb .ic{width:16px;height:16px}
+.crumb b{font-weight:500;color:var(--ink-2)}
+h1{font:600 28px/1.15 var(--font-display);letter-spacing:-.005em}
+.sub-t{color:var(--ink-2);margin:6px 0 24px}
+.card{background:var(--panel);border:1px solid var(--rule);border-radius:10px;margin-bottom:16px}
+.card-h{display:flex;align-items:center;justify-content:space-between;padding:18px 22px 0}
+h2{font:600 17px var(--font-display)}
+.pad{padding:18px 22px 22px}
+
+/* header card */
+.hc{padding:22px 24px 0}
+.hc-top{display:grid;grid-template-columns:1fr 360px;gap:32px;align-items:center}
+.hc-label{display:flex;align-items:center;gap:6px;font:600 17px var(--font-display)}
+.hc-label .icon-btn{width:30px;height:30px;border:0;background:none}
+.hc-sub{color:var(--ink-3);font-size:13px;margin-top:2px}
+.bal{display:flex;align-items:baseline;gap:10px;margin:14px 0 6px}
+.bal .num{font-size:42px;font-weight:500;letter-spacing:-.01em;line-height:1}
+.bal span.u{font-size:17px;color:var(--ink-3)}
+.bal .mask{font-size:42px;letter-spacing:.12em;line-height:1}
+.spk-t{display:flex;justify-content:space-between;font-size:12.5px;color:var(--ink-3);margin-bottom:6px}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);margin:22px -24px 0;border-top:1px solid var(--rule)}
+.stat{padding:16px 24px 18px;border-right:1px solid var(--rule)}
+.stat:last-child{border-right:0}
+.stat small{display:block;color:var(--ink-3);font-size:12.5px;margin-bottom:4px}
+.stat .num{font-size:20px;font-weight:500}
+.stat .u{font-size:12px;color:var(--ink-3);margin-left:4px}
+
+/* segmented, selects, inputs */
+.seg{display:inline-flex;border:1px solid var(--rule);border-radius:8px;padding:2px;background:var(--ground)}
+.seg button{height:28px;padding:0 13px;border-radius:6px;font-size:13px;color:var(--ink-3);display:inline-flex;align-items:center;gap:8px}
+.seg button.on{background:var(--panel-2);color:var(--ink);box-shadow:inset 0 0 0 1px var(--rule-strong)}
+.seg.big button{height:34px;padding:0 16px;font-size:14px}
+.field{display:flex;flex-direction:column;gap:6px;flex:1}
+.field label{font-size:12.5px;color:var(--ink-3)}
+.sel,.inp{height:38px;display:flex;align-items:center;justify-content:space-between;padding:0 12px;border:1px solid var(--rule);border-radius:8px;background:var(--ground);color:var(--ink)}
+.inp{border-radius:19px;padding:0 16px;color:var(--ink-3);margin-top:14px}
+.sel .ic{color:var(--ink-3);width:16px;height:16px}
+.total{display:flex;align-items:center;gap:10px;font-weight:500;margin:14px 0 14px}
+.chip-n{padding:3px 10px;border:1px solid var(--rule);border-radius:6px;font-size:12.5px;background:var(--ground)}
+
+/* tables */
+table{width:100%;border-collapse:collapse}
+th{text-align:left;font-weight:500;font-size:12.5px;color:var(--ink-3);padding:10px 12px;border-bottom:1px solid var(--rule)}
+td{padding:11px 12px;border-bottom:1px solid var(--rule-soft);font-size:13px;white-space:nowrap}
+tr:last-child td{border-bottom:0}
+.r{text-align:right}
+.tbl-w{margin:12px 22px 6px;border:1px solid var(--rule);border-radius:8px;overflow:hidden}
+.tbl-w th{background:var(--ground)}
+.pager{display:flex;align-items:center;justify-content:space-between;padding:8px 22px 18px;color:var(--ink-3);font-size:13px}
+.pages{display:flex;gap:4px}
+.pages span{min-width:32px;height:32px;display:inline-flex;align-items:center;justify-content:center;padding:0 10px;border:1px solid var(--rule);border-radius:6px;color:var(--ink-2)}
+.pages span.on{border-color:var(--gain);color:var(--ink);background:var(--panel-2)}
+.acts{display:flex;gap:6px}
+.acts .icon-btn{width:32px;height:32px}
+
+/* notification-type components (S6): left edge plus pill, never a filled card */
+.t-op{--edge:var(--notif-operation);--soft:var(--notif-operation-soft);--inkc:var(--notif-operation-ink)}
+.t-sf{--edge:var(--notif-safety);--soft:var(--notif-safety-soft);--inkc:var(--notif-safety-ink)}
+.t-di{--edge:var(--notif-discrepancy);--soft:var(--notif-discrepancy-soft);--inkc:var(--notif-discrepancy-ink)}
+.t-no{--edge:var(--notif-notice);--soft:var(--notif-notice-soft);--inkc:var(--notif-notice-ink)}
+.pill{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 10px;border-radius:12px;font-size:12px;font-weight:500;background:var(--soft);color:var(--inkc);border:1px solid color-mix(in srgb,var(--edge) 38%,transparent)}
+.pill .ic{width:12px;height:12px}
+.pill.dot::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--edge)}
+
+/* monthly grid */
+.mg{display:grid;grid-template-columns:52px repeat(12,1fr) 64px;gap:4px;font-size:12px}
+.mg div{height:34px;display:flex;align-items:center;justify-content:center;border-radius:4px;font-family:var(--font-mono);font-variant-numeric:tabular-nums}
+.mg .h{height:22px;color:var(--ink-3);font-family:var(--font-sans)}
+.mg .y{justify-content:flex-start;color:var(--ink-2)}
+.mg .e{background:var(--rule-soft)}
+.mg .g1{background:var(--gain-1)} .mg .g2{background:var(--gain-2)} .mg .l1{background:var(--loss-1)} .mg .l2{background:var(--loss-2)}
+.mg .tot{background:none;border:1px solid var(--rule);font-weight:500}
+
+/* feed */
+.chips{display:flex;gap:8px;margin-bottom:22px;flex-wrap:wrap}
+.chipf{height:34px;display:inline-flex;align-items:center;gap:8px;padding:0 14px;border:1px solid var(--rule);border-radius:17px;background:var(--panel);color:var(--ink-2);font-size:13px}
+.chipf.on{border-color:var(--rule-strong);background:var(--panel-2);color:var(--ink)}
+.chipf i{width:8px;height:8px;border-radius:50%;background:var(--edge,var(--ink-3))}
+.day{font:600 13px var(--font-display);color:var(--ink-2);margin:26px 0 10px}
+.feed{background:var(--panel);border:1px solid var(--rule);border-radius:10px;overflow:hidden}
+.fi{display:flex;gap:14px;padding:16px 20px 16px 17px;border-left:3px solid var(--edge);border-bottom:1px solid var(--rule-soft)}
+.fi:last-child{border-bottom:0}
+.fi>.ic{margin-top:2px;color:var(--edge)}
+.fi-b{flex:1;min-width:0}
+.fi-b b{font-weight:500}
+.fi-b p{color:var(--ink-2);margin-top:3px;max-width:640px}
+.fi-b p .num{color:var(--ink)}
+.fi-m{display:flex;flex-direction:column;align-items:flex-end;gap:8px;font-size:12.5px;color:var(--ink-3)}
+.fi-m a{color:var(--gain-bright)}
+.adm{font-size:12px;color:var(--ink-3);margin-top:6px;display:flex;align-items:center;gap:6px}
+.adm .ic{width:12px;height:12px}
+
+/* account */
+.row{display:flex;align-items:center;justify-content:space-between;gap:24px;padding:16px 0;border-bottom:1px solid var(--rule-soft)}
+.row:last-child{border-bottom:0;padding-bottom:0}
+.row:first-child{padding-top:0}
+.row small{display:block;color:var(--ink-3);font-size:12.5px;margin-bottom:2px}
+.row .v{font-size:15px}
+.note{display:flex;align-items:center;gap:8px;color:var(--ink-3);font-size:13px;margin-top:16px}
+.note .ic{width:16px;height:16px}
+.danger-card{border-color:color-mix(in srgb,var(--loss) 40%,var(--rule));margin-top:32px}
+.danger-card h2{color:var(--loss)}
+.bar-btn{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;height:44px;border-radius:8px;background:var(--panel-2);border:1px dashed var(--rule-strong);font-weight:500;margin-bottom:12px}
+.bar-btn .ic{color:var(--gain)}
+.help{display:flex;align-items:center;gap:8px;color:var(--ink-2);font-size:13px;margin-bottom:20px}
+.help .ic{width:16px;height:16px;color:var(--ink-3)}
+
+/* mobile */
+.m .page{padding:16px}
+.m .mtop{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+.m .tools{gap:6px}
+.m .exs{overflow-x:auto;margin:0 -16px 20px;padding:0 16px;-webkit-mask:linear-gradient(90deg,#000 88%,transparent);mask:linear-gradient(90deg,#000 88%,transparent)}
+.m .ex{min-width:190px;justify-content:center}
+.m h1{font-size:24px}
+.m .sub-t{margin-bottom:18px}
+.m .hc{padding:18px 16px 0}
+.m .hc-top{grid-template-columns:1fr;gap:16px}
+.m .bal .num,.m .bal .mask{font-size:34px}
+.m .stats{grid-template-columns:1fr 1fr;margin:18px -16px 0}
+.m .stat{padding:12px 16px;border-bottom:1px solid var(--rule)}
+.m .stat:nth-child(2n){border-right:0}
+.m .stat:nth-child(n+3){border-bottom:0}
+.m .scrim{position:absolute;inset:0;background:rgba(12,17,22,.74)}
+.m .drawer{position:absolute;left:0;top:0;bottom:0;width:300px;box-shadow:12px 0 40px rgba(0,0,0,.5)}
+.m .drawer.side{width:300px}
+/* ex3 fix: the drawer's foot sits clear of the frame's rounded bottom edge, so the build tag is never clipped */
+.m .drawer.side{padding-bottom:30px;overflow-y:auto}
+.m .drawer .build{padding-bottom:2px}
+
+/* strategy views (ex8 to ex10) */
+.i-calendar{--i:url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M8 2v4'/><path d='M16 2v4'/><rect width='18' height='18' x='3' y='4' rx='2'/><path d='M3 10h18'/></svg>")}
+.i-coins{--i:url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><circle cx='8' cy='8' r='6'/><path d='M18.09 10.37A6 6 0 1 1 10.34 18'/><path d='M7 6h1v4'/><path d='m16.71 13.88.7.71-2.82 2.82'/></svg>")}
+.i-tdown{--i:url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M16 17h6v-6'/><path d='m22 17-8.5-8.5-5 5L2 7'/></svg>")}
+.i-trophy{--i:url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M6 9H4.5a2.5 2.5 0 0 1 0-5H6'/><path d='M18 9h1.5a2.5 2.5 0 0 0 0-5H18'/><path d='M4 22h16'/><path d='M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22'/><path d='M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22'/><path d='M18 2H6v7a6 6 0 0 0 12 0V2Z'/></svg>")}
+.i-wallet{--i:url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-3a2 2 0 0 0 0 4h3a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1'/><path d='M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4'/></svg>")}
+.i-sliders{--i:url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M10 5H3'/><path d='M12 19H3'/><path d='M14 3v4'/><path d='M16 17v4'/><path d='M21 12h-9'/><path d='M21 19h-5'/><path d='M21 5h-7'/><path d='M8 10v4'/><path d='M8 12H3'/></svg>")}
+.i-pie{--i:url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M21 12c.552 0 1.005-.449.95-.998a10 10 0 0 0-8.953-8.951c-.55-.055-.998.398-.998.95v8a1 1 0 0 0 1 1z'/><path d='M21.21 15.89A10 10 0 1 1 8 2.83'/></svg>")}
+.i-gauge{--i:url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='m12 14 4-4'/><path d='M3.34 19a10 10 0 1 1 17.32 0'/></svg>")}
+.i-arrdown{--i:url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M12 5v14'/><path d='m19 12-7 7-7-7'/></svg>")}
+.i-check{--i:url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'><path d='M20 6 9 17l-5-5'/></svg>")}
+.i-pause{--i:url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><rect x='14' y='4' width='4' height='16' rx='1'/><rect x='6' y='4' width='4' height='16' rx='1'/></svg>")}
+.i-archive{--i:url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><rect width='20' height='5' x='2' y='3' rx='1'/><path d='M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8'/><path d='M10 12h4'/></svg>")}
+.top.end{justify-content:flex-end}
+.nav a.par{color:var(--ink)}
+.nav a.par .ic{color:var(--gain)}
+.sub a.on{position:relative;border-top-left-radius:0;border-bottom-left-radius:0}
+.sub a.on::before{content:"";position:absolute;left:-1px;top:6px;bottom:6px;width:2px;background:var(--gain)}
+.tb{display:flex;align-items:center;justify-content:space-between;gap:16px}
+.tb .inp{margin-top:0;flex:0 1 50%;height:40px}
+.tb-r{display:flex;align-items:center;gap:20px}
+.chk{display:inline-flex;align-items:center;gap:8px;color:var(--ink-2);font-size:13.5px}
+.chk i{width:16px;height:16px;border:1px solid var(--rule-strong);border-radius:4px;background:var(--ground);display:inline-flex;align-items:center;justify-content:center;color:var(--ground)}
+.chk i.on{background:var(--gain);border-color:var(--gain)}
+.chk i .ic{width:12px;height:12px}
+.btn.fill{background:var(--gain);border-color:var(--gain);color:var(--ground);height:40px}
+.btn.fill .ic{width:16px;height:16px}
+.btn.lineb{height:40px}
+.sortrow{display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin-top:14px;padding-top:14px;border-top:1px solid var(--rule-soft)}
+.sortrow>span{font-size:12.5px;color:var(--ink-3);margin-right:4px}
+.sb{height:32px;display:inline-flex;align-items:center;gap:4px;padding:0 11px;border:1px solid var(--rule);border-radius:8px;font-size:12.5px;color:var(--ink-2)}
+.sb.on{border-color:var(--gain);color:var(--gain)}
+.sb .ic{width:14px;height:14px}
+.sc{background:var(--panel);border:1px solid var(--rule);border-radius:10px;padding:16px 20px;margin-bottom:14px;display:flex;flex-direction:column;gap:14px}
+.sc-h{display:flex;flex-direction:column;gap:3px}
+.sc-n{display:flex;align-items:center;gap:10px;font:600 16px var(--font-display);color:var(--gain)}
+.sc-n small{font:500 11px var(--font-mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);border:1px solid var(--rule);border-radius:4px;padding:2px 7px}
+.sc-n .dot{width:10px;height:10px;border-radius:50%;background:var(--ink-3);flex:none}
+.sc-n .dot.on{background:var(--gain)}
+.sc-by{font-size:12.5px;color:var(--ink-2)}
+.sc-mk{display:flex;align-items:center;flex-wrap:wrap;gap:6px;font:400 11px var(--font-mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3)}
+.sc-mk .ic{width:13px;height:13px}
+.sc-mk .dt{display:inline-flex;align-items:center;gap:5px;letter-spacing:.02em;text-transform:none;font-size:11.5px}
+.sc-b{display:flex;align-items:center;gap:20px}
+.fg{flex:1;min-width:0;display:grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:0 20px}
+.fg div{min-width:0}
+.fg dt{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--ink-3);margin-bottom:5px;white-space:nowrap}
+.fg dt .ic{width:14px;height:14px}
+.fg dd{display:flex;align-items:center;flex-wrap:wrap;gap:2px 10px;margin:0;font:400 14px var(--font-mono);font-variant-numeric:tabular-nums}
+.fg dd .u{font-size:.75em}
+.fg dd .ic{width:14px;height:14px;color:var(--ink-3);margin-right:-5px}
+.fg dd .w{color:var(--ink-2)}
+.sw{width:44px;height:24px;border-radius:12px;border:1px solid var(--rule);background:var(--panel-2);position:relative;flex:none}
+.sw::after{content:"";position:absolute;top:3px;left:4px;width:16px;height:16px;border-radius:50%;background:var(--ink)}
+.sw.on{background:var(--gain)}
+.sw.on::after{left:24px}
+.mks{display:flex;flex-wrap:wrap;gap:6px}
+.mkc{display:inline-flex;align-items:center;gap:7px;height:26px;padding:0 10px;border:1px solid var(--rule);border-radius:13px;background:var(--ground);font-size:12px;color:var(--ink-2)}
+.mkc b{font-weight:500;color:var(--ink)}
+.mkc i{width:6px;height:6px;border-radius:50%;background:var(--gain)}
+.mkc.s i{background:var(--loss)}
+.sc-note{display:flex;align-items:flex-start;gap:8px;padding-top:12px;border-top:1px solid var(--rule-soft);font-size:13px;color:var(--ink-2)}
+.sc-note .ic{width:16px;height:16px;margin-top:1px}
+.sc-note b{font-weight:500;color:var(--ink)}
+.hint{display:flex;align-items:center;gap:8px;color:var(--ink-3);font-size:13px;margin-top:4px}
+.hint .ic{width:16px;height:16px}
+
+/* strategy page (ex11, ex12): the real page's grid, the record beside a 25rem (400 px) aside, gap-9 (36 px) */
+.i-copy{--i:url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><rect width='14' height='14' x='8' y='8' rx='2' ry='2'/><path d='M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2'/></svg>")}
+.i-globe{--i:url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='10'/><path d='M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20'/><path d='M2 12h20'/></svg>")}
+.i-useradd{--i:url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2'/><circle cx='9' cy='7' r='4'/><line x1='19' x2='19' y1='8' y2='14'/><line x1='22' x2='16' y1='11' y2='11'/></svg>")}
+.pg{display:grid;grid-template-columns:minmax(0,1fr) 400px;gap:36px;align-items:start}
+.pg-l{display:flex;flex-direction:column;gap:16px;min-width:0}
+.pg-l .card{margin-bottom:0}
+.pg-l .sub-t{margin:0}
+.aside{display:flex;flex-direction:column;gap:16px;align-self:start;background:var(--panel);border:1px solid var(--rule);border-radius:10px;padding:20px;min-height:779px}
+.ah{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px}
+.ttl{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;min-height:44px}
+.ttl .icon-btn{width:32px;height:32px}
+.hd-row{display:flex;align-items:flex-end;justify-content:space-between;gap:16px}
+.hd-row .hd{margin-bottom:0;flex:1;min-width:0}
+.hd-row .btn{flex:none;white-space:nowrap}
+.hd{display:flex;flex-direction:column;gap:6px;margin-bottom:4px}
+.hd .sc-by{font-size:13px}
+.desc{display:flex;flex-direction:column;gap:4px;align-items:flex-start}
+.desc h3{font:600 12px var(--font-sans);color:var(--ink-2);min-height:28px;display:flex;align-items:center;gap:6px}
+.desc p{font-size:14px;color:var(--ink);max-width:640px}
+.desc .more{font-size:12px;color:var(--ink-3);margin-top:4px}
+.lab{display:flex;align-items:center;gap:6px;font-size:14px;line-height:20px;color:var(--ink-2)}
+.lab.s{font-size:12px;font-weight:600}
+.lab .ic{width:15px;height:15px;color:var(--ink-3)}
+.xs{font-size:12px;color:var(--ink-3)}
+.fld{display:flex;flex-direction:column;gap:8px}
+.ar{display:flex;gap:8px;align-items:center}
+.ar .sel{flex:1}
+.sel .num{font-size:14px}
+.sel .u{color:var(--ink-3);font-size:13px}
+.rng{position:relative;height:4px;border-radius:2px;background:var(--rule);margin:8px 8px}
+.rng i{position:absolute;left:0;top:0;bottom:0;border-radius:2px;background:var(--gain)}
+.rng b{position:absolute;top:50%;width:16px;height:16px;margin:-8px 0 0 -8px;border-radius:50%;background:var(--ink);border:2px solid var(--gain)}
+.sep{border-top:1px solid var(--rule);padding-top:16px}
+.btn.wide{flex:1;justify-content:center}
+.btn.off{opacity:.5}
+.btn.big{height:44px}
+.ro{flex:1;min-width:0;height:38px;display:flex;align-items:center;padding:0 12px;border:1px solid var(--rule);border-radius:8px;background:var(--ground);font:400 12px var(--font-mono);color:var(--ink-2);overflow:hidden;white-space:nowrap}
+.hl{display:flex;flex-direction:column;gap:4px;font:400 12px var(--font-mono);color:var(--ink-2)}
+.card h2.sm{font-size:14px}
+.tbl-w.x{overflow-x:auto}
+.tbl-w.s th,.tbl-w.s td{padding:9px 8px;font-size:12px;white-space:nowrap}
+.tbl-w.s th{font-size:11px}
+.tbl-w.s td{font-family:var(--font-mono);font-variant-numeric:tabular-nums}
+.tbl-w.s td.t{font-family:var(--font-sans)}
+.cl{margin:0 22px 18px;display:flex;align-items:center;gap:12px;color:var(--ink-3);font-size:13px}
+</style>
+</head>
+<body>
+
+<!-- ============ ex1 ============ -->
+<section class="screen" id="ex1">
+<p class="cap">ex1 — Panel de control, escritorio, barra lateral desplegada, "Panel de control" activo</p>
+<div class="frame">
+  <aside class="side">
+    <div class="side-top">
+      <div class="brand"><span class="mark"><i class="ic i-brand"></i></span><span class="brand-name">Strategy Manager</span></div>
+      <button class="icon-btn ghost" aria-label="Contraer la barra lateral"><i class="ic i-panel"></i></button>
+    </div>
+    <nav class="nav">
+      <a class="on"><i class="ic i-dash"></i><span>Panel de control</span></a>
+      <a><i class="ic i-bell"></i><span>Notificaciones</span></a>
+      <a><i class="ic i-ops"></i><span>Mis operaciones</span></a>
+      <div>
+        <a><i class="ic i-trend"></i><span>Estrategias</span><i class="ic i-up chev"></i></a>
+        <div class="sub"><a>Mis estrategias</a><a>Mis suscripciones</a><a>Explorar</a></div>
+      </div>
+      <a><i class="ic i-link"></i><span>Vincular exchange</span></a>
+    </nav>
+    <div class="side-foot">
+      <a><i class="ic i-shield"></i><span>Administración</span><i class="ic i-down chev"></i></a>
+      <a><i class="ic i-user"></i><span class="two"><b>Mi cuenta</b><small>María Gómez</small></span></a>
+      <a><i class="ic i-out"></i><span>Cerrar sesión</span></a>
+      <div class="build"><span class="lbl">build </span>cf95299<span class="lbl">ef7f7</span></div>
+    </div>
+  </aside>
+  <main class="main"><div class="wrap">
+    <div class="top">
+      <div class="exs"><button class="ex on"><span class="wm binance">BINANCE</span></button><button class="ex"><span class="wm bybit">BYBIT</span></button></div>
+      <div class="tools">
+        <span class="badge-live"><i></i>En vivo</span>
+        <button class="icon-btn" aria-label="Mi cuenta"><i class="ic i-user"></i></button>
+        <button class="icon-btn" aria-label="Notificaciones"><i class="ic i-bell"></i></button>
+        <button class="icon-btn" aria-label="Idioma: español"><span class="flag"></span></button>
+      </div>
+    </div>
+    <div class="crumb"><i class="ic i-home"></i><i class="ic i-right"></i><b>Panel de control</b></div>
+    <h1>Panel de control</h1>
+    <p class="sub-t">Revise el saldo, el rendimiento y las posiciones abiertas del exchange seleccionado.</p>
+
+    <div class="card hc">
+      <div class="hc-top">
+        <div>
+          <div class="hc-label">Saldo disponible <button class="icon-btn" aria-label="Ocultar saldos"><i class="ic i-eye"></i></button></div>
+          <div class="hc-sub">Binance, pool único en USDT</div>
+          <div class="bal"><span class="num">11.140,15</span><span class="u">USDT</span></div>
+          <div class="hc-sub">Capital en posiciones <span class="num" style="color:var(--ink-2)">1.274,15 USDT</span></div>
+        </div>
+        <div>
+          <div class="spk-t"><span>Rendimiento, últimos 30 días</span><span class="num gain">+4,2%</span></div>
+          <svg viewBox="0 0 340 76" width="100%" height="76" aria-hidden="true">
+            <defs><linearGradient id="spk1" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1FA6B8" stop-opacity=".30"/><stop offset="1" stop-color="#1FA6B8" stop-opacity="0"/></linearGradient></defs>
+            <polygon fill="url(#spk1)" points="0,60 18,56 36,58 54,50 72,52 90,44 108,46 126,38 144,41 162,33 180,36 198,30 216,34 234,26 252,28 270,20 288,24 306,16 324,18 340,12 340,76 0,76"/>
+            <polyline fill="none" stroke="#1FA6B8" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" points="0,60 18,56 36,58 54,50 72,52 90,44 108,46 126,38 144,41 162,33 180,36 198,30 216,34 234,26 252,28 270,20 288,24 306,16 324,18 340,12"/>
+          </svg>
+        </div>
+      </div>
+      <div class="stats">
+        <div class="stat"><small>PnL total</small><span class="num gain">+2.414,30</span><span class="u">USDT</span></div>
+        <div class="stat"><small>Rendimiento</small><span class="num gain">+24,14%</span></div>
+        <div class="stat"><small>Drawdown máximo</small><span class="num loss">−8,7%</span></div>
+        <div class="stat"><small>Posiciones abiertas</small><span class="num">3</span></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-h"><h2>Rendimiento compuesto</h2>
+        <div class="seg"><button>1S</button><button>1M</button><button>3M</button><button class="on">1A</button><button>Todo</button></div></div>
+      <div class="pad">
+        <svg viewBox="0 0 920 250" width="100%" height="250" aria-label="Rendimiento compuesto, 1 año">
+          <defs><linearGradient id="eq1" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1FA6B8" stop-opacity=".22"/><stop offset="1" stop-color="#1FA6B8" stop-opacity="0"/></linearGradient></defs>
+          <g stroke="#1E272F" stroke-width="1"><line x1="40" x2="900" y1="20" y2="20"/><line x1="40" x2="900" y1="80" y2="80"/><line x1="40" x2="900" y1="140" y2="140"/></g>
+          <line x1="40" x2="900" y1="200" y2="200" stroke="#3D4E5C" stroke-width="1.5"/>
+          <g font-family="IBM Plex Mono, monospace" font-size="11" fill="#7A8C99" text-anchor="end"><text x="32" y="24">30%</text><text x="32" y="84">20%</text><text x="32" y="144">10%</text><text x="32" y="204">0%</text></g>
+          <g font-family="IBM Plex Sans, sans-serif" font-size="11" fill="#7A8C99" text-anchor="middle"><text x="40" y="224">jul 25</text><text x="190" y="224">sep</text><text x="340" y="224">nov</text><text x="490" y="224">ene 26</text><text x="640" y="224">mar</text><text x="790" y="224">may</text><text x="890" y="224">nov</text></g>
+          <polygon fill="url(#eq1)" points="40,200 90,194 140,180 190,192 240,169 290,156 340,141 390,121 440,134 490,110 540,102 590,121 640,97 690,91 740,66 790,73 840,60 890,55 890,200"/>
+          <polyline fill="none" stroke="#1FA6B8" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round" points="40,200 90,194 140,180 190,192 240,169 290,156 340,141 390,121 440,134 490,110 540,102 590,121 640,97 690,91 740,66 790,73 840,60 890,55"/>
+          <circle cx="890" cy="55" r="4" fill="#1FA6B8"/>
+        </svg>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-h"><h2>Rendimiento mensual</h2><span class="mute" style="font-size:12.5px">Rango fijo de ±15%</span></div>
+      <div class="pad">
+        <div class="mg">
+          <div class="h"></div><div class="h">Ene</div><div class="h">Feb</div><div class="h">Mar</div><div class="h">Abr</div><div class="h">May</div><div class="h">Jun</div><div class="h">Jul</div><div class="h">Ago</div><div class="h">Sep</div><div class="h">Oct</div><div class="h">Nov</div><div class="h">Dic</div><div class="h">Año</div>
+          <div class="y">2026</div><div class="g1">+2,9</div><div class="l1">−1,8</div><div class="g2">+3,6</div><div class="g1">+1,1</div><div class="l2">−2,6</div><div class="g2">+3,6</div><div class="g1">+0,8</div><div class="g2">+3,6</div><div class="l1">−0,9</div><div class="g1">+1,7</div><div class="g1">+0,5</div><div class="e"></div><div class="tot gain">+13,0%</div>
+          <div class="y">2025</div><div class="e"></div><div class="e"></div><div class="e"></div><div class="e"></div><div class="e"></div><div class="e"></div><div class="g1">+1,0</div><div class="g1">+2,4</div><div class="l1">−1,9</div><div class="g2">+3,6</div><div class="g1">+2,1</div><div class="g1">+2,4</div><div class="tot gain">+9,9%</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-h"><h2>Posiciones abiertas</h2><span class="chip-n">3 posiciones</span></div>
+      <div class="tbl-w"><table>
+        <thead><tr><th>Estrategia</th><th>Símbolo</th><th>Lado</th><th class="r">Entrada</th><th class="r">Precio de marca</th><th class="r">PnL (USDT)</th><th></th></tr></thead>
+        <tbody>
+          <tr><td>Trend Rider 4h</td><td class="num">BTCUSDT.P</td><td>Largo</td><td class="r num">96.420,5</td><td class="r num">97.312,0</td><td class="r num gain">+41,20</td><td class="r"><button class="btn sm danger">Cerrar ahora</button></td></tr>
+          <tr><td>SOL Breakout</td><td class="num">SOLUSDT.P</td><td>Corto</td><td class="r num">182,40</td><td class="r num">184,05</td><td class="r num loss">−12,35</td><td class="r"><button class="btn sm danger">Cerrar ahora</button></td></tr>
+          <tr><td>ETH Mean Reversion</td><td class="num">ETHUSDT.P</td><td>Largo</td><td class="r num">3.412,8</td><td class="r num">3.438,9</td><td class="r num gain">+18,90</td><td class="r"><button class="btn sm danger">Cerrar ahora</button></td></tr>
+        </tbody></table></div>
+      <div style="height:16px"></div>
+    </div>
+  </div></main>
+</div>
+</section>
+
+<!-- ============ ex2 ============ -->
+<section class="screen" id="ex2">
+<p class="cap">ex2 — Saldos ocultos (S1): importes y PnL absoluto como ******, ojo tachado, ejes del gráfico ocultos. Los porcentajes siguen visibles; es decisión del dueño si también se ocultan.</p>
+<div class="frame nosb"><main class="main"><div class="wrap">
+  <div class="top">
+    <div class="exs"><button class="ex on"><span class="wm binance">BINANCE</span></button><button class="ex"><span class="wm bybit">BYBIT</span></button></div>
+    <div class="tools">
+      <span class="badge-live"><i></i>En vivo</span>
+      <button class="icon-btn" aria-label="Mi cuenta"><i class="ic i-user"></i></button>
+      <button class="icon-btn" aria-label="Notificaciones"><i class="ic i-bell"></i></button>
+      <button class="icon-btn" aria-label="Idioma: español"><span class="flag"></span></button>
+    </div>
+  </div>
+  <div class="crumb"><i class="ic i-home"></i><i class="ic i-right"></i><b>Panel de control</b></div>
+  <h1>Panel de control</h1>
+  <p class="sub-t">Revise el saldo, el rendimiento y las posiciones abiertas del exchange seleccionado.</p>
+  <div class="card hc">
+    <div class="hc-top">
+      <div>
+        <div class="hc-label">Saldo disponible <button class="icon-btn" aria-label="Mostrar saldos"><i class="ic i-eyeoff"></i></button></div>
+        <div class="hc-sub">Binance, pool único en USDT</div>
+        <div class="bal"><span class="mask">******</span><span class="u">USDT</span></div>
+        <div class="hc-sub">Capital en posiciones <span class="mask">******</span></div>
+      </div>
+      <div>
+        <div class="spk-t"><span>Rendimiento, últimos 30 días</span><span class="num gain">+4,2%</span></div>
+        <svg viewBox="0 0 340 76" width="100%" height="76" aria-hidden="true">
+          <defs><linearGradient id="spk2" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1FA6B8" stop-opacity=".30"/><stop offset="1" stop-color="#1FA6B8" stop-opacity="0"/></linearGradient></defs>
+          <polygon fill="url(#spk2)" points="0,60 18,56 36,58 54,50 72,52 90,44 108,46 126,38 144,41 162,33 180,36 198,30 216,34 234,26 252,28 270,20 288,24 306,16 324,18 340,12 340,76 0,76"/>
+          <polyline fill="none" stroke="#1FA6B8" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" points="0,60 18,56 36,58 54,50 72,52 90,44 108,46 126,38 144,41 162,33 180,36 198,30 216,34 234,26 252,28 270,20 288,24 306,16 324,18 340,12"/>
+        </svg>
+      </div>
+    </div>
+    <div class="stats">
+      <div class="stat"><small>PnL total</small><span class="mask" style="font-size:20px">******</span><span class="u">USDT</span></div>
+      <div class="stat"><small>Rendimiento</small><span class="num gain">+24,14%</span></div>
+      <div class="stat"><small>Drawdown máximo</small><span class="num loss">−8,7%</span></div>
+      <div class="stat"><small>Posiciones abiertas</small><span class="num">3</span></div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-h"><h2>Rendimiento compuesto</h2>
+      <div class="seg"><button>1S</button><button>1M</button><button>3M</button><button class="on">1A</button><button>Todo</button></div></div>
+    <div class="pad">
+      <svg viewBox="0 0 920 230" width="100%" height="230" aria-label="Rendimiento compuesto, ejes ocultos">
+        <defs><linearGradient id="eq2" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1FA6B8" stop-opacity=".22"/><stop offset="1" stop-color="#1FA6B8" stop-opacity="0"/></linearGradient></defs>
+        <g stroke="#1E272F" stroke-width="1"><line x1="20" x2="900" y1="20" y2="20"/><line x1="20" x2="900" y1="80" y2="80"/><line x1="20" x2="900" y1="140" y2="140"/></g>
+        <line x1="20" x2="900" y1="200" y2="200" stroke="#3D4E5C" stroke-width="1.5"/>
+        <polygon fill="url(#eq2)" points="20,200 72,194 124,180 176,192 228,169 280,156 332,141 384,121 436,134 488,110 540,102 592,121 644,97 696,91 748,66 800,73 852,60 900,55 900,200"/>
+        <polyline fill="none" stroke="#1FA6B8" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round" points="20,200 72,194 124,180 176,192 228,169 280,156 332,141 384,121 436,134 488,110 540,102 592,121 644,97 696,91 748,66 800,73 852,60 900,55"/>
+      </svg>
+      <p class="mute" style="font-size:12.5px;margin-top:4px">Los ejes y los valores al pasar el cursor quedan ocultos mientras los saldos estén ocultos.</p>
+    </div>
+  </div>
+</div></main></div>
+</section>
+
+<!-- ============ ex3 ============ -->
+<section class="screen" id="ex3">
+<p class="cap">ex3 — Móvil, 390 px: panel con hamburguesa y botones de exchange en fila con desplazamiento lateral (izquierda); el mismo panel con el cajón abierto sobre la página atenuada (derecha)</p>
+<div class="pair">
+  <div class="frame m"><div class="page">
+    <div class="mtop">
+      <button class="icon-btn" aria-label="Abrir el menú"><i class="ic i-menu"></i></button>
+      <div class="tools">
+        <span class="badge-live"><i></i>En vivo</span>
+        <button class="icon-btn" aria-label="Mi cuenta"><i class="ic i-user"></i></button>
+        <button class="icon-btn" aria-label="Notificaciones"><i class="ic i-bell"></i></button>
+        <button class="icon-btn" aria-label="Idioma: español"><span class="flag"></span></button>
+      </div>
+    </div>
+    <div class="exs"><button class="ex on"><span class="wm binance">BINANCE</span></button><button class="ex"><span class="wm bybit">BYBIT</span></button></div>
+    <h1>Panel de control</h1>
+    <p class="sub-t">Revise el saldo, el rendimiento y las posiciones abiertas.</p>
+    <div class="card hc">
+      <div class="hc-top">
+        <div>
+          <div class="hc-label">Saldo disponible <button class="icon-btn" aria-label="Ocultar saldos"><i class="ic i-eye"></i></button></div>
+          <div class="bal"><span class="num">11.140,15</span><span class="u">USDT</span></div>
+        </div>
+        <svg viewBox="0 0 340 76" width="100%" height="56" preserveAspectRatio="none" aria-hidden="true">
+          <defs><linearGradient id="spk3" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1FA6B8" stop-opacity=".30"/><stop offset="1" stop-color="#1FA6B8" stop-opacity="0"/></linearGradient></defs>
+          <polygon fill="url(#spk3)" points="0,60 36,58 72,52 108,46 144,41 180,36 216,34 252,28 288,24 324,18 340,12 340,76 0,76"/>
+          <polyline fill="none" stroke="#1FA6B8" stroke-width="2.4" stroke-linejoin="round" points="0,60 36,58 72,52 108,46 144,41 180,36 216,34 252,28 288,24 324,18 340,12"/>
+        </svg>
+      </div>
+      <div class="stats">
+        <div class="stat"><small>PnL total</small><span class="num gain">+2.414,30</span></div>
+        <div class="stat"><small>Rendimiento</small><span class="num gain">+24,14%</span></div>
+        <div class="stat"><small>Drawdown máximo</small><span class="num loss">−8,7%</span></div>
+        <div class="stat"><small>Posiciones abiertas</small><span class="num">3</span></div>
+      </div>
+    </div>
+    <div class="card"><div class="card-h"><h2>Rendimiento compuesto</h2></div><div class="pad"><div class="seg"><button>1S</button><button>1M</button><button>3M</button><button class="on">1A</button><button>Todo</button></div></div></div>
+  </div></div>
+
+  <div class="frame m"><div class="page">
+    <div class="mtop">
+      <button class="icon-btn" aria-label="Abrir el menú"><i class="ic i-menu"></i></button>
+      <div class="tools">
+        <span class="badge-live"><i></i>En vivo</span>
+        <button class="icon-btn"><i class="ic i-user"></i></button>
+        <button class="icon-btn"><i class="ic i-bell"></i></button>
+        <button class="icon-btn"><span class="flag"></span></button>
+      </div>
+    </div>
+    <div class="exs"><button class="ex on"><span class="wm binance">BINANCE</span></button><button class="ex"><span class="wm bybit">BYBIT</span></button></div>
+    <h1>Panel de control</h1>
+    <p class="sub-t">Revise el saldo, el rendimiento y las posiciones abiertas.</p>
+    <div class="card hc"><div class="hc-label">Saldo disponible</div><div class="bal"><span class="num">11.140,15</span><span class="u">USDT</span></div><div style="height:90px"></div></div>
+  </div>
+  <div class="scrim"></div>
+  <aside class="side drawer">
+    <div class="side-top">
+      <div class="brand"><span class="mark"><i class="ic i-brand"></i></span><span class="brand-name">Strategy Manager</span></div>
+      <button class="icon-btn ghost" aria-label="Cerrar el menú"><i class="ic i-x"></i></button>
+    </div>
+    <nav class="nav">
+      <a class="on"><i class="ic i-dash"></i><span>Panel de control</span></a>
+      <a><i class="ic i-bell"></i><span>Notificaciones</span></a>
+      <a><i class="ic i-ops"></i><span>Mis operaciones</span></a>
+      <div>
+        <a><i class="ic i-trend"></i><span>Estrategias</span><i class="ic i-up chev"></i></a>
+        <div class="sub"><a>Mis estrategias</a><a>Mis suscripciones</a><a>Explorar</a></div>
+      </div>
+      <a><i class="ic i-link"></i><span>Vincular exchange</span></a>
+    </nav>
+    <div class="side-foot">
+      <a><i class="ic i-shield"></i><span>Administración</span><i class="ic i-down chev"></i></a>
+      <a><i class="ic i-user"></i><span class="two"><b>Mi cuenta</b><small>María Gómez</small></span></a>
+      <a><i class="ic i-out"></i><span>Cerrar sesión</span></a>
+      <div class="build">build cf95299ef7f7</div>
+    </div>
+  </aside></div>
+</div>
+</section>
+
+<!-- ============ ex4 ============ -->
+<section class="screen" id="ex4">
+<p class="cap">ex4 — Mis operaciones, escritorio; la barra lateral muestra el grupo Administración desplegado</p>
+<div class="frame">
+  <aside class="side">
+    <div class="side-top">
+      <div class="brand"><span class="mark"><i class="ic i-brand"></i></span><span class="brand-name">Strategy Manager</span></div>
+      <button class="icon-btn ghost" aria-label="Contraer la barra lateral"><i class="ic i-panel"></i></button>
+    </div>
+    <nav class="nav">
+      <a><i class="ic i-dash"></i><span>Panel de control</span></a>
+      <a><i class="ic i-bell"></i><span>Notificaciones</span></a>
+      <a class="on"><i class="ic i-ops"></i><span>Mis operaciones</span></a>
+      <div><a><i class="ic i-trend"></i><span>Estrategias</span><i class="ic i-down chev"></i></a></div>
+      <a><i class="ic i-link"></i><span>Vincular exchange</span></a>
+    </nav>
+    <div class="side-foot">
+      <div>
+        <a><i class="ic i-shield"></i><span>Administración</span><i class="ic i-up chev"></i></a>
+        <div class="sub"><a>Usuarios</a><a>Discrepancias<span class="badge-n">2</span></a></div>
+      </div>
+      <a><i class="ic i-user"></i><span class="two"><b>Mi cuenta</b><small>María Gómez</small></span></a>
+      <a><i class="ic i-out"></i><span>Cerrar sesión</span></a>
+      <div class="build"><span class="lbl">build </span>cf95299<span class="lbl">ef7f7</span></div>
+    </div>
+  </aside>
+  <main class="main"><div class="wrap">
+    <div class="top">
+      <div class="exs"><button class="ex on"><span class="wm binance">BINANCE</span></button><button class="ex"><span class="wm bybit">BYBIT</span></button></div>
+      <div class="tools">
+        <span class="badge-live"><i></i>En vivo</span>
+        <button class="icon-btn"><i class="ic i-user"></i></button>
+        <button class="icon-btn"><i class="ic i-bell"></i></button>
+        <button class="icon-btn"><span class="flag"></span></button>
+      </div>
+    </div>
+    <div class="crumb"><i class="ic i-home"></i><i class="ic i-right"></i><b>Mis operaciones</b></div>
+    <h1>Mis operaciones</h1>
+    <p class="sub-t">Consulte todas sus operaciones, de todas sus estrategias, en un solo lugar.</p>
+
+    <div class="card"><div class="pad" style="display:flex;gap:16px;align-items:flex-end">
+      <div class="field"><label>Período</label><div class="sel">Últimos 30 días<i class="ic i-down"></i></div></div>
+      <div class="field"><label>Estrategia</label><div class="sel">Todas las estrategias<i class="ic i-down"></i></div></div>
+      <div class="field"><label>Exchange</label><div class="sel">Todos<i class="ic i-down"></i></div></div>
+      <button class="btn" style="flex:none;height:38px">Limpiar filtros</button>
+    </div></div>
+
+    <div class="card">
+      <div class="card-h"><h2>Operaciones</h2></div>
+      <div style="padding:0 22px"><div class="total">Total <span class="chip-n">42 registros</span></div></div>
+      <div class="tbl-w" style="margin-top:0"><table>
+        <thead><tr><th>Apertura</th><th>Cierre</th><th>Estrategia</th><th>Par</th><th>Lado</th><th>Exchange</th><th class="r">Entrada</th><th class="r">Salida</th><th class="r">PnL (USDT)</th><th>Estado</th></tr></thead>
+        <tbody>
+          <tr><td class="num">24/11 09:00</td><td class="mute">—</td><td>Trend Rider 4h</td><td class="num">BTCUSDT.P</td><td>Largo</td><td><span class="wm binance">Binance</span></td><td class="r num">96.420,5</td><td class="r mute">—</td><td class="r num gain">+41,20</td><td><span class="pill dot t-op">Abierta</span></td></tr>
+          <tr><td class="num">24/11 04:00</td><td class="mute">—</td><td>SOL Breakout</td><td class="num">SOLUSDT.P</td><td>Corto</td><td><span class="wm binance">Binance</span></td><td class="r num">182,40</td><td class="r mute">—</td><td class="r num loss">−12,35</td><td><span class="pill dot t-op">Abierta</span></td></tr>
+          <tr><td class="num">23/11 16:00</td><td class="mute">—</td><td>ETH Mean Reversion</td><td class="num">ETHUSDT.P</td><td>Largo</td><td><span class="wm binance">Binance</span></td><td class="r num">3.412,8</td><td class="r mute">—</td><td class="r num gain">+18,90</td><td><span class="pill dot t-op">Abierta</span></td></tr>
+          <tr><td class="num">23/11 08:00</td><td class="num">23/11 14:00</td><td>Trend Rider 4h</td><td class="num">ETHUSDT.P</td><td>Largo</td><td><span class="wm bybit">Bybit</span></td><td class="r num">3.371,2</td><td class="r num">3.402,6</td><td class="r num gain">+27,40</td><td><span class="pill dot t-no">Cerrada</span></td></tr>
+          <tr><td class="num">22/11 20:00</td><td class="num">22/11 23:12</td><td>SOL Breakout</td><td class="num">SOLUSDT.P</td><td>Largo</td><td><span class="wm binance">Binance</span></td><td class="r num">178,10</td><td class="r num">171,55</td><td class="r num loss">−31,80</td><td><span class="pill dot t-sf">Stop</span></td></tr>
+          <tr><td class="num">22/11 04:00</td><td class="num">22/11 12:00</td><td>Trend Rider 4h</td><td class="num">BTCUSDT.P</td><td>Largo</td><td><span class="wm binance">Binance</span></td><td class="r num">95.180,0</td><td class="r num">96.020,5</td><td class="r num gain">+36,75</td><td><span class="pill dot t-no">Cerrada</span></td></tr>
+          <tr><td class="num">21/11 12:00</td><td class="num">21/11 13:40</td><td>ETH Mean Reversion</td><td class="num">ETHUSDT.P</td><td>Corto</td><td><span class="wm bybit">Bybit</span></td><td class="r num">3.455,0</td><td class="r num">3.431,7</td><td class="r num gain">+12,60</td><td><span class="pill t-no"><i class="ic i-user"></i>Cerrada por usted</span></td></tr>
+          <tr><td class="num">20/11 08:00</td><td class="num">20/11 20:00</td><td>SOL Breakout</td><td class="num">SOLUSDT.P</td><td>Corto</td><td><span class="wm bybit">Bybit</span></td><td class="r num">190,25</td><td class="r num">186,90</td><td class="r num gain">+21,05</td><td><span class="pill dot t-no">Cerrada</span></td></tr>
+          <tr><td class="num">19/11 16:00</td><td class="num">19/11 18:30</td><td>Trend Rider 4h</td><td class="num">BTCUSDT.P</td><td>Largo</td><td><span class="wm binance">Binance</span></td><td class="r num">97.020,0</td><td class="r num">95.930,0</td><td class="r num loss">−48,20</td><td><span class="pill dot t-sf">Stop</span></td></tr>
+          <tr><td class="num">18/11 00:00</td><td class="num">18/11 16:00</td><td>ETH Mean Reversion</td><td class="num">ETHUSDT.P</td><td>Largo</td><td><span class="wm binance">Binance</span></td><td class="r num">3.298,4</td><td class="r num">3.361,0</td><td class="r num gain">+33,90</td><td><span class="pill dot t-no">Cerrada</span></td></tr>
+        </tbody></table></div>
+      <div class="pager"><span>Mostrando 1 a 10 de 42</span>
+        <div class="pages"><span>Anterior</span><span class="on num">1</span><span class="num">2</span><span class="num">3</span><span class="num">4</span><span class="num">5</span><span>Siguiente</span></div></div>
+    </div>
+  </div></main>
+</div>
+</section>
+
+<!-- ============ ex5 ============ -->
+<section class="screen" id="ex5">
+<p class="cap">ex5 — Notificaciones, escritorio, barra lateral contraída a iconos (S4). La discrepancia solo la ve el administrador; en el feed de un usuario común no aparece.</p>
+<div class="frame">
+  <aside class="side collapsed">
+    <div class="side-top">
+      <div class="brand"><span class="mark"><i class="ic i-brand"></i></span></div>
+      <button class="icon-btn ghost" aria-label="Expandir la barra lateral"><i class="ic i-panel"></i></button>
+    </div>
+    <nav class="nav">
+      <a><i class="ic i-dash"></i><span>Panel de control</span></a>
+      <a class="on"><i class="ic i-bell"></i><span>Notificaciones</span></a>
+      <a><i class="ic i-ops"></i><span>Mis operaciones</span></a>
+      <div><a><i class="ic i-trend"></i><span>Estrategias</span><i class="ic i-down chev"></i></a></div>
+      <a><i class="ic i-link"></i><span>Vincular exchange</span></a>
+    </nav>
+    <div class="side-foot">
+      <a><i class="ic i-shield"></i><span>Administración</span><i class="ic i-down chev"></i></a>
+      <a><i class="ic i-user"></i><span>Mi cuenta</span></a>
+      <a><i class="ic i-out"></i><span>Cerrar sesión</span></a>
+      <div class="build"><span class="lbl">build </span>cf95299<span class="lbl">ef7f7</span></div>
+    </div>
+  </aside>
+  <main class="main"><div class="wrap">
+    <div class="top">
+      <div class="exs"><button class="ex on"><span class="wm binance">BINANCE</span></button><button class="ex"><span class="wm bybit">BYBIT</span></button></div>
+      <div class="tools">
+        <span class="badge-live"><i></i>En vivo</span>
+        <button class="icon-btn"><i class="ic i-user"></i></button>
+        <button class="icon-btn"><i class="ic i-bell"></i></button>
+        <button class="icon-btn"><span class="flag"></span></button>
+      </div>
+    </div>
+    <div class="crumb"><i class="ic i-home"></i><i class="ic i-right"></i><b>Notificaciones</b></div>
+    <h1>Notificaciones</h1>
+    <p class="sub-t">Operaciones, eventos de seguridad y avisos de su cuenta, en orden cronológico.</p>
+    <div class="chips">
+      <button class="chipf on">Todas</button>
+      <button class="chipf t-op"><i></i>Operaciones</button>
+      <button class="chipf t-sf"><i></i>Seguridad</button>
+      <button class="chipf t-di"><i></i>Discrepancias</button>
+      <button class="chipf t-no"><i></i>Avisos</button>
+    </div>
+
+    <div class="day" style="margin-top:0">Hoy, 24 de noviembre</div>
+    <div class="feed">
+      <div class="fi t-op"><i class="ic i-ops"></i><div class="fi-b"><b>Apertura en Trend Rider 4h</b><p>Largo en <span class="num">BTCUSDT.P</span> en Binance, entrada a <span class="num">96.420,5</span> USDT con apalancamiento 3x.</p></div><div class="fi-m"><span class="pill t-op">Operación</span><span class="num">09:00</span></div></div>
+      <div class="fi t-op"><i class="ic i-ops"></i><div class="fi-b"><b>Apertura en SOL Breakout</b><p>Corto en <span class="num">SOLUSDT.P</span> en Binance, entrada a <span class="num">182,40</span> USDT con apalancamiento 3x.</p></div><div class="fi-m"><span class="pill t-op">Operación</span><span class="num">04:00</span></div></div>
+      <div class="fi t-sf"><i class="ic i-shield"></i><div class="fi-b"><b>Apertura rechazada en ETH Mean Reversion</b><p>El apalancamiento elegido (10x) supera el máximo que permite el stop de la estrategia (6x). No se reservó capital. Reduzca el apalancamiento en Mis suscripciones.</p></div><div class="fi-m"><span class="pill t-sf">Seguridad</span><span class="num">03:15</span></div></div>
+    </div>
+
+    <div class="day">Ayer, 23 de noviembre</div>
+    <div class="feed">
+      <div class="fi t-op"><i class="ic i-ops"></i><div class="fi-b"><b>Cierre en Trend Rider 4h</b><p>Largo en <span class="num">ETHUSDT.P</span> en Bybit cerrado a <span class="num">3.402,6</span> USDT. Resultado <span class="num gain">+27,40</span> USDT.</p></div><div class="fi-m"><span class="pill t-op">Operación</span><span class="num">14:00</span></div></div>
+      <div class="fi t-no"><i class="ic i-info"></i><div class="fi-b"><b>Cambió la política de privacidad</b><p>Revise los cambios y acéptelos para seguir usando el panel.</p></div><div class="fi-m"><span class="pill t-no">Aviso</span><span class="num">11:20</span><a>Leer la política</a></div></div>
+      <div class="fi t-di"><i class="ic i-alert"></i><div class="fi-b"><b>Posición sin asignación en Binance</b><p>La posición <span class="num">STXUSDT.P</span> del exchange no coincide con ninguna asignación. Requiere su decisión.</p><div class="adm"><i class="ic i-lock"></i>Visible solo para administradores</div></div><div class="fi-m"><span class="pill t-di">Discrepancia</span><span class="num">09:05</span><a>Revisar</a></div></div>
+    </div>
+
+    <div class="day">22 de noviembre</div>
+    <div class="feed">
+      <div class="fi t-sf"><i class="ic i-shield"></i><div class="fi-b"><b>Stop activado en SOL Breakout</b><p>Largo en <span class="num">SOLUSDT.P</span> en Binance cerrado por el stop a <span class="num">171,55</span> USDT. Resultado <span class="num loss">−31,80</span> USDT.</p></div><div class="fi-m"><span class="pill t-sf">Seguridad</span><span class="num">23:12</span></div></div>
+      <div class="fi t-op"><i class="ic i-ops"></i><div class="fi-b"><b>Cierre en Trend Rider 4h</b><p>Largo en <span class="num">BTCUSDT.P</span> en Binance cerrado a <span class="num">96.020,5</span> USDT. Resultado <span class="num gain">+36,75</span> USDT.</p></div><div class="fi-m"><span class="pill t-op">Operación</span><span class="num">12:00</span></div></div>
+    </div>
+  </div></main>
+</div>
+</section>
+
+<!-- ============ ex6 ============ -->
+<section class="screen" id="ex6">
+<p class="cap">ex6 — Vincular exchange, escritorio (modelo: "Mis suministros" de Edelap)</p>
+<div class="frame">
+  <aside class="side">
+    <div class="side-top">
+      <div class="brand"><span class="mark"><i class="ic i-brand"></i></span><span class="brand-name">Strategy Manager</span></div>
+      <button class="icon-btn ghost" aria-label="Contraer la barra lateral"><i class="ic i-panel"></i></button>
+    </div>
+    <nav class="nav">
+      <a><i class="ic i-dash"></i><span>Panel de control</span></a>
+      <a><i class="ic i-bell"></i><span>Notificaciones</span></a>
+      <a><i class="ic i-ops"></i><span>Mis operaciones</span></a>
+      <div><a><i class="ic i-trend"></i><span>Estrategias</span><i class="ic i-down chev"></i></a></div>
+      <a class="on"><i class="ic i-link"></i><span>Vincular exchange</span></a>
+    </nav>
+    <div class="side-foot">
+      <a><i class="ic i-shield"></i><span>Administración</span><i class="ic i-down chev"></i></a>
+      <a><i class="ic i-user"></i><span class="two"><b>Mi cuenta</b><small>María Gómez</small></span></a>
+      <a><i class="ic i-out"></i><span>Cerrar sesión</span></a>
+      <div class="build"><span class="lbl">build </span>cf95299<span class="lbl">ef7f7</span></div>
+    </div>
+  </aside>
+  <main class="main"><div class="wrap">
+    <div class="top">
+      <div class="exs"><button class="ex on"><span class="wm binance">BINANCE</span></button><button class="ex"><span class="wm bybit">BYBIT</span></button></div>
+      <div class="tools">
+        <span class="badge-live"><i></i>En vivo</span>
+        <button class="icon-btn"><i class="ic i-user"></i></button>
+        <button class="icon-btn"><i class="ic i-bell"></i></button>
+        <button class="icon-btn"><span class="flag"></span></button>
+      </div>
+    </div>
+    <div class="crumb"><i class="ic i-home"></i><i class="ic i-right"></i><b>Vincular exchange</b></div>
+    <h1>Vincular exchange</h1>
+    <p class="sub-t">Administre las claves de API de los exchanges vinculados a su cuenta.</p>
+    <button class="bar-btn"><i class="ic i-plus"></i>Vincular exchange</button>
+    <p class="help"><i class="ic i-info"></i>Se conserva una sola clave por exchange. Al guardar una nueva, reemplaza a la anterior.</p>
+
+    <div class="card">
+      <div class="card-h"><h2>Vinculadas</h2></div>
+      <div style="padding:0 22px"><div class="inp"><span>Filtrar exchanges...</span><i class="ic i-search"></i></div>
+        <div class="total" style="margin-bottom:0">Total <span class="chip-n">2 registros</span></div></div>
+      <div class="tbl-w"><table>
+        <thead><tr><th>Exchange</th><th>Clave</th><th>Permisos</th><th>Estado</th><th>Vinculada el</th><th class="r">Acciones</th></tr></thead>
+        <tbody>
+          <tr><td><span class="wm binance" style="font-size:15px">BINANCE</span></td><td class="num">••••7Q2k</td><td><span class="pill t-op">Trading</span></td><td><span class="pill dot t-op">Activa</span></td><td class="num">03/09/2026</td>
+            <td><div class="acts" style="justify-content:flex-end"><button class="icon-btn" aria-label="Reemplazar clave"><i class="ic i-key"></i></button><button class="icon-btn" aria-label="Desvincular"><i class="ic i-unlink"></i></button></div></td></tr>
+          <tr><td><span class="wm bybit" style="font-size:15px">BYBIT</span></td><td class="num">••••m4Xp</td><td><span class="pill t-no">Solo lectura</span></td><td><span class="pill dot t-op">Activa</span></td><td class="num">21/10/2026</td>
+            <td><div class="acts" style="justify-content:flex-end"><button class="icon-btn" aria-label="Reemplazar clave"><i class="ic i-key"></i></button><button class="icon-btn" aria-label="Desvincular"><i class="ic i-unlink"></i></button></div></td></tr>
+        </tbody></table></div>
+      <div style="height:16px"></div>
+    </div>
+  </div></main>
+</div>
+</section>
+
+<!-- ============ ex7 ============ -->
+<section class="screen" id="ex7">
+<p class="cap">ex7 — Mi cuenta, escritorio. Sin claves de API: ahora viven en Vincular exchange (S4)</p>
+<div class="frame">
+  <aside class="side">
+    <div class="side-top">
+      <div class="brand"><span class="mark"><i class="ic i-brand"></i></span><span class="brand-name">Strategy Manager</span></div>
+      <button class="icon-btn ghost" aria-label="Contraer la barra lateral"><i class="ic i-panel"></i></button>
+    </div>
+    <nav class="nav">
+      <a><i class="ic i-dash"></i><span>Panel de control</span></a>
+      <a><i class="ic i-bell"></i><span>Notificaciones</span></a>
+      <a><i class="ic i-ops"></i><span>Mis operaciones</span></a>
+      <div><a><i class="ic i-trend"></i><span>Estrategias</span><i class="ic i-down chev"></i></a></div>
+      <a><i class="ic i-link"></i><span>Vincular exchange</span></a>
+    </nav>
+    <div class="side-foot">
+      <a><i class="ic i-shield"></i><span>Administración</span><i class="ic i-down chev"></i></a>
+      <a class="on" style="background:var(--panel-2);color:var(--ink)"><i class="ic i-user" style="color:var(--gain)"></i><span class="two"><b>Mi cuenta</b><small>María Gómez</small></span></a>
+      <a><i class="ic i-out"></i><span>Cerrar sesión</span></a>
+      <div class="build"><span class="lbl">build </span>cf95299<span class="lbl">ef7f7</span></div>
+    </div>
+  </aside>
+  <main class="main"><div class="wrap">
+    <div class="top">
+      <div class="exs"><button class="ex on"><span class="wm binance">BINANCE</span></button><button class="ex"><span class="wm bybit">BYBIT</span></button></div>
+      <div class="tools">
+        <span class="badge-live"><i></i>En vivo</span>
+        <button class="icon-btn"><i class="ic i-user"></i></button>
+        <button class="icon-btn"><i class="ic i-bell"></i></button>
+        <button class="icon-btn"><span class="flag"></span></button>
+      </div>
+    </div>
+    <div class="crumb"><i class="ic i-home"></i><i class="ic i-right"></i><b>Mi cuenta</b></div>
+    <h1>Mi cuenta</h1>
+    <p class="sub-t">Revise sus datos y elija el modo y el idioma del panel.</p>
+
+    <div class="card">
+      <div class="card-h"><h2>Sus datos</h2><button class="btn sm"><i class="ic i-pencil"></i>Editar nombre</button></div>
+      <div class="pad">
+        <div class="row"><div><small>Nombre</small><span class="v">María Gómez</span></div></div>
+        <div class="row"><div><small>CUIT</small><span class="v num">27-12345678-9</span></div><i class="ic i-lock mute"></i></div>
+        <div class="row"><div><small>País</small><span class="v">Argentina</span></div><i class="ic i-lock mute"></i></div>
+        <div class="note"><i class="ic i-info"></i>Solo puede modificar el nombre. El CUIT y el país no se pueden cambiar desde el panel.</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-h"><h2>Modo</h2></div>
+      <div class="pad"><div class="row">
+        <div><span class="v">En vivo envía órdenes reales. Simulación registra las señales sin operar.</span></div>
+        <div class="seg big"><button class="on"><i class="ic i-zap gain" style="width:16px;height:16px"></i>En vivo</button><button><i class="ic i-flask" style="width:16px;height:16px"></i>Simulación</button></div>
+      </div></div>
+    </div>
+
+    <div class="card">
+      <div class="card-h"><h2>Idioma</h2></div>
+      <div class="pad"><div class="row">
+        <div><span class="v">Idioma de la interfaz.</span></div>
+        <div class="seg big"><button class="on"><span class="flag" style="width:16px;height:16px"></span>Español</button><button>English</button></div>
+      </div></div>
+    </div>
+
+    <div class="card danger-card">
+      <div class="card-h"><h2>Eliminar cuenta</h2></div>
+      <div class="pad"><div class="row">
+        <div><span class="v">Esta acción es permanente y no se puede deshacer. Cierre antes sus posiciones abiertas.</span></div>
+        <button class="btn danger"><i class="ic i-trash"></i>Eliminar cuenta</button>
+      </div></div>
+    </div>
+  </div></main>
+</div>
+</section>
+
+<!-- ============ ex8 ============ -->
+<section class="screen" id="ex8">
+<p class="cap">ex8 — Mis suscripciones, escritorio. Sin botones de exchange: la lista reúne todos los exchanges (cada tarjeta nombra el suyo). Muestra una suscripción en pausa y otra en salida.</p>
+<div class="frame">
+  <aside class="side">
+    <div class="side-top">
+      <div class="brand"><span class="mark"><i class="ic i-brand"></i></span><span class="brand-name">Strategy Manager</span></div>
+      <button class="icon-btn ghost" aria-label="Contraer la barra lateral"><i class="ic i-panel"></i></button>
+    </div>
+    <nav class="nav">
+      <a><i class="ic i-dash"></i><span>Panel de control</span></a>
+      <a><i class="ic i-bell"></i><span>Notificaciones</span></a>
+      <a><i class="ic i-ops"></i><span>Mis operaciones</span></a>
+      <div>
+        <a class="par"><i class="ic i-trend"></i><span>Estrategias</span><i class="ic i-up chev"></i></a>
+        <div class="sub"><a>Mis estrategias</a><a class="on">Mis suscripciones</a><a>Explorar</a></div>
+      </div>
+      <a><i class="ic i-link"></i><span>Vincular exchange</span></a>
+    </nav>
+    <div class="side-foot">
+      <a><i class="ic i-shield"></i><span>Administración</span><i class="ic i-down chev"></i></a>
+      <a><i class="ic i-user"></i><span class="two"><b>Mi cuenta</b><small>María Gómez</small></span></a>
+      <a><i class="ic i-out"></i><span>Cerrar sesión</span></a>
+      <div class="build"><span class="lbl">build </span>cf95299<span class="lbl">ef7f7</span></div>
+    </div>
+  </aside>
+  <main class="main"><div class="wrap">
+    <div class="top end">
+      <div class="tools">
+        <span class="badge-live"><i></i>En vivo</span>
+        <button class="icon-btn" aria-label="Mi cuenta"><i class="ic i-user"></i></button>
+        <button class="icon-btn" aria-label="Notificaciones"><i class="ic i-bell"></i></button>
+        <button class="icon-btn" aria-label="Idioma: español"><span class="flag"></span></button>
+      </div>
+    </div>
+    <div class="crumb"><i class="ic i-home"></i><i class="ic i-right"></i>Estrategias<i class="ic i-right"></i><b>Mis suscripciones</b></div>
+    <h1>Mis suscripciones</h1>
+    <p class="sub-t">Las estrategias que usted opera, con su parte del pool y su apalancamiento.</p>
+
+    <div class="card"><div class="pad">
+      <div class="tb"><div class="inp"><span>Buscar por nombre</span><i class="ic i-search"></i></div></div>
+      <div class="sortrow"><span>Ordenar por</span>
+        <button class="sb">Antigüedad</button><button class="sb">Operaciones cerradas</button><button class="sb on">Rendimiento<i class="ic i-arrdown"></i></button><button class="sb">Suscriptores</button><button class="sb">Capital</button></div>
+    </div></div>
+
+    <div class="sc">
+      <div class="sc-h">
+        <div class="sc-n">Trend Rider 4h<span class="dot on" title="Activada"></span></div>
+        <div class="sc-by">de Martín Ibarra</div>
+        <div class="sc-mk"><span>Binance · USDT-M · USDT</span><span>·</span><span class="dt"><i class="ic i-calendar"></i>03 sep 2026 – 24 nov 2026</span></div>
+      </div>
+      <div class="sc-b"><dl class="fg">
+        <div><dt><i class="ic i-coins"></i>PnL total</dt><dd><span class="gain">+412,60<span class="u">USDT</span></span><span class="gain">+8,4<span class="u">%</span></span></dd></div>
+        <div><dt><i class="ic i-tdown"></i>Caída máxima</dt><dd><span class="loss">−3,1<span class="u">%</span></span></dd></div>
+        <div><dt><i class="ic i-trophy"></i>Tasa de acierto</dt><dd><span>68<span class="u">%</span></span><span class="w">17/25</span></dd></div>
+        <div><dt><i class="ic i-wallet"></i>AuM</dt><dd><span><i class="ic i-users"></i> 142</span><span>86.320,00<span class="u">USDT</span></span></dd></div>
+        <div><dt><i class="ic i-sliders"></i>Configuración</dt><dd><span><i class="ic i-pie"></i> 25<span class="u">%</span></span><span><i class="ic i-gauge"></i> x3</span></dd></div>
+      </dl></div>
+      <div class="mks"><span class="mkc"><i></i><b>Largo</b> BTCUSDT</span></div>
+    </div>
+
+    <div class="sc">
+      <div class="sc-h">
+        <div class="sc-n">ETH Mean Reversion<span class="dot on" title="Activada"></span></div>
+        <div class="sc-by">Su estrategia</div>
+        <div class="sc-mk"><span>Bybit · USDT-M · USDT</span><span>·</span><span class="dt"><i class="ic i-calendar"></i>21 oct 2026 – 24 nov 2026</span></div>
+      </div>
+      <div class="sc-b"><dl class="fg">
+        <div><dt><i class="ic i-coins"></i>PnL total</dt><dd><span class="gain">+187,25<span class="u">USDT</span></span><span class="gain">+5,2<span class="u">%</span></span></dd></div>
+        <div><dt><i class="ic i-tdown"></i>Caída máxima</dt><dd><span class="loss">−4,8<span class="u">%</span></span></dd></div>
+        <div><dt><i class="ic i-trophy"></i>Tasa de acierto</dt><dd><span>61<span class="u">%</span></span><span class="w">11/18</span></dd></div>
+        <div><dt><i class="ic i-wallet"></i>AuM</dt><dd><span><i class="ic i-users"></i> 9</span><span>4.200,00<span class="u">USDT</span></span></dd></div>
+        <div><dt><i class="ic i-sliders"></i>Configuración</dt><dd><span><i class="ic i-pie"></i> 15<span class="u">%</span></span><span><i class="ic i-gauge"></i> x2</span></dd></div>
+      </dl></div>
+      <div class="mks"><span class="mkc"><i></i><b>Corto</b> ETHUSDT</span></div>
+    </div>
+
+    <div class="sc">
+      <div class="sc-h">
+        <div class="sc-n">SOL Breakout<span class="dot on" title="Activada"></span></div>
+        <div class="sc-by">de Camila Rossi</div>
+        <div class="sc-mk"><span>Binance · USDT-M · USDT</span><span>·</span><span class="dt"><i class="ic i-calendar"></i>14 oct 2026 – 24 nov 2026</span></div>
+      </div>
+      <div class="sc-b"><dl class="fg">
+        <div><dt><i class="ic i-coins"></i>PnL total</dt><dd><span class="loss">−31,80<span class="u">USDT</span></span><span class="loss">−0,9<span class="u">%</span></span></dd></div>
+        <div><dt><i class="ic i-tdown"></i>Caída máxima</dt><dd><span class="loss">−6,2<span class="u">%</span></span></dd></div>
+        <div><dt><i class="ic i-trophy"></i>Tasa de acierto</dt><dd><span>47<span class="u">%</span></span><span class="w">8/17</span></dd></div>
+        <div><dt><i class="ic i-wallet"></i>AuM</dt><dd><span><i class="ic i-users"></i> 31</span><span>12.080,00<span class="u">USDT</span></span></dd></div>
+        <div><dt><i class="ic i-sliders"></i>Configuración</dt><dd><span><i class="ic i-pie"></i> 10<span class="u">%</span></span><span><i class="ic i-gauge"></i> x4</span></dd></div>
+      </dl></div>
+      <div class="sc-note t-di"><i class="ic i-pause" style="color:var(--decision)"></i><span><b>En pausa:</b> la cuenta de su autor está suspendida. No abre posiciones nuevas; sus posiciones abiertas se siguen cerrando.</span></div>
+    </div>
+
+    <div class="sc">
+      <div class="sc-h">
+        <div class="sc-n">Funding Squeeze 1h<span class="dot" title="Desactivada"></span></div>
+        <div class="sc-by">de Tomás Quiroga</div>
+        <div class="sc-mk"><span>Bybit · USDT-M · USDT</span><span>·</span><span class="dt"><i class="ic i-calendar"></i>02 nov 2026 – 24 nov 2026</span></div>
+      </div>
+      <div class="sc-b"><dl class="fg">
+        <div><dt><i class="ic i-coins"></i>PnL total</dt><dd><span class="gain">+6,40<span class="u">USDT</span></span><span class="gain">+0,3<span class="u">%</span></span></dd></div>
+        <div><dt><i class="ic i-tdown"></i>Caída máxima</dt><dd><span class="loss">−1,4<span class="u">%</span></span></dd></div>
+        <div><dt><i class="ic i-trophy"></i>Tasa de acierto</dt><dd><span>50<span class="u">%</span></span><span class="w">3/6</span></dd></div>
+        <div><dt><i class="ic i-wallet"></i>AuM</dt><dd><span><i class="ic i-users"></i> —</span><span>—</span></dd></div>
+        <div><dt><i class="ic i-sliders"></i>Configuración</dt><dd><span><i class="ic i-pie"></i> 20<span class="u">%</span></span><span><i class="ic i-gauge"></i> x2</span></dd></div>
+      </dl></div>
+      <div class="sc-note"><i class="ic i-out" style="color:var(--ink-3)"></i><span>Saliendo: ya no abre nada más y termina cuando se cierre su posición abierta.</span></div>
+    </div>
+  </div></main>
+</div>
+</section>
+
+<!-- ============ ex9 ============ -->
+<section class="screen" id="ex9">
+<p class="cap">ex9 — Explorar, escritorio. Sin botones de exchange: la lista pública reúne todos los exchanges. Incluye "Tengo un código" y una estrategia sin operaciones cerradas (cifras con guion).</p>
+<div class="frame">
+  <aside class="side">
+    <div class="side-top">
+      <div class="brand"><span class="mark"><i class="ic i-brand"></i></span><span class="brand-name">Strategy Manager</span></div>
+      <button class="icon-btn ghost" aria-label="Contraer la barra lateral"><i class="ic i-panel"></i></button>
+    </div>
+    <nav class="nav">
+      <a><i class="ic i-dash"></i><span>Panel de control</span></a>
+      <a><i class="ic i-bell"></i><span>Notificaciones</span></a>
+      <a><i class="ic i-ops"></i><span>Mis operaciones</span></a>
+      <div>
+        <a class="par"><i class="ic i-trend"></i><span>Estrategias</span><i class="ic i-up chev"></i></a>
+        <div class="sub"><a>Mis estrategias</a><a>Mis suscripciones</a><a class="on">Explorar</a></div>
+      </div>
+      <a><i class="ic i-link"></i><span>Vincular exchange</span></a>
+    </nav>
+    <div class="side-foot">
+      <a><i class="ic i-shield"></i><span>Administración</span><i class="ic i-down chev"></i></a>
+      <a><i class="ic i-user"></i><span class="two"><b>Mi cuenta</b><small>María Gómez</small></span></a>
+      <a><i class="ic i-out"></i><span>Cerrar sesión</span></a>
+      <div class="build"><span class="lbl">build </span>cf95299<span class="lbl">ef7f7</span></div>
+    </div>
+  </aside>
+  <main class="main"><div class="wrap">
+    <div class="top end">
+      <div class="tools">
+        <span class="badge-live"><i></i>En vivo</span>
+        <button class="icon-btn" aria-label="Mi cuenta"><i class="ic i-user"></i></button>
+        <button class="icon-btn" aria-label="Notificaciones"><i class="ic i-bell"></i></button>
+        <button class="icon-btn" aria-label="Idioma: español"><span class="flag"></span></button>
+      </div>
+    </div>
+    <div class="crumb"><i class="ic i-home"></i><i class="ic i-right"></i>Estrategias<i class="ic i-right"></i><b>Explorar</b></div>
+    <h1>Explorar</h1>
+    <p class="sub-t">Las estrategias públicas de todos los autores, con su historial real.</p>
+
+    <div class="card"><div class="pad">
+      <div class="tb"><div class="inp"><span>Buscar por nombre</span><i class="ic i-search"></i></div>
+        <div class="tb-r"><button class="btn lineb line"><i class="ic i-key"></i>Tengo un código</button></div></div>
+      <div class="sortrow"><span>Ordenar por</span>
+        <button class="sb">Antigüedad</button><button class="sb">Operaciones cerradas</button><button class="sb on">Rendimiento<i class="ic i-arrdown"></i></button><button class="sb">Suscriptores</button><button class="sb">Capital</button></div>
+    </div></div>
+
+    <div class="sc">
+      <div class="sc-h">
+        <div class="sc-n">Momentum Basket 1d<span class="dot on" title="Activada"></span></div>
+        <div class="sc-by">de Valentina Núñez</div>
+        <div class="sc-mk"><span>Binance · USDT-M · USDT</span><span>·</span><span class="dt"><i class="ic i-calendar"></i>11 jun 2026 – 24 nov 2026</span></div>
+      </div>
+      <div class="sc-b"><dl class="fg">
+        <div><dt><i class="ic i-coins"></i>PnL total</dt><dd><span class="gain">+31,6<span class="u">%</span></span></dd></div>
+        <div><dt><i class="ic i-tdown"></i>Caída máxima</dt><dd><span class="loss">−9,8<span class="u">%</span></span></dd></div>
+        <div><dt><i class="ic i-trophy"></i>Tasa de acierto</dt><dd><span>64<span class="u">%</span></span><span class="w">32/50</span></dd></div>
+        <div><dt><i class="ic i-wallet"></i>AuM</dt><dd><span><i class="ic i-users"></i> 208</span><span>154.900,00<span class="u">USDT</span></span></dd></div>
+      </dl></div>
+    </div>
+
+    <div class="sc">
+      <div class="sc-h">
+        <div class="sc-n">Trend Rider 4h<span class="dot on" title="Activada"></span></div>
+        <div class="sc-by">de Martín Ibarra</div>
+        <div class="sc-mk"><span>Binance · USDT-M · USDT</span><span>·</span><span class="dt"><i class="ic i-calendar"></i>03 mar 2026 – 24 nov 2026</span></div>
+      </div>
+      <div class="sc-b"><dl class="fg">
+        <div><dt><i class="ic i-coins"></i>PnL total</dt><dd><span class="gain">+24,1<span class="u">%</span></span></dd></div>
+        <div><dt><i class="ic i-tdown"></i>Caída máxima</dt><dd><span class="loss">−8,7<span class="u">%</span></span></dd></div>
+        <div><dt><i class="ic i-trophy"></i>Tasa de acierto</dt><dd><span>68<span class="u">%</span></span><span class="w">41/60</span></dd></div>
+        <div><dt><i class="ic i-wallet"></i>AuM</dt><dd><span><i class="ic i-users"></i> 142</span><span>86.320,00<span class="u">USDT</span></span></dd></div>
+      </dl></div>
+    </div>
+
+    <div class="sc">
+      <div class="sc-h">
+        <div class="sc-n">ETH Mean Reversion<span class="dot on" title="Activada"></span></div>
+        <div class="sc-by">de Joaquín Paz</div>
+        <div class="sc-mk"><span>Bybit · USDT-M · USDT</span><span>·</span><span class="dt"><i class="ic i-calendar"></i>20 abr 2026 – 24 nov 2026</span></div>
+      </div>
+      <div class="sc-b"><dl class="fg">
+        <div><dt><i class="ic i-coins"></i>PnL total</dt><dd><span class="gain">+17,4<span class="u">%</span></span></dd></div>
+        <div><dt><i class="ic i-tdown"></i>Caída máxima</dt><dd><span class="loss">−5,2<span class="u">%</span></span></dd></div>
+        <div><dt><i class="ic i-trophy"></i>Tasa de acierto</dt><dd><span>59<span class="u">%</span></span><span class="w">26/44</span></dd></div>
+        <div><dt><i class="ic i-wallet"></i>AuM</dt><dd><span><i class="ic i-users"></i> 57</span><span>31.450,00<span class="u">USDT</span></span></dd></div>
+      </dl></div>
+    </div>
+
+    <div class="sc">
+      <div class="sc-h">
+        <div class="sc-n">SOL Breakout<span class="dot on" title="Activada"></span></div>
+        <div class="sc-by">de Camila Rossi</div>
+        <div class="sc-mk"><span>Binance · USDT-M · USDT</span><span>·</span><span class="dt"><i class="ic i-calendar"></i>14 jul 2026 – 24 nov 2026</span></div>
+      </div>
+      <div class="sc-b"><dl class="fg">
+        <div><dt><i class="ic i-coins"></i>PnL total</dt><dd><span class="gain">+3,2<span class="u">%</span></span></dd></div>
+        <div><dt><i class="ic i-tdown"></i>Caída máxima</dt><dd><span class="loss">−12,4<span class="u">%</span></span></dd></div>
+        <div><dt><i class="ic i-trophy"></i>Tasa de acierto</dt><dd><span>47<span class="u">%</span></span><span class="w">19/40</span></dd></div>
+        <div><dt><i class="ic i-wallet"></i>AuM</dt><dd><span><i class="ic i-users"></i> 31</span><span>12.080,00<span class="u">USDT</span></span></dd></div>
+      </dl></div>
+    </div>
+
+    <div class="sc">
+      <div class="sc-h">
+        <div class="sc-n">Funding Squeeze 1h<span class="dot" title="Desactivada"></span></div>
+        <div class="sc-by">de Tomás Quiroga</div>
+        <div class="sc-mk"><span>Bybit · USDT-M · USDT</span><span>·</span><span class="dt"><i class="ic i-calendar"></i>02 nov 2026 – 24 nov 2026</span></div>
+      </div>
+      <div class="sc-b"><dl class="fg">
+        <div><dt><i class="ic i-coins"></i>PnL total</dt><dd><span class="gain">+0,3<span class="u">%</span></span></dd></div>
+        <div><dt><i class="ic i-tdown"></i>Caída máxima</dt><dd><span class="loss">−1,4<span class="u">%</span></span></dd></div>
+        <div><dt><i class="ic i-trophy"></i>Tasa de acierto</dt><dd><span>50<span class="u">%</span></span><span class="w">3/6</span></dd></div>
+        <div><dt><i class="ic i-wallet"></i>AuM</dt><dd><span><i class="ic i-users"></i> 0</span><span>—</span></dd></div>
+      </dl></div>
+    </div>
+
+    <div class="sc">
+      <div class="sc-h">
+        <div class="sc-n">Range Scalper 15m<span class="dot on" title="Activada"></span></div>
+        <div class="sc-by">de Agustina Leiva</div>
+        <div class="sc-mk"><span>Binance · USDT-M · USDT</span><span>·</span><span class="dt"><i class="ic i-calendar"></i>20 nov 2026 – 24 nov 2026</span></div>
+      </div>
+      <div class="sc-b"><dl class="fg">
+        <div><dt><i class="ic i-coins"></i>PnL total</dt><dd><span>—</span></dd></div>
+        <div><dt><i class="ic i-tdown"></i>Caída máxima</dt><dd><span>—</span></dd></div>
+        <div><dt><i class="ic i-trophy"></i>Tasa de acierto</dt><dd><span>—</span></dd></div>
+        <div><dt><i class="ic i-wallet"></i>AuM</dt><dd><span><i class="ic i-users"></i> 0</span><span>—</span></dd></div>
+      </dl></div>
+    </div>
+  </div></main>
+</div>
+</section>
+
+<!-- ============ ex10 ============ -->
+<section class="screen" id="ex10">
+<p class="cap">ex10 — Mis estrategias, escritorio. Con botones de exchange: la lista es del exchange elegido (Bybit aquí). Incluye una estrategia desactivada y la pista de las archivadas ocultas.</p>
+<div class="frame">
+  <aside class="side">
+    <div class="side-top">
+      <div class="brand"><span class="mark"><i class="ic i-brand"></i></span><span class="brand-name">Strategy Manager</span></div>
+      <button class="icon-btn ghost" aria-label="Contraer la barra lateral"><i class="ic i-panel"></i></button>
+    </div>
+    <nav class="nav">
+      <a><i class="ic i-dash"></i><span>Panel de control</span></a>
+      <a><i class="ic i-bell"></i><span>Notificaciones</span></a>
+      <a><i class="ic i-ops"></i><span>Mis operaciones</span></a>
+      <div>
+        <a class="par"><i class="ic i-trend"></i><span>Estrategias</span><i class="ic i-up chev"></i></a>
+        <div class="sub"><a class="on">Mis estrategias</a><a>Mis suscripciones</a><a>Explorar</a></div>
+      </div>
+      <a><i class="ic i-link"></i><span>Vincular exchange</span></a>
+    </nav>
+    <div class="side-foot">
+      <a><i class="ic i-shield"></i><span>Administración</span><i class="ic i-down chev"></i></a>
+      <a><i class="ic i-user"></i><span class="two"><b>Mi cuenta</b><small>María Gómez</small></span></a>
+      <a><i class="ic i-out"></i><span>Cerrar sesión</span></a>
+      <div class="build"><span class="lbl">build </span>cf95299<span class="lbl">ef7f7</span></div>
+    </div>
+  </aside>
+  <main class="main"><div class="wrap">
+    <div class="top">
+      <div class="exs"><button class="ex"><span class="wm binance">BINANCE</span></button><button class="ex on"><span class="wm bybit">BYBIT</span></button></div>
+      <div class="tools">
+        <span class="badge-live"><i></i>En vivo</span>
+        <button class="icon-btn" aria-label="Mi cuenta"><i class="ic i-user"></i></button>
+        <button class="icon-btn" aria-label="Notificaciones"><i class="ic i-bell"></i></button>
+        <button class="icon-btn" aria-label="Idioma: español"><span class="flag"></span></button>
+      </div>
+    </div>
+    <div class="crumb"><i class="ic i-home"></i><i class="ic i-right"></i>Estrategias<i class="ic i-right"></i><b>Mis estrategias</b></div>
+    <h1>Mis estrategias</h1>
+    <p class="sub-t">Las estrategias que usted escribió en el exchange seleccionado.</p>
+
+    <div class="card"><div class="pad">
+      <div class="tb"><div class="inp"><span>Buscar por nombre</span><i class="ic i-search"></i></div>
+        <div class="tb-r"><span class="chk"><i></i>Mostrar archivadas</span><button class="btn fill"><i class="ic i-plus"></i>Nueva estrategia</button></div></div>
+      <div class="sortrow"><span>Ordenar por</span>
+        <button class="sb">Antigüedad</button><button class="sb">Operaciones cerradas</button><button class="sb on">Rendimiento<i class="ic i-arrdown"></i></button><button class="sb">Suscriptores</button><button class="sb">Capital</button></div>
+    </div></div>
+
+    <div class="sc">
+      <div class="sc-h">
+        <div class="sc-n">ETH Mean Reversion<span class="dot on" title="Activada"></span></div>
+        <div class="sc-mk"><span>USDT-M · ETHUSDT, BTCUSDT</span><span>·</span><span class="dt"><i class="ic i-calendar"></i>21 oct 2026 – 24 nov 2026</span></div>
+      </div>
+      <div class="sc-b"><dl class="fg">
+        <div><dt><i class="ic i-coins"></i>PnL total</dt><dd><span class="gain">+187,25<span class="u">USDT</span></span><span class="gain">+5,2<span class="u">%</span></span></dd></div>
+        <div><dt><i class="ic i-tdown"></i>Caída máxima</dt><dd><span class="loss">−4,8<span class="u">%</span></span></dd></div>
+        <div><dt><i class="ic i-trophy"></i>Tasa de acierto</dt><dd><span>61<span class="u">%</span></span><span class="w">11/18</span></dd></div>
+        <div><dt><i class="ic i-wallet"></i>AuM</dt><dd><span><i class="ic i-users"></i> 9</span><span>4.200,00<span class="u">USDT</span></span></dd></div>
+      </dl><span class="sw on" role="switch" aria-checked="true" aria-label="Activar ETH Mean Reversion"></span></div>
+      <div class="mks"><span class="mkc"><i></i><b>Corto</b> ETHUSDT</span></div>
+    </div>
+
+    <div class="sc">
+      <div class="sc-h">
+        <div class="sc-n">BTC Range Fade 1h<span class="dot" title="Desactivada"></span></div>
+        <div class="sc-mk"><span>USDT-M · BTCUSDT</span><span>·</span><span class="dt"><i class="ic i-calendar"></i>09 nov 2026 – 24 nov 2026</span></div>
+      </div>
+      <div class="sc-b"><dl class="fg">
+        <div><dt><i class="ic i-coins"></i>PnL total</dt><dd><span class="loss">−9,10<span class="u">USDT</span></span><span class="loss">−0,4<span class="u">%</span></span></dd></div>
+        <div><dt><i class="ic i-tdown"></i>Caída máxima</dt><dd><span class="loss">−2,3<span class="u">%</span></span></dd></div>
+        <div><dt><i class="ic i-trophy"></i>Tasa de acierto</dt><dd><span>40<span class="u">%</span></span><span class="w">2/5</span></dd></div>
+        <div><dt><i class="ic i-wallet"></i>AuM</dt><dd><span><i class="ic i-users"></i> 0</span><span>—</span></dd></div>
+      </dl><span class="sw" role="switch" aria-checked="false" aria-label="Activar BTC Range Fade 1h"></span></div>
+    </div>
+
+    <div class="sc">
+      <div class="sc-h">
+        <div class="sc-n">Momentum 15m<span class="dot on" title="Activada"></span></div>
+        <div class="sc-mk"><span>USDT-M · SOLUSDT</span><span>·</span><span class="dt"><i class="ic i-calendar"></i>22 nov 2026 – 24 nov 2026</span></div>
+      </div>
+      <div class="sc-b"><dl class="fg">
+        <div><dt><i class="ic i-coins"></i>PnL total</dt><dd><span>—</span></dd></div>
+        <div><dt><i class="ic i-tdown"></i>Caída máxima</dt><dd><span>—</span></dd></div>
+        <div><dt><i class="ic i-trophy"></i>Tasa de acierto</dt><dd><span>—</span></dd></div>
+        <div><dt><i class="ic i-wallet"></i>AuM</dt><dd><span><i class="ic i-users"></i> 0</span><span>—</span></dd></div>
+      </dl><span class="sw on" role="switch" aria-checked="true" aria-label="Activar Momentum 15m"></span></div>
+    </div>
+
+    <p class="hint"><i class="ic i-archive"></i>Hay 1 estrategia archivada oculta. Active «Mostrar archivadas» para verla.</p>
+  </div></main>
+</div>
+</section>
+
+<!-- ============ ex11 ============ -->
+<section class="screen" id="ex11">
+<p class="cap">ex11 — Estrategia ajena, escritorio (PublicStrategyPage), llegando desde Explorar. Estado dibujado: usted NO está suscrito, así que el aside es "Suscribirse" (porcentaje del pool y apalancamiento) y el informe muestra solo el historial de la estrategia, sin selector. Sin botones de exchange: la página no depende del exchange elegido. Rejilla de la página real: columna del historial + aside de 25 rem (400 px), separación de 36 px, dentro de los 1100 px de main.</p>
+<div class="frame">
+  <aside class="side">
+    <div class="side-top">
+      <div class="brand"><span class="mark"><i class="ic i-brand"></i></span><span class="brand-name">Strategy Manager</span></div>
+      <button class="icon-btn ghost" aria-label="Contraer la barra lateral"><i class="ic i-panel"></i></button>
+    </div>
+    <nav class="nav">
+      <a><i class="ic i-dash"></i><span>Panel de control</span></a>
+      <a><i class="ic i-bell"></i><span>Notificaciones</span></a>
+      <a><i class="ic i-ops"></i><span>Mis operaciones</span></a>
+      <div>
+        <a class="par"><i class="ic i-trend"></i><span>Estrategias</span><i class="ic i-up chev"></i></a>
+        <div class="sub"><a>Mis estrategias</a><a>Mis suscripciones</a><a class="on">Explorar</a></div>
+      </div>
+      <a><i class="ic i-link"></i><span>Vincular exchange</span></a>
+    </nav>
+    <div class="side-foot">
+      <a><i class="ic i-shield"></i><span>Administración</span><i class="ic i-down chev"></i></a>
+      <a><i class="ic i-user"></i><span class="two"><b>Mi cuenta</b><small>María Gómez</small></span></a>
+      <a><i class="ic i-out"></i><span>Cerrar sesión</span></a>
+      <div class="build"><span class="lbl">build </span>cf95299<span class="lbl">ef7f7</span></div>
+    </div>
+  </aside>
+  <main class="main"><div class="wrap">
+    <div class="top end">
+      <div class="tools">
+        <span class="badge-live"><i></i>En vivo</span>
+        <button class="icon-btn" aria-label="Mi cuenta"><i class="ic i-user"></i></button>
+        <button class="icon-btn" aria-label="Notificaciones"><i class="ic i-bell"></i></button>
+        <button class="icon-btn" aria-label="Idioma: español"><span class="flag"></span></button>
+      </div>
+    </div>
+    <div class="crumb"><i class="ic i-home"></i><i class="ic i-right"></i>Estrategias<i class="ic i-right"></i>Explorar<i class="ic i-right"></i><b>Momentum Basket 1d</b></div>
+
+    <div class="pg">
+      <div class="pg-l">
+        <div class="hd">
+          <div class="ttl"><h1>Momentum Basket 1d</h1><span class="pill dot t-op">Activada</span></div>
+          <p class="sub-t sc-by">de Valentina Núñez</p>
+          <div class="sc-mk"><span>Binance · USDT-M · USDT</span><span>·</span><span class="dt"><i class="ic i-calendar"></i>11 jun 2026 – 24 nov 2026</span></div>
+        </div>
+
+        <div class="desc">
+          <h3>Acerca de esta estrategia</h3>
+          <p>Cesta de las cinco criptomonedas con más momentum semanal, sobre velas diarias. Rota los pares una vez por semana y opera siempre con stop. Apalancamiento recomendado: x3, dentro del límite que permite su stop.</p>
+          <span class="more">Mostrar más</span>
+        </div>
+
+        <div class="card">
+          <div class="card-h"><h2>Rendimiento</h2>
+            <div class="seg"><button>7D</button><button>30D</button><button>90D</button><button>1A</button><button class="on">Todo</button></div></div>
+          <div class="pad">
+            <dl class="fg">
+              <div><dt><i class="ic i-coins"></i>PnL total <i class="ic i-info"></i></dt><dd><span class="gain">+31,6<span class="u">%</span></span></dd></div>
+              <div><dt><i class="ic i-tdown"></i>Caída máxima</dt><dd><span class="loss">−9,8<span class="u">%</span></span></dd></div>
+              <div><dt><i class="ic i-trophy"></i>Tasa de acierto</dt><dd><span>64<span class="u">%</span></span><span class="w">32/50</span></dd></div>
+              <div><dt><i class="ic i-wallet"></i>AuM <i class="ic i-info"></i></dt><dd><span><i class="ic i-users"></i> 208</span><span>154.900,00<span class="u">USDT</span></span></dd></div>
+            </dl>
+            <p class="xs" style="margin:18px 0 6px">Historial de la estrategia</p>
+            <svg viewBox="0 0 620 230" width="100%" height="230" aria-label="Historial de la estrategia">
+              <defs><linearGradient id="eq11" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1FA6B8" stop-opacity=".22"/><stop offset="1" stop-color="#1FA6B8" stop-opacity="0"/></linearGradient></defs>
+              <g stroke="#1E272F" stroke-width="1"><line x1="40" x2="600" y1="23" y2="23"/><line x1="40" x2="600" y1="62" y2="62"/><line x1="40" x2="600" y1="101" y2="101"/></g>
+              <line x1="40" x2="600" y1="140" y2="140" stroke="#3D4E5C" stroke-width="1.5"/>
+              <g font-family="IBM Plex Mono, monospace" font-size="11" fill="#7A8C99" text-anchor="end"><text x="32" y="27">30%</text><text x="32" y="66">20%</text><text x="32" y="105">10%</text><text x="32" y="144">0%</text></g>
+              <g font-family="IBM Plex Sans, sans-serif" font-size="11" fill="#7A8C99" text-anchor="middle"><text x="40" y="222">11 jun</text><text x="180" y="222">jul</text><text x="320" y="222">sep</text><text x="460" y="222">oct</text><text x="590" y="222">nov</text></g>
+              <polygon fill="url(#eq11)" points="40,140 110,124.4 180,132.2 250,97.1 320,108.8 390,65.9 460,102.9 530,54.2 600,16.8 600,140"/>
+              <polygon fill="#E0644B" fill-opacity=".22" points="40,140 180,140 180,155 250,140 320,160.4 390,140 460,198.8 530,140"/>
+              <polyline fill="none" stroke="#1FA6B8" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round" points="40,140 110,124.4 180,132.2 250,97.1 320,108.8 390,65.9 460,102.9 530,54.2 600,16.8"/>
+              <circle cx="600" cy="16.8" r="4" fill="#1FA6B8"/>
+            </svg>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-h"><h2>Mes a mes</h2></div>
+          <div class="pad">
+            <div class="mg">
+              <div class="h"></div><div class="h">Ene</div><div class="h">Feb</div><div class="h">Mar</div><div class="h">Abr</div><div class="h">May</div><div class="h">Jun</div><div class="h">Jul</div><div class="h">Ago</div><div class="h">Sep</div><div class="h">Oct</div><div class="h">Nov</div><div class="h">Dic</div><div class="h">Año</div>
+              <div class="y">2026</div><div class="e"></div><div class="e"></div><div class="e"></div><div class="e"></div><div class="e"></div><div class="g1">+4,1</div><div class="g2">+6,3</div><div class="l1">−2,8</div><div class="g2">+9,6</div><div class="g2">+7,9</div><div class="g1">+3,5</div><div class="e"></div><div class="tot gain">+31,6</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-h"><h2>Por par</h2></div>
+          <div class="tbl-w"><table>
+            <thead><tr><th>Par</th><th class="r">Operaciones</th><th class="r">% acierto</th><th class="r">Rendimiento</th></tr></thead>
+            <tbody>
+              <tr><td class="num">BTCUSDT</td><td class="r num">14</td><td class="r num">71</td><td class="r num gain">+9,8</td></tr>
+              <tr><td class="num">ETHUSDT</td><td class="r num">12</td><td class="r num">58</td><td class="r num gain">+7,4</td></tr>
+              <tr><td class="num">SOLUSDT</td><td class="r num">9</td><td class="r num">56</td><td class="r num gain">+6,9</td></tr>
+              <tr><td class="num">BNBUSDT</td><td class="r num">8</td><td class="r num">75</td><td class="r num gain">+5,2</td></tr>
+              <tr><td class="num">XRPUSDT</td><td class="r num">7</td><td class="r num">57</td><td class="r num gain">+2,3</td></tr>
+            </tbody></table></div>
+          <div style="height:16px"></div>
+        </div>
+      </div>
+
+      <aside class="aside" aria-label="Suscribirse">
+        <h2>Suscribirse</h2>
+        <div class="fld">
+          <div class="lab">Porcentaje del pool por operación <i class="ic i-info"></i></div>
+          <div class="sel"><span class="num">20</span><span class="u">%</span></div>
+          <div class="rng"><i style="width:20%"></i><b style="left:20%"></b></div>
+          <span class="xs num">Margen: 200,00 USDT · Nocional: 600,00 USDT</span>
+        </div>
+        <div class="fld">
+          <div class="lab">Apalancamiento <i class="ic i-info"></i></div>
+          <div class="sel"><span class="num">3</span><span class="u">x</span></div>
+          <div class="rng"><i style="width:25%"></i><b style="left:25%"></b></div>
+          <span class="xs">Apalancamiento máximo de x9 con stop de 10%</span>
+        </div>
+        <p class="xs">Mientras opere esta estrategia en vivo, el capital que asigne se suma a la cifra pública que se muestra en esta página, junto a la cantidad de personas que la operan.</p>
+        <div><button class="btn fill big"><i class="ic i-useradd"></i>Suscribirse</button></div>
+      </aside>
+    </div>
+  </div></main>
+</div>
+</section>
+
+<!-- ============ ex12 ============ -->
+<section class="screen" id="ex12">
+<p class="cap">ex12 — Estrategia propia, escritorio (StrategyDetailPage), llegando desde Mis estrategias. Con botones de exchange: la página real fija el exchange elegido al de la estrategia (Bybit), así que los botones la siguen. Estado dibujado: activada, visibilidad "Con enlace" (muestra el enlace; una pública no lleva bloque de compartir y una privada muestra códigos), con una posición abierta; el panel del webhook va cerrado, como en la página real. Misma rejilla que ex11: 400 px de aside, 36 px de separación. Las posiciones abiertas, las operaciones cerradas y Eliminar van a todo el ancho, bajo la rejilla. Ajustes propuestos solo en el prototipo: el botón del webhook baja a la fila de la autoría (en la fila del título no cabe en 664 px) y Desactivar ocupa más ancho que Archivar (a mitades, su texto se partía).</p>
+<div class="frame">
+  <aside class="side">
+    <div class="side-top">
+      <div class="brand"><span class="mark"><i class="ic i-brand"></i></span><span class="brand-name">Strategy Manager</span></div>
+      <button class="icon-btn ghost" aria-label="Contraer la barra lateral"><i class="ic i-panel"></i></button>
+    </div>
+    <nav class="nav">
+      <a><i class="ic i-dash"></i><span>Panel de control</span></a>
+      <a><i class="ic i-bell"></i><span>Notificaciones</span></a>
+      <a><i class="ic i-ops"></i><span>Mis operaciones</span></a>
+      <div>
+        <a class="par"><i class="ic i-trend"></i><span>Estrategias</span><i class="ic i-up chev"></i></a>
+        <div class="sub"><a class="on">Mis estrategias</a><a>Mis suscripciones</a><a>Explorar</a></div>
+      </div>
+      <a><i class="ic i-link"></i><span>Vincular exchange</span></a>
+    </nav>
+    <div class="side-foot">
+      <a><i class="ic i-shield"></i><span>Administración</span><i class="ic i-down chev"></i></a>
+      <a><i class="ic i-user"></i><span class="two"><b>Mi cuenta</b><small>María Gómez</small></span></a>
+      <a><i class="ic i-out"></i><span>Cerrar sesión</span></a>
+      <div class="build"><span class="lbl">build </span>cf95299<span class="lbl">ef7f7</span></div>
+    </div>
+  </aside>
+  <main class="main"><div class="wrap">
+    <div class="top">
+      <div class="exs"><button class="ex"><span class="wm binance">BINANCE</span></button><button class="ex on"><span class="wm bybit">BYBIT</span></button></div>
+      <div class="tools">
+        <span class="badge-live"><i></i>En vivo</span>
+        <button class="icon-btn" aria-label="Mi cuenta"><i class="ic i-user"></i></button>
+        <button class="icon-btn" aria-label="Notificaciones"><i class="ic i-bell"></i></button>
+        <button class="icon-btn" aria-label="Idioma: español"><span class="flag"></span></button>
+      </div>
+    </div>
+    <div class="crumb"><i class="ic i-home"></i><i class="ic i-right"></i>Estrategias<i class="ic i-right"></i>Mis estrategias<i class="ic i-right"></i><b>ETH Mean Reversion</b></div>
+
+    <div class="pg">
+      <div class="pg-l">
+        <div class="hd">
+          <div class="ttl"><h1>ETH Mean Reversion</h1><button class="icon-btn ghost" aria-label="Renombrar estrategia"><i class="ic i-pencil"></i></button><span class="pill dot t-op">Activada</span></div>
+          <div class="hd-row"><div class="hd">
+            <p class="sub-t sc-by">de María Gómez</p>
+            <div class="sc-mk"><span>Bybit · USDT-M · USDT</span><span>·</span><span class="dt"><i class="ic i-calendar"></i>21 oct 2026 – 24 nov 2026</span></div></div>
+            <button class="btn"><i class="ic i-zap"></i>Conectar una alerta de TradingView</button></div>
+        </div>
+
+        <div class="desc">
+          <h3>Acerca de esta estrategia <button class="icon-btn ghost" aria-label="Editar descripción" style="width:28px;height:28px"><i class="ic i-pencil" style="width:15px;height:15px"></i></button></h3>
+          <p>Reversión a la media sobre ETH y BTC en velas de 1 hora: entra contra el movimiento cuando el precio se aleja de su media y sale al volver a ella. Apalancamiento recomendado: x2.</p>
+        </div>
+
+        <div class="card">
+          <div class="card-h"><h2>Rendimiento</h2>
+            <div class="seg"><button>7D</button><button>30D</button><button>90D</button><button>1A</button><button class="on">Todo</button></div></div>
+          <div class="pad">
+            <dl class="fg">
+              <div><dt><i class="ic i-coins"></i>PnL total</dt><dd><span class="gain">+187,25<span class="u">USDT</span></span><span class="gain">+5,2<span class="u">%</span></span></dd></div>
+              <div><dt><i class="ic i-tdown"></i>Caída máxima</dt><dd><span class="loss">−4,8<span class="u">%</span></span></dd></div>
+              <div><dt><i class="ic i-trophy"></i>Tasa de acierto</dt><dd><span>61<span class="u">%</span></span><span class="w">11/18</span></dd></div>
+              <div><dt><i class="ic i-wallet"></i>AuM <i class="ic i-info"></i></dt><dd><span><i class="ic i-users"></i> 9</span><span>4.200,00<span class="u">USDT</span></span></dd></div>
+            </dl>
+            <p class="xs" style="margin:18px 0 6px">Aporte al pool, compuesto</p>
+            <svg viewBox="0 0 620 230" width="100%" height="230" aria-label="Aporte al pool, compuesto">
+              <defs><linearGradient id="eq12" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1FA6B8" stop-opacity=".22"/><stop offset="1" stop-color="#1FA6B8" stop-opacity="0"/></linearGradient></defs>
+              <g stroke="#1E272F" stroke-width="1"><line x1="40" x2="600" y1="31" y2="31"/><line x1="40" x2="600" y1="76" y2="76"/><line x1="40" x2="600" y1="120" y2="120"/></g>
+              <line x1="40" x2="600" y1="160" y2="160" stroke="#3D4E5C" stroke-width="1.5"/>
+              <g font-family="IBM Plex Mono, monospace" font-size="11" fill="#7A8C99" text-anchor="end"><text x="32" y="35">6%</text><text x="32" y="80">4%</text><text x="32" y="124">2%</text><text x="32" y="164">0%</text></g>
+              <g font-family="IBM Plex Sans, sans-serif" font-size="11" fill="#7A8C99" text-anchor="middle"><text x="40" y="222">21 oct</text><text x="200" y="222">31 oct</text><text x="360" y="222">10 nov</text><text x="560" y="222">24 nov</text></g>
+              <polygon fill="url(#eq12)" points="40,160 110,129.7 170,144.8 240,105.8 300,118.8 360,82 420,101.5 480,66.8 540,75.5 600,47.3 600,160"/>
+              <polygon fill="#E0644B" fill-opacity=".22" points="40,160 110,160 170,182 240,160 300,170 360,160 420,198 480,160 540,168 600,160"/>
+              <polyline fill="none" stroke="#1FA6B8" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round" points="40,160 110,129.7 170,144.8 240,105.8 300,118.8 360,82 420,101.5 480,66.8 540,75.5 600,47.3"/>
+              <circle cx="600" cy="47.3" r="4" fill="#1FA6B8"/>
+            </svg>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-h"><h2>Mes a mes</h2></div>
+          <div class="pad">
+            <div class="mg">
+              <div class="h"></div><div class="h">Ene</div><div class="h">Feb</div><div class="h">Mar</div><div class="h">Abr</div><div class="h">May</div><div class="h">Jun</div><div class="h">Jul</div><div class="h">Ago</div><div class="h">Sep</div><div class="h">Oct</div><div class="h">Nov</div><div class="h">Dic</div><div class="h">Año</div>
+              <div class="y">2026</div><div class="e"></div><div class="e"></div><div class="e"></div><div class="e"></div><div class="e"></div><div class="e"></div><div class="e"></div><div class="e"></div><div class="e"></div><div class="g1">+3,1</div><div class="g1">+2,0</div><div class="e"></div><div class="tot gain">+5,2</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-h"><h2>Por par</h2></div>
+          <div class="tbl-w"><table>
+            <thead><tr><th>Par</th><th class="r">Operaciones</th><th class="r">% acierto</th><th class="r">PnL USDT</th><th class="r">Rendimiento</th></tr></thead>
+            <tbody>
+              <tr><td class="num">ETHUSDT</td><td class="r num">12</td><td class="r num">67</td><td class="r num gain">+164,10</td><td class="r num gain">+4,5</td></tr>
+              <tr><td class="num">BTCUSDT</td><td class="r num">6</td><td class="r num">50</td><td class="r num gain">+23,15</td><td class="r num gain">+0,7</td></tr>
+            </tbody></table></div>
+          <div style="height:16px"></div>
+        </div>
+      </div>
+
+      <aside class="aside" aria-label="Ajustes de la estrategia">
+        <div class="ah"><h2>Ajustes de la estrategia</h2>
+          <div class="sel" style="min-width:132px;gap:10px;justify-content:flex-start"><i class="ic i-link" style="color:var(--ink-2)"></i><span>Con enlace</span></div></div>
+
+        <div class="fld">
+          <div class="lab s">Enlace a esta estrategia <i class="ic i-info"></i></div>
+          <div class="ar"><div class="ro">https://strategymanager.trade/strategies/explore/9f3a21c4?link=k7QmX2…</div><button class="icon-btn" aria-label="Copiar enlace"><i class="ic i-copy"></i></button></div>
+        </div>
+
+        <div class="fld">
+          <div class="lab">Porcentaje del pool por operación <i class="ic i-info"></i></div>
+          <div class="ar"><div class="sel"><span class="num">15</span><span class="u">%</span></div><button class="icon-btn" aria-label="Guardar"><i class="ic i-check"></i></button></div>
+          <div class="rng"><i style="width:15%"></i><b style="left:15%"></b></div>
+          <span class="xs num">Margen: 150,00 USDT · Nocional: 300,00 USDT <i class="ic i-info" style="width:13px;height:13px;vertical-align:-2px"></i></span>
+        </div>
+
+        <div class="fld">
+          <div class="lab">Apalancamiento <i class="ic i-info"></i></div>
+          <div class="ar"><div class="sel"><span class="num">2</span><span class="u">x</span></div><button class="icon-btn" aria-label="Guardar"><i class="ic i-check"></i></button></div>
+          <div class="rng"><i style="width:12.5%"></i><b style="left:12.5%"></b></div>
+          <span class="xs">Apalancamiento máximo de x9 con stop de 10%</span>
+        </div>
+
+        <div class="fld">
+          <div class="lab s">Nivel de stop <i class="ic i-info"></i></div>
+          <div class="ar"><div class="sel"><span class="num">10</span><span class="u">% del precio</span></div><button class="icon-btn" aria-label="Guardar"><i class="ic i-check"></i></button></div>
+        </div>
+
+        <div class="fld">
+          <div class="lab s">Pares permitidos <i class="ic i-info"></i></div>
+          <div class="mks"><span class="mkc"><b>ETHUSDT</b><i class="ic i-x" style="width:12px;height:12px;background:var(--ink-3);border-radius:0"></i></span><span class="mkc"><b>BTCUSDT</b><i class="ic i-x" style="width:12px;height:12px;background:var(--ink-3);border-radius:0"></i></span></div>
+          <div class="ar"><div class="sel"><span class="mute">Escriba un símbolo para buscar</span><i class="ic i-search"></i></div><button class="icon-btn" aria-label="Guardar"><i class="ic i-check"></i></button></div>
+          <span class="xs">Se puede buscar entre 612 pares</span>
+        </div>
+
+        <div class="sep fld">
+          <div class="ar">
+            <button class="btn big wide" style="flex:1.6"><i class="ic i-pause"></i>Desactivar estrategia</button>
+            <button class="btn big wide danger off"><i class="ic i-archive"></i>Archivar</button>
+          </div>
+          <span class="xs">Archivar: primero desactívela y cierre sus posiciones</span>
+          <h2 style="font-size:15px;margin-top:6px">Historial de activación</h2>
+          <div class="hl"><span>2026-11-02 09:14 UTC · Activada</span><span>2026-10-29 17:40 UTC · Desactivada</span><span>2026-10-21 12:05 UTC · Activada</span></div>
+        </div>
+      </aside>
+    </div>
+
+    <div class="card" style="margin-top:20px">
+      <div class="card-h"><h2>Posiciones abiertas</h2><i class="ic i-info" style="color:var(--ink-3)"></i></div>
+      <div class="tbl-w s x"><table>
+        <thead><tr><th>Apertura (UTC)</th><th>Par</th><th>Sentido</th><th class="r">Tamaño</th><th class="r">Entrada</th><th class="r">Comisiones USDT</th><th class="r">Margen otorgado USDT</th><th class="r">Apalancamiento</th><th></th></tr></thead>
+        <tbody><tr><td>2026-11-24 08:30</td><td>ETHUSDT</td><td class="t">CORTO</td><td class="r">0,093</td><td class="r">3.214,60</td><td class="r">0,16</td><td class="r">150,00</td><td class="r">2x</td><td class="r t"><button class="btn sm danger">Cerrar ahora</button></td></tr></tbody></table></div>
+      <div style="height:16px"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-h"><h2>Operaciones cerradas</h2></div>
+      <div class="tbl-w s x"><table>
+        <thead><tr><th>Apertura (UTC)</th><th>Cierre (UTC)</th><th>Par</th><th>Sentido</th><th class="r">Entrada</th><th class="r">Salida</th><th class="r">Tamaño</th><th class="r">Comisiones USDT</th><th class="r">PnL USDT</th><th class="r">PnL %</th><th class="r">Pool al abrir</th><th>Detalle</th></tr></thead>
+        <tbody>
+          <tr><td>2026-11-22 19:00</td><td>2026-11-23 06:00</td><td class="t">ETHUSDT</td><td class="t">LONG</td><td class="r">3.182,40</td><td class="r">3.249,10</td><td class="r">0,094</td><td class="r">0,34</td><td class="r gain">+5,93</td><td class="r gain">+0,6</td><td class="r">1.000,00</td><td class="t"><button class="btn sm">Detalle</button></td></tr>
+          <tr><td>2026-11-21 11:00</td><td>2026-11-22 02:00</td><td class="t">BTCUSDT</td><td class="t">SHORT</td><td class="r">98.420,50</td><td class="r">97.210,00</td><td class="r">0,003</td><td class="r">0,33</td><td class="r gain">+3,30</td><td class="r gain">+0,3</td><td class="r">990,00</td><td class="t"><button class="btn sm">Detalle</button></td></tr>
+          <tr><td>2026-11-19 14:00</td><td>2026-11-20 09:00</td><td class="t">ETHUSDT</td><td class="t">SHORT</td><td class="r">3.301,20</td><td class="r">3.352,80</td><td class="r">0,090</td><td class="r">0,34</td><td class="r loss">−4,98</td><td class="r loss">−0,5</td><td class="r">985,00</td><td class="t"><button class="btn sm">Detalle</button></td></tr>
+          <tr><td>2026-11-17 22:00</td><td>2026-11-18 13:00</td><td class="t">ETHUSDT</td><td class="t">LONG</td><td class="r">3.120,00</td><td class="r">3.207,50</td><td class="r">0,095</td><td class="r">0,34</td><td class="r gain">+7,97</td><td class="r gain">+0,8</td><td class="r">978,00</td><td class="t"><button class="btn sm">Detalle</button></td></tr>
+          <tr><td>2026-11-15 08:00</td><td>2026-11-16 00:00</td><td class="t">BTCUSDT</td><td class="t">LONG</td><td class="r">96.880,00</td><td class="r">95.940,00</td><td class="r">0,003</td><td class="r">0,32</td><td class="r loss">−3,14</td><td class="r loss">−0,3</td><td class="r">971,00</td><td class="t"><button class="btn sm">Detalle</button></td></tr>
+        </tbody></table></div>
+      <div class="cl"><span>Página 1</span><button class="btn sm">Siguiente</button></div>
+    </div>
+
+    <div class="card" style="padding:18px 22px">
+      <h2 class="sm" style="font-size:14px">Eliminar estrategia</h2>
+      <p class="xs" style="margin:4px 0 12px">Elimina esta estrategia de forma permanente. Solo se puede eliminar una estrategia sin historial.</p>
+      <div style="display:flex;align-items:center;gap:14px"><button class="btn danger off"><i class="ic i-trash"></i>Eliminar estrategia</button><span class="xs">Desactive la estrategia primero.</span></div>
+    </div>
+  </div></main>
+</div>
+</section>
+
+</body>
+</html>
