@@ -7,7 +7,7 @@ Redesign of the whole panel, keeping the palette (`frontend/src/index.css`, `@th
 The owner's words (2026-11-24) are quoted as written.
 
 - **S1 Hide balances.** "Modo ocultar saldos". Agreed with the owner:
-  - The amounts, the absolute PnL, and the charts' axes and tooltips are hidden. The percentages are the owner's call.
+  - The amounts, the absolute PnL, and the charts' axes and tooltips are hidden. The percentages stay visible: the owner decided "Los porcentajes visibles me parecen bien" (2026-11-24).
   - The choice is stored in the browser, not on the server.
   - The toggle is an eye beside the balance, as on Binance.
 - **S2 Layout.** "Rediseño de la página, manteniendo la paleta de colores - inspirado en oficinavirtual.edelap.com.ar y binance.com". "Me gusta el espaciado de main de oficinavirtual, centrado y con buen margen, sin alargarse para ocupar todo el ancho. Lo mismo pasa en Binance."
@@ -55,6 +55,11 @@ The owner's words (2026-11-24) are quoted as written.
     - In `ex2` the percentages stay visible.
     - The exchange buttons show the exchange's name in its brand colour, standing in for the logotype.
     - Some copy is invented: "Visible solo para administradores", the note on Mi cuenta and the description of the mode.
+  - *Extended 2026-11-24 (L3).* Three more screens bring the file to 1192 lines; the parent looked at `ex8` rendered.
+    - `ex8` My subscriptions and `ex9` Explore list every exchange, so they have no exchange buttons. `ex10` My strategies filters by the selected exchange, as `StrategiesPage` does today, so it keeps them.
+    - The sidebar's sub-items replace today's three tabs.
+    - The line "Hay 1 estrategia archivada oculta" in `ex10` is new; the app does not show it today.
+    - In `ex3`, the build tag sits higher in the drawer.
 - [ ] RD.1 PR 1, the shell: sidebar, drawer, top-right icons, centred main (S2, S3, S4, S7).
 - [ ] RD.2 PR 2: Mi cuenta and Vincular exchange separated (S4, S9).
 - [ ] RD.3 PR 3: the dashboard's header card, and hide balances (S1, S8).
@@ -65,3 +70,4 @@ The owner's words (2026-11-24) are quoted as written.
 
 - L1 (2026-11-24, owner): "Quiero hacer un rediseño general de la app. Comentame si te parece bien, qué cambiarías o si falta algo:" followed by S1 to S8 as quoted, with screenshots of Edelap's home, Binance's assets overview and Edelap's "Mis facturas".
 - L2 (2026-11-24, owner): the assistant proposed the additions marked "Agreed" above, and the five sequential PRs. The owner answered: "Me parece bien todo. Agrego un ejemplo más para vincular las api key que me pareció una mejora con respecto al nuestro: [Edelap, Mis suministros]. Dale, vamos con un prototipo".
+- L3 (2026-11-24, owner, after reading the prototype): "Esta muy bien todo. Los porcentajes visibles me parecen bien. Lo único que faltaría en el prototipo son las vistas de estrategias, las suscritas, explore y propias. Si podemos agregarlas al prototipo, mejor". RD.0 reopened for three more screens: My subscriptions, Explore, and My strategies.

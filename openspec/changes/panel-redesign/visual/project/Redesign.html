@@ -263,6 +263,76 @@ tr:last-child td{border-bottom:0}
 .m .scrim{position:absolute;inset:0;background:rgba(12,17,22,.74)}
 .m .drawer{position:absolute;left:0;top:0;bottom:0;width:300px;box-shadow:12px 0 40px rgba(0,0,0,.5)}
 .m .drawer.side{width:300px}
+/* ex3 fix: the drawer's foot sits clear of the frame's rounded bottom edge, so the build tag is never clipped */
+.m .drawer.side{padding-bottom:30px;overflow-y:auto}
+.m .drawer .build{padding-bottom:2px}
+
+/* strategy views (ex8 to ex10) */
+.i-calendar{--i:url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M8 2v4'/><path d='M16 2v4'/><rect width='18' height='18' x='3' y='4' rx='2'/><path d='M3 10h18'/></svg>")}
+.i-coins{--i:url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><circle cx='8' cy='8' r='6'/><path d='M18.09 10.37A6 6 0 1 1 10.34 18'/><path d='M7 6h1v4'/><path d='m16.71 13.88.7.71-2.82 2.82'/></svg>")}
+.i-tdown{--i:url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M16 17h6v-6'/><path d='m22 17-8.5-8.5-5 5L2 7'/></svg>")}
+.i-trophy{--i:url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M6 9H4.5a2.5 2.5 0 0 1 0-5H6'/><path d='M18 9h1.5a2.5 2.5 0 0 0 0-5H18'/><path d='M4 22h16'/><path d='M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22'/><path d='M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22'/><path d='M18 2H6v7a6 6 0 0 0 12 0V2Z'/></svg>")}
+.i-wallet{--i:url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-3a2 2 0 0 0 0 4h3a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1'/><path d='M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4'/></svg>")}
+.i-sliders{--i:url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M10 5H3'/><path d='M12 19H3'/><path d='M14 3v4'/><path d='M16 17v4'/><path d='M21 12h-9'/><path d='M21 19h-5'/><path d='M21 5h-7'/><path d='M8 10v4'/><path d='M8 12H3'/></svg>")}
+.i-pie{--i:url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M21 12c.552 0 1.005-.449.95-.998a10 10 0 0 0-8.953-8.951c-.55-.055-.998.398-.998.95v8a1 1 0 0 0 1 1z'/><path d='M21.21 15.89A10 10 0 1 1 8 2.83'/></svg>")}
+.i-gauge{--i:url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='m12 14 4-4'/><path d='M3.34 19a10 10 0 1 1 17.32 0'/></svg>")}
+.i-arrdown{--i:url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M12 5v14'/><path d='m19 12-7 7-7-7'/></svg>")}
+.i-check{--i:url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'><path d='M20 6 9 17l-5-5'/></svg>")}
+.i-pause{--i:url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><rect x='14' y='4' width='4' height='16' rx='1'/><rect x='6' y='4' width='4' height='16' rx='1'/></svg>")}
+.i-archive{--i:url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><rect width='20' height='5' x='2' y='3' rx='1'/><path d='M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8'/><path d='M10 12h4'/></svg>")}
+.top.end{justify-content:flex-end}
+.nav a.par{color:var(--ink)}
+.nav a.par .ic{color:var(--gain)}
+.sub a.on{position:relative;border-top-left-radius:0;border-bottom-left-radius:0}
+.sub a.on::before{content:"";position:absolute;left:-1px;top:6px;bottom:6px;width:2px;background:var(--gain)}
+.tb{display:flex;align-items:center;justify-content:space-between;gap:16px}
+.tb .inp{margin-top:0;flex:1;max-width:380px;height:40px}
+.tb-r{display:flex;align-items:center;gap:20px}
+.chk{display:inline-flex;align-items:center;gap:8px;color:var(--ink-2);font-size:13.5px}
+.chk i{width:16px;height:16px;border:1px solid var(--rule-strong);border-radius:4px;background:var(--ground);display:inline-flex;align-items:center;justify-content:center;color:var(--ground)}
+.chk i.on{background:var(--gain);border-color:var(--gain)}
+.chk i .ic{width:12px;height:12px}
+.btn.fill{background:var(--gain);border-color:var(--gain);color:var(--ground);height:40px}
+.btn.fill .ic{width:16px;height:16px}
+.btn.lineb{height:40px}
+.sortrow{display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin-top:14px;padding-top:14px;border-top:1px solid var(--rule-soft)}
+.sortrow>span{font-size:12.5px;color:var(--ink-3);margin-right:4px}
+.sb{height:32px;display:inline-flex;align-items:center;gap:4px;padding:0 11px;border:1px solid var(--rule);border-radius:8px;font-size:12.5px;color:var(--ink-2)}
+.sb.on{border-color:var(--gain);color:var(--gain)}
+.sb .ic{width:14px;height:14px}
+.sc{background:var(--panel);border:1px solid var(--rule);border-radius:10px;padding:16px 20px;margin-bottom:14px;display:flex;flex-direction:column;gap:14px}
+.sc-h{display:flex;flex-direction:column;gap:3px}
+.sc-n{display:flex;align-items:center;gap:10px;font:600 16px var(--font-display);color:var(--gain)}
+.sc-n small{font:500 11px var(--font-mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);border:1px solid var(--rule);border-radius:4px;padding:2px 7px}
+.sc-n .dot{width:10px;height:10px;border-radius:50%;background:var(--ink-3);flex:none}
+.sc-n .dot.on{background:var(--gain)}
+.sc-by{font-size:12.5px;color:var(--ink-2)}
+.sc-mk{display:flex;align-items:center;flex-wrap:wrap;gap:6px;font:400 11px var(--font-mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3)}
+.sc-mk .ic{width:13px;height:13px}
+.sc-mk .dt{display:inline-flex;align-items:center;gap:5px;letter-spacing:.02em;text-transform:none;font-size:11.5px}
+.sc-b{display:flex;align-items:center;gap:20px}
+.fg{flex:1;min-width:0;display:grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:0 20px}
+.fg div{min-width:0}
+.fg dt{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--ink-3);margin-bottom:5px;white-space:nowrap}
+.fg dt .ic{width:14px;height:14px}
+.fg dd{display:flex;align-items:center;flex-wrap:wrap;gap:2px 10px;margin:0;font:400 14px var(--font-mono);font-variant-numeric:tabular-nums}
+.fg dd .u{font-size:.75em}
+.fg dd .ic{width:14px;height:14px;color:var(--ink-3);margin-right:-5px}
+.fg dd .w{color:var(--ink-2)}
+.sw{width:44px;height:24px;border-radius:12px;border:1px solid var(--rule);background:var(--panel-2);position:relative;flex:none}
+.sw::after{content:"";position:absolute;top:3px;left:4px;width:16px;height:16px;border-radius:50%;background:var(--ink)}
+.sw.on{background:var(--gain)}
+.sw.on::after{left:24px}
+.mks{display:flex;flex-wrap:wrap;gap:6px}
+.mkc{display:inline-flex;align-items:center;gap:7px;height:26px;padding:0 10px;border:1px solid var(--rule);border-radius:13px;background:var(--ground);font-size:12px;color:var(--ink-2)}
+.mkc b{font-weight:500;color:var(--ink)}
+.mkc i{width:6px;height:6px;border-radius:50%;background:var(--gain)}
+.mkc.s i{background:var(--loss)}
+.sc-note{display:flex;align-items:flex-start;gap:8px;padding-top:12px;border-top:1px solid var(--rule-soft);font-size:13px;color:var(--ink-2)}
+.sc-note .ic{width:16px;height:16px;margin-top:1px}
+.sc-note b{font-weight:500;color:var(--ink)}
+.hint{display:flex;align-items:center;gap:8px;color:var(--ink-3);font-size:13px;margin-top:4px}
+.hint .ic{width:16px;height:16px}
 </style>
 </head>
 <body>
@@ -777,6 +847,343 @@ tr:last-child td{border-bottom:0}
         <button class="btn danger"><i class="ic i-trash"></i>Eliminar cuenta</button>
       </div></div>
     </div>
+  </div></main>
+</div>
+</section>
+
+<!-- ============ ex8 ============ -->
+<section class="screen" id="ex8">
+<p class="cap">ex8 — Mis suscripciones, escritorio. Sin botones de exchange: la lista reúne todos los exchanges (cada tarjeta nombra el suyo). Muestra una suscripción en pausa y otra en salida.</p>
+<div class="frame">
+  <aside class="side">
+    <div class="side-top">
+      <div class="brand"><span class="mark"><i class="ic i-brand"></i></span><span class="brand-name">Strategy Manager</span></div>
+      <button class="icon-btn ghost" aria-label="Contraer la barra lateral"><i class="ic i-panel"></i></button>
+    </div>
+    <nav class="nav">
+      <a><i class="ic i-dash"></i><span>Panel de control</span></a>
+      <a><i class="ic i-bell"></i><span>Notificaciones</span></a>
+      <a><i class="ic i-ops"></i><span>Mis operaciones</span></a>
+      <div>
+        <a class="par"><i class="ic i-trend"></i><span>Estrategias</span><i class="ic i-up chev"></i></a>
+        <div class="sub"><a>Mis estrategias</a><a class="on">Mis suscripciones</a><a>Explorar</a></div>
+      </div>
+      <a><i class="ic i-link"></i><span>Vincular exchange</span></a>
+    </nav>
+    <div class="side-foot">
+      <a><i class="ic i-shield"></i><span>Administración</span><i class="ic i-down chev"></i></a>
+      <a><i class="ic i-user"></i><span class="two"><b>Mi cuenta</b><small>María Gómez</small></span></a>
+      <a><i class="ic i-out"></i><span>Cerrar sesión</span></a>
+      <div class="build"><span class="lbl">build </span>cf95299<span class="lbl">ef7f7</span></div>
+    </div>
+  </aside>
+  <main class="main"><div class="wrap wide">
+    <div class="top end">
+      <div class="tools">
+        <span class="badge-live"><i></i>En vivo</span>
+        <button class="icon-btn" aria-label="Idioma: español"><span class="flag"></span></button>
+        <button class="icon-btn" aria-label="Mi cuenta"><i class="ic i-user"></i></button>
+        <button class="icon-btn" aria-label="Notificaciones"><i class="ic i-bell"></i></button>
+      </div>
+    </div>
+    <div class="crumb"><i class="ic i-home"></i><i class="ic i-right"></i>Estrategias<i class="ic i-right"></i><b>Mis suscripciones</b></div>
+    <h1>Mis suscripciones</h1>
+    <p class="sub-t">Las estrategias que usted opera, con su parte del pool y su apalancamiento.</p>
+
+    <div class="card"><div class="pad">
+      <div class="tb"><div class="inp"><span>Buscar por nombre</span><i class="ic i-search"></i></div></div>
+      <div class="sortrow"><span>Ordenar por</span>
+        <button class="sb">Antigüedad</button><button class="sb">Operaciones cerradas</button><button class="sb on">Rendimiento<i class="ic i-arrdown"></i></button><button class="sb">Suscriptores</button><button class="sb">Capital</button></div>
+    </div></div>
+
+    <div class="sc">
+      <div class="sc-h">
+        <div class="sc-n">Trend Rider 4h<span class="dot on" title="Activada"></span></div>
+        <div class="sc-by">de Martín Ibarra</div>
+        <div class="sc-mk"><span>Binance · USDT-M · USDT</span><span>·</span><span class="dt"><i class="ic i-calendar"></i>03 sep 2026 – 24 nov 2026</span></div>
+      </div>
+      <div class="sc-b"><dl class="fg">
+        <div><dt><i class="ic i-coins"></i>PnL total</dt><dd><span class="gain">+412,60<span class="u">USDT</span></span><span class="gain">+8,4<span class="u">%</span></span></dd></div>
+        <div><dt><i class="ic i-tdown"></i>Caída máxima</dt><dd><span class="loss">−3,1<span class="u">%</span></span></dd></div>
+        <div><dt><i class="ic i-trophy"></i>Tasa de acierto</dt><dd><span>68<span class="u">%</span></span><span class="w">17/25</span></dd></div>
+        <div><dt><i class="ic i-wallet"></i>AuM</dt><dd><span><i class="ic i-users"></i> 142</span><span>86.320,00<span class="u">USDT</span></span></dd></div>
+        <div><dt><i class="ic i-sliders"></i>Configuración</dt><dd><span><i class="ic i-pie"></i> 25<span class="u">%</span></span><span><i class="ic i-gauge"></i> x3</span></dd></div>
+      </dl></div>
+      <div class="mks"><span class="mkc"><i></i><b>Largo</b> BTCUSDT</span></div>
+    </div>
+
+    <div class="sc">
+      <div class="sc-h">
+        <div class="sc-n">ETH Mean Reversion<span class="dot on" title="Activada"></span></div>
+        <div class="sc-by">Su estrategia</div>
+        <div class="sc-mk"><span>Bybit · USDT-M · USDT</span><span>·</span><span class="dt"><i class="ic i-calendar"></i>21 oct 2026 – 24 nov 2026</span></div>
+      </div>
+      <div class="sc-b"><dl class="fg">
+        <div><dt><i class="ic i-coins"></i>PnL total</dt><dd><span class="gain">+187,25<span class="u">USDT</span></span><span class="gain">+5,2<span class="u">%</span></span></dd></div>
+        <div><dt><i class="ic i-tdown"></i>Caída máxima</dt><dd><span class="loss">−4,8<span class="u">%</span></span></dd></div>
+        <div><dt><i class="ic i-trophy"></i>Tasa de acierto</dt><dd><span>61<span class="u">%</span></span><span class="w">11/18</span></dd></div>
+        <div><dt><i class="ic i-wallet"></i>AuM</dt><dd><span><i class="ic i-users"></i> 9</span><span>4.200,00<span class="u">USDT</span></span></dd></div>
+        <div><dt><i class="ic i-sliders"></i>Configuración</dt><dd><span><i class="ic i-pie"></i> 15<span class="u">%</span></span><span><i class="ic i-gauge"></i> x2</span></dd></div>
+      </dl></div>
+      <div class="mks"><span class="mkc"><i></i><b>Corto</b> ETHUSDT</span></div>
+    </div>
+
+    <div class="sc">
+      <div class="sc-h">
+        <div class="sc-n">SOL Breakout<span class="dot on" title="Activada"></span></div>
+        <div class="sc-by">de Camila Rossi</div>
+        <div class="sc-mk"><span>Binance · USDT-M · USDT</span><span>·</span><span class="dt"><i class="ic i-calendar"></i>14 oct 2026 – 24 nov 2026</span></div>
+      </div>
+      <div class="sc-b"><dl class="fg">
+        <div><dt><i class="ic i-coins"></i>PnL total</dt><dd><span class="loss">−31,80<span class="u">USDT</span></span><span class="loss">−0,9<span class="u">%</span></span></dd></div>
+        <div><dt><i class="ic i-tdown"></i>Caída máxima</dt><dd><span class="loss">−6,2<span class="u">%</span></span></dd></div>
+        <div><dt><i class="ic i-trophy"></i>Tasa de acierto</dt><dd><span>47<span class="u">%</span></span><span class="w">8/17</span></dd></div>
+        <div><dt><i class="ic i-wallet"></i>AuM</dt><dd><span><i class="ic i-users"></i> 31</span><span>12.080,00<span class="u">USDT</span></span></dd></div>
+        <div><dt><i class="ic i-sliders"></i>Configuración</dt><dd><span><i class="ic i-pie"></i> 10<span class="u">%</span></span><span><i class="ic i-gauge"></i> x4</span></dd></div>
+      </dl></div>
+      <div class="sc-note t-di"><i class="ic i-pause" style="color:var(--decision)"></i><span><b>En pausa:</b> la cuenta de su autor está suspendida. No abre posiciones nuevas; sus posiciones abiertas se siguen cerrando.</span></div>
+    </div>
+
+    <div class="sc">
+      <div class="sc-h">
+        <div class="sc-n">Funding Squeeze 1h<span class="dot" title="Desactivada"></span></div>
+        <div class="sc-by">de Tomás Quiroga</div>
+        <div class="sc-mk"><span>Bybit · USDT-M · USDT</span><span>·</span><span class="dt"><i class="ic i-calendar"></i>02 nov 2026 – 24 nov 2026</span></div>
+      </div>
+      <div class="sc-b"><dl class="fg">
+        <div><dt><i class="ic i-coins"></i>PnL total</dt><dd><span class="gain">+6,40<span class="u">USDT</span></span><span class="gain">+0,3<span class="u">%</span></span></dd></div>
+        <div><dt><i class="ic i-tdown"></i>Caída máxima</dt><dd><span class="loss">−1,4<span class="u">%</span></span></dd></div>
+        <div><dt><i class="ic i-trophy"></i>Tasa de acierto</dt><dd><span>50<span class="u">%</span></span><span class="w">3/6</span></dd></div>
+        <div><dt><i class="ic i-wallet"></i>AuM</dt><dd><span><i class="ic i-users"></i> —</span><span>—</span></dd></div>
+        <div><dt><i class="ic i-sliders"></i>Configuración</dt><dd><span><i class="ic i-pie"></i> 20<span class="u">%</span></span><span><i class="ic i-gauge"></i> x2</span></dd></div>
+      </dl></div>
+      <div class="sc-note"><i class="ic i-out" style="color:var(--ink-3)"></i><span>Saliendo: ya no abre nada más y termina cuando se cierre su posición abierta.</span></div>
+    </div>
+  </div></main>
+</div>
+</section>
+
+<!-- ============ ex9 ============ -->
+<section class="screen" id="ex9">
+<p class="cap">ex9 — Explorar, escritorio. Sin botones de exchange: la lista pública reúne todos los exchanges. Incluye "Tengo un código" y una estrategia sin operaciones cerradas (cifras con guion).</p>
+<div class="frame">
+  <aside class="side">
+    <div class="side-top">
+      <div class="brand"><span class="mark"><i class="ic i-brand"></i></span><span class="brand-name">Strategy Manager</span></div>
+      <button class="icon-btn ghost" aria-label="Contraer la barra lateral"><i class="ic i-panel"></i></button>
+    </div>
+    <nav class="nav">
+      <a><i class="ic i-dash"></i><span>Panel de control</span></a>
+      <a><i class="ic i-bell"></i><span>Notificaciones</span></a>
+      <a><i class="ic i-ops"></i><span>Mis operaciones</span></a>
+      <div>
+        <a class="par"><i class="ic i-trend"></i><span>Estrategias</span><i class="ic i-up chev"></i></a>
+        <div class="sub"><a>Mis estrategias</a><a>Mis suscripciones</a><a class="on">Explorar</a></div>
+      </div>
+      <a><i class="ic i-link"></i><span>Vincular exchange</span></a>
+    </nav>
+    <div class="side-foot">
+      <a><i class="ic i-shield"></i><span>Administración</span><i class="ic i-down chev"></i></a>
+      <a><i class="ic i-user"></i><span class="two"><b>Mi cuenta</b><small>María Gómez</small></span></a>
+      <a><i class="ic i-out"></i><span>Cerrar sesión</span></a>
+      <div class="build"><span class="lbl">build </span>cf95299<span class="lbl">ef7f7</span></div>
+    </div>
+  </aside>
+  <main class="main"><div class="wrap wide">
+    <div class="top end">
+      <div class="tools">
+        <span class="badge-live"><i></i>En vivo</span>
+        <button class="icon-btn" aria-label="Idioma: español"><span class="flag"></span></button>
+        <button class="icon-btn" aria-label="Mi cuenta"><i class="ic i-user"></i></button>
+        <button class="icon-btn" aria-label="Notificaciones"><i class="ic i-bell"></i></button>
+      </div>
+    </div>
+    <div class="crumb"><i class="ic i-home"></i><i class="ic i-right"></i>Estrategias<i class="ic i-right"></i><b>Explorar</b></div>
+    <h1>Explorar</h1>
+    <p class="sub-t">Las estrategias públicas de todos los autores, con su historial real.</p>
+
+    <div class="card"><div class="pad">
+      <div class="tb"><div class="inp"><span>Buscar por nombre</span><i class="ic i-search"></i></div>
+        <div class="tb-r"><button class="btn lineb line"><i class="ic i-key"></i>Tengo un código</button></div></div>
+      <div class="sortrow"><span>Ordenar por</span>
+        <button class="sb">Antigüedad</button><button class="sb">Operaciones cerradas</button><button class="sb on">Rendimiento<i class="ic i-arrdown"></i></button><button class="sb">Suscriptores</button><button class="sb">Capital</button></div>
+    </div></div>
+
+    <div class="sc">
+      <div class="sc-h">
+        <div class="sc-n">Momentum Basket 1d<span class="dot on" title="Activada"></span></div>
+        <div class="sc-by">de Valentina Núñez</div>
+        <div class="sc-mk"><span>Binance · USDT-M · USDT</span><span>·</span><span class="dt"><i class="ic i-calendar"></i>11 jun 2026 – 24 nov 2026</span></div>
+      </div>
+      <div class="sc-b"><dl class="fg">
+        <div><dt><i class="ic i-coins"></i>PnL total</dt><dd><span class="gain">+31,6<span class="u">%</span></span></dd></div>
+        <div><dt><i class="ic i-tdown"></i>Caída máxima</dt><dd><span class="loss">−9,8<span class="u">%</span></span></dd></div>
+        <div><dt><i class="ic i-trophy"></i>Tasa de acierto</dt><dd><span>64<span class="u">%</span></span><span class="w">32/50</span></dd></div>
+        <div><dt><i class="ic i-wallet"></i>AuM</dt><dd><span><i class="ic i-users"></i> 208</span><span>154.900,00<span class="u">USDT</span></span></dd></div>
+      </dl></div>
+    </div>
+
+    <div class="sc">
+      <div class="sc-h">
+        <div class="sc-n">Trend Rider 4h<span class="dot on" title="Activada"></span></div>
+        <div class="sc-by">de Martín Ibarra</div>
+        <div class="sc-mk"><span>Binance · USDT-M · USDT</span><span>·</span><span class="dt"><i class="ic i-calendar"></i>03 mar 2026 – 24 nov 2026</span></div>
+      </div>
+      <div class="sc-b"><dl class="fg">
+        <div><dt><i class="ic i-coins"></i>PnL total</dt><dd><span class="gain">+24,1<span class="u">%</span></span></dd></div>
+        <div><dt><i class="ic i-tdown"></i>Caída máxima</dt><dd><span class="loss">−8,7<span class="u">%</span></span></dd></div>
+        <div><dt><i class="ic i-trophy"></i>Tasa de acierto</dt><dd><span>68<span class="u">%</span></span><span class="w">41/60</span></dd></div>
+        <div><dt><i class="ic i-wallet"></i>AuM</dt><dd><span><i class="ic i-users"></i> 142</span><span>86.320,00<span class="u">USDT</span></span></dd></div>
+      </dl></div>
+    </div>
+
+    <div class="sc">
+      <div class="sc-h">
+        <div class="sc-n">ETH Mean Reversion<span class="dot on" title="Activada"></span></div>
+        <div class="sc-by">de Joaquín Paz</div>
+        <div class="sc-mk"><span>Bybit · USDT-M · USDT</span><span>·</span><span class="dt"><i class="ic i-calendar"></i>20 abr 2026 – 24 nov 2026</span></div>
+      </div>
+      <div class="sc-b"><dl class="fg">
+        <div><dt><i class="ic i-coins"></i>PnL total</dt><dd><span class="gain">+17,4<span class="u">%</span></span></dd></div>
+        <div><dt><i class="ic i-tdown"></i>Caída máxima</dt><dd><span class="loss">−5,2<span class="u">%</span></span></dd></div>
+        <div><dt><i class="ic i-trophy"></i>Tasa de acierto</dt><dd><span>59<span class="u">%</span></span><span class="w">26/44</span></dd></div>
+        <div><dt><i class="ic i-wallet"></i>AuM</dt><dd><span><i class="ic i-users"></i> 57</span><span>31.450,00<span class="u">USDT</span></span></dd></div>
+      </dl></div>
+    </div>
+
+    <div class="sc">
+      <div class="sc-h">
+        <div class="sc-n">SOL Breakout<span class="dot on" title="Activada"></span></div>
+        <div class="sc-by">de Camila Rossi</div>
+        <div class="sc-mk"><span>Binance · USDT-M · USDT</span><span>·</span><span class="dt"><i class="ic i-calendar"></i>14 jul 2026 – 24 nov 2026</span></div>
+      </div>
+      <div class="sc-b"><dl class="fg">
+        <div><dt><i class="ic i-coins"></i>PnL total</dt><dd><span class="gain">+3,2<span class="u">%</span></span></dd></div>
+        <div><dt><i class="ic i-tdown"></i>Caída máxima</dt><dd><span class="loss">−12,4<span class="u">%</span></span></dd></div>
+        <div><dt><i class="ic i-trophy"></i>Tasa de acierto</dt><dd><span>47<span class="u">%</span></span><span class="w">19/40</span></dd></div>
+        <div><dt><i class="ic i-wallet"></i>AuM</dt><dd><span><i class="ic i-users"></i> 31</span><span>12.080,00<span class="u">USDT</span></span></dd></div>
+      </dl></div>
+    </div>
+
+    <div class="sc">
+      <div class="sc-h">
+        <div class="sc-n">Funding Squeeze 1h<span class="dot" title="Desactivada"></span></div>
+        <div class="sc-by">de Tomás Quiroga</div>
+        <div class="sc-mk"><span>Bybit · USDT-M · USDT</span><span>·</span><span class="dt"><i class="ic i-calendar"></i>02 nov 2026 – 24 nov 2026</span></div>
+      </div>
+      <div class="sc-b"><dl class="fg">
+        <div><dt><i class="ic i-coins"></i>PnL total</dt><dd><span class="gain">+0,3<span class="u">%</span></span></dd></div>
+        <div><dt><i class="ic i-tdown"></i>Caída máxima</dt><dd><span class="loss">−1,4<span class="u">%</span></span></dd></div>
+        <div><dt><i class="ic i-trophy"></i>Tasa de acierto</dt><dd><span>50<span class="u">%</span></span><span class="w">3/6</span></dd></div>
+        <div><dt><i class="ic i-wallet"></i>AuM</dt><dd><span><i class="ic i-users"></i> 0</span><span>—</span></dd></div>
+      </dl></div>
+    </div>
+
+    <div class="sc">
+      <div class="sc-h">
+        <div class="sc-n">Range Scalper 15m<span class="dot on" title="Activada"></span></div>
+        <div class="sc-by">de Agustina Leiva</div>
+        <div class="sc-mk"><span>Binance · USDT-M · USDT</span><span>·</span><span class="dt"><i class="ic i-calendar"></i>20 nov 2026 – 24 nov 2026</span></div>
+      </div>
+      <div class="sc-b"><dl class="fg">
+        <div><dt><i class="ic i-coins"></i>PnL total</dt><dd><span>—</span></dd></div>
+        <div><dt><i class="ic i-tdown"></i>Caída máxima</dt><dd><span>—</span></dd></div>
+        <div><dt><i class="ic i-trophy"></i>Tasa de acierto</dt><dd><span>—</span></dd></div>
+        <div><dt><i class="ic i-wallet"></i>AuM</dt><dd><span><i class="ic i-users"></i> 0</span><span>—</span></dd></div>
+      </dl></div>
+    </div>
+  </div></main>
+</div>
+</section>
+
+<!-- ============ ex10 ============ -->
+<section class="screen" id="ex10">
+<p class="cap">ex10 — Mis estrategias, escritorio. Con botones de exchange: la lista es del exchange elegido (Bybit aquí). Incluye una estrategia desactivada y la pista de las archivadas ocultas.</p>
+<div class="frame">
+  <aside class="side">
+    <div class="side-top">
+      <div class="brand"><span class="mark"><i class="ic i-brand"></i></span><span class="brand-name">Strategy Manager</span></div>
+      <button class="icon-btn ghost" aria-label="Contraer la barra lateral"><i class="ic i-panel"></i></button>
+    </div>
+    <nav class="nav">
+      <a><i class="ic i-dash"></i><span>Panel de control</span></a>
+      <a><i class="ic i-bell"></i><span>Notificaciones</span></a>
+      <a><i class="ic i-ops"></i><span>Mis operaciones</span></a>
+      <div>
+        <a class="par"><i class="ic i-trend"></i><span>Estrategias</span><i class="ic i-up chev"></i></a>
+        <div class="sub"><a class="on">Mis estrategias</a><a>Mis suscripciones</a><a>Explorar</a></div>
+      </div>
+      <a><i class="ic i-link"></i><span>Vincular exchange</span></a>
+    </nav>
+    <div class="side-foot">
+      <a><i class="ic i-shield"></i><span>Administración</span><i class="ic i-down chev"></i></a>
+      <a><i class="ic i-user"></i><span class="two"><b>Mi cuenta</b><small>María Gómez</small></span></a>
+      <a><i class="ic i-out"></i><span>Cerrar sesión</span></a>
+      <div class="build"><span class="lbl">build </span>cf95299<span class="lbl">ef7f7</span></div>
+    </div>
+  </aside>
+  <main class="main"><div class="wrap wide">
+    <div class="top">
+      <div class="exs"><button class="ex"><span class="wm binance">BINANCE</span></button><button class="ex on"><span class="wm bybit">BYBIT</span></button></div>
+      <div class="tools">
+        <span class="badge-live"><i></i>En vivo</span>
+        <button class="icon-btn" aria-label="Idioma: español"><span class="flag"></span></button>
+        <button class="icon-btn" aria-label="Mi cuenta"><i class="ic i-user"></i></button>
+        <button class="icon-btn" aria-label="Notificaciones"><i class="ic i-bell"></i></button>
+      </div>
+    </div>
+    <div class="crumb"><i class="ic i-home"></i><i class="ic i-right"></i>Estrategias<i class="ic i-right"></i><b>Mis estrategias</b></div>
+    <h1>Mis estrategias</h1>
+    <p class="sub-t">Las estrategias que usted escribió en el exchange seleccionado.</p>
+
+    <div class="card"><div class="pad">
+      <div class="tb"><div class="inp"><span>Buscar por nombre</span><i class="ic i-search"></i></div>
+        <div class="tb-r"><span class="chk"><i></i>Mostrar archivadas</span><button class="btn fill"><i class="ic i-plus"></i>Nueva estrategia</button></div></div>
+      <div class="sortrow"><span>Ordenar por</span>
+        <button class="sb">Antigüedad</button><button class="sb">Operaciones cerradas</button><button class="sb on">Rendimiento<i class="ic i-arrdown"></i></button><button class="sb">Suscriptores</button><button class="sb">Capital</button></div>
+    </div></div>
+
+    <div class="sc">
+      <div class="sc-h">
+        <div class="sc-n">ETH Mean Reversion<span class="dot on" title="Activada"></span></div>
+        <div class="sc-mk"><span>USDT-M · ETHUSDT, BTCUSDT</span><span>·</span><span class="dt"><i class="ic i-calendar"></i>21 oct 2026 – 24 nov 2026</span></div>
+      </div>
+      <div class="sc-b"><dl class="fg">
+        <div><dt><i class="ic i-coins"></i>PnL total</dt><dd><span class="gain">+187,25<span class="u">USDT</span></span><span class="gain">+5,2<span class="u">%</span></span></dd></div>
+        <div><dt><i class="ic i-tdown"></i>Caída máxima</dt><dd><span class="loss">−4,8<span class="u">%</span></span></dd></div>
+        <div><dt><i class="ic i-trophy"></i>Tasa de acierto</dt><dd><span>61<span class="u">%</span></span><span class="w">11/18</span></dd></div>
+        <div><dt><i class="ic i-wallet"></i>AuM</dt><dd><span><i class="ic i-users"></i> 9</span><span>4.200,00<span class="u">USDT</span></span></dd></div>
+      </dl><span class="sw on" role="switch" aria-checked="true" aria-label="Activar ETH Mean Reversion"></span></div>
+      <div class="mks"><span class="mkc"><i></i><b>Corto</b> ETHUSDT</span></div>
+    </div>
+
+    <div class="sc">
+      <div class="sc-h">
+        <div class="sc-n">BTC Range Fade 1h<span class="dot" title="Desactivada"></span></div>
+        <div class="sc-mk"><span>USDT-M · BTCUSDT</span><span>·</span><span class="dt"><i class="ic i-calendar"></i>09 nov 2026 – 24 nov 2026</span></div>
+      </div>
+      <div class="sc-b"><dl class="fg">
+        <div><dt><i class="ic i-coins"></i>PnL total</dt><dd><span class="loss">−9,10<span class="u">USDT</span></span><span class="loss">−0,4<span class="u">%</span></span></dd></div>
+        <div><dt><i class="ic i-tdown"></i>Caída máxima</dt><dd><span class="loss">−2,3<span class="u">%</span></span></dd></div>
+        <div><dt><i class="ic i-trophy"></i>Tasa de acierto</dt><dd><span>40<span class="u">%</span></span><span class="w">2/5</span></dd></div>
+        <div><dt><i class="ic i-wallet"></i>AuM</dt><dd><span><i class="ic i-users"></i> 0</span><span>—</span></dd></div>
+      </dl><span class="sw" role="switch" aria-checked="false" aria-label="Activar BTC Range Fade 1h"></span></div>
+    </div>
+
+    <div class="sc">
+      <div class="sc-h">
+        <div class="sc-n">Momentum 15m<span class="dot on" title="Activada"></span></div>
+        <div class="sc-mk"><span>USDT-M · SOLUSDT</span><span>·</span><span class="dt"><i class="ic i-calendar"></i>22 nov 2026 – 24 nov 2026</span></div>
+      </div>
+      <div class="sc-b"><dl class="fg">
+        <div><dt><i class="ic i-coins"></i>PnL total</dt><dd><span>—</span></dd></div>
+        <div><dt><i class="ic i-tdown"></i>Caída máxima</dt><dd><span>—</span></dd></div>
+        <div><dt><i class="ic i-trophy"></i>Tasa de acierto</dt><dd><span>—</span></dd></div>
+        <div><dt><i class="ic i-wallet"></i>AuM</dt><dd><span><i class="ic i-users"></i> 0</span><span>—</span></dd></div>
+      </dl><span class="sw on" role="switch" aria-checked="true" aria-label="Activar Momentum 15m"></span></div>
+    </div>
+
+    <p class="hint"><i class="ic i-archive"></i>Hay 1 estrategia archivada oculta. Active «Mostrar archivadas» para verla.</p>
   </div></main>
 </div>
 </section>
