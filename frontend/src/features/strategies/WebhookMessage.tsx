@@ -106,7 +106,7 @@ function WebhookMessageView({ strategyId, secretLast4, archived }: WebhookMessag
               type="button"
               disabled={archived}
               onClick={() => setAsking(true)}
-              className="inline-flex min-h-11 items-center gap-1.5 rounded-md border border-rule px-3.5 text-sm text-ink hover:bg-panel-2 disabled:text-ink-3 disabled:opacity-50"
+              className="inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-rule px-3.5 text-sm text-ink hover:bg-panel-2 disabled:text-ink-3 disabled:opacity-50"
             >
               <RefreshCw aria-hidden="true" className="size-4 shrink-0" />
               {t("strategies.webhook.regenerate")}

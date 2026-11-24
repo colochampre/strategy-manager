@@ -174,7 +174,7 @@ export function PairSelector({
           <button
             type="button"
             onClick={onRetry}
-            className="rounded-md border border-rule px-3 py-1 text-sm text-ink-2 hover:bg-panel-2"
+            className="rounded-lg border border-rule px-3 py-1 text-sm text-ink-2 hover:bg-panel-2"
           >
             {t("strategies.pairs.retry")}
           </button>

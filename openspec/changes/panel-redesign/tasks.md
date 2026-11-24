@@ -141,3 +141,14 @@ The owner's words (2026-11-24) are quoted as written.
     - in `DeleteKeyControl.test.tsx` and `SettingsPage.test.tsx`, the assertions on the button's mark, rewritten to expect the name alone.
   - `KeyMark`'s `tab` variant has no caller left; RD.2 decides its fate.
   - Gate: lint exited 0, and vitest passed 169 files and 4141 tests.
+- L10 (2026-11-24, owner): legal pages and the re-acceptance gate.
+  - "En su momento lo implementamos alineado a la izquierda, pero lo centramos porque quedaba mejor. El ancho lo dejo a tu criterio." Terms and Privacy stay as they are: centred, about 768 px wide.
+  - The re-acceptance gate (`ProfileGate` with `AcceptAgainForm`) already fits the new shell. It shows no sidebar, only the brand and the language, and keeps the footer, which stays on every view. The parent checked it on desktop against the local backend: one acceptance of an older privacy version was appended for the dev user.
+  - "Si, estaba pensando lo mismo de la marca y el icono. Aunque para el icono usaría el mismo que usamos de favicon. [...] Botones con las esquinas nuevas para todos los botones que correspondan."
+    - The brand now shows the favicon's image (`BrandIcon`, `/android-chrome-192x192.png`) in the sidebar and in the gate's top row.
+    - 62 button classes go from `rounded-md` to `rounded-lg`. Inputs, cards, notices, menus and tooltips keep `rounded-md`.
+  - TDD:
+    - The two brand tests and the pinned `DANGER_CONTROL` string were seen failing on their assertions first.
+    - The other button radii are a style sweep with no runnable red; `grep` confirmed every line changed.
+  - Gate: lint exited 0, and vitest passed 169 files and 4142 tests.
+  - The 390 px view of the gate is not verified: headless Edge will not lay out under about 500 px. The owner checks it in the browser.

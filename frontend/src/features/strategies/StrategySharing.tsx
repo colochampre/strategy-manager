@@ -116,7 +116,7 @@ function revokeRefusal(error: unknown): string {
   return `${KEY}.revokeRefused.failed`;
 }
 
-const BUTTON = "inline-flex min-h-11 items-center rounded-md border border-rule px-3.5 text-sm text-ink hover:bg-panel-2 disabled:text-ink-3 disabled:opacity-50";
+const BUTTON = "inline-flex min-h-11 items-center rounded-lg border border-rule px-3.5 text-sm text-ink hover:bg-panel-2 disabled:text-ink-3 disabled:opacity-50";
 
 /**
  * A PRIVATE strategy's codes: "Create code" makes one and shows it once; the unused ones are listed by their
@@ -204,7 +204,7 @@ function CodeRow({
         title={revokeLabel}
         onClick={onRevoke}
         disabled={disabled}
-        className="inline-flex size-11 items-center justify-center rounded-md text-ink-2 hover:bg-panel-2 hover:text-loss disabled:opacity-50"
+        className="inline-flex size-11 items-center justify-center rounded-lg text-ink-2 hover:bg-panel-2 hover:text-loss disabled:opacity-50"
       >
         <X aria-hidden="true" className="size-4.5" />
       </button>

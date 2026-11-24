@@ -202,7 +202,7 @@ export function NewStrategyDialog({ exchange, pools, onClose }: NewStrategyDialo
                 <button
                   type="button"
                   onClick={onClose}
-                  className="rounded-md border border-rule px-3 py-1.5 text-sm text-ink-2 hover:bg-panel-2"
+                  className="rounded-lg border border-rule px-3 py-1.5 text-sm text-ink-2 hover:bg-panel-2"
                 >
                   {t("strategies.webhook.issuedDone")}
                 </button>
@@ -383,14 +383,14 @@ export function NewStrategyDialog({ exchange, pools, onClose }: NewStrategyDialo
             type="button"
             onClick={onClose}
             disabled={register.isPending}
-            className="rounded-md border border-rule px-3 py-1.5 text-sm text-ink-2 hover:bg-panel-2 disabled:opacity-50"
+            className="rounded-lg border border-rule px-3 py-1.5 text-sm text-ink-2 hover:bg-panel-2 disabled:opacity-50"
           >
             {t("strategies.new.cancel")}
           </button>
           <button
             type="submit"
             disabled={register.isPending || pools.length === 0 || pairsStatus !== "ready" || !share.reading.valid || !leverage.reading.valid || !stopReading.valid || descriptionTooLong}
-            className="rounded-md bg-gain px-3 py-1.5 text-sm font-medium text-ground hover:opacity-90 disabled:opacity-50"
+            className="rounded-lg bg-gain px-3 py-1.5 text-sm font-medium text-ground hover:opacity-90 disabled:opacity-50"
           >
             {register.isPending ? t("strategies.new.submitting") : t("strategies.new.submit")}
           </button>

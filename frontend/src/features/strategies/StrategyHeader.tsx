@@ -54,7 +54,7 @@ export function StrategyHeader({ strategy }: StrategyHeaderProps) {
           aria-expanded={open}
           aria-controls={panelId}
           onClick={() => setOpen(!open)}
-          className="inline-flex min-h-11 items-center gap-1.5 rounded-md border border-rule px-3.5 text-sm text-ink hover:bg-panel-2 sm:ml-auto"
+          className="inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-rule px-3.5 text-sm text-ink hover:bg-panel-2 sm:ml-auto"
         >
           <Webhook aria-hidden="true" className="size-4 shrink-0" />
           {t("strategies.webhook.open")}

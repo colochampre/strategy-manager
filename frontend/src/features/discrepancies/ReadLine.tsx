@@ -7,7 +7,7 @@ import { cn } from "@/shared/lib/cn";
 import { clockSecondsText } from "@/shared/lib/figure-text";
 
 const BUTTON =
-  "inline-flex min-h-11 flex-none items-center gap-1.5 rounded-md border border-rule px-4 text-sm text-ink hover:bg-panel-2 aria-disabled:opacity-60";
+  "inline-flex min-h-11 flex-none items-center gap-1.5 rounded-lg border border-rule px-4 text-sm text-ink hover:bg-panel-2 aria-disabled:opacity-60";
 
 function useReadAgain() {
   const queryClient = useQueryClient();

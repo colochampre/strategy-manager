@@ -51,7 +51,7 @@ export function OpenReadState({ status, errorUpdateCount }: OpenReadStateProps) 
           if (reading) return;
           void queryClient.invalidateQueries({ queryKey: OPEN_POSITIONS_KEY });
         }}
-        className="inline-flex min-h-11 flex-none items-center gap-1.5 rounded-md border border-rule px-4 text-sm text-ink hover:bg-panel-2 aria-disabled:opacity-60"
+        className="inline-flex min-h-11 flex-none items-center gap-1.5 rounded-lg border border-rule px-4 text-sm text-ink hover:bg-panel-2 aria-disabled:opacity-60"
       >
         <RefreshCw aria-hidden="true" className="size-4 shrink-0" />
         {t("positions.state.refresh")}

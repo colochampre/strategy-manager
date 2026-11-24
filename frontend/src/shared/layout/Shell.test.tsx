@@ -415,5 +415,23 @@ describe("the sign-up step", () => {
     expect(screen.queryByRole("link", { name: "My account" })).not.toBeInTheDocument();
     expect(screen.getByText("Strategy Manager")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^Language/ })).toBeInTheDocument();
+    // The brand carries the favicon's icon there too (owner, 2026-11-24), as decoration beside the name.
+    expect(brandIcons()).toHaveLength(1);
+  });
+
+  it("draws the favicon's icon beside the app's name in the sidebar, as decoration (owner, 2026-11-24)", async () => {
+    stubApi(HEALTH, [], undefined, {}, meAs(false));
+    renderShell("/");
+
+    await screen.findByRole("navigation", { name: "Sections" });
+    const icons = brandIcons();
+    expect(icons).toHaveLength(1);
+    expect(icons[0]).toHaveAttribute("alt", "");
+    expect(icons[0]?.parentElement).toHaveTextContent("Strategy Manager");
   });
 });
+
+/** The brand's icon: the favicon set's own image, served from the bundle root. */
+function brandIcons(): HTMLImageElement[] {
+  return Array.from(document.querySelectorAll<HTMLImageElement>('img[src="/android-chrome-192x192.png"]'));
+}

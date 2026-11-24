@@ -76,7 +76,7 @@ export function StrategyTitle({ strategy }: StrategyTitleProps) {
             type="button"
             aria-label={t("strategies.detail.name.rename")}
             onClick={() => setDraft(strategy.name)}
-            className="inline-flex size-11 items-center justify-center rounded-md text-ink-3 hover:bg-panel-2 hover:text-ink"
+            className="inline-flex size-11 items-center justify-center rounded-lg text-ink-3 hover:bg-panel-2 hover:text-ink"
           >
             <Pencil aria-hidden="true" className="size-4" />
           </button>
@@ -126,7 +126,7 @@ export function StrategyTitle({ strategy }: StrategyTitleProps) {
           type="button"
           onClick={close}
           disabled={rename.isPending}
-          className="inline-flex min-h-11 items-center gap-1.5 rounded-md border border-rule px-3 text-sm text-ink-2 hover:bg-panel-2 disabled:opacity-50"
+          className="inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-rule px-3 text-sm text-ink-2 hover:bg-panel-2 disabled:opacity-50"
         >
           <X aria-hidden="true" className="size-4 shrink-0" />
           {t("strategies.detail.name.cancel")}

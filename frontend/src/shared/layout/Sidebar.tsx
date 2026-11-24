@@ -1,4 +1,4 @@
-import { Activity, ChevronDown, LogOut, PanelLeftClose, PanelLeftOpen, User, X } from "lucide-react";
+import { ChevronDown, LogOut, PanelLeftClose, PanelLeftOpen, User, X } from "lucide-react";
 import { type ReactNode, type Ref, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { matchPath, NavLink, useLocation } from "react-router";
@@ -7,6 +7,7 @@ import { ACCESS_LOGOUT } from "@/shared/account/AccountDeletedScreen";
 import { useMe } from "@/shared/api/me";
 import { cn } from "@/shared/lib/cn";
 import { NavBadge } from "@/shared/layout/NavBadge";
+import { BrandIcon } from "@/shared/layout/BrandIcon";
 import { type NavGroup, type NavLeaf, type NavLinkItem, useNavigation } from "@/shared/layout/navItems";
 import { useSidebarStore } from "@/shared/layout/sidebar-store";
 import { useBuildTag } from "@/shared/layout/useBuildTag";
@@ -170,9 +171,7 @@ function SidebarBody({ collapsed, onNavigate, control }: BodyProps) {
     <>
       <div className={cn("flex items-center justify-between pb-5 pl-1.5 pr-1", collapsed && "flex-col gap-3 px-0 pb-4.5")}>
         <div className="flex items-center gap-2.5">
-          <span className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg bg-gain text-ground">
-            <Activity aria-hidden="true" className="size-4.5" />
-          </span>
+          <BrandIcon />
           <span className={cn("font-display text-[15px] font-semibold tracking-[0.01em] text-ink", collapsed && "sr-only")}>
             {t("app.name")}
           </span>

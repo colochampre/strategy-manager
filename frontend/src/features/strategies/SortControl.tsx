@@ -42,7 +42,7 @@ export function SortControl({ sort, onChange }: SortControlProps) {
             }
             onClick={() => onChange(key)}
             className={cn(
-              "inline-flex min-h-9 items-center gap-1 rounded-md border px-2.5 text-xs",
+              "inline-flex min-h-9 items-center gap-1 rounded-lg border px-2.5 text-xs",
               active ? "border-gain text-gain" : "border-rule text-ink-2 hover:bg-panel-2",
             )}
           >

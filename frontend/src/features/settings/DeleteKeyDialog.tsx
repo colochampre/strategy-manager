@@ -18,7 +18,7 @@ export interface DeleteKeyDialogProps {
 }
 
 const BUTTON =
-  "min-h-11 rounded-md px-3.5 text-sm disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gain";
+  "min-h-11 rounded-lg px-3.5 text-sm disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gain";
 
 /** One line per kind that has entries, in the order the server lists them; a kind with none has no line. */
 function reasonLines(lists: NotFlatLists, t: (key: string, options: Record<string, unknown>) => string): string[] {

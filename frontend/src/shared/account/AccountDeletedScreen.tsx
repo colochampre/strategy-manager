@@ -17,7 +17,7 @@ export function AccountDeletedScreen() {
         <p className="text-sm text-ink-2">{t("accountDeleted.body")}</p>
         <a
           href={ACCESS_LOGOUT}
-          className="inline-flex min-h-11 items-center justify-center gap-1.5 self-start rounded-md border border-rule px-3.5 text-sm text-ink hover:bg-panel-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gain"
+          className="inline-flex min-h-11 items-center justify-center gap-1.5 self-start rounded-lg border border-rule px-3.5 text-sm text-ink hover:bg-panel-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gain"
         >
           <LogOut aria-hidden="true" className="size-4 shrink-0" />
           {t("accountDeleted.signOut")}

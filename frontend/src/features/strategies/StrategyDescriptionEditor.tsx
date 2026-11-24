@@ -76,7 +76,7 @@ export function StrategyDescriptionEditor({ strategy, onDone }: StrategyDescript
             type="button"
             onClick={onDone}
             disabled={busy}
-            className="inline-flex min-h-11 items-center gap-1.5 rounded-md border border-rule px-3 text-sm text-ink-2 hover:bg-panel-2 disabled:opacity-50"
+            className="inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-rule px-3 text-sm text-ink-2 hover:bg-panel-2 disabled:opacity-50"
           >
             <X aria-hidden="true" className="size-4 shrink-0" />
             {t("strategies.detail.name.cancel")}

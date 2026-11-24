@@ -25,7 +25,7 @@ const CONFIRMATIONS: Readonly<Record<string, readonly string[]>> = Object.fromEn
   Object.entries(served).map(([id, entry]) => [id, entry.confirmations]),
 );
 
-const RETRY_BUTTON = "min-h-11 rounded-md border border-rule px-3.5 text-sm text-ink hover:bg-panel-2";
+const RETRY_BUTTON = "min-h-11 rounded-lg border border-rule px-3.5 text-sm text-ink hover:bg-panel-2";
 
 /**
  * Settings: one card per exchange, drawn from `GET /api/credentials` and

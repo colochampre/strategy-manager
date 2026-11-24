@@ -316,7 +316,7 @@ export function ExchangeKeyCard({
             disabled={busy}
             onClick={onToggle}
             className={cn(
-              "inline-flex min-h-11 items-center gap-1.5 rounded-md border px-3.5 text-sm disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gain",
+              "inline-flex min-h-11 items-center gap-1.5 rounded-lg border px-3.5 text-sm disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gain",
               holdsKey
                 ? "border-rule text-ink hover:bg-panel-2 aria-expanded:bg-panel-2"
                 : "border-gain bg-gain font-medium text-ground",

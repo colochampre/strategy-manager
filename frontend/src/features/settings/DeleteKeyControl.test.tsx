@@ -169,7 +169,7 @@ describe("where Delete key is drawn (spec: operable by keyboard and named for as
     expect(button).toBeEnabled();
     // The shared danger look of the buttons that carry a word is untouched.
     expect(DANGER_CONTROL).toBe(
-      "inline-flex min-h-11 items-center gap-1.5 rounded-md border border-loss px-3.5 text-sm text-loss hover:bg-panel-2 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gain",
+      "inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-loss px-3.5 text-sm text-loss hover:bg-panel-2 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gain",
     );
   });
 

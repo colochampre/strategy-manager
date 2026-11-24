@@ -15,7 +15,7 @@ export interface ModeDialogProps {
 }
 
 const BUTTON =
-  "min-h-11 rounded-md px-3.5 text-sm disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gain";
+  "min-h-11 rounded-lg px-3.5 text-sm disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gain";
 
 /**
  * Confirms a change of the user's own mode. The safeguards are `DeleteKeyDialog`'s: nothing is sent on the click

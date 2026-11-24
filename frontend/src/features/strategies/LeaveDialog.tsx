@@ -85,7 +85,7 @@ export function LeaveDialog({ name, pending, error, onConfirm, onCancel }: Leave
             type="button"
             onClick={cancel}
             disabled={pending}
-            className="min-h-11 rounded-md border border-rule px-3 text-sm text-ink-2 hover:bg-panel-2 disabled:opacity-50"
+            className="min-h-11 rounded-lg border border-rule px-3 text-sm text-ink-2 hover:bg-panel-2 disabled:opacity-50"
           >
             {t("strategies.leave.cancel")}
           </button>
@@ -93,7 +93,7 @@ export function LeaveDialog({ name, pending, error, onConfirm, onCancel }: Leave
             type="button"
             onClick={onConfirm}
             disabled={pending}
-            className="inline-flex min-h-11 items-center gap-1.5 rounded-md bg-loss px-3 text-sm font-medium text-ink hover:opacity-90 disabled:opacity-50"
+            className="inline-flex min-h-11 items-center gap-1.5 rounded-lg bg-loss px-3 text-sm font-medium text-ink hover:opacity-90 disabled:opacity-50"
           >
             <LogOut aria-hidden="true" className="size-4 shrink-0" />
             {pending ? t("strategies.leave.pending") : t("strategies.leave.confirm")}

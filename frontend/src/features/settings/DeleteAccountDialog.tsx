@@ -16,7 +16,7 @@ export interface DeleteAccountDialogProps {
 }
 
 const BUTTON =
-  "min-h-11 rounded-md px-3.5 text-sm disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gain";
+  "min-h-11 rounded-lg px-3.5 text-sm disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gain";
 
 const FIELD =
   "min-h-11 w-full rounded-md border border-rule bg-ground px-3 text-sm text-ink focus-visible:outline-2 focus-visible:outline-gain";

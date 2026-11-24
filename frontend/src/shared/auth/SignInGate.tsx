@@ -66,7 +66,7 @@ function GateButton({ onClick, children }: { onClick: () => void; children: Reac
     <button
       type="button"
       onClick={onClick}
-      className="rounded-md bg-gain px-3 py-2 text-sm font-medium text-ground hover:opacity-90"
+      className="rounded-lg bg-gain px-3 py-2 text-sm font-medium text-ground hover:opacity-90"
     >
       {children}
     </button>

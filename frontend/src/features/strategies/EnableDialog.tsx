@@ -87,7 +87,7 @@ function EnableDialog({ name, enabling, pending, error, onConfirm, onCancel }: E
             type="button"
             onClick={cancel}
             disabled={pending}
-            className="min-h-11 rounded-md border border-rule px-3 text-sm text-ink-2 hover:bg-panel-2 disabled:opacity-50"
+            className="min-h-11 rounded-lg border border-rule px-3 text-sm text-ink-2 hover:bg-panel-2 disabled:opacity-50"
           >
             {t("strategies.enableDialog.cancel")}
           </button>
@@ -95,7 +95,7 @@ function EnableDialog({ name, enabling, pending, error, onConfirm, onCancel }: E
             type="button"
             onClick={onConfirm}
             disabled={pending}
-            className="inline-flex min-h-11 items-center gap-1.5 rounded-md bg-gain px-3 text-sm font-medium text-ground hover:opacity-90 disabled:opacity-50"
+            className="inline-flex min-h-11 items-center gap-1.5 rounded-lg bg-gain px-3 text-sm font-medium text-ground hover:opacity-90 disabled:opacity-50"
           >
             <Icon aria-hidden="true" className="size-4 shrink-0" />
             {pending

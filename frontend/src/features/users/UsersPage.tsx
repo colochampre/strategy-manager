@@ -53,7 +53,7 @@ function SuspensionControl({ user }: { user: AdminUser }) {
       <button
         type="button"
         onClick={() => setAsking(true)}
-        className="min-h-11 self-start rounded-md border border-rule px-3 text-sm text-ink-2 hover:bg-panel-2"
+        className="min-h-11 self-start rounded-lg border border-rule px-3 text-sm text-ink-2 hover:bg-panel-2"
       >
         {t(suspending ? "users.suspend" : "users.lift")}
       </button>

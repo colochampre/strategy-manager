@@ -67,7 +67,7 @@ export function StrategyReportViews({ strategy }: { strategy: PublicStrategy }) 
               aria-pressed={name === view}
               onClick={() => setChosen(name)}
               className={cn(
-                "min-h-11 rounded-md border border-rule px-3.5 text-sm focus-visible:outline-2 focus-visible:outline-gain",
+                "min-h-11 rounded-lg border border-rule px-3.5 text-sm focus-visible:outline-2 focus-visible:outline-gain",
                 name === view ? "bg-panel-2 text-ink" : "bg-transparent text-ink-2",
               )}
             >

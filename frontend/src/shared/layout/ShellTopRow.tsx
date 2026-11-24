@@ -3,6 +3,7 @@ import type { Ref } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useLocation } from "react-router";
 
+import { BrandIcon } from "@/shared/layout/BrandIcon";
 import { ExchangeTabs } from "@/shared/layout/ExchangeTabs";
 import { Flag } from "@/shared/layout/Flag";
 import { ModeBadge } from "@/shared/layout/ModeBadge";
@@ -39,7 +40,10 @@ export function ShellTopRow({ pending, onOpenMenu, menuRef }: ShellTopRowProps) 
     <div className="mb-7 flex flex-wrap items-center gap-x-3 gap-y-4 lg:min-h-9">
       {pending ? (
         // A newcomer has no sidebar to carry the brand.
-        <span className="font-display text-base font-semibold text-ink">{t("app.name")}</span>
+        <span className="flex items-center gap-2.5">
+          <BrandIcon />
+          <span className="font-display text-[15px] font-semibold tracking-[0.01em] text-ink">{t("app.name")}</span>
+        </span>
       ) : (
         <button
           ref={menuRef}

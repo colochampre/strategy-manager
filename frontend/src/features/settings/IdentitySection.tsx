@@ -124,7 +124,7 @@ export function IdentitySection() {
               submit
               disabled={!canSave}
               icon={Save}
-              className="min-h-11 rounded-md bg-gain px-3 text-sm font-medium text-ground hover:opacity-90 disabled:opacity-50"
+              className="min-h-11 rounded-lg bg-gain px-3 text-sm font-medium text-ground hover:opacity-90 disabled:opacity-50"
             />
           </div>
         </form>

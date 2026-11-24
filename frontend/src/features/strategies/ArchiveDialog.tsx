@@ -92,7 +92,7 @@ export function ArchiveDialog({ name, pending, error, onConfirm, onCancel }: Arc
             type="button"
             onClick={cancel}
             disabled={pending}
-            className="rounded-md border border-rule px-3 py-1.5 text-sm text-ink-2 hover:bg-panel-2 disabled:opacity-50"
+            className="rounded-lg border border-rule px-3 py-1.5 text-sm text-ink-2 hover:bg-panel-2 disabled:opacity-50"
           >
             {t("strategies.archive.cancel")}
           </button>
@@ -100,7 +100,7 @@ export function ArchiveDialog({ name, pending, error, onConfirm, onCancel }: Arc
             type="button"
             onClick={onConfirm}
             disabled={pending}
-            className="inline-flex items-center gap-1.5 rounded-md bg-loss px-3 py-1.5 text-sm font-medium text-ink hover:opacity-90 disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 rounded-lg bg-loss px-3 py-1.5 text-sm font-medium text-ink hover:opacity-90 disabled:opacity-50"
           >
             <Archive aria-hidden="true" className="size-4 shrink-0" />
             {pending ? t("strategies.archive.pending") : t("strategies.archive.confirm")}
