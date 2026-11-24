@@ -91,7 +91,30 @@ The owner's words (2026-11-24) are quoted as written.
       - "Desactivar estrategia" gets more width than "Archivar".
     - `PAGE_ASIDE`'s minimum height assumes the old top bar. RD.1 recalculates it.
     - Copy invented for the prototype: the two descriptions, the activation history lines and the share link.
-- [ ] RD.1 PR 1, the shell: sidebar, drawer, top-right icons, centred main, favicon (S2, S3, S4, S7, S11).
+  - *Delivered 2026-11-24 as PR #131*: the specs and the prototype. The PR holds documentation only, so nothing was deployed.
+- [ ] RD.1 PR 1, the shell, on branch `feat/panel-shell` (S2, S3, S4, S7, S11, and S13's shell motion):
+  - the sidebar, the mobile drawer, the icons at the top right and the centred main;
+  - the page header (breadcrumb, title, subtitle) on every page;
+  - the favicon.
+  - Route: delegated to one Sonnet writer, for the parent's context backstop.
+  - Scope defaults, set by the parent for the owner to correct:
+    - A sidebar item appears in the PR that builds its page: Mis operaciones in RD.4; Notificaciones, and the bell, in RD.5.
+    - Every page that exists today keeps a way in.
+      - Mi cuenta points to today's settings page; RD.2 separates Vincular exchange from it.
+      - The safety events page keeps a sidebar item until RD.5 merges it into Notificaciones.
+    - S13's motion for the shell's own elements lands here. Those are the drawer, the sidebar groups, collapsing the sidebar, and `prefers-reduced-motion`. RD.6 keeps the tooltips, the dialogs and the hover transitions.
+    - The sidebar's collapsed state is stored in the browser.
+    - The build tag reads `/build.txt` and is hidden when that file is absent, as in development.
+  - *Built 2026-11-24, not yet pushed.* `4f7ec0f` adds the favicon. `a43eaa9` adds the shell: 57 files, +1804 −796 against `main`.
+    - The parent fixed two settings tests outside the writer's surface; they still expected the old heading "Settings".
+    - Gate, run by the parent: `npm run lint` exited 0. `npx vitest run` exited 0, with 169 files and 4156 tests. The writer reported that `npm run build` puts the seven favicon files at the bundle root.
+    - Review mode is off for this clone. The assessment rated the change `medium`, and no review was due.
+    - Left open:
+      - The top row is 52 px tall, not 36 px, because the exchange buttons keep their key-mark row.
+      - `LegalDocument`, used by Privacy and Terms, still draws its own centred title, without the page header.
+      - Some copy still says "Configuración", such as "Agregue una en Configuración". RD.2 rewrites it.
+      - The writer invented copy for the page headers of Mi cuenta, Usuarios and Not found, and for the labels "Administración" and "Herramientas".
+    - Risk: none of the high-risk items. The change is UI only, with no backend change, and the CSP and the static serving are unchanged.
 - [ ] RD.2 PR 2: Mi cuenta and Vincular exchange separated (S4, S9).
 - [ ] RD.3 PR 3: the dashboard's header card, and hide balances (S1, S8).
 - [ ] RD.4 PR 4: My trades (S5).
@@ -107,3 +130,4 @@ The owner's words (2026-11-24) are quoted as written.
 - L5 (2026-11-24, owner): "Quedo bien. Lo único que faltaría antes de aprobarlo, es la vista de una estrategia, tanto ajena como propia con el nuevo estilo. Habría que ver si con el nuevo ancho, el aside sigue quedando bien." S12 added; RD.0 reopened for two screens.
 - L6 (2026-11-24, owner, approving the prototype): "Titulos y subtitulos alineados con aside quedan bien. Esta todo correcto. Un detalle para cuando implementemos: en el rediseño quiero que los botones info (i) a partir de ahora, en lugar de desplegar el texto, que ocupa espacio vertical, aparezca en un tooltip flotante. Agregarle una animación suave, simple y rápida. Si se le puede agregar animación a otros elementos, recomendame cuáles". RD.0 is closed; S13 and RD.6 are added.
 - L7 (2026-11-24, owner, on the recommended motion): "Así esta bien". S13 records the list.
+- L8 (2026-11-24, owner): "Hecho el merge" of PR #131. RD.1 starts from an up-to-date `main` (`d256773`).
