@@ -1,6 +1,7 @@
 import { Route, Routes } from "react-router";
 
 import { DiscrepanciesPage } from "@/features/discrepancies/DiscrepanciesPage";
+import { ExchangesPage } from "@/features/exchanges/ExchangesPage";
 import { OverviewPage } from "@/features/overview/OverviewPage";
 import { PrivacyPage } from "@/features/privacy/PrivacyPage";
 import { SafetyEventsPage } from "@/features/safety-events/SafetyEventsPage";
@@ -41,6 +42,7 @@ export function AppRoutes() {
         </Route>
         <Route path="safety-events" element={<SafetyEventsPage />} />
         <Route path="settings" element={<SettingsPage />} />
+        <Route path="exchanges" element={<ExchangesPage />} />
         <Route path="privacy" element={<PrivacyPage />} />
         <Route path="terms" element={<TermsPage />} />
         <Route path="way-out" element={<WayOutPage />} />

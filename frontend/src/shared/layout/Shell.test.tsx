@@ -316,7 +316,7 @@ describe("the top row", () => {
     },
   );
 
-  it.each(["/settings", "/discrepancies", "/strategies", "/strategies/explore", "/strategies/explore/abc"])(
+  it.each(["/settings", "/exchanges", "/discrepancies", "/strategies", "/strategies/explore", "/strategies/explore/abc"])(
     "draws no exchange buttons on %s",
     async (path) => {
       renderShell(path);
@@ -379,6 +379,7 @@ describe("every page keeps a way in", () => {
       "/strategies/authored",
       "/discrepancies",
       "/users",
+      "/exchanges",
       "/safety-events",
       "/settings",
       "/privacy",

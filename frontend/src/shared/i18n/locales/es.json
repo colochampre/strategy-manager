@@ -15,6 +15,7 @@
     "safetyEvents": "Eventos de seguridad",
     "admin": "Administración",
     "account": "Mi cuenta",
+    "exchanges": "Vincular exchange",
     "signOut": "Cerrar sesión",
     "collapse": "Contraer la barra lateral",
     "expand": "Expandir la barra lateral",
@@ -31,7 +32,8 @@
     "subscriptions": "Las estrategias que usted opera, con su parte del pool y su apalancamiento.",
     "explore": "Las estrategias públicas de todos los autores, con su historial real.",
     "authored": "Las estrategias que usted escribió en el exchange seleccionado.",
-    "account": "Revise sus datos y administre las claves de sus exchanges.",
+    "account": "Revise sus datos y administre su cuenta.",
+    "exchanges": "Administre las claves de API de los exchanges vinculados a su cuenta.",
     "users": "Las cuentas del panel. Visible solo para administradores.",
     "notFound": "La página que busca no existe o ya no está disponible."
   },
@@ -134,7 +136,7 @@
     "pending": "Cambiando…",
     "errors": {
       "brakeOn": "El freno está activo: todos operan en simulación hasta que se libere, así que el modo no puede cambiar.",
-      "needsKey": "Para operar en vivo necesita una clave activa que pueda operar. Agregue una en Configuración.",
+      "needsKey": "Para operar en vivo necesita una clave activa que pueda operar. Agregue una en Vincular exchange.",
       "notFlat": "Para pasar a simulación no debe tener nada real abierto. Siguen abiertas:",
       "unknown": "No se pudo cambiar el modo. Inténtelo de nuevo."
     }
@@ -425,12 +427,12 @@
       "openYours": "Abrir su estrategia",
       "seatTitle": "Su suscripción",
       "needsKey": "Para suscribirse necesita una clave en {{exchange}}. Puede ver esta estrategia sin ella.",
-      "addKey": "Agregar una clave en Ajustes",
+      "addKey": "Agregar una clave en Vincular exchange",
       "publicSum": "Mientras opere esta estrategia en vivo, el capital que asigne se suma a la cifra pública que se muestra en esta página, junto a la cantidad de personas que la operan.",
       "submit": "Suscribirse",
       "pending": "Suscribiendo…",
       "refused": {
-        "needsKey": "No tiene una clave en el exchange de esta estrategia. Agregue una en Ajustes para suscribirse.",
+        "needsKey": "No tiene una clave en el exchange de esta estrategia. Agregue una en Vincular exchange para suscribirse.",
         "already": "Ya está suscrito a esta estrategia.",
         "archived": "Esta estrategia está archivada y no acepta suscriptores.",
         "paused": "Esta estrategia está en pausa y no acepta suscriptores.",
@@ -453,7 +455,7 @@
       },
       "hint": "Pública: aparece en Explorar. Con enlace: solo quien tiene el enlace la ve y puede suscribirse. Privada: solo quien tiene un código de invitación. Los suscriptores que ya tiene la conservan.",
       "saveFailed": "La visibilidad no se guardó. Inténtelo de nuevo.",
-      "needsName": "Primero elija su nombre en Configuración: una estrategia ofrecida a otros muestra a su autor."
+      "needsName": "Primero elija su nombre en Mi cuenta: una estrategia ofrecida a otros muestra a su autor."
     },
     "sharing": {
       "linkTitle": "Enlace a esta estrategia",
@@ -905,6 +907,14 @@
     "binance": "Binance",
     "pionex": "Pionex"
   },
+  "exchangesPage": {
+    "filter": "Filtrar exchanges",
+    "filterPlaceholder": "Filtrar exchanges…",
+    "total": "Total",
+    "count_one": "{{count}} exchange",
+    "count_other": "{{count}} exchanges",
+    "noMatch": "Ningún exchange coincide con el filtro."
+  },
   "settings": {
     "profile": {
       "title": "Perfil"
@@ -941,7 +951,7 @@
       "retry": "Reintentar",
       "stale": "Esta lista no se pudo actualizar y puede estar desactualizada.",
       "poolsUnknown": "No se pudieron cargar los pools, así que aquí no se marca un exchange sin clave.",
-      "newKey": "Nueva clave",
+      "newKey": "Vincular exchange",
       "exchange": "Exchange",
       "choose": "Elija un exchange",
       "cancel": "Cancelar"

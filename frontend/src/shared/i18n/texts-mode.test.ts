@@ -53,8 +53,8 @@ const TEXTS: [key: string, english: string, spanish: string][] = [
   ],
   [
     "mode.errors.needsKey",
-    "Going live needs an active key that can trade. Add one in Settings.",
-    "Para operar en vivo necesita una clave activa que pueda operar. Agregue una en Configuración.",
+    "Going live needs an active key that can trade. Add one in Link exchange.",
+    "Para operar en vivo necesita una clave activa que pueda operar. Agregue una en Vincular exchange.",
   ],
   [
     "mode.errors.notFlat",

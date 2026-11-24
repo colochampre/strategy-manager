@@ -125,7 +125,35 @@ The owner's words (2026-11-24) are quoted as written.
       - `backend files changed by the pull: 0`;
       - `bundle: 2cbd857cb90e` and `checkout: 2cbd857cb90e`;
       - `favicon: 200 image/png` and `manifest: 200 application/manifest+json`, both on loopback.
-- [ ] RD.2 PR 2: Mi cuenta and Vincular exchange separated (S4, S9).
+- [ ] RD.2 PR 2: Mi cuenta and Vincular exchange separated, on branch `feat/panel-account` (S4, S9).
+  - Route: delegated to one Sonnet writer, for the parent's context backstop.
+  - Scope defaults, set by the parent for the owner to correct:
+    - Mi cuenta keeps its address, `/settings`, so no link or bookmark breaks.
+    - Vincular exchange gets its own page at `/exchanges` and its own sidebar item, placed as in the prototype.
+    - The API keys move from Mi cuenta to Vincular exchange. Mi cuenta keeps the person's data, the legal acceptance and deleting the account.
+    - Every link and line of copy that sends the user to the keys now names Vincular exchange, not Configuración or Mi cuenta.
+    - Vincular exchange follows the prototype's `ex6`:
+      - a "Vincular" action across the top;
+      - a card of linked exchanges with a filter and the total;
+      - one row per exchange with its actions.
+      - The key's state (read-only, no key) is shown on its row, as L9 asked.
+    - Every rule the key cards enforce today stays as it is: replacing, deleting, refusals, warnings and the one-active-key-per-exchange behaviour. Only the layout changes.
+    - The `tab` variant of `KeyMark` has had no caller since L9, so it is removed.
+  - *Built 2026-11-24, not yet pushed.*
+    - `/exchanges` is the new `features/exchanges/ExchangesPage.tsx`. It holds the key logic moved from `SettingsPage`, which keeps the person's data and deleting the account.
+    - The sidebar shows Vincular exchange after the Strategies group. The page is not scoped by exchange, like `ex8` and `ex9`.
+    - Links and copy that sent the user to the keys now name Vincular exchange.
+    - The key tests moved to `ExchangesPage.test.tsx` with every behaviour assertion kept.
+    - TDD: the writer saw red only for the `KeyMark` rule, so the parent proved the other new tests non-vacuous by breaking what each protects. Each break was restored afterwards.
+      - Dropping the sidebar item turned 4 tests red.
+      - A filter that lets every row through turned 4 red.
+      - Pointing the subscribe link back to `/settings` turned 1 red.
+    - Gate, run by the parent: lint reported 0 errors, and vitest passed 170 files and 4156 tests.
+    - Open, for the owner:
+      - Each row is the existing key card, not a table row with columns as in `ex6`.
+      - Mi cuenta has no Mode and Language cards; `ex7` drew them.
+      - The legal texts still say "Configuración" about deleting the account. Changing them bumps the privacy version, so it waits for the next legal change.
+    - Copy the writer invented: the page's subtitle in English, the filter strings, the total and the no-match line.
 - [ ] RD.3 PR 3: the dashboard's header card, and hide balances (S1, S8).
 - [ ] RD.4 PR 4: My trades (S5).
 - [ ] RD.5 PR 5: Notifications (S6).
@@ -161,3 +189,4 @@ The owner's words (2026-11-24) are quoted as written.
     - The other button radii are a style sweep with no runnable red; `grep` confirmed every line changed.
   - Gate: lint exited 0, and vitest passed 169 files and 4142 tests.
   - The 390 px view of the gate could not be checked with headless Edge, which will not lay out under about 500 px. The owner checked it instead: "Confirmo que en pantalla chica se ve bien. Probé en Brave" (2026-11-24).
+- L11 (2026-11-24, owner, on deploying the rest): "Perfecto. Seguimos así entonces." Each PR from RD.2 to RD.6 is deployed on its own after its merge, as the assistant recommended. PR #133, the log of RD.1, is merged.

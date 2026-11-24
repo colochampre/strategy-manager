@@ -272,7 +272,7 @@ export function ExchangeKeyCard({
               </p>
             </>
           ) : (
-            mark !== null && <KeyMark mark={mark} variant="tag" as="p" />
+            mark !== null && <KeyMark mark={mark} as="p" />
           )}
         </div>
       </div>
@@ -281,7 +281,7 @@ export function ExchangeKeyCard({
         {notice !== null && <p className={cn(SENTENCE, "text-ink-2")}>{notice}</p>}
         {(key !== null || (fromAnswer && state === "readOnly")) && (
           <ul aria-label={t("settings.card.facts")} className="flex flex-wrap items-center gap-1.5">
-            {state === "readOnly" && mark !== null && <KeyMark mark={mark} variant="tag" as="li" />}
+            {state === "readOnly" && mark !== null && <KeyMark mark={mark} as="li" />}
             {tags.map((tag) => (
               <li key={tag.id} className={cn(TAG, LOOK[tag.look])}>
                 {tag.text}

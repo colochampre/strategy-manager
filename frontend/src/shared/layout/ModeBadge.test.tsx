@@ -322,7 +322,7 @@ describe("each refusal in words", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Go live" }));
 
     expect(await within(dialog).findByRole("alert")).toHaveTextContent(
-      "Going live needs an active key that can trade. Add one in Settings.",
+      "Going live needs an active key that can trade. Add one in Link exchange.",
     );
     expect(screen.getByText("Simulation")).toBeInTheDocument();
   });

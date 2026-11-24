@@ -4,7 +4,7 @@ import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AppRoutes } from "@/app/router";
-import { SettingsPage } from "@/features/settings/SettingsPage";
+import { ExchangesPage } from "@/features/exchanges/ExchangesPage";
 import i18n from "@/shared/i18n";
 import en from "@/shared/i18n/locales/en.json";
 import es from "@/shared/i18n/locales/es.json";
@@ -109,12 +109,12 @@ function deletePage({
     return undefined;
   };
   const fetchMock = stubApi(HEALTH, [], { kind: "ok", body: poolsBefore }, {}, extra, {}, { kind: "ok", body: credentials });
-  if (shell) renderAt(<AppRoutes />, "/settings");
+  if (shell) renderAt(<AppRoutes />, "/exchanges");
   else {
     render(
       <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-        <MemoryRouter initialEntries={["/settings"]}>
-          <SettingsPage />
+        <MemoryRouter initialEntries={["/exchanges"]}>
+          <ExchangesPage />
         </MemoryRouter>
       </QueryClientProvider>,
     );
@@ -276,7 +276,7 @@ describe("the end of a delete that worked (spec: the empty state is the one of a
     expect(status).toHaveClass("sr-only");
     expect(status.closest("article")).toBeNull();
     // The card whose button had the focus is gone, so `New key`, which now offers Bybit, takes it (p24.5).
-    await waitFor(() => expect(screen.getByRole("button", { name: "New key" })).toHaveFocus());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Link exchange" })).toHaveFocus());
   });
 
   it("keeps the card, degraded with `Add key`, when the exchange's pool is still on", async () => {
@@ -367,7 +367,7 @@ describe("a delete that did not work leaves the card telling the truth", () => {
     // Closing the dialog lets the card go, so the page takes the focus to `New key` (p24.5).
     fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Cancel" }));
     await waitFor(() => expect(screen.queryByRole("article", { name: "Bybit" })).not.toBeInTheDocument());
-    await waitFor(() => expect(screen.getByRole("button", { name: "New key" })).toHaveFocus());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Link exchange" })).toHaveFocus());
   });
 
   it("test_a_delete_whose_page_left_still_reads_both_lists_again", async () => {
@@ -409,7 +409,7 @@ describe("the requests of a session (spec: the panel reads the two routes and wr
       fetchMock.mock.calls.map(([url, init]) => `${init?.method ?? "GET"} ${String(url).replace(/^.*\/api/, "")}`),
     );
     expect([...seen].sort()).toEqual(
-      ["DELETE /credentials/bybit", "GET /credentials", "GET /me", "GET /pools", "PUT /credentials/bybit"].sort(),
+      ["DELETE /credentials/bybit", "GET /credentials", "GET /pools", "PUT /credentials/bybit"].sort(),
     );
     expect(requests(fetchMock, "PUT")).toHaveLength(1);
     expect(requests(fetchMock, "DELETE")).toHaveLength(1);
@@ -516,7 +516,7 @@ describe("the page, an open form and an open dialog read in Spanish", () => {
     await i18n.changeLanguage("es");
     deletePage({ onDelete, serverDeletes });
     await cardsDrawn();
-    expect(screen.queryByRole("heading", { level: 1, name: "Mi cuenta" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { level: 1, name: "Vincular exchange" })).toBeInTheDocument();
 
     // An open form.
     fireEvent.click(screen.getByRole("button", { name: "Reemplazar clave Bybit" }));

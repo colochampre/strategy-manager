@@ -123,7 +123,7 @@ function setup(respond: () => Promise<Response>, lists: { credentials?: () => un
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={["/settings"]}>
+      <MemoryRouter initialEntries={["/exchanges"]}>
         <AppRoutes />
       </MemoryRouter>
     </QueryClientProvider>,
@@ -369,8 +369,8 @@ describe("row 10: leaving, switching exchange and a 401", () => {
     fireEvent.click(screen.getAllByRole("link", { name: "Overview" })[0] as HTMLElement);
     await screen.findByRole("heading", { level: 1, name: "Overview" });
     expect(screen.queryByLabelText("API key")).not.toBeInTheDocument();
-    fireEvent.click(screen.getAllByRole("link", { name: /My account/ })[0] as HTMLElement);
-    await screen.findByRole("heading", { level: 1, name: "My account" });
+    fireEvent.click(screen.getAllByRole("link", { name: /Link exchange/ })[0] as HTMLElement);
+    await screen.findByRole("heading", { level: 1, name: "Link exchange" });
     await card("Bybit");
 
     expect(screen.queryByLabelText("API key")).not.toBeInTheDocument();

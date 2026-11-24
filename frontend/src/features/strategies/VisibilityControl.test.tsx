@@ -100,7 +100,7 @@ describe("the visibility of a strategy, on its page", () => {
     [
       "an author with no name (409)",
       jsonResponse({ detail: { error: "AUTHOR_HAS_NO_DISPLAY_NAME", message: "no name" } }, 409),
-      "Choose your name in Settings first: a strategy offered to others shows its author.",
+      "Choose your name in My account first: a strategy offered to others shows its author.",
     ],
     ["a strategy that is gone (404)", jsonResponse({ detail: "Not Found" }, 404), "This strategy no longer exists."],
     ["a server error", jsonResponse({ detail: "boom" }, 500), "The visibility was not saved. Try again."],
@@ -137,7 +137,7 @@ describe("the visibility of a strategy, on its page", () => {
     fireEvent.change(select, { target: { value: "PUBLIC" } });
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Primero elija su nombre en Configuración: una estrategia ofrecida a otros muestra a su autor.",
+      "Primero elija su nombre en Mi cuenta: una estrategia ofrecida a otros muestra a su autor.",
     );
   });
 
