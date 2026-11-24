@@ -151,4 +151,4 @@ The owner's words (2026-11-24) are quoted as written.
     - The two brand tests and the pinned `DANGER_CONTROL` string were seen failing on their assertions first.
     - The other button radii are a style sweep with no runnable red; `grep` confirmed every line changed.
   - Gate: lint exited 0, and vitest passed 169 files and 4142 tests.
-  - The 390 px view of the gate is not verified: headless Edge will not lay out under about 500 px. The owner checks it in the browser.
+  - The 390 px view of the gate could not be checked with headless Edge, which will not lay out under about 500 px. The owner checked it instead: "Confirmo que en pantalla chica se ve bien. Probé en Brave" (2026-11-24).
