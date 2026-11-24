@@ -57,7 +57,14 @@ The owner's words (2026-11-24) are quoted as written.
     - It is a real button: click and tap open it, and Escape closes it and returns focus.
     - The state is carried by `aria-expanded`.
   - The animation is a short fade with a slight offset.
-  - Which other elements get motion waits on the owner's choice from the assistant's recommendation (L6).
+  - Other elements get motion as the assistant recommended and the owner accepted ("Así esta bien", L7):
+    - the mobile drawer slides in, over a scrim that fades;
+    - the sidebar groups expand, and their chevron turns;
+    - collapsing the sidebar on desktop changes its width gradually;
+    - dialogs fade in with a slight scale;
+    - buttons, cards and rows change colour on hover and focus in about 120 ms.
+  - The figures and charts are not animated: no count-up and no line drawing. Hiding the balances is instant.
+  - `prefers-reduced-motion` turns every animation off.
 
 ## Tasks
 
@@ -99,3 +106,4 @@ The owner's words (2026-11-24) are quoted as written.
 - L4 (2026-11-24, owner, after the strategy views): "En la tarjeta de búsqueda de estrategias, se puede hacer que la barra de busqueda ocupe la mitad del ancho disponible en pantalla grande? El orden de los botones de usuario, lenguaje y notificaciones, que sea: En vivo, usuario, notificaciones, lenguaje. Noto diferencias entre los espaciados de main entre algunas vistas. A lo mejor es solo algo del prototipo, pero las vistas deben ser consistentes entre sí para no dar saltos al navegar. De paso, dejo los assets para favicon de la página en D:/Code/favicon_assets/ para usar". S2, S7 extended; S10 and S11 added.
 - L5 (2026-11-24, owner): "Quedo bien. Lo único que faltaría antes de aprobarlo, es la vista de una estrategia, tanto ajena como propia con el nuevo estilo. Habría que ver si con el nuevo ancho, el aside sigue quedando bien." S12 added; RD.0 reopened for two screens.
 - L6 (2026-11-24, owner, approving the prototype): "Titulos y subtitulos alineados con aside quedan bien. Esta todo correcto. Un detalle para cuando implementemos: en el rediseño quiero que los botones info (i) a partir de ahora, en lugar de desplegar el texto, que ocupa espacio vertical, aparezca en un tooltip flotante. Agregarle una animación suave, simple y rápida. Si se le puede agregar animación a otros elementos, recomendame cuáles". RD.0 is closed; S13 and RD.6 are added.
+- L7 (2026-11-24, owner, on the recommended motion): "Así esta bien". S13 records the list.
