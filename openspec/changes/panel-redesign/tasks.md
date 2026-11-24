@@ -50,6 +50,7 @@ The owner's words (2026-11-24) are quoted as written.
 - **S10 Strategy lists.** "En la tarjeta de búsqueda de estrategias, se puede hacer que la barra de busqueda ocupe la mitad del ancho disponible en pantalla grande?" The search field takes half the card's width on desktop, in My strategies, My subscriptions and Explore.
 - **S11 Favicon.** "dejo los assets para favicon de la página en D:/Code/favicon_assets/ para usar". The set: `favicon.ico`, `favicon-16x16.png`, `favicon-32x32.png`, `apple-touch-icon.png`, `android-chrome-192x192.png`, `android-chrome-512x512.png` and `site.webmanifest`.
   - Assumption, for the owner to correct: the manifest comes with an empty `name` and a white `theme_color`; the panel's copy names the app and uses the ground colour.
+- **S12 Strategy page.** "Lo único que faltaría antes de aprobarlo, es la vista de una estrategia, tanto ajena como propia con el nuevo estilo. Habría que ver si con el nuevo ancho, el aside sigue quedando bien." Two more screens: someone else's strategy (`PublicStrategyPage`, `/strategies/explore/:strategyId`) and the user's own (`StrategyDetailPage`, `/strategies/:strategyId`), each with its aside, inside the 1100 px main.
 
 ## Tasks
 
@@ -69,6 +70,13 @@ The owner's words (2026-11-24) are quoted as written.
     - The jump came from two main widths, 1040 px on some views and 1100 px on others; every view now uses 1100 px.
     - The icons at the top right read En vivo, person, bell, flag on all eleven toolbars.
     - The search field takes half the width (S10).
+  - *Extended 2026-11-24 (L5), delegated to a Sonnet writer.* `ex11` shows someone else's strategy, not subscribed. `ex12` shows the user's own strategy, enabled, shared by link, with one open position. The file is now 1539 lines. The parent looked at both screens rendered.
+    - The real grid is `lg:grid-cols-[minmax(0,1fr)_25rem]` with `gap-9`. In the 1100 px main, that leaves 664 px for the record column and 400 px for the aside. The aside fits; the record column is the tight one. For example, the AuM figure in `ex11` wraps onto two lines.
+    - Changed in the prototype only:
+      - The webhook button moves to the byline row, because it does not fit beside the title.
+      - "Desactivar estrategia" gets more width than "Archivar".
+    - `PAGE_ASIDE`'s minimum height assumes the old top bar. RD.1 recalculates it.
+    - Copy invented for the prototype: the two descriptions, the activation history lines and the share link.
 - [ ] RD.1 PR 1, the shell: sidebar, drawer, top-right icons, centred main, favicon (S2, S3, S4, S7, S11).
 - [ ] RD.2 PR 2: Mi cuenta and Vincular exchange separated (S4, S9).
 - [ ] RD.3 PR 3: the dashboard's header card, and hide balances (S1, S8).
@@ -81,3 +89,4 @@ The owner's words (2026-11-24) are quoted as written.
 - L2 (2026-11-24, owner): the assistant proposed the additions marked "Agreed" above, and the five sequential PRs. The owner answered: "Me parece bien todo. Agrego un ejemplo más para vincular las api key que me pareció una mejora con respecto al nuestro: [Edelap, Mis suministros]. Dale, vamos con un prototipo".
 - L3 (2026-11-24, owner, after reading the prototype): "Esta muy bien todo. Los porcentajes visibles me parecen bien. Lo único que faltaría en el prototipo son las vistas de estrategias, las suscritas, explore y propias. Si podemos agregarlas al prototipo, mejor". RD.0 reopened for three more screens: My subscriptions, Explore, and My strategies.
 - L4 (2026-11-24, owner, after the strategy views): "En la tarjeta de búsqueda de estrategias, se puede hacer que la barra de busqueda ocupe la mitad del ancho disponible en pantalla grande? El orden de los botones de usuario, lenguaje y notificaciones, que sea: En vivo, usuario, notificaciones, lenguaje. Noto diferencias entre los espaciados de main entre algunas vistas. A lo mejor es solo algo del prototipo, pero las vistas deben ser consistentes entre sí para no dar saltos al navegar. De paso, dejo los assets para favicon de la página en D:/Code/favicon_assets/ para usar". S2, S7 extended; S10 and S11 added.
+- L5 (2026-11-24, owner): "Quedo bien. Lo único que faltaría antes de aprobarlo, es la vista de una estrategia, tanto ajena como propia con el nuevo estilo. Habría que ver si con el nuevo ancho, el aside sigue quedando bien." S12 added; RD.0 reopened for two screens.
