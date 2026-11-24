@@ -132,6 +132,16 @@ afterEach(async () => {
 });
 
 describe("StrategyDetailPage", () => {
+  it("opens with the breadcrumb Home > Strategies > My strategies > the strategy, in place of a link back (S12)", async () => {
+    renderPage();
+    await heading("ETH Breakout");
+
+    const trail = screen.getByRole("navigation", { name: "Breadcrumb" });
+    expect(within(trail).getByRole("link", { name: "My strategies" })).toHaveAttribute("href", "/strategies/authored");
+    expect(within(trail).getByText("ETH Breakout")).toHaveAttribute("aria-current", "page");
+    expect(screen.queryByRole("link", { name: i18n.t("strategies.detail.back") })).not.toBeInTheDocument();
+  });
+
   it("test_the_delete_control_is_rendered_below_the_archive_control_for_the_loaded_strategy", async () => {
     renderPage();
     await heading("ETH Breakout");
@@ -735,7 +745,7 @@ describe("StrategyDetailPage", () => {
     await i18n.changeLanguage("es");
     renderPage(strategy({ created_at: "2026-08-12T10:00:00+00:00" }));
 
-    expect(await screen.findByRole("link", { name: es.strategies.detail.back })).toBeInTheDocument();
+    expect(await screen.findByRole("link", { name: es.nav.authored })).toBeInTheDocument();
     expect(screen.getByTestId("strategy-age")).toHaveTextContent(/^12 ago 2026 – /);
     expect(screen.getByTestId("strategy-origin")).toHaveTextContent(es.strategies.subscriptions.yours);
     // Short enough to stay on one line beside the other titles at 1390 px (owner, 2026-11-17).
@@ -758,7 +768,7 @@ describe("the own page reads like another author's (owner, 2026-11-17)", () => {
     renderPage();
 
     const title = await heading("ETH Breakout");
-    expect(title).toHaveClass("font-display", "text-2xl", "font-bold", "text-ink");
+    expect(title).toHaveClass("font-display", "text-[28px]", "font-semibold", "text-ink");
     expect(title.parentElement).toHaveClass("min-h-11");
   });
 
@@ -902,7 +912,7 @@ describe("StrategyDetailPage settings column (L.7)", () => {
     await heading("ETH Breakout");
 
     // The viewport less the top bar (4rem and its 1 px rule) and main's padding (1.75rem above and below).
-    expect(settingsColumn()).toHaveClass("lg:min-h-[calc(100dvh-7.5rem-1px)]");
+    expect(settingsColumn()).toHaveClass("lg:min-h-[calc(100dvh-9rem)]");
   });
 
   it("spaces the sections apart by more than a section spaces its own title, field and slider (owner, 2026-11-17)", async () => {

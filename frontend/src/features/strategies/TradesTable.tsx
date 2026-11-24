@@ -42,7 +42,7 @@ interface TradeRowProps {
 }
 
 const PAGER_BUTTON =
-  "min-h-11 rounded-md border border-rule px-3.5 text-sm text-ink hover:bg-panel-2 disabled:text-ink-3 disabled:opacity-50";
+  "min-h-11 rounded-lg border border-rule px-3.5 text-sm text-ink hover:bg-panel-2 disabled:text-ink-3 disabled:opacity-50";
 const CELL = "border-b border-rule-soft py-2.5 pr-3";
 
 // The width tiers of design § F. Each is a Tailwind viewport variant on the th AND the td, and
@@ -137,7 +137,7 @@ function TradeRow({ trade, currency, locale, onOpen }: TradeRowProps) {
             side,
             closed: dateTimeText(trade.closed_at, locale),
           })}
-          className="min-h-11 rounded-md border border-rule px-3 font-sans text-xs text-ink hover:bg-panel-2"
+          className="min-h-11 rounded-lg border border-rule px-3 font-sans text-xs text-ink hover:bg-panel-2"
         >
           {t("strategies.performance.trades.details")}
         </button>
@@ -200,7 +200,7 @@ function TradesTableView({ strategyId, currency }: TradesTableProps) {
         <button
           type="button"
           onClick={() => void trades.refetch()}
-          className="min-h-11 rounded-md border border-rule px-3.5 text-sm text-ink hover:bg-panel-2"
+          className="min-h-11 rounded-lg border border-rule px-3.5 text-sm text-ink hover:bg-panel-2"
         >
           {t("strategies.performance.trades.retry")}
         </button>

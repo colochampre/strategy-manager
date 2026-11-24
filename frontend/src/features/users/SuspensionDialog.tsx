@@ -85,7 +85,7 @@ export function SuspensionDialog({ email, suspending, pending, refusal, onConfir
             type="button"
             onClick={cancel}
             disabled={pending}
-            className="min-h-11 rounded-md border border-rule px-3 text-sm text-ink-2 hover:bg-panel-2 disabled:opacity-50"
+            className="min-h-11 rounded-lg border border-rule px-3 text-sm text-ink-2 hover:bg-panel-2 disabled:opacity-50"
           >
             {t("users.cancel")}
           </button>
@@ -93,7 +93,7 @@ export function SuspensionDialog({ email, suspending, pending, refusal, onConfir
             type="button"
             onClick={onConfirm}
             disabled={pending}
-            className="inline-flex min-h-11 items-center rounded-md bg-loss px-3 text-sm font-medium text-ink hover:opacity-90 disabled:opacity-50"
+            className="inline-flex min-h-11 items-center rounded-lg bg-loss px-3 text-sm font-medium text-ink hover:opacity-90 disabled:opacity-50"
           >
             {pending ? t("users.working") : action}
           </button>

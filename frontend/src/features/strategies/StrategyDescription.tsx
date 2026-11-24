@@ -100,7 +100,7 @@ export function AuthorDescription({ strategy }: { strategy: Pick<Strategy, "id" 
             type="button"
             aria-label={t("strategies.description.edit")}
             onClick={() => setEditing(true)}
-            className="inline-flex size-11 items-center justify-center rounded-md text-ink-3 hover:bg-panel-2 hover:text-ink"
+            className="inline-flex size-11 items-center justify-center rounded-lg text-ink-3 hover:bg-panel-2 hover:text-ink"
           >
             <Pencil aria-hidden="true" className="size-4" />
           </button>

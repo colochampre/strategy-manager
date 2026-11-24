@@ -93,44 +93,37 @@ afterEach(async () => {
   await i18n.changeLanguage("en");
 });
 
-describe("the tabs of Strategies", () => {
-  it("offers the three lists and marks the one on screen", async () => {
+/** The three tabs became the sidebar's Strategies group (S4): the lists, in the prototype's order, with the one on screen marked. */
+describe("the Strategies group of the sidebar, which replaces the tabs", () => {
+  async function group() {
+    const [sections] = await screen.findAllByRole("navigation", { name: i18n.t("nav.sections") });
+    return within(sections as HTMLElement);
+  }
+
+  it("offers the three lists and marks the one on screen, under a header that names it", async () => {
     serve({ held: () => Promise.resolve(jsonResponse([])) });
     open();
 
-    expect(await screen.findByRole("heading", { level: 1, name: i18n.t("strategies.title") })).toBeInTheDocument();
-    const tabs = screen.getByRole("navigation", { name: i18n.t("strategies.tabs.label") });
-    const links = within(tabs).getAllByRole("link");
-    expect(links.map((link) => [link.textContent, link.getAttribute("href")])).toEqual([
-      [i18n.t("strategies.tabs.subscriptions"), "/strategies"],
-      [i18n.t("strategies.tabs.explore"), "/strategies/explore"],
-      [i18n.t("strategies.tabs.authored"), "/strategies/authored"],
+    expect(await screen.findByRole("heading", { level: 1, name: i18n.t("nav.subscriptions") })).toBeInTheDocument();
+    const sidebar = await group();
+    const lists = [i18n.t("nav.authored"), i18n.t("nav.subscriptions"), i18n.t("nav.explore")].map((name) =>
+      sidebar.getByRole("link", { name }),
+    );
+    expect(lists.map((link) => [link.textContent, link.getAttribute("href")])).toEqual([
+      [i18n.t("nav.authored"), "/strategies/authored"],
+      [i18n.t("nav.subscriptions"), "/strategies"],
+      [i18n.t("nav.explore"), "/strategies/explore"],
     ]);
-    expect(links[0]).toHaveAttribute("aria-current", "page");
-    expect(links[1]).not.toHaveAttribute("aria-current");
+    expect(lists[1]).toHaveAttribute("aria-current", "page");
+    expect(lists[0]).not.toHaveAttribute("aria-current");
+    expect(lists[2]).not.toHaveAttribute("aria-current");
   });
 
   it("names the third list My strategies", async () => {
     serve({ held: () => Promise.resolve(jsonResponse([])) });
     open();
 
-    const tabs = await screen.findByRole("navigation", { name: i18n.t("strategies.tabs.label") });
-    expect(within(tabs).getByRole("link", { name: "My strategies" })).toHaveAttribute("href", "/strategies/authored");
-  });
-
-  it("puts a decorative icon before the label of each list", async () => {
-    serve({ held: () => Promise.resolve(jsonResponse([])) });
-    open();
-
-    const tabs = await screen.findByRole("navigation", { name: i18n.t("strategies.tabs.label") });
-    const links = within(tabs).getAllByRole("link");
-    expect(links).toHaveLength(3);
-    for (const link of links) {
-      const icon = link.querySelector("svg");
-      expect(icon).not.toBeNull();
-      expect(icon).toHaveAttribute("aria-hidden", "true");
-      expect(link.firstElementChild).toBe(icon);
-    }
+    expect((await group()).getByRole("link", { name: "My strategies" })).toHaveAttribute("href", "/strategies/authored");
   });
 
   it("keeps My subscriptions unmarked on another list", async () => {
@@ -139,14 +132,9 @@ describe("the tabs of Strategies", () => {
     );
     renderAt(<AppRoutes />, "/strategies/explore");
 
-    const tabs = await screen.findByRole("navigation", { name: i18n.t("strategies.tabs.label") });
-    expect(within(tabs).getByRole("link", { name: i18n.t("strategies.tabs.subscriptions") })).not.toHaveAttribute(
-      "aria-current",
-    );
-    expect(within(tabs).getByRole("link", { name: i18n.t("strategies.tabs.explore") })).toHaveAttribute(
-      "aria-current",
-      "page",
-    );
+    const sidebar = await group();
+    expect(sidebar.getByRole("link", { name: i18n.t("nav.subscriptions") })).not.toHaveAttribute("aria-current");
+    expect(sidebar.getByRole("link", { name: i18n.t("nav.explore") })).toHaveAttribute("aria-current", "page");
   });
 });
 

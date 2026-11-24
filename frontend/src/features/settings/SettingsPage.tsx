@@ -15,6 +15,7 @@ import { usePools } from "@/shared/api/pools";
 import { exchangeList, knownPools, poolOn } from "@/shared/credentials/key-state";
 import served from "@/shared/credentials/served-exchanges.json";
 import { InfoButton, InfoText, useInfoDisclosure } from "@/shared/ui/InfoDisclosure";
+import { PageHeader } from "@/shared/ui/PageHeader";
 
 /** The ids of the exchanges the panel manages a key for, in the file's display order. */
 const SERVED = Object.keys(served);
@@ -24,7 +25,7 @@ const CONFIRMATIONS: Readonly<Record<string, readonly string[]>> = Object.fromEn
   Object.entries(served).map(([id, entry]) => [id, entry.confirmations]),
 );
 
-const RETRY_BUTTON = "min-h-11 rounded-md border border-rule px-3.5 text-sm text-ink hover:bg-panel-2";
+const RETRY_BUTTON = "min-h-11 rounded-lg border border-rule px-3.5 text-sm text-ink hover:bg-panel-2";
 
 /**
  * Settings: one card per exchange, drawn from `GET /api/credentials` and
@@ -226,7 +227,11 @@ export function SettingsPage() {
   return (
     // The sections stack 4 apart, as every view's blocks do; the title alone steps 6 to them (L.13).
     <div className="flex flex-col gap-4">
-      <h1 className="mb-2 font-display text-2xl font-bold text-ink">{t("settings.title")}</h1>
+      <PageHeader
+        crumbs={[{ label: t("settings.title") }]}
+        title={t("settings.title")}
+        subtitle={t("pageHeader.account")}
+      />
       <DisplayNameSection />
       <IdentitySection />
       {/* The one status region: always in the document, hidden from sight, said once at a save. */}

@@ -89,7 +89,7 @@ export function PublicRecordReport({ strategyId, joined }: PublicRecordReportPro
         <button
           type="button"
           onClick={() => void query.refetch()}
-          className="min-h-11 rounded-md border border-rule px-3.5 text-sm text-ink hover:bg-panel-2"
+          className="min-h-11 rounded-lg border border-rule px-3.5 text-sm text-ink hover:bg-panel-2"
         >
           {t("strategies.performance.retry")}
         </button>

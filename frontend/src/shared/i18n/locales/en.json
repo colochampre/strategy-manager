@@ -7,10 +7,33 @@
     "sections": "Sections",
     "overview": "Overview",
     "strategies": "Strategies",
+    "authored": "My strategies",
+    "subscriptions": "My subscriptions",
+    "explore": "Explore",
     "discrepancies": "Discrepancies",
     "users": "Users",
     "safetyEvents": "Safety events",
-    "settings": "Settings"
+    "admin": "Administration",
+    "account": "My account",
+    "signOut": "Sign out",
+    "collapse": "Collapse the sidebar",
+    "expand": "Expand the sidebar",
+    "openMenu": "Open the menu",
+    "closeMenu": "Close the menu",
+    "menu": "Menu",
+    "tools": "Tools",
+    "home": "Home",
+    "breadcrumb": "Breadcrumb",
+    "build": "build"
+  },
+  "pageHeader": {
+    "overview": "Review the balance, performance and open positions of the selected exchange.",
+    "subscriptions": "The strategies you trade, with your share of the pool and your leverage.",
+    "explore": "Public strategies from every author, with their real track record.",
+    "authored": "The strategies you wrote on the selected exchange.",
+    "account": "Review your details and manage your exchange keys.",
+    "users": "The panel's accounts. Visible to administrators only.",
+    "notFound": "The page you are looking for does not exist or is no longer available."
   },
   "safetyEvents": {
     "title": "Safety events",
@@ -883,7 +906,7 @@
     "pionex": "Pionex"
   },
   "settings": {
-    "title": "Settings",
+    "title": "My account",
     "profile": {
       "title": "Profile"
     },

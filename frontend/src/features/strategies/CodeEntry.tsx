@@ -87,14 +87,14 @@ function CodeDialog({ onClose }: CodeDialogProps) {
             type="button"
             onClick={onClose}
             disabled={lookup.isPending}
-            className="inline-flex min-h-11 items-center rounded-md border border-rule px-3.5 text-sm text-ink-2 hover:bg-panel-2 disabled:opacity-50"
+            className="inline-flex min-h-11 items-center rounded-lg border border-rule px-3.5 text-sm text-ink-2 hover:bg-panel-2 disabled:opacity-50"
           >
             {t(`${KEY}.cancel`)}
           </button>
           <button
             type="submit"
             disabled={typed === "" || lookup.isPending}
-            className="inline-flex min-h-11 items-center rounded-md bg-gain px-3.5 text-sm font-medium text-ground hover:opacity-90 disabled:opacity-50"
+            className="inline-flex min-h-11 items-center rounded-lg bg-gain px-3.5 text-sm font-medium text-ground hover:opacity-90 disabled:opacity-50"
           >
             {t(`${KEY}.open`)}
           </button>
@@ -118,7 +118,7 @@ export function CodeEntry() {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="inline-flex min-h-11 items-center gap-1.5 rounded-md bg-gain px-4 text-sm font-medium text-ground hover:opacity-90 disabled:opacity-50"
+        className="inline-flex min-h-11 items-center gap-1.5 rounded-lg bg-gain px-4 text-sm font-medium text-ground hover:opacity-90 disabled:opacity-50"
       >
         <KeyRound aria-hidden="true" className="size-4 shrink-0" />
         {t(`${KEY}.haveCode`)}

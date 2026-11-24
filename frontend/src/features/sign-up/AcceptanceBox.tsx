@@ -66,7 +66,7 @@ export function SubmitButton({ disabled, busy }: { disabled: boolean; busy: bool
       type="submit"
       disabled={disabled}
       aria-busy={busy}
-      className="self-start rounded-md bg-gain px-4 py-2 text-sm font-medium text-ground hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+      className="self-start rounded-lg bg-gain px-4 py-2 text-sm font-medium text-ground hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
     >
       {t("signUp.submit")}
     </button>

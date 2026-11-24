@@ -1,5 +1,7 @@
 import { useTranslation } from "react-i18next";
 
+import { PageHeader } from "@/shared/ui/PageHeader";
+
 import type { SafetyEvent } from "@/shared/api/safetyEvents";
 import { useSafetyEvents } from "@/shared/api/safetyEvents";
 import { exchangeName } from "@/shared/exchanges/exchange-name";
@@ -89,9 +91,12 @@ function EventList() {
 export function SafetyEventsPage() {
   const { t } = useTranslation();
   return (
-    <div className="flex flex-col gap-6">
-      <h1 className="font-display text-2xl font-bold text-ink">{t("safetyEvents.title")}</h1>
-      <p className="-mt-3 text-sm text-ink-2">{t("safetyEvents.intro")}</p>
+    <div className="flex flex-col gap-4">
+      <PageHeader
+        crumbs={[{ label: t("safetyEvents.title") }]}
+        title={t("safetyEvents.title")}
+        subtitle={t("safetyEvents.intro")}
+      />
       <EventList />
     </div>
   );

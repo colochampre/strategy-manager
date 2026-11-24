@@ -10,6 +10,7 @@ import { groupByExchange } from "@/features/discrepancies/groupByExchange";
 import { useConfirmedDiscrepancies } from "@/shared/api/discrepancies";
 import type { ConfirmedDiscrepancy, ConfirmedReading } from "@/shared/api/discrepancies";
 import { useHashScroll } from "@/shared/lib/useHashScroll";
+import { PageHeader } from "@/shared/ui/PageHeader";
 import { ReportSection } from "@/shared/ui/ReportSection";
 
 interface SectionProps {
@@ -130,11 +131,12 @@ export function DiscrepanciesPage() {
   useHashScroll(reading !== undefined && !reading.dry_run);
 
   return (
-    <div className="flex min-w-0 flex-col gap-6">
-      <div className="flex flex-col gap-2">
-        <h1 className="font-display text-2xl font-bold text-ink">{t("discrepancies.title")}</h1>
-        {reading !== undefined && <p className="max-w-3xl text-sm text-ink-2">{t("discrepancies.lede")}</p>}
-      </div>
+    <div className="flex min-w-0 flex-col gap-4">
+      <PageHeader
+        crumbs={[{ label: t("nav.admin") }, { label: t("discrepancies.title") }]}
+        title={t("discrepancies.title")}
+        subtitle={reading !== undefined ? t("discrepancies.lede") : undefined}
+      />
       {reading === undefined ? (
         <ReadState status={confirmed.status} errorUpdateCount={confirmed.errorUpdateCount} />
       ) : (

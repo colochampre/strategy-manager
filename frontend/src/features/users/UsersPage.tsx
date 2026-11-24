@@ -7,6 +7,7 @@ import type { AdminUser } from "@/shared/api/admin-users";
 import { useAdminUsers, useSetSuspension } from "@/shared/api/admin-users";
 import { useMe } from "@/shared/api/me";
 import { dateTimeText } from "@/shared/lib/figure-text";
+import { PageHeader } from "@/shared/ui/PageHeader";
 
 interface FactProps {
   label: string;
@@ -52,7 +53,7 @@ function SuspensionControl({ user }: { user: AdminUser }) {
       <button
         type="button"
         onClick={() => setAsking(true)}
-        className="min-h-11 self-start rounded-md border border-rule px-3 text-sm text-ink-2 hover:bg-panel-2"
+        className="min-h-11 self-start rounded-lg border border-rule px-3 text-sm text-ink-2 hover:bg-panel-2"
       >
         {t(suspending ? "users.suspend" : "users.lift")}
       </button>
@@ -157,8 +158,12 @@ function UsersList() {
 export function UsersPage() {
   const { t } = useTranslation();
   return (
-    <div className="flex flex-col gap-6">
-      <h1 className="font-display text-2xl font-bold text-ink">{t("users.title")}</h1>
+    <div className="flex flex-col gap-4">
+      <PageHeader
+        crumbs={[{ label: t("nav.admin") }, { label: t("users.title") }]}
+        title={t("users.title")}
+        subtitle={t("pageHeader.users")}
+      />
       <UsersList />
     </div>
   );

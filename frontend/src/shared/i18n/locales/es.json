@@ -5,12 +5,35 @@
   },
   "nav": {
     "sections": "Secciones",
-    "overview": "Resumen",
+    "overview": "Panel de control",
     "strategies": "Estrategias",
+    "authored": "Mis estrategias",
+    "subscriptions": "Mis suscripciones",
+    "explore": "Explorar",
     "discrepancies": "Discrepancias",
     "users": "Usuarios",
     "safetyEvents": "Eventos de seguridad",
-    "settings": "Configuración"
+    "admin": "Administración",
+    "account": "Mi cuenta",
+    "signOut": "Cerrar sesión",
+    "collapse": "Contraer la barra lateral",
+    "expand": "Expandir la barra lateral",
+    "openMenu": "Abrir el menú",
+    "closeMenu": "Cerrar el menú",
+    "menu": "Menú",
+    "tools": "Herramientas",
+    "home": "Inicio",
+    "breadcrumb": "Ruta de navegación",
+    "build": "build"
+  },
+  "pageHeader": {
+    "overview": "Revise el saldo, el rendimiento y las posiciones abiertas del exchange seleccionado.",
+    "subscriptions": "Las estrategias que usted opera, con su parte del pool y su apalancamiento.",
+    "explore": "Las estrategias públicas de todos los autores, con su historial real.",
+    "authored": "Las estrategias que usted escribió en el exchange seleccionado.",
+    "account": "Revise sus datos y administre las claves de sus exchanges.",
+    "users": "Las cuentas del panel. Visible solo para administradores.",
+    "notFound": "La página que busca no existe o ya no está disponible."
   },
   "safetyEvents": {
     "title": "Eventos de seguridad",
@@ -197,7 +220,7 @@
     }
   },
   "overview": {
-    "title": "Resumen",
+    "title": "Panel de control",
     "scope": {
       "loading": "Cargando exchanges…",
       "error": "Los pools están ocultos porque no se pudieron cargar los exchanges y no se pueden filtrar.",
@@ -1019,7 +1042,7 @@
         "openDiscrepancies": "Discrepancia de conciliación sin resolver en: {{symbols}}. El exchange puede tener una posición que este sistema no registra, y esta clave es la que puede cerrarla. Para cambiar de clave, guarde la nueva en lugar de eliminar esta: la reemplaza."
       }
     },
-    "title": "Configuración",
+    "title": "Mi cuenta",
     "account": {
       "title": "Eliminar cuenta",
       "erased": "Se borran: su e-mail, su nombre visible y todas sus claves API.",

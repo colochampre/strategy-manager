@@ -62,7 +62,7 @@ export function IssuedWebhookUrl({ secret, onDone }: IssuedWebhookUrlProps) {
         <button
           type="button"
           onClick={onDone}
-          className="inline-flex min-h-11 items-center rounded-md border border-rule px-3.5 text-sm text-ink hover:bg-panel-2"
+          className="inline-flex min-h-11 items-center rounded-lg border border-rule px-3.5 text-sm text-ink hover:bg-panel-2"
         >
           {t("strategies.webhook.issuedDone")}
         </button>

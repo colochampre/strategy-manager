@@ -86,15 +86,15 @@ function credentialCalls(fetchMock: ReturnType<typeof stubApi>) {
 }
 
 describe("the page's structure", () => {
-  it("keeps the h1 `Settings` and adds the h2 `Exchange keys`, with its intro word for word behind an information button", async () => {
+  it("names the h1 `My account` as the sidebar does and adds the h2 `Exchange keys`, with its intro word for word behind an information button", async () => {
     stub(ok(storedKey("bybit")));
     mountPage();
 
-    expect(screen.queryByRole("heading", { level: 1, name: "Settings" })).toBeInTheDocument();
-    // The sections stack 4 apart; the title alone steps 6 to them (L.13).
-    const title = screen.getByRole("heading", { level: 1, name: "Settings" });
-    expect(title).toHaveClass("mb-2");
-    expect(title.parentElement).toHaveClass("gap-4");
+    expect(screen.queryByRole("heading", { level: 1, name: "My account" })).toBeInTheDocument();
+    // The sections stack 4 apart; the page header alone is 8 further (24 in all, L.13) and holds the title.
+    const title = screen.getByRole("heading", { level: 1, name: "My account" });
+    expect(title.closest("header")).toHaveClass("mb-2");
+    expect(title.closest("header")?.parentElement).toHaveClass("gap-4");
     expect(screen.queryByRole("heading", { level: 2, name: "Exchange keys" })).toBeInTheDocument();
     const info = screen.getByRole("button", { name: "About exchange keys" });
     expect(info).toHaveAttribute("aria-expanded", "false");
@@ -114,7 +114,7 @@ describe("the page's structure", () => {
     await screen.findByRole("heading", { level: 2, name: "Profile" });
 
     const outline = screen.getAllByRole("heading").map((heading) => `${heading.tagName} ${headingName(heading)}`);
-    expect(outline).toEqual(["H1 Settings", "H2 Profile", "H2 Exchange keys", "H3 Bybit", "H2 Delete account"]);
+    expect(outline).toEqual(["H1 My account", "H2 Profile", "H2 Exchange keys", "H3 Bybit", "H2 Delete account"]);
   });
 
   it("draws the cards as a list, one item per exchange, each holding its article", async () => {
@@ -349,67 +349,19 @@ describe("what the page reads", () => {
   });
 });
 
-describe("the card and the tab agree", () => {
+describe("the card takes the key's state from the shared module", () => {
   const SHARED = "@/shared/credentials/key-state";
 
-  it("takes the state and the mark of the card and of the tab from the same module", () => {
+  it("takes the state and the mark of the card from the shared module", () => {
     const here = dirname(fileURLToPath(import.meta.url));
     const card = readFileSync(join(here, "ExchangeKeyCard.tsx"), "utf8");
-    const tabs = readFileSync(join(here, "..", "..", "shared", "layout", "ExchangeTabs.tsx"), "utf8");
     const page = readFileSync(join(here, "SettingsPage.tsx"), "utf8");
-    for (const [name, source] of [
-      ["ExchangeKeyCard.tsx", card],
-      ["ExchangeTabs.tsx", tabs],
-    ] as const) {
-      expect(source, name).toContain(`"${SHARED}"`);
-      expect(source, name).toMatch(/keyState\(/);
-      expect(source, name).toMatch(/keyMark\(/);
-    }
+    expect(card).toContain(`"${SHARED}"`);
+    expect(card).toMatch(/keyState\(/);
+    expect(card).toMatch(/keyMark\(/);
     expect(page).toContain(`"${SHARED}"`);
     expect(page).toMatch(/poolOn\(/);
     expect(page).toMatch(/exchangeList\(/);
-  });
-
-  it("says the same word for an exchange on its tab and on its card", async () => {
-    // Pionex never gets a tab (decision 37, amended), so an exchange it does not know stands in for it.
-    const pools = [pool("bybit"), pool("binance"), pool("okx", "spot"), disabled("kraken")];
-    const credentials = ok(storedKey("bybit"), storedKey("binance", { trade_capable: false }), emptyKey("okx"));
-    stubApi(HEALTH, [], { kind: "ok", body: pools }, {}, undefined, {}, credentials);
-
-    const wordsOnTabs = new Map<string, string>();
-    const view = renderAt(<AppRoutes />, "/");
-    await waitFor(() => expect(screen.queryAllByRole("button", { name: "Kraken no key" }).length).toBeGreaterThan(0));
-    for (const tab of within(screen.getAllByRole("navigation", { name: "Exchanges" })[0] as HTMLElement).getAllByRole("button")) {
-      // The tab's name is its logotype's accessible name, or its text where it has none (owner decision 77).
-      const nameRow = tab.querySelector(".row-start-2");
-      const name = nameRow?.querySelector('[role="img"]')?.getAttribute("aria-label") ?? nameRow?.textContent ?? "";
-      wordsOnTabs.set(name, tab.querySelector(".row-start-3")?.textContent?.trim() ?? "");
-    }
-    view.unmount();
-
-    renderAt(<AppRoutes />, "/settings");
-    await cardsDrawn();
-    await waitFor(() => expect(screen.queryByRole("article", { name: "Okx" })?.textContent).toContain("no key"));
-    for (const [exchange, word] of wordsOnTabs) {
-      const card = screen.queryByRole("article", { name: exchange });
-      // Kraken has no key and its pool is off: its tab says so, and it has no card (decision 80).
-      if (exchange === "Kraken") {
-        expect(card, exchange).toBeNull();
-        continue;
-      }
-      expect(card, exchange).not.toBeNull();
-      if (word === "") {
-        expect(card?.textContent, exchange).not.toMatch(/read-only|no key/);
-      } else {
-        expect(card?.textContent, exchange).toContain(word);
-      }
-    }
-    expect([...wordsOnTabs]).toEqual([
-      ["Bybit", ""],
-      ["Binance", "read-only"],
-      ["Okx", "no key"],
-      ["Kraken", "no key"],
-    ]);
   });
 });
 
@@ -768,7 +720,7 @@ describe("the end of a save that worked (task 13.5.10)", () => {
     expect(within(card).queryByText(READ_ONLY_BYBIT)).toHaveClass("text-decision");
   });
 
-  it("test_a_read_only_key_is_a_state_of_the_card: the list says so afterwards, and the tab shows `read-only`", async () => {
+  it("test_a_read_only_key_is_a_state_of_the_card: the list says so afterwards, and the tab keeps the name alone", async () => {
     savePage({
       shell: true,
       credentials: [storedKey("bybit", { last4: OLD_LAST4 })],
@@ -784,8 +736,10 @@ describe("the end of a save that worked (task 13.5.10)", () => {
 
     fireEvent.click(screen.getAllByRole("link", { name: "Overview" })[0] as HTMLElement);
     await screen.findByRole("heading", { level: 1, name: "Overview" });
+    // The key's state is the card's to tell, not the tab's (owner, 2026-11-24).
     for (const bar of await screen.findAllByRole("navigation", { name: "Exchanges" })) {
-      await waitFor(() => expect(within(bar).queryByRole("button", { name: "Bybit read-only" })).toBeInTheDocument());
+      await waitFor(() => expect(within(bar).queryByRole("button", { name: "Bybit" })).toBeInTheDocument());
+      expect(within(bar).queryByText("read-only")).not.toBeInTheDocument();
     }
   });
 

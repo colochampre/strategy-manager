@@ -1,10 +1,6 @@
 import { useTranslation } from "react-i18next";
 
-import { useCredentials } from "@/shared/api/credentials";
-import { usePools } from "@/shared/api/pools";
 import { useMe } from "@/shared/api/me";
-import { KeyMark } from "@/shared/credentials/KeyMark";
-import { keyMark, keyState, knownPools, poolOn } from "@/shared/credentials/key-state";
 import { ExchangeWordmark } from "@/shared/exchanges/ExchangeWordmark";
 import { cn } from "@/shared/lib/cn";
 import { useExchangeScope } from "@/shared/scope/exchange-store";
@@ -16,23 +12,22 @@ interface ExchangeTabsProps {
 /**
  * The exchange selector of the scoped routes, for anyone signed in. Until the
  * API has said who that is there is nothing to scope, and `GET /pools` would
- * only answer 401, so it renders nothing and asks for nothing; `TopBar` mounts
+ * only answer 401, so it renders nothing and asks for nothing; `ShellTopRow` mounts
  * it only on the scoped routes, which is why Settings never reads the scope.
  *
  * The row scrolls sideways and never wraps, so a long exchange list on a phone
  * cannot push the page taller than the viewport.
  *
- * Each tab says, under its name, what the owner has to know about that exchange's
- * key: `read-only`, or `no key`. The word comes from the same function the
- * Settings card uses, with the same inputs. While the credentials load or fail
- * there is no mark: no mark is a claim of nothing, and never "the key is fine".
+ * A tab is the exchange's name and nothing else: the state of its key is shown
+ * where keys are managed, not here (owner, 2026-11-24).
  *
  * The name is the exchange's own logotype, dimmed on every tab but the selected
  * one, or its capitalised name where there is no logotype (owner decision 77).
  *
- * Every tab holds the same three-row grid (design § E), so the name sits at the
- * same height with a mark and without one. Below `lg` the tabs share the row's
- * whole width; from `lg` they keep their own.
+ * Every tab is 36 px tall, as tall as the mode badge and the icon buttons beside
+ * it, with the rule's border; the selected one is told apart by its background
+ * alone. Below `lg` the tabs share the row's whole width; from `lg` they keep
+ * their own.
  */
 export function ExchangeTabs({ className }: ExchangeTabsProps) {
   const me = useMe();
@@ -43,20 +38,11 @@ export function ExchangeTabs({ className }: ExchangeTabsProps) {
 function ExchangeTabsBar({ className }: ExchangeTabsProps) {
   const { t } = useTranslation();
   const scope = useExchangeScope();
-  const credentials = useCredentials();
-  const pools = usePools();
-
-  /** Only a credentials read that succeeded can say anything about a key. */
-  const markOf = (exchange: string) => {
-    if (credentials.status !== "success") return null;
-    const entry = credentials.data.find((row) => row.exchange === exchange);
-    return keyMark(keyState(entry, poolOn(exchange, knownPools(pools))));
-  };
 
   return (
     <nav
       aria-label={t("scope.exchanges")}
-      className={cn("flex min-w-0 items-center gap-1 overflow-x-auto", className)}
+      className={cn("flex min-w-0 items-center gap-2 overflow-x-auto", className)}
     >
       {scope.status === "loading" && (
         <p role="status" className="whitespace-nowrap text-xs text-ink-3">
@@ -71,7 +57,6 @@ function ExchangeTabsBar({ className }: ExchangeTabsProps) {
       {scope.status === "ready" &&
         scope.options.map((exchange) => {
           const selected = exchange === scope.exchange;
-          const mark = markOf(exchange);
           return (
             <button
               key={exchange}
@@ -79,23 +64,11 @@ function ExchangeTabsBar({ className }: ExchangeTabsProps) {
               aria-pressed={selected}
               onClick={() => scope.select(exchange)}
               className={cn(
-                "min-w-fit flex-1 whitespace-nowrap rounded-md px-3.5 text-sm transition-colors lg:flex-none",
-                selected
-                  ? "bg-panel-2 font-semibold text-ink"
-                  : "text-ink-3 hover:bg-panel-2 hover:text-ink",
+                "inline-flex h-9 min-w-fit flex-1 items-center justify-center whitespace-nowrap rounded-lg border border-rule px-4.5 text-sm transition-colors motion-reduce:transition-none lg:flex-none",
+                selected ? "bg-panel-2 text-ink" : "bg-panel text-ink-3 hover:bg-panel-2 hover:text-ink",
               )}
             >
-              <span className="grid min-h-13 grid-rows-[minmax(0,1fr)_auto_minmax(0,1fr)] justify-items-center">
-                <span className="row-start-2 flex h-5 items-center leading-5">
-                  <ExchangeWordmark exchange={exchange} className={cn("h-3.5", !selected && "opacity-55")} />
-                </span>
-                {mark !== null && (
-                  <>
-                    {" "}
-                    <KeyMark mark={mark} variant="tab" className="row-start-3 self-start" />
-                  </>
-                )}
-              </span>
+              <ExchangeWordmark exchange={exchange} className={cn("h-3.5", !selected && "opacity-55")} />
             </button>
           );
         })}

@@ -57,7 +57,7 @@ export function IconButton({
         onClick={onClick}
         disabled={disabled}
         className={cn(
-          "inline-flex size-11 shrink-0 items-center justify-center rounded-md border disabled:opacity-50",
+          "inline-flex size-11 shrink-0 items-center justify-center rounded-lg border disabled:opacity-50",
           TONE[tone],
         )}
       >

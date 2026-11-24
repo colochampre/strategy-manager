@@ -37,9 +37,9 @@ describe("App", () => {
     unlock();
     renderApp("/");
 
-    fireEvent.click(screen.getAllByRole("link", { name: "Settings" })[0] as HTMLElement);
+    fireEvent.click(screen.getAllByRole("link", { name: /My account/ })[0] as HTMLElement);
 
-    expect(await screen.findByRole("heading", { level: 1, name: "Settings" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { level: 1, name: "My account" })).toBeInTheDocument();
     expect(window.location.pathname).toBe("/settings");
     expect(window.location.hash).toBe("");
   });

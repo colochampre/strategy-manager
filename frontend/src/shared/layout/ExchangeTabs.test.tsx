@@ -1,9 +1,4 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { MemoryRouter } from "react-router";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AppRoutes } from "@/app/router";
@@ -94,15 +89,15 @@ describe("tabs only where something runs (owner decision 37)", () => {
 describe("which routes show the tabs", () => {
   it.each([
     ["/", "Overview"],
-    ["/strategies/authored", "Strategies"],
+    ["/strategies/authored", "My strategies"],
     [`/strategies/${STRATEGY_ID}`, "Strategy"],
-  ])("shows one tab per distinct exchange on %s, in both surfaces", async (path, title) => {
+  ])("shows one tab per distinct exchange on %s, in one bar", async (path, title) => {
     stubApi(HEALTH, [], TWO_EXCHANGES, {}, strategyRoute(STRATEGY_ID, "Strategy"));
     renderAt(<AppRoutes />, path);
 
     await screen.findByRole("heading", { level: 1, name: title });
     const bars = await screen.findAllByRole("navigation", { name: "Exchanges" });
-    expect(bars).toHaveLength(2);
+    expect(bars).toHaveLength(1);
     for (const bar of bars) {
       expect(within(bar).getAllByRole("button").map(drawnName)).toEqual(["Bybit", "Binance"]);
     }
@@ -113,7 +108,7 @@ describe("which routes show the tabs", () => {
     stubApi(HEALTH, [], TWO_EXCHANGES);
     renderAt(<AppRoutes />, "/settings");
 
-    await screen.findByRole("heading", { level: 1, name: "Settings" });
+    await screen.findByRole("heading", { level: 1, name: "My account" });
     await screen.findByText("Simulation forced");
     expect(screen.queryByRole("navigation", { name: "Exchanges" })).not.toBeInTheDocument();
   });
@@ -142,20 +137,20 @@ describe("which routes show the tabs", () => {
     renderAt(<AppRoutes />, "/");
     await screen.findAllByRole("navigation", { name: "Exchanges" });
 
-    fireEvent.click(screen.getAllByRole("link", { name: "Settings" })[0] as HTMLElement);
+    fireEvent.click(screen.getAllByRole("link", { name: /My account/ })[0] as HTMLElement);
 
-    await screen.findByRole("heading", { level: 1, name: "Settings" });
+    await screen.findByRole("heading", { level: 1, name: "My account" });
     expect(screen.queryByRole("navigation", { name: "Exchanges" })).not.toBeInTheDocument();
   });
 });
 
 describe("selection", () => {
-  it("marks the first exchange as selected by default, in both surfaces", async () => {
+  it("marks the first exchange as selected by default", async () => {
     stubApi(HEALTH, [], TWO_EXCHANGES);
     renderAt(<AppRoutes />, "/");
 
     const pressed = await screen.findAllByRole("button", { name: "Bybit", pressed: true });
-    expect(pressed).toHaveLength(2);
+    expect(pressed).toHaveLength(1);
     expect(screen.queryByRole("button", { name: "Binance", pressed: true })).not.toBeInTheDocument();
   });
 
@@ -166,7 +161,7 @@ describe("selection", () => {
     const tabs = await screen.findAllByRole("button", { name: "Binance" });
     fireEvent.click(tabs[0] as HTMLElement);
 
-    expect(await screen.findAllByRole("button", { name: "Binance", pressed: true })).toHaveLength(2);
+    expect(await screen.findAllByRole("button", { name: "Binance", pressed: true })).toHaveLength(1);
     expect(screen.queryByRole("button", { name: "Bybit", pressed: true })).not.toBeInTheDocument();
     const raw = window.localStorage.getItem("sm.exchange");
     expect(JSON.parse(raw as string).state.selected).toBe("binance");
@@ -177,10 +172,9 @@ describe("selection", () => {
     renderAt(<AppRoutes />, "/");
     fireEvent.click((await screen.findAllByRole("button", { name: "Binance" }))[0] as HTMLElement);
 
-    fireEvent.click(screen.getAllByRole("link", { name: "Strategies" })[0] as HTMLElement);
-    fireEvent.click(await screen.findByRole("link", { name: "My strategies" }));
+    fireEvent.click(screen.getByRole("link", { name: "My strategies" }));
 
-    expect(await screen.findAllByRole("button", { name: "Binance", pressed: true })).toHaveLength(2);
+    expect(await screen.findAllByRole("button", { name: "Binance", pressed: true })).toHaveLength(1);
   });
 
   it("starts from a persisted exchange that is still an option", async () => {
@@ -193,7 +187,7 @@ describe("selection", () => {
     stubApi(HEALTH, [], TWO_EXCHANGES);
     renderAt(<AppRoutes />, "/");
 
-    expect(await screen.findAllByRole("button", { name: "Binance", pressed: true })).toHaveLength(2);
+    expect(await screen.findAllByRole("button", { name: "Binance", pressed: true })).toHaveLength(1);
   });
 
   it("falls back to the first exchange when the persisted one is gone", async () => {
@@ -206,7 +200,7 @@ describe("selection", () => {
     stubApi(HEALTH, [], TWO_EXCHANGES);
     renderAt(<AppRoutes />, "/");
 
-    expect(await screen.findAllByRole("button", { name: "Bybit", pressed: true })).toHaveLength(2);
+    expect(await screen.findAllByRole("button", { name: "Bybit", pressed: true })).toHaveLength(1);
     expect(screen.queryByRole("button", { name: "Kraken" })).not.toBeInTheDocument();
   });
 });
@@ -242,7 +236,7 @@ describe("pools loading and failure", () => {
     stubApi(HEALTH, [], { kind: "status", status: 503, body: {} });
     renderAt(<AppRoutes />, "/");
 
-    expect(await screen.findAllByRole("navigation", { name: "Sections" })).toHaveLength(2);
+    expect(await screen.findAllByRole("navigation", { name: "Sections" })).toHaveLength(1);
     expect(await screen.findByText("Simulation forced")).toBeInTheDocument();
   });
 
@@ -259,44 +253,41 @@ describe("pools loading and failure", () => {
 });
 
 describe("layout contract", () => {
-  it("puts the tabs in the top bar on wide screens and in a scrollable row below it on narrow ones", async () => {
+  it("puts the tabs in the row above the page: beside the tools from lg, in a full-width scrollable row of their own below it", async () => {
     stubApi(HEALTH, [], TWO_EXCHANGES);
     renderAt(<AppRoutes />, "/");
 
     await screen.findAllByRole("button", { name: "Bybit" });
-    const [wide, narrow] = screen.getAllByRole("navigation", { name: "Exchanges" });
-    const header = screen.getByRole("banner");
+    const bar = screen.getByRole("navigation", { name: "Exchanges" });
+    const tools = screen.getByRole("group", { name: "Tools" });
 
-    expect(wide).toHaveClass("hidden", "lg:flex");
-    expect(narrow).toHaveClass("lg:hidden");
-    expect(narrow).not.toHaveClass("hidden");
-
-    // Both live in the header, and the narrow one is its LAST row.
-    expect(header).toContainElement(wide as HTMLElement);
-    expect(header).toContainElement(narrow as HTMLElement);
-    expect(header.lastElementChild).toBe(narrow);
-    expect(header.firstElementChild).not.toBe(narrow);
+    // One row holds both, the bar after the tools on a phone and before them from `lg`.
+    expect(bar.parentElement).toBe(tools.parentElement);
+    expect(bar).toHaveClass("order-3", "w-full", "lg:order-2", "lg:w-auto");
+    expect(tools).toHaveClass("order-2", "lg:order-3");
 
     // The row scrolls sideways instead of wrapping or stretching the page.
-    for (const bar of [wide, narrow]) {
-      expect(bar).toHaveClass("overflow-x-auto", "min-w-0");
-      expect(bar).not.toHaveClass("flex-wrap");
-    }
+    expect(bar).toHaveClass("overflow-x-auto", "min-w-0");
+    expect(bar).not.toHaveClass("flex-wrap");
     // Below `lg` the tabs share the row's whole width, each the same, and never shrink under their
-    // own name (design § E, decision 59); the height is on the inner span, 52 px on every tab.
-    for (const tab of within(narrow as HTMLElement).getAllByRole("button")) {
-      expect(tab).toHaveClass("flex-1", "min-w-fit", "lg:flex-none", "whitespace-nowrap");
+    // own name (design § E, decision 59). Every tab is 36 px tall, as tall as the mode badge and the
+    // icon buttons beside it (owner, 2026-11-24).
+    for (const tab of within(bar).getAllByRole("button")) {
+      expect(tab).toHaveClass("flex-1", "min-w-fit", "lg:flex-none", "whitespace-nowrap", "border", "h-9");
       expect(tab).not.toHaveClass("shrink-0");
-      expect(tab.firstElementChild).toHaveClass("min-h-13");
     }
   });
 
-  it("keeps the header out of the content's scroll: it never shrinks", async () => {
+  it("marks the selected tab by its background alone: the rule's border on every tab, never the gain colour", async () => {
     stubApi(HEALTH, [], TWO_EXCHANGES);
     renderAt(<AppRoutes />, "/");
 
-    await screen.findAllByRole("navigation", { name: "Exchanges" });
-    expect(screen.getByRole("banner")).toHaveClass("shrink-0");
+    await screen.findAllByRole("button", { name: "Bybit" });
+    const selected = screen.getByRole("button", { name: "Bybit", pressed: true });
+    const other = screen.getByRole("button", { name: "Binance", pressed: false });
+    expect(selected).toHaveClass("border-rule", "bg-panel-2");
+    expect(other).toHaveClass("border-rule", "bg-panel");
+    for (const tab of [selected, other]) expect(tab.className).not.toMatch(/\bborder-gain\b/);
   });
 
   it("uses no hex colour or var() in any tab class", async () => {
@@ -327,15 +318,11 @@ function disabled(exchange: string) {
   return { ...pool(exchange), enabled: false };
 }
 
-function credentialCalls(fetchMock: ReturnType<typeof stubApi>) {
-  return fetchMock.mock.calls.filter(([url]) => String(url).endsWith("/credentials"));
-}
-
-/** The two surfaces of the tabs: the bar from `lg` and the row below it on a phone. */
+/** The tabs' bar: one for every width (the same bar scrolls sideways on a phone). Kept as a list so the checks read as before. */
 async function bothBars(): Promise<HTMLElement[]> {
   await screen.findAllByRole("button", { name: /Bybit/ });
   const bars = screen.getAllByRole("navigation", { name: "Exchanges" });
-  expect(bars).toHaveLength(2);
+  expect(bars).toHaveLength(1);
   return bars;
 }
 
@@ -350,161 +337,37 @@ function drawnName(element: Element): string {
   return element.querySelector('[role="img"]')?.getAttribute("aria-label") ?? element.textContent ?? "";
 }
 
-describe("the key mark of a tab (design § E), in both surfaces", () => {
-  const BOTH_ON = [pool("bybit"), pool("binance")];
-  const BINANCE_OFF = [pool("bybit"), disabled("binance")];
-
-  it.each([
-    [
-      "a key that cannot trade",
-      credentialsOk(storedKey("bybit"), storedKey("binance", { trade_capable: false })),
-      BOTH_ON,
-      "Binance read-only",
-      "read-only",
-      "text-decision",
-    ],
-    [
-      "no key and a pool on",
-      credentialsOk(storedKey("bybit"), emptyKey("binance")),
-      BOTH_ON,
-      "Binance no key",
-      "no key",
-      "text-decision",
-    ],
-    [
-      "no key and a pool on, the exchange not listed at all",
-      credentialsOk(storedKey("bybit")),
-      BOTH_ON,
-      "Binance no key",
-      "no key",
-      "text-decision",
-    ],
-    [
-      "a deleted key: no key and no pool on",
-      credentialsOk(storedKey("bybit"), emptyKey("binance")),
-      BINANCE_OFF,
-      "Binance no key",
-      "no key",
-      "text-ink-3",
-    ],
-    [
-      "an exchange never keyed: not listed and no pool on",
-      credentialsOk(storedKey("bybit")),
-      BINANCE_OFF,
-      "Binance no key",
-      "no key",
-      "text-ink-3",
-    ],
-  ] as const)("%s", async (_label, credentials, poolRows, tabName, markText, tone) => {
-    renderTabs([...poolRows], credentials);
+describe("a tab says nothing about the key (owner, 2026-11-24)", () => {
+  // "La fila de la key, por ejemplo 'sin clave' que no se muestre ahí. A lo sumo se verá en la vista de gestion de API keys."
+  it("draws the exchange's name alone, with a key that cannot trade and with no key at all", async () => {
+    renderTabs(
+      [pool("bybit"), pool("binance"), pool("okx")],
+      credentialsOk(storedKey("bybit"), storedKey("binance", { trade_capable: false }), emptyKey("okx")),
+    );
 
     for (const bar of await bothBars()) {
-      const tab = await tabNamed(bar, tabName);
-      const mark = within(tab).getByText(markText);
-      expect(mark).toHaveClass(tone);
-      expect(mark).not.toHaveClass(tone === "text-decision" ? "text-ink-3" : "text-decision");
-      // The exchange whose key trades is its name alone: no mark, nothing after the name.
-      const plain = within(bar).getByRole("button", { name: "Bybit" });
-      expect([drawnName(plain), plain.textContent]).toEqual(["Bybit", ""]);
-    }
-  });
-
-  it("gives a key that trades the name alone, accessible name `bybit`, beside a marked tab", async () => {
-    renderTabs(BOTH_ON, credentialsOk(storedKey("bybit"), storedKey("binance", { trade_capable: false })));
-
-    for (const bar of await bothBars()) {
-      await tabNamed(bar, "Binance read-only");
-      expect(within(bar).queryByRole("button", { name: "Bybit" })).toBeInTheDocument();
-      const plain = within(bar).getByRole("button", { name: "Bybit" });
-      expect([drawnName(plain), plain.textContent]).toEqual(["Bybit", ""]);
-    }
-  });
-
-  it.each([
-    ["is still loading", { kind: "pending" }],
-    ["answered 500", { kind: "status", status: 500, body: { detail: "boom" } }],
-    ["could not be reached", { kind: "network-error" }],
-    ["answered a body that is not a list of keys", { kind: "ok", body: { items: [] } }],
-  ] as const)("draws no mark at all while the credentials read %s", async (_label, stub) => {
-    // Neither exchange has a key that trades here, so any mark drawn would be a claim made on nothing.
-    const fetchMock = renderTabs([pool("bybit"), pool("binance")], stub);
-
-    await screen.findAllByRole("button", { name: "Bybit" });
-    await waitFor(() => expect(credentialCalls(fetchMock)).toHaveLength(1));
-    await new Promise((resolve) => setTimeout(resolve, 20));
-
-    for (const bar of screen.getAllByRole("navigation", { name: "Exchanges" })) {
-      expect(within(bar).getAllByRole("button").map(drawnName)).toEqual(["Bybit", "Binance"]);
-      expect(bar.querySelector(".row-start-3")).toBeNull();
+      // Give the credentials time to answer: a mark, if any were drawn, would be there by now.
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      // Each accessible name is the exchange alone; a mark would have made it "Binance read-only" or "Okx no key".
+      for (const name of ["Bybit", "Binance", "Okx"]) await tabNamed(bar, name);
+      expect(within(bar).queryByText(/read-only|no key/)).not.toBeInTheDocument();
     }
   });
 });
 
-describe("the structure that keeps a tab's name at the same place (jsdom has no layout)", () => {
+describe("the tabs' sizing (jsdom has no layout)", () => {
   const MIXED = [pool("bybit"), pool("binance"), pool("okx"), disabled("kraken")];
   const CREDENTIALS = credentialsOk(
     storedKey("bybit"),
     storedKey("binance", { trade_capable: false }),
     emptyKey("okx"),
   );
-  const MARKED = new Map([
-    ["Binance", "read-only"],
-    ["Okx", "no key"],
-    ["Kraken", "no key"],
-  ]);
 
-  it("gives every tab, marked or not, the same grid, one name in the middle row and a mark in the last", async () => {
+  it("gives every tab flex-1, min-w-fit and lg:flex-none, never shrink-0", async () => {
     renderTabs(MIXED, CREDENTIALS);
 
     for (const bar of await bothBars()) {
-      await tabNamed(bar, "Kraken no key");
-      const tabs = within(bar).getAllByRole("button");
-      expect(tabs).toHaveLength(4);
-      const nameClasses = new Set<string>();
-
-      for (const tab of tabs) {
-        const grid = tab.firstElementChild as HTMLElement;
-        expect(grid.tagName).toBe("SPAN");
-        expect(grid).toHaveClass(
-          "grid",
-          "min-h-13",
-          "grid-rows-[minmax(0,1fr)_auto_minmax(0,1fr)]",
-          "justify-items-center",
-        );
-
-        const names = Array.from(grid.children).filter((child) => child.classList.contains("row-start-2"));
-        expect(names).toHaveLength(1);
-        nameClasses.add(String(names[0]?.className));
-
-        const exchange = names[0] === undefined ? "" : drawnName(names[0]);
-        const markText = MARKED.get(exchange);
-        const marks = Array.from(grid.children).filter((child) => child.classList.contains("row-start-3"));
-        if (markText === undefined) {
-          // No mark: exactly one element in the grid, and the button's accessible name is the name alone.
-          expect(grid.children).toHaveLength(1);
-          expect(marks).toHaveLength(0);
-          expect(tab).toHaveAccessibleName(exchange);
-        } else {
-          expect(grid.children).toHaveLength(2);
-          expect(marks).toHaveLength(1);
-          expect(marks[0]).toHaveTextContent(markText);
-          // The accessible name is the name, a space and the mark; the space is a real text node.
-          expect(tab).toHaveAccessibleName(`${exchange} ${markText}`);
-          expect(Array.from(grid.childNodes).some((node) => node.nodeType === 3 && node.textContent === " ")).toBe(
-            true,
-          );
-        }
-      }
-      // One class list for the name in every tab.
-      expect(nameClasses.size).toBe(1);
-    }
-  });
-
-  it("gives every tab flex-1, min-w-fit and lg:flex-none, never shrink-0, in both surfaces", async () => {
-    renderTabs(MIXED, CREDENTIALS);
-
-    for (const bar of await bothBars()) {
-      await tabNamed(bar, "Kraken no key");
+      await tabNamed(bar, "Kraken");
       for (const tab of within(bar).getAllByRole("button")) {
         expect(tab).toHaveClass("flex-1", "min-w-fit", "lg:flex-none", "whitespace-nowrap");
         expect(tab).not.toHaveClass("shrink-0");
@@ -513,73 +376,6 @@ describe("the structure that keeps a tab's name at the same place (jsdom has no 
       expect(bar).toHaveClass("overflow-x-auto");
       expect(bar).not.toHaveClass("flex-wrap");
     }
-  });
-});
-
-describe("the tab and the card take the pools by one rule (task 13.5.0)", () => {
-  it("shows no amber mark on any tab once a re-read of the pools has failed", async () => {
-    let poolsFail = false;
-    const extra: ExtraRoute = (url) => {
-      if (url.endsWith("/pools")) {
-        return Promise.resolve(poolsFail ? jsonResponse({ detail: "boom" }, 500) : jsonResponse([pool("bybit"), pool("binance")]));
-      }
-      return undefined;
-    };
-    stubApi(HEALTH, [], TWO_EXCHANGES, {}, extra, {}, credentialsOk(storedKey("bybit"), emptyKey("binance")));
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    render(
-      <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={["/"]}>
-          <AppRoutes />
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
-    for (const bar of await bothBars()) {
-      expect(within(await tabNamed(bar, "Binance no key")).getByText("no key")).toHaveClass("text-decision");
-    }
-
-    poolsFail = true;
-    await act(() => queryClient.refetchQueries({ queryKey: ["pools"] }));
-
-    // The card of this exchange, with the pools unknown, is neutral (SettingsPage); no tab may be amber from the old list.
-    await waitFor(() => expect(queryClient.getQueryState(["pools"])?.status).toBe("error"));
-    for (const bar of screen.getAllByRole("navigation", { name: "Exchanges" })) {
-      expect(bar.querySelector(".text-decision")).toBeNull();
-    }
-  });
-
-  it("takes the pools of the card and of the tab from the same function of key-state", () => {
-    const here = dirname(fileURLToPath(import.meta.url));
-    const tabs = readFileSync(join(here, "ExchangeTabs.tsx"), "utf8");
-    const page = readFileSync(join(here, "..", "..", "features", "settings", "SettingsPage.tsx"), "utf8");
-    const keyState = readFileSync(join(here, "..", "credentials", "key-state.ts"), "utf8");
-    expect(keyState).toMatch(/export function knownPools</);
-    expect(tabs).toMatch(/poolOn\([^)]*knownPools\(/);
-    expect(page).toMatch(/knownPools\(pools\)/);
-    expect(tabs).not.toMatch(/pools\.data/);
-    expect(page).not.toMatch(/pools\.status/);
-  });
-});
-
-describe("the tabs read the credentials", () => {
-  it("test_a_shell_render_asks_for_credentials_and_is_answered", async () => {
-    const fetchMock = stubApi(HEALTH, [], TWO_EXCHANGES, {}, NOTHING_RUNNING);
-    renderAt(<AppRoutes />, "/");
-
-    await screen.findAllByRole("button", { name: "Bybit" });
-    await waitFor(() => expect(credentialCalls(fetchMock).length).toBeGreaterThan(0));
-    const index = fetchMock.mock.calls.findIndex(([url]) => String(url).endsWith("/credentials"));
-    const answer = (await fetchMock.mock.results[index]?.value) as Response;
-    expect(answer.ok).toBe(true);
-    expect(fetchMock.unexpected).toEqual([]);
-  });
-
-  it("takes each mark from keyMark(keyState(...)) of the shared module and adds no amber class of its own", () => {
-    const here = dirname(fileURLToPath(import.meta.url));
-    const source = readFileSync(join(here, "ExchangeTabs.tsx"), "utf8");
-    expect(source).toMatch(/keyMark\(\s*keyState\(/);
-    expect(source).toContain('"@/shared/credentials/key-state"');
-    expect(source).not.toMatch(/\b(?:bg|text|border|ring|outline|fill|stroke|divide)-decision\b/);
   });
 });
 

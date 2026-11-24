@@ -124,7 +124,7 @@ export function TradeDetailDialog({ strategyId, trade, currency, locale, onClose
           ref={closeRef}
           type="button"
           onClick={onClose}
-          className="min-h-11 rounded-md border border-rule px-3.5 text-sm text-ink hover:bg-panel-2"
+          className="min-h-11 rounded-lg border border-rule px-3.5 text-sm text-ink hover:bg-panel-2"
         >
           {t(`${KEY}.detail.close`)}
         </button>

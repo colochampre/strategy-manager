@@ -4,6 +4,7 @@ import { PoolPanel } from "@/features/overview/PoolPanel";
 import { orderPools } from "@/features/overview/poolOrder";
 import { usePools } from "@/shared/api/pools";
 import { useExchangeScope } from "@/shared/scope/exchange-store";
+import { PageHeader } from "@/shared/ui/PageHeader";
 
 /**
  * The Overview container: one `PoolPanel` per pool of the selected exchange,
@@ -29,8 +30,8 @@ export function OverviewPage() {
       : [];
 
   return (
-    <div className="flex flex-col gap-6">
-      <h1 className="font-display text-2xl font-bold text-ink">{t("overview.title")}</h1>
+    <div className="flex flex-col gap-4">
+      <PageHeader crumbs={[{ label: t("overview.title") }]} title={t("overview.title")} subtitle={t("pageHeader.overview")} />
       {scope.status === "loading" && (
         <p role="status" className="text-sm text-ink-3">
           {t("overview.scope.loading")}

@@ -82,7 +82,7 @@ function CloseNowDialog({ pair, size, pending, error, onConfirm, onCancel }: Clo
             type="button"
             onClick={cancel}
             disabled={pending}
-            className="min-h-11 rounded-md border border-rule px-3 text-sm text-ink-2 hover:bg-panel-2 disabled:opacity-50"
+            className="min-h-11 rounded-lg border border-rule px-3 text-sm text-ink-2 hover:bg-panel-2 disabled:opacity-50"
           >
             {t("positions.closeNow.cancel")}
           </button>
@@ -90,7 +90,7 @@ function CloseNowDialog({ pair, size, pending, error, onConfirm, onCancel }: Clo
             type="button"
             onClick={onConfirm}
             disabled={pending}
-            className="inline-flex min-h-11 items-center gap-1.5 rounded-md bg-loss px-3 text-sm font-medium text-ink hover:opacity-90 disabled:opacity-50"
+            className="inline-flex min-h-11 items-center gap-1.5 rounded-lg bg-loss px-3 text-sm font-medium text-ink hover:opacity-90 disabled:opacity-50"
           >
             <OctagonX aria-hidden="true" className="size-4 shrink-0" />
             {pending ? t("positions.closeNow.pending") : t("positions.closeNow.confirm")}
@@ -135,7 +135,7 @@ export function CloseNowControl({ position }: { position: OpenPosition }) {
         aria-label={label}
         title={label}
         onClick={() => setOpen(true)}
-        className="ml-2 inline-flex size-8 items-center justify-center rounded-md border border-rule align-middle text-ink-2 hover:bg-panel-2 hover:text-loss"
+        className="ml-2 inline-flex size-8 items-center justify-center rounded-lg border border-rule align-middle text-ink-2 hover:bg-panel-2 hover:text-loss"
       >
         <OctagonX aria-hidden="true" className="size-4 shrink-0" />
       </button>

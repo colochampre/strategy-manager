@@ -15,6 +15,9 @@ const BASE = {
   occurred_at: "2026-11-17T10:05:00+00:00",
 };
 
+/** The page's header holds a breadcrumb list too, so the events' list is asked for by its name. */
+const LIST_NAME = /^(Safety events, newest first|Eventos de seguridad, del más reciente al más antiguo)$/;
+
 function event(id: string, kind: string, detail: Record<string, string>, overrides: Record<string, unknown> = {}) {
   return { id, kind, detail, ...BASE, ...overrides };
 }
@@ -53,14 +56,14 @@ describe("SafetyEventsPage", () => {
     serve(() => Promise.resolve(jsonResponse({ nope: true })));
     open();
     expect(await screen.findByRole("alert")).toHaveTextContent("The safety events could not be read.");
-    expect(screen.queryByRole("list")).not.toBeInTheDocument();
+    expect(screen.queryByRole("list", { name: LIST_NAME })).not.toBeInTheDocument();
   });
 
   it("says nothing has happened when the list is empty", async () => {
     serve(() => Promise.resolve(jsonResponse({ events: [] })));
     open();
     expect(await screen.findByText("Nothing has needed the safety net yet.")).toBeInTheDocument();
-    expect(screen.queryByRole("list")).not.toBeInTheDocument();
+    expect(screen.queryByRole("list", { name: LIST_NAME })).not.toBeInTheDocument();
   });
 
   it.each([
@@ -126,7 +129,7 @@ describe("SafetyEventsPage", () => {
     await i18n.changeLanguage(language);
     serve(() => Promise.resolve(jsonResponse({ events: [event("e1", kind, {})] })));
     open();
-    const row = within(await screen.findByRole("list")).getByRole("listitem");
+    const row = within(await screen.findByRole("list", { name: LIST_NAME })).getByRole("listitem");
     expect(row).toHaveTextContent(label);
     expect(row).toHaveTextContent(sentence);
   });
@@ -143,7 +146,7 @@ describe("SafetyEventsPage", () => {
       ),
     );
     open();
-    const rows = within(await screen.findByRole("list")).getAllByRole("listitem");
+    const rows = within(await screen.findByRole("list", { name: LIST_NAME })).getAllByRole("listitem");
     expect(rows).toHaveLength(2);
     expect(rows[0]).toHaveTextContent("First");
     expect(rows[1]).toHaveTextContent("Second");
@@ -152,7 +155,7 @@ describe("SafetyEventsPage", () => {
   it("falls back to a neutral row for a kind it does not know, without crashing", async () => {
     serve(() => Promise.resolve(jsonResponse({ events: [event("e1", "SOMETHING_NEW", { x: "1" })] })));
     open();
-    const row = within(await screen.findByRole("list")).getByRole("listitem");
+    const row = within(await screen.findByRole("list", { name: LIST_NAME })).getByRole("listitem");
     expect(within(row).getByText("Safety event")).toBeInTheDocument();
     expect(within(row).getByText("No details are available for this event.")).toBeInTheDocument();
     expect(row).toHaveTextContent("Breakout");
@@ -161,7 +164,7 @@ describe("SafetyEventsPage", () => {
   it("writes n/a for a detail key a known kind lacks, never undefined", async () => {
     serve(() => Promise.resolve(jsonResponse({ events: [event("e1", "STOP_FIRED", { quantity: "0.5" })] })));
     open();
-    const row = within(await screen.findByRole("list")).getByRole("listitem");
+    const row = within(await screen.findByRole("list", { name: LIST_NAME })).getByRole("listitem");
     expect(row).toHaveTextContent("The stop was triggered at n/a and closed 0.5.");
     expect(row).not.toHaveTextContent("undefined");
   });
@@ -175,7 +178,7 @@ describe("SafetyEventsPage", () => {
       ),
     );
     open();
-    const row = within(await screen.findByRole("list")).getByRole("listitem");
+    const row = within(await screen.findByRole("list", { name: LIST_NAME })).getByRole("listitem");
     expect(row).toHaveTextContent("You closed the position: 2 at 142.12333.");
   });
 
@@ -185,7 +188,7 @@ describe("SafetyEventsPage", () => {
       Promise.resolve(jsonResponse({ events: [event("e1", "MANUAL_CLOSE", { quantity: "0.5", price: "139.5" })] })),
     );
     open();
-    const row = within(await screen.findByRole("list")).getByRole("listitem");
+    const row = within(await screen.findByRole("list", { name: LIST_NAME })).getByRole("listitem");
     expect(within(row).getByText("Cerrada por usted")).toBeInTheDocument();
     expect(within(row).getByText("Usted cerró la posición: 0.5 a 139.5.")).toBeInTheDocument();
   });
@@ -193,6 +196,6 @@ describe("SafetyEventsPage", () => {
   it("makes the list focusable so the keyboard can scroll it", async () => {
     serve(() => Promise.resolve(jsonResponse({ events: [event("e1", "MANUAL_CLOSE", { quantity: "1", price: "2" })] })));
     open();
-    expect(await screen.findByRole("list")).toHaveAttribute("tabindex", "0");
+    expect(await screen.findByRole("list", { name: LIST_NAME })).toHaveAttribute("tabindex", "0");
   });
 });

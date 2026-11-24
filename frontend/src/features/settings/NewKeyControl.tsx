@@ -54,7 +54,7 @@ export function NewKeyControl({
           type="button"
           disabled={busy}
           onClick={onOpen}
-          className="inline-flex min-h-11 items-center gap-1.5 rounded-md border border-gain bg-gain px-3.5 text-sm font-medium text-ground disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gain"
+          className="inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-gain bg-gain px-3.5 text-sm font-medium text-ground disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gain"
         >
           <Plus aria-hidden="true" className="size-4 shrink-0" />
           {t("settings.keys.newKey")}
@@ -91,7 +91,7 @@ export function NewKeyControl({
         type="button"
         disabled={busy}
         onClick={onCancel}
-        className="inline-flex min-h-11 items-center gap-1.5 rounded-md border border-rule px-3.5 text-sm text-ink-2 hover:bg-panel-2 disabled:opacity-50"
+        className="inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-rule px-3.5 text-sm text-ink-2 hover:bg-panel-2 disabled:opacity-50"
       >
         <X aria-hidden="true" className="size-4 shrink-0" />
         {t("settings.keys.cancel")}

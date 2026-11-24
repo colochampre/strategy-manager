@@ -5,7 +5,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AppRoutes } from "@/app/router";
 import i18n from "@/shared/i18n";
 import en from "@/shared/i18n/locales/en.json";
-import es from "@/shared/i18n/locales/es.json";
 import { AppShell } from "@/shared/layout/AppShell";
 import { booking, confirmedBody, discrepancy, lock, pool, renderAt, stubApi, unlock } from "@/test/harness";
 import type { ConfirmedStub } from "@/test/harness";
@@ -22,12 +21,18 @@ function renderShell(path = "/") {
   );
 }
 
+/** The sidebar: the one navigation of the shell until the drawer is opened. */
+function sidebar() {
+  return screen.getByRole("navigation", { name: /^(Sections|Secciones)$/ });
+}
+
 beforeEach(() => {
   unlock();
 });
-afterEach(() => {
+afterEach(async () => {
   vi.unstubAllGlobals();
   lock();
+  await i18n.changeLanguage("en");
 });
 
 describe("navigation", () => {
@@ -35,55 +40,51 @@ describe("navigation", () => {
     stubApi({ kind: "ok", body: { status: "ok", dry_run: true } });
   });
 
-  it("test_widescreen_shows_sidenav_narrow_shows_bottomnav", () => {
+  it("test_widescreen_shows_the_sidebar_and_narrow_the_hamburger_with_no_bottom_bar", () => {
     renderShell();
 
+    // One navigation: the bottom bar is gone, the drawer is closed.
     const navs = screen.getAllByRole("navigation", { name: "Sections" });
-    expect(navs).toHaveLength(2);
-    const side = navs.find((nav) => nav.className.includes("lg:flex"));
-    const bottom = navs.find((nav) => nav.className.includes("lg:hidden"));
-    // Side rail: hidden by default, flex from `lg`. Bottom bar: the reverse.
-    expect(side).toHaveClass("hidden", "lg:flex");
-    expect(side).not.toHaveClass("lg:hidden");
-    expect(bottom).toHaveClass("lg:hidden");
-    expect(bottom).not.toHaveClass("hidden");
-    expect(side).not.toBe(bottom);
+    expect(navs).toHaveLength(1);
+    // Hidden by default, flex from `lg`; the hamburger is the reverse.
+    expect(navs[0]).toHaveClass("hidden", "lg:flex");
+    expect(navs[0]).not.toHaveClass("lg:hidden");
+    expect(screen.getByRole("button", { name: "Open the menu" })).toHaveClass("lg:hidden");
   });
 
-  it("lists the three sections as router links in both surfaces", () => {
+  it("lists the pages as router links", () => {
     renderShell();
 
     for (const [label, href] of [
       ["Overview", "/"],
-      ["Strategies", "/strategies"],
-      ["Settings", "/settings"],
+      ["My strategies", "/strategies/authored"],
+      ["My subscriptions", "/strategies"],
+      ["Explore", "/strategies/explore"],
+      ["Safety events", "/safety-events"],
     ] as const) {
-      const links = screen.getAllByRole("link", { name: label });
-      expect(links).toHaveLength(2);
-      for (const link of links) expect(link).toHaveAttribute("href", href);
+      expect(within(sidebar()).getByRole("link", { name: label })).toHaveAttribute("href", href);
     }
     expect(screen.queryByRole("link", { name: "Bookings" })).not.toBeInTheDocument();
   });
 
-  it("marks only the current section active, in both surfaces", () => {
+  it("marks only the current page active", () => {
     renderShell("/strategies");
 
-    for (const link of screen.getAllByRole("link", { name: "Strategies" })) {
-      expect(link).toHaveAttribute("aria-current", "page");
-      expect(link).toHaveClass("text-ink");
-    }
-    for (const link of screen.getAllByRole("link", { name: "Overview" })) {
-      expect(link).not.toHaveAttribute("aria-current");
-    }
+    const current = within(sidebar()).getByRole("link", { name: "My subscriptions" });
+    expect(current).toHaveAttribute("aria-current", "page");
+    expect(current).toHaveClass("text-ink");
+    expect(within(sidebar()).getByRole("link", { name: "Overview" })).not.toHaveAttribute("aria-current");
+    expect(within(sidebar()).getByRole("link", { name: "Explore" })).not.toHaveAttribute("aria-current");
   });
 
   it("moves the active state when a link is followed", async () => {
     renderShell("/");
 
-    fireEvent.click(screen.getAllByRole("link", { name: "Strategies" })[0] as HTMLElement);
+    fireEvent.click(within(sidebar()).getByRole("link", { name: "My subscriptions" }));
 
     expect(await screen.findByText("strategies body")).toBeInTheDocument();
-    expect(screen.getAllByRole("link", { name: "Overview" })[0]).not.toHaveAttribute("aria-current");
+    expect(within(sidebar()).getByRole("link", { name: "Overview" })).not.toHaveAttribute("aria-current");
+    expect(within(sidebar()).getByRole("link", { name: "My subscriptions" })).toHaveAttribute("aria-current", "page");
   });
 
   it("opens every page at its top: main is the scroll container, so a link followed from the bottom of a page lands at the top of the next", async () => {
@@ -91,7 +92,7 @@ describe("navigation", () => {
     const main = screen.getByRole("main");
     main.scrollTop = 500;
 
-    fireEvent.click(screen.getAllByRole("link", { name: "Overview" })[0]!);
+    fireEvent.click(within(sidebar()).getByRole("link", { name: "Overview" }));
 
     expect(await screen.findByText("page body")).toBeInTheDocument();
     expect(main.scrollTop).toBe(0);
@@ -101,10 +102,10 @@ describe("navigation", () => {
     renderShell();
 
     fireEvent.click(screen.getByRole("button", { name: /^(Language|Idioma):/ }));
-    expect(screen.getAllByRole("link", { name: "Resumen" })).toHaveLength(2);
+    expect(within(sidebar()).getByRole("link", { name: "Panel de control" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /^(Language|Idioma):/ }));
-    expect(screen.getAllByRole("link", { name: "Overview" })).toHaveLength(2);
+    expect(within(sidebar()).getByRole("link", { name: "Overview" })).toBeInTheDocument();
   });
 });
 
@@ -125,16 +126,23 @@ describe("layout contract", () => {
     stubApi({ kind: "ok", body: { status: "ok", dry_run: true } });
   });
 
-  it("fills the viewport height as a flex column and scrolls only the content area", () => {
+  it("fills the viewport height as a flex row of the sidebar and the content area, and scrolls only the content area", () => {
     const { container } = renderShell();
 
     const root = container.firstElementChild as HTMLElement;
-    expect(root).toHaveClass("flex", "h-full", "flex-col");
-    expect(root).not.toHaveClass("min-h-full", "h-screen", "overflow-auto");
+    expect(root).toHaveClass("flex", "h-full");
+    expect(root).not.toHaveClass("min-h-full", "h-screen", "overflow-auto", "flex-col");
 
     const main = screen.getByRole("main");
     expect(main).toHaveClass("flex", "flex-col", "flex-1", "min-h-0", "overflow-auto");
-    expect(main.parentElement).toHaveClass("min-h-0", "flex-1");
+    expect(main.parentElement).toBe(root);
+  });
+
+  it("draws no top bar and no bottom bar", () => {
+    renderShell();
+
+    expect(screen.queryByRole("banner")).not.toBeInTheDocument();
+    expect(screen.getAllByRole("navigation", { name: "Sections" })).toHaveLength(1);
   });
 
   it("makes the scroll container the containing block of absolutely positioned content, so an sr-only span cannot stretch the document", () => {
@@ -146,34 +154,15 @@ describe("layout contract", () => {
     expect(main).toHaveClass("relative", "overflow-auto");
   });
 
-  it("keeps the one-viewport contract with the exchange tabs row in the header", async () => {
-    const { container } = renderShell();
-
-    const tabs = await screen.findAllByRole("navigation", { name: "Exchanges" });
-    const header = screen.getByRole("banner");
-    // The header is a non-shrinking, non-overlaying row of the column, and the
-    // tabs sit inside it, so they add height to the header and take it from
-    // `main`, never from the page.
-    expect(header).toHaveClass("shrink-0");
-    expect(header).not.toHaveClass("fixed", "sticky", "absolute");
-    expect(header.parentElement).toBe(container.firstElementChild);
-    for (const bar of tabs) {
-      expect(header).toContainElement(bar);
-      expect(bar).toHaveClass("overflow-x-auto", "min-w-0");
-    }
-    expect(screen.getByRole("main")).toHaveClass("flex-1", "min-h-0", "overflow-auto");
-    expect(container.innerHTML).not.toMatch(/min-h-full|h-screen/);
-  });
-
-  it("caps the content width inside main and centres it, while main itself stays full width", () => {
+  it("caps the content width at 1100 px inside main and centres it, while main itself stays full width", () => {
     renderShell();
 
     const main = screen.getByRole("main");
     // `main` keeps the full width so its scrollbar sits at the window edge; the
-    // cap is on one inner column that holds every page (decision 38).
+    // cap is on one inner column that holds every page.
     expect(main.className).not.toMatch(/\bmax-w-/);
     const column = main.firstElementChild as HTMLElement;
-    expect(column).toHaveClass("mx-auto", "w-full", "max-w-[90rem]");
+    expect(column).toHaveClass("mx-auto", "w-full", "max-w-[1100px]");
     // It fills `main` (so the token gate still fills it) and is a flex column.
     expect(column).toHaveClass("flex", "flex-1", "flex-col");
   });
@@ -183,8 +172,9 @@ describe("layout contract", () => {
 
     const main = screen.getByRole("main");
     // `main` pads every edge, the bottom one included, at both widths.
-    expect(main.className).toMatch(/(^|\s)p-\d/);
-    expect(main.className).toMatch(/(^|\s)lg:py-\d/);
+    expect(main.className).toMatch(/(^|\s)px-\d/);
+    expect(main.className).toMatch(/(^|\s)pb-\d/);
+    expect(main.className).toMatch(/(^|\s)lg:pb-\d/);
     // The padding only helps if the column is as tall as its content. With
     // `min-h-0` the column is capped at the space `main` leaves, the content
     // overflows it, and the last row ends flush with the scroll edge, because
@@ -199,16 +189,29 @@ describe("layout contract", () => {
     const { container } = renderShell();
 
     expect(screen.getByRole("main").className).not.toMatch(/\bpb-20\b/);
-    // The bottom bar is a sibling in the column, not a fixed overlay.
-    for (const nav of screen.getAllByRole("navigation", { name: "Sections" })) {
-      expect(nav).not.toHaveClass("fixed");
-    }
     expect(container.innerHTML).not.toMatch(/min-h-full|h-screen/);
   });
 
-  it("gives every string an English and a Spanish translation", () => {
+  it("gives every string an English and a Spanish translation", async () => {
+    const es = (await import("@/shared/i18n/locales/es.json")).default;
     for (const locale of [en, es]) {
-      for (const key of ["overview", "strategies", "settings"] as const) {
+      for (const key of [
+        "overview",
+        "strategies",
+        "authored",
+        "subscriptions",
+        "explore",
+        "admin",
+        "account",
+        "signOut",
+        "collapse",
+        "expand",
+        "openMenu",
+        "closeMenu",
+        "menu",
+        "home",
+        "breadcrumb",
+      ] as const) {
         expect(locale.nav[key]).toBeTruthy();
       }
       expect(locale.status.simulation).toBeTruthy();
@@ -239,29 +242,32 @@ describe("the Discrepancies item and its badge", () => {
    */
   const named = (expected: string) => (name: string) => name.replace(/\s+,/g, ",") === expected;
 
+  /** The item sits in the Administration group, closed until it is pressed. */
+  async function openAdministration() {
+    fireEvent.click(await screen.findByRole("button", { name: /^Administration/ }));
+  }
+
   afterEach(async () => {
     await i18n.changeLanguage("en");
   });
 
-  it("lists the admin's five sections in order, in the side navigation and in the bottom bar", async () => {
+  it("lists the admin's pages in order in the sidebar: the Administration group holds Discrepancies and Users", async () => {
     stubConfirmed({ kind: "ok", body: needing(0) });
     renderShell();
 
-    await screen.findAllByRole("link", { name: "Users" });
-    const navs = screen.getAllByRole("navigation", { name: "Sections" });
-    expect(navs).toHaveLength(2);
-    for (const nav of navs) {
-      const links = within(nav).getAllByRole("link");
-      expect(links.map((link) => link.textContent)).toEqual(["Overview", "Strategies", "Discrepancies", "Users", "Safety events", "Settings"]);
-      expect(links.map((link) => link.getAttribute("href"))).toEqual([
-        "/",
-        "/strategies",
-        "/discrepancies",
-        "/users",
-        "/safety-events",
-        "/settings",
-      ]);
-    }
+    await openAdministration();
+    const links = within(sidebar()).getAllByRole("link");
+    expect(links.map((link) => link.getAttribute("href"))).toEqual([
+      "/",
+      "/strategies/authored",
+      "/strategies",
+      "/strategies/explore",
+      "/safety-events",
+      "/discrepancies",
+      "/users",
+      "/settings",
+      "/cdn-cgi/access/logout",
+    ]);
   });
 
   it("names the item plainly, and draws no badge, while nothing needs the owner", async () => {
@@ -271,49 +277,43 @@ describe("the Discrepancies item and its badge", () => {
     await waitFor(() =>
       expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/reconciliation/confirmed"))).toBe(true),
     );
-    expect(screen.getAllByRole("link", { name: "Discrepancies" })).toHaveLength(2);
+    await openAdministration();
+    expect(within(sidebar()).getByRole("link", { name: "Discrepancies" })).toBeInTheDocument();
     expect(screen.queryByText("0")).not.toBeInTheDocument();
   });
 
   it.each([
     [12, "Discrepancies, 12 discrepancies need you"],
     [1, "Discrepancies, 1 discrepancy needs you"],
-  ])("gives the item the accessible name of %i in both surfaces, with the number hidden from the tree", async (count, name) => {
+  ])("gives the item the accessible name of %i, with the number hidden from the tree", async (count, name) => {
     stubConfirmed({ kind: "ok", body: needing(count) });
     renderShell();
 
-    const links = await screen.findAllByRole("link", { name: named(name) });
-    expect(links).toHaveLength(2);
-    for (const link of links) {
-      expect(within(link).getByText(String(count))).toHaveAttribute("aria-hidden", "true");
-    }
+    await openAdministration();
+    const link = await within(sidebar()).findByRole("link", { name: named(name) });
+    expect(within(link).getByText(String(count))).toHaveAttribute("aria-hidden", "true");
   });
 
-  it("draws the same badge in both surfaces", async () => {
+  it("keeps what needs the owner in view while the Administration group is closed", async () => {
     stubConfirmed({ kind: "ok", body: needing(12) });
     renderShell();
 
-    const [side, bottom] = screen.getAllByRole("navigation", { name: "Sections" }) as [HTMLElement, HTMLElement];
-    const sideBadge = await within(side).findByText("12");
-    const bottomBadge = await within(bottom).findByText("12");
-    expect(sideBadge).toHaveClass("bg-loss", "text-ground");
-    expect(bottomBadge).toHaveClass("bg-loss", "text-ground");
-    expect(sideBadge.tagName).toBe(bottomBadge.tagName);
-    expect(within(side).getByText(/12 discrepancies need you/).textContent).toBe(
-      within(bottom).getByText(/12 discrepancies need you/).textContent,
-    );
+    const group = await screen.findByRole("button", { name: named("Administration, 12 discrepancies need you") });
+    expect(group).toHaveAttribute("aria-expanded", "false");
+    expect(within(group).getByText("12")).toHaveClass("bg-loss", "text-ground");
   });
 
   it("says its name in Spanish, to usted", async () => {
     stubConfirmed({ kind: "ok", body: needing(12) });
     renderShell();
-    await screen.findAllByRole("link", { name: named("Discrepancies, 12 discrepancies need you") });
+    await openAdministration();
+    await within(sidebar()).findByRole("link", { name: named("Discrepancies, 12 discrepancies need you") });
 
     fireEvent.click(screen.getByRole("button", { name: /^(Language|Idioma):/ }));
 
     expect(
-      await screen.findAllByRole("link", { name: named("Discrepancias, 12 discrepancias requieren su atención") }),
-    ).toHaveLength(2);
+      await within(sidebar()).findByRole("link", { name: named("Discrepancias, 12 discrepancias requieren su atención") }),
+    ).toBeInTheDocument();
   });
 
   it("draws no badge when dry_run is true, and none while loading or after a first failed read", async () => {
@@ -324,20 +324,20 @@ describe("the Discrepancies item and its badge", () => {
     expect(await screen.findByText(en.discrepancies.read.dryRun)).toBeInTheDocument();
     expect(screen.queryByText("2")).not.toBeInTheDocument();
     expect(screen.queryByText(/discrepancies need you/)).not.toBeInTheDocument();
-    expect(screen.getAllByRole("link", { name: "Discrepancies" })).toHaveLength(2);
+    expect(within(sidebar()).getByRole("link", { name: "Discrepancies" })).toBeInTheDocument();
     dry.unmount();
 
     stubConfirmed({ kind: "pending" });
     const loading = renderShell();
-    await screen.findAllByRole("link", { name: "Discrepancies" });
+    await openAdministration();
     expect(screen.queryByText("2")).not.toBeInTheDocument();
-    expect(screen.getAllByRole("link", { name: "Discrepancies" })).toHaveLength(2);
+    expect(within(sidebar()).getByRole("link", { name: "Discrepancies" })).toBeInTheDocument();
     loading.unmount();
 
     stubConfirmed({ kind: "status", status: 500, body: { detail: "down" } });
     renderShell();
-    await screen.findAllByRole("link", { name: "Discrepancies" });
-    expect(screen.getAllByRole("link", { name: "Discrepancies" })).toHaveLength(2);
+    await openAdministration();
+    expect(within(sidebar()).getByRole("link", { name: "Discrepancies" })).toBeInTheDocument();
   });
 
   it("draws no badge for an item being booked or for bookings", async () => {
@@ -350,35 +350,21 @@ describe("the Discrepancies item and its badge", () => {
     await waitFor(() =>
       expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/reconciliation/confirmed"))).toBe(true),
     );
-    expect(screen.getAllByRole("link", { name: "Discrepancies" })).toHaveLength(2);
+    await openAdministration();
+    expect(within(sidebar()).getByRole("link", { name: "Discrepancies" })).toBeInTheDocument();
   });
 
-  it("serves the side navigation and the bottom bar with ONE request", async () => {
+  it("serves the group's badge and the item's with ONE request", async () => {
     const fetchMock = stubConfirmed({ kind: "ok", body: needing(3) });
     renderShell();
 
-    await screen.findAllByRole("link", { name: named("Discrepancies, 3 discrepancies need you") });
+    await openAdministration();
+    await within(sidebar()).findByRole("link", { name: named("Discrepancies, 3 discrepancies need you") });
     const requests = fetchMock.mock.calls.filter(([url]) => String(url).endsWith("/reconciliation/confirmed"));
     expect(requests).toHaveLength(1);
   });
 
-  it("gives the bottom bar equal cells, five for the admin, whose icons sit level whether or not a badge is drawn", async () => {
-    stubConfirmed({ kind: "ok", body: needing(12) });
-    renderShell();
-    const bottom = screen.getAllByRole("navigation", { name: "Sections" })[1] as HTMLElement;
-    await within(bottom).findByText("12");
-
-    const cells = within(bottom).getAllByRole("link");
-    expect(cells).toHaveLength(6);
-    for (const cell of cells) {
-      // The icon alone is centred in a touch target of at least 44 px (owner decision 67 Q2).
-      expect(cell).toHaveClass("flex-1", "min-w-0", "min-h-11", "items-center", "justify-center");
-    }
-    // The badge sits in the corner of the icon's box, out of the icon's way.
-    expect(within(bottom).getByText("12")).toHaveClass("absolute", "top-1", "right-1");
-  });
-
-  it("shows no exchange tabs on /discrepancies, as on Settings, and still shows them on Overview and Strategies (note N7)", async () => {
+  it("shows no exchange buttons on /discrepancies, as on Settings, and still shows them on Overview and My strategies (note N7)", async () => {
     stubConfirmed({ kind: "ok", body: needing(2) });
     const discrepancies = renderAt(<AppRoutes />, "/discrepancies");
     expect(await screen.findByRole("heading", { level: 1, name: "Discrepancies" })).toBeInTheDocument();
@@ -388,20 +374,21 @@ describe("the Discrepancies item and its badge", () => {
     for (const path of ["/", "/strategies/authored"]) {
       stubConfirmed({ kind: "ok", body: needing(2) });
       const view = renderAt(<AppRoutes />, path);
-      expect(await screen.findAllByRole("navigation", { name: "Exchanges" })).toHaveLength(2);
+      expect(await screen.findAllByRole("navigation", { name: "Exchanges" })).toHaveLength(1);
       view.unmount();
     }
   });
 
-  it("keeps the side rail's badge in the line of its label", async () => {
+  it("keeps the badge in the line of its label", async () => {
     stubConfirmed({ kind: "ok", body: needing(12) });
     renderShell();
-    const side = screen.getAllByRole("navigation", { name: "Sections" })[0] as HTMLElement;
+    await openAdministration();
 
-    const badge = await within(side).findByText("12");
+    const link = await within(sidebar()).findByRole("link", { name: named("Discrepancies, 12 discrepancies need you") });
 
+    const badge = within(link).getByText("12");
     expect(badge).not.toHaveClass("absolute");
-    expect(within(side).getByRole("link", { name: /^Discrepancies/ })).toHaveClass("justify-between");
+    expect(link).toHaveClass("justify-between");
   });
 });
 
@@ -431,7 +418,7 @@ describe("pages", () => {
     stubApi({ kind: "ok", body: { status: "ok", dry_run: true } });
     renderAt(<AppRoutes />, "/settings");
 
-    expect(await screen.findByRole("heading", { level: 1, name: "Settings" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { level: 1, name: "My account" })).toBeInTheDocument();
   });
 });
 
@@ -493,14 +480,14 @@ describe("the sign-up step in the shell (public-site LS2)", () => {
     expect(within(footer).getByRole("link", { name: "Terms of service" })).toHaveAttribute("href", "/terms");
   });
 
-  it("shows a signed-up user the sections, the exchange tabs and the mode menu", async () => {
+  it("shows a signed-up user the sections, the exchange buttons and the mode menu", async () => {
     stubMeAs("COMPLETE");
 
     renderShell();
 
     expect(await screen.findByText("page body")).toBeInTheDocument();
-    expect(screen.getAllByRole("navigation", { name: "Sections" })).toHaveLength(2);
-    expect(screen.getAllByRole("navigation", { name: en.scope.exchanges })).toHaveLength(2);
+    expect(screen.getAllByRole("navigation", { name: "Sections" })).toHaveLength(1);
+    expect(await screen.findAllByRole("navigation", { name: en.scope.exchanges })).toHaveLength(1);
     expect(screen.getByText(en.status.simulation)).toBeInTheDocument();
   });
 

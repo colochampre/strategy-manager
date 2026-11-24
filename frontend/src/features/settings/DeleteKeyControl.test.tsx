@@ -169,7 +169,7 @@ describe("where Delete key is drawn (spec: operable by keyboard and named for as
     expect(button).toBeEnabled();
     // The shared danger look of the buttons that carry a word is untouched.
     expect(DANGER_CONTROL).toBe(
-      "inline-flex min-h-11 items-center gap-1.5 rounded-md border border-loss px-3.5 text-sm text-loss hover:bg-panel-2 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gain",
+      "inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-loss px-3.5 text-sm text-loss hover:bg-panel-2 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gain",
     );
   });
 
@@ -314,7 +314,7 @@ describe("the end of a delete that worked (spec: the empty state is the one of a
     expect(afterDelete).toEqual(neverConfigured);
   });
 
-  it("makes that exchange's tab read `no key` in grey", async () => {
+  it("leaves that exchange's tab its name alone: the key's state is the card's to tell (owner, 2026-11-24)", async () => {
     deletePage({ shell: true });
     await cardsDrawn();
     await confirmDelete();
@@ -322,10 +322,8 @@ describe("the end of a delete that worked (spec: the empty state is the one of a
 
     fireEvent.click(screen.getAllByRole("link", { name: "Overview" })[0] as HTMLElement);
 
-    const tabs = await screen.findAllByRole("button", { name: "Bybit no key" });
-    const mark = within(tabs[0] as HTMLElement).getByText("no key");
-    expect(mark).toHaveClass("text-ink-3");
-    expect(mark).not.toHaveClass("text-decision");
+    const tabs = await screen.findAllByRole("button", { name: "Bybit" });
+    expect(within(tabs[0] as HTMLElement).queryByText("no key")).not.toBeInTheDocument();
   });
 });
 
@@ -518,7 +516,7 @@ describe("the page, an open form and an open dialog read in Spanish", () => {
     await i18n.changeLanguage("es");
     deletePage({ onDelete, serverDeletes });
     await cardsDrawn();
-    expect(screen.queryByRole("heading", { level: 1, name: "Configuración" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { level: 1, name: "Mi cuenta" })).toBeInTheDocument();
 
     // An open form.
     fireEvent.click(screen.getByRole("button", { name: "Reemplazar clave Bybit" }));
