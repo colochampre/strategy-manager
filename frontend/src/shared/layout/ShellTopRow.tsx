@@ -24,7 +24,8 @@ interface ShellTopRowProps {
  * the exchange scopes (the same `isExchangeScoped` the pages read); on the right the mode, the person (to My account)
  * and the language, in that order. Below `lg` the hamburger takes the left, and the exchange buttons drop to a row
  * of their own that scrolls sideways when they do not fit. The same row on every page, so nothing jumps when
- * navigating: from `lg` it is as tall as the exchange buttons, whether it holds them or not.
+ * navigating: the exchange buttons, the mode badge and the icon buttons are all 36 px tall, so the row is too,
+ * whether it holds the exchange buttons or not.
  */
 export function ShellTopRow({ pending, onOpenMenu, menuRef }: ShellTopRowProps) {
   const { t, i18n } = useTranslation();
@@ -35,7 +36,7 @@ export function ShellTopRow({ pending, onOpenMenu, menuRef }: ShellTopRowProps) 
   };
 
   return (
-    <div className="mb-7 flex flex-wrap items-center gap-x-3 gap-y-4 lg:min-h-13">
+    <div className="mb-7 flex flex-wrap items-center gap-x-3 gap-y-4 lg:min-h-9">
       {pending ? (
         // A newcomer has no sidebar to carry the brand.
         <span className="font-display text-base font-semibold text-ink">{t("app.name")}</span>

@@ -912,7 +912,7 @@ describe("StrategyDetailPage settings column (L.7)", () => {
     await heading("ETH Breakout");
 
     // The viewport less the top bar (4rem and its 1 px rule) and main's padding (1.75rem above and below).
-    expect(settingsColumn()).toHaveClass("lg:min-h-[calc(100dvh-10rem)]");
+    expect(settingsColumn()).toHaveClass("lg:min-h-[calc(100dvh-9rem)]");
   });
 
   it("spaces the sections apart by more than a section spaces its own title, field and slider (owner, 2026-11-17)", async () => {

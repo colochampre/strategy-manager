@@ -457,7 +457,7 @@ describe("whether this user can subscribe", () => {
     // The danger look of Disable and Archive, and the whole width of the aside like them.
     expect(leave.className).toBe(`${DANGER_CONTROL} w-full justify-center`);
     // The sections stand apart as on the owner's settings (gap-4), more than each section's own 1.5 (owner, 2026-11-17).
-    expect(leave.closest("aside")).toHaveClass("gap-4", "lg:min-h-[calc(100dvh-10rem)]");
+    expect(leave.closest("aside")).toHaveClass("gap-4", "lg:min-h-[calc(100dvh-9rem)]");
     expect(screen.getByRole("button", { name: "Set the leverage to x5" }).parentElement).toHaveClass("h-6", "mb-1");
     expect(screen.queryByRole("button", { name: i18n.t("strategies.subscribe.submit") })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { level: 2, name: i18n.t("strategies.subscribe.title") })).not.toBeInTheDocument();
@@ -471,7 +471,7 @@ describe("whether this user can subscribe", () => {
 
     expect(await subscribeButton()).toBeInTheDocument();
     // However little it holds, the aside is as tall as main leaves room for, as Strategy settings (owner, 2026-11-17).
-    expect((await subscribeButton()).closest("aside")).toHaveClass("lg:min-h-[calc(100dvh-10rem)]");
+    expect((await subscribeButton()).closest("aside")).toHaveClass("lg:min-h-[calc(100dvh-9rem)]");
     expect(screen.queryByRole("textbox", { name: i18n.t("strategies.leverage.label") })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: i18n.t("strategies.subscriptions.leave") })).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { level: 2, name: i18n.t("strategies.subscribe.title") })).toBeInTheDocument();

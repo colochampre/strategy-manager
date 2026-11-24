@@ -42,6 +42,7 @@ The owner's words (2026-11-24) are quoted as written.
   - "El estado En Vivo/Simulación queda a la izquierda de los iconos de usuario y lenguaje."
   - "Que los iconos queden del mismo tamaño."
   - "El orden de los botones de usuario, lenguaje y notificaciones, que sea: En vivo, usuario, notificaciones, lenguaje."
+  - "El boton del exchange llama mucho la atencion. Que tenga la misma altura que los botones de En vivo y lo iconos de usuario y lenguaje. Además de los bordes y estilos. El borde de del exchange seleccionado activo, que no tenga color gain. Con mostrarlo como activo en el color del background alcanza. La fila de la key, por ejemplo 'sin clave' que no se muestre ahí. A lo sumo se verá en la vista de gestion de API keys, para que no agrande los botones" (L9).
 - **S8 Dashboard.** "La primer tarjeta muestra la fila de datos de la cuenta, como saldo, PnL y return, drawdown, etc." "Tarjeta header con el saldo del Exchange seleccionado activo, valores de rendimiento y drawdown".
   - Rule 7 applies: there is no total blended across currencies. An exchange with several pools shows one figure per currency.
 - **S9 Link an exchange.** The owner sent Edelap's "Mis suministros" as the example for managing API keys, "una mejora con respecto al nuestro". It shows:
@@ -131,3 +132,12 @@ The owner's words (2026-11-24) are quoted as written.
 - L6 (2026-11-24, owner, approving the prototype): "Titulos y subtitulos alineados con aside quedan bien. Esta todo correcto. Un detalle para cuando implementemos: en el rediseño quiero que los botones info (i) a partir de ahora, en lugar de desplegar el texto, que ocupa espacio vertical, aparezca en un tooltip flotante. Agregarle una animación suave, simple y rápida. Si se le puede agregar animación a otros elementos, recomendame cuáles". RD.0 is closed; S13 and RD.6 are added.
 - L7 (2026-11-24, owner, on the recommended motion): "Así esta bien". S13 records the list.
 - L8 (2026-11-24, owner): "Hecho el merge" of PR #131. RD.1 starts from an up-to-date `main` (`d256773`).
+- L9 (2026-11-24, owner, reviewing RD.1 against the local backend): the exchange buttons, quoted under S7.
+  - Done inline by the parent: the buttons are 36 px with the rule's border, and the selected one is shown by its background alone. They carry no key mark; the key's state stays on the Mi cuenta card.
+  - The top row and `PAGE_ASIDE` follow, at 2.25rem and 9rem.
+  - Removed tests:
+    - in `ExchangeTabs.test.tsx`, the ones that pinned the mark on the buttons and its grid;
+    - in `SettingsPage.test.tsx`, the one comparing the button's word with the card's;
+    - in `DeleteKeyControl.test.tsx` and `SettingsPage.test.tsx`, the assertions on the button's mark, rewritten to expect the name alone.
+  - `KeyMark`'s `tab` variant has no caller left; RD.2 decides its fate.
+  - Gate: lint exited 0, and vitest passed 169 files and 4141 tests.

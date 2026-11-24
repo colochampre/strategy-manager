@@ -314,7 +314,7 @@ describe("the end of a delete that worked (spec: the empty state is the one of a
     expect(afterDelete).toEqual(neverConfigured);
   });
 
-  it("makes that exchange's tab read `no key` in grey", async () => {
+  it("leaves that exchange's tab its name alone: the key's state is the card's to tell (owner, 2026-11-24)", async () => {
     deletePage({ shell: true });
     await cardsDrawn();
     await confirmDelete();
@@ -322,10 +322,8 @@ describe("the end of a delete that worked (spec: the empty state is the one of a
 
     fireEvent.click(screen.getAllByRole("link", { name: "Overview" })[0] as HTMLElement);
 
-    const tabs = await screen.findAllByRole("button", { name: "Bybit no key" });
-    const mark = within(tabs[0] as HTMLElement).getByText("no key");
-    expect(mark).toHaveClass("text-ink-3");
-    expect(mark).not.toHaveClass("text-decision");
+    const tabs = await screen.findAllByRole("button", { name: "Bybit" });
+    expect(within(tabs[0] as HTMLElement).queryByText("no key")).not.toBeInTheDocument();
   });
 });
 
