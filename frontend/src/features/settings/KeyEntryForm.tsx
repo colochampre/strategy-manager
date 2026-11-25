@@ -4,6 +4,7 @@ import { ShieldCheck, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { type SaveRefusal, type SaveResult, saveCredential } from "@/shared/api/credentials";
+import { GAIN_OUTLINE } from "@/shared/ui/button-styles";
 import { StatusButton } from "@/shared/ui/StatusButton";
 
 /** What the form hands the page when a save worked: the answer's four characters (or none) and whether the key cannot trade. */
@@ -34,8 +35,7 @@ const FIELD =
 const LABEL = "text-[13px] text-ink-2";
 const HELP = "max-w-[78ch] text-[13px] text-ink-3";
 /** The look of the settings page's other important button, New key. */
-const CHECK =
-  "min-h-11 rounded-lg border border-gain bg-gain px-3.5 text-sm font-medium text-ground hover:opacity-90 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gain";
+const CHECK = `min-h-11 rounded-lg px-3.5 text-sm ${GAIN_OUTLINE} disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gain`;
 const CLOSE =
   "inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-rule px-3.5 text-sm text-ink-2 hover:bg-panel-2 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-gain";
 

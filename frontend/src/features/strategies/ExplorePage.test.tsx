@@ -429,7 +429,9 @@ describe("I have a code, in the form of New strategy (owner, 2026-11-08)", () =>
     open();
 
     const button = await screen.findByRole("button", { name: i18n.t("strategies.entry.haveCode") });
-    expect(button).toHaveClass("inline-flex", "min-h-11", "items-center", "gap-1.5", "bg-gain");
+    // The prototype's outline (L26), as tall as the search beside it.
+    expect(button).toHaveClass("inline-flex", "h-10", "items-center", "gap-1.5", "border-gain/45", "text-gain-bright");
+    expect(button).not.toHaveClass("bg-gain");
     const icon = button.querySelector("svg");
     expect(icon).toHaveClass("lucide-key-round", "size-4", "shrink-0");
     expect(icon).toHaveAttribute("aria-hidden", "true");

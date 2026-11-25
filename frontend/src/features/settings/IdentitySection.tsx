@@ -7,6 +7,7 @@ import { useCorrectName, useMe, type CorrectNameResult } from "@/shared/api/me";
 import { LEGAL_CONTACT } from "@/shared/legal/LegalDocument";
 import { InfoButton, InfoText, useInfoDisclosure } from "@/shared/ui/InfoDisclosure";
 import { ReportSection } from "@/shared/ui/ReportSection";
+import { GAIN_OUTLINE } from "@/shared/ui/button-styles";
 import { StatusButton } from "@/shared/ui/StatusButton";
 
 const FIELD =
@@ -124,7 +125,7 @@ export function IdentitySection() {
               submit
               disabled={!canSave}
               icon={Save}
-              className="min-h-11 rounded-lg bg-gain px-3 text-sm font-medium text-ground hover:opacity-90 disabled:opacity-50"
+              className={`min-h-11 rounded-lg px-3 text-sm ${GAIN_OUTLINE} disabled:opacity-50`}
             />
           </div>
         </form>

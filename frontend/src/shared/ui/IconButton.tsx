@@ -31,7 +31,8 @@ interface IconButtonProps {
 
 const TONE: Record<IconButtonTone, string> = {
   neutral: "border-rule text-ink-2 hover:bg-panel-2",
-  primary: "border-gain bg-gain text-ground hover:opacity-90",
+  // The green outline every green button wears (L26, `GAIN_OUTLINE`); the base already draws the border.
+  primary: "border-gain/45 bg-transparent text-gain-bright hover:bg-gain/10",
   danger: "border-loss text-loss hover:bg-loss/10",
 };
 

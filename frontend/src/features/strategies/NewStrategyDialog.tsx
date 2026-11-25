@@ -19,6 +19,7 @@ import { ApiError } from "@/shared/api/client";
 import { useAvailablePairs } from "@/shared/api/pairs";
 import { useRegisterStrategy } from "@/shared/api/strategies";
 import type { FillMode, Pool, Visibility } from "@/shared/api/types";
+import { GAIN_OUTLINE } from "@/shared/ui/button-styles";
 import { InfoButton, InfoText, useInfoDisclosure } from "@/shared/ui/InfoDisclosure";
 
 const FILL_MODES: readonly FillMode[] = ["SKIP", "PARTIAL"];
@@ -390,7 +391,7 @@ export function NewStrategyDialog({ exchange, pools, onClose }: NewStrategyDialo
           <button
             type="submit"
             disabled={register.isPending || pools.length === 0 || pairsStatus !== "ready" || !share.reading.valid || !leverage.reading.valid || !stopReading.valid || descriptionTooLong}
-            className="rounded-lg bg-gain px-3 py-1.5 text-sm font-medium text-ground hover:opacity-90 disabled:opacity-50"
+            className={`rounded-lg px-3 py-1.5 text-sm ${GAIN_OUTLINE} disabled:opacity-50`}
           >
             {register.isPending ? t("strategies.new.submitting") : t("strategies.new.submit")}
           </button>

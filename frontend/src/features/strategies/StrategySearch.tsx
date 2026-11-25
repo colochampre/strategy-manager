@@ -18,19 +18,22 @@ interface StrategySearchProps {
   onChange: (value: string) => void;
 }
 
-/** The name filter of the Strategies lists, as tall as the buttons beside it. */
+/**
+ * The name filter of the Strategies lists, as tall as the buttons beside it: the prototype's pill on the darker
+ * ground, its glass at the right end, half the row from sm up (L26).
+ */
 export function StrategySearch({ value, onChange }: StrategySearchProps) {
   const { t } = useTranslation();
   return (
-    <div className="relative w-full sm:max-w-sm sm:flex-1">
-      <Search aria-hidden="true" className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-ink-3" />
+    <div className="relative w-full sm:shrink sm:grow-0 sm:basis-1/2">
+      <Search aria-hidden="true" className="pointer-events-none absolute top-1/2 right-4 size-4 -translate-y-1/2 text-ink-3" />
       <input
         type="search"
         value={value}
         onChange={(event) => onChange(event.target.value)}
         aria-label={t("strategies.search.label")}
         placeholder={t("strategies.search.placeholder")}
-        className="min-h-11 w-full rounded-md border border-rule bg-panel pr-3 pl-9 text-sm text-ink placeholder:text-ink-3 focus-visible:border-gain focus-visible:outline-none"
+        className="h-10 w-full rounded-full border border-rule bg-ground pr-10 pl-4 text-sm text-ink placeholder:text-ink-3 focus-visible:border-gain focus-visible:outline-none"
       />
     </div>
   );

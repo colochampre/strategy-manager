@@ -122,11 +122,13 @@ describe.each([
 
     const toolbar = screen.getByTestId("list-toolbar");
     expect(within(toolbar).getByRole("searchbox")).toBe(SEARCH());
-    expect(SEARCH()).toHaveClass("min-h-11");
+    // The prototype's box (L26): a pill on the darker ground, half the row from sm up.
+    expect(SEARCH()).toHaveClass("h-10", "rounded-full", "bg-ground");
+    expect(SEARCH().parentElement).toHaveClass("sm:basis-1/2");
     // One row from sm up; on a phone the search takes its own full-width row above the buttons.
     expect(toolbar).toHaveClass("flex-col", "sm:flex-row");
     if (buttonKey !== null) {
-      expect(within(toolbar).getByRole("button", { name: i18n.t(buttonKey) })).toHaveClass("min-h-11");
+      expect(within(toolbar).getByRole("button", { name: i18n.t(buttonKey) })).toHaveClass("h-10");
     }
   });
 });
