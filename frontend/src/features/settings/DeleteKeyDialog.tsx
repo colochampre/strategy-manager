@@ -115,7 +115,7 @@ export function DeleteKeyDialog({ name, last4, pending, result, onConfirm, onCan
       aria-labelledby={titleId}
       onKeyDown={handleKeyDown}
       onCancel={handleCancelEvent}
-      className="fixed inset-0 m-auto w-full max-w-lg rounded-lg border border-rule bg-panel p-0 text-ink backdrop:bg-ground/80"
+      className="fixed inset-0 m-auto w-[calc(100%-2rem)] max-w-lg rounded-lg whitespace-normal break-words text-left border border-rule bg-panel p-0 text-ink backdrop:bg-ground/80"
     >
       <div className="flex flex-col gap-4 p-6">
         <h2 id={titleId} className="text-sm font-semibold text-ink">

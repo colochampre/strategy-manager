@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { ExchangeKeyCard, type ExchangeKeyCardProps } from "@/features/settings/ExchangeKeyCard";
+import { ExchangeKeyRow, type ExchangeKeyRowProps } from "@/features/settings/ExchangeKeyCard";
 import type { CredentialEntry } from "@/shared/api/credentials";
 import i18n from "@/shared/i18n";
 import { emptyKey, storedKey } from "@/test/harness";
@@ -41,8 +41,9 @@ function textNode(text: string): HTMLElement {
   return node as HTMLElement;
 }
 
-function renderCard(overrides: Partial<ExchangeKeyCardProps> & Pick<ExchangeKeyCardProps, "exchange">): HTMLElement {
-  const props: ExchangeKeyCardProps = {
+/** Draws one row group of the keys' grid; returns the group, which the old card's `article` was. */
+function renderCard(overrides: Partial<ExchangeKeyRowProps> & Pick<ExchangeKeyRowProps, "exchange">): HTMLElement {
+  const props: ExchangeKeyRowProps = {
     entry: undefined,
     poolOn: false,
     served: true,
@@ -50,20 +51,24 @@ function renderCard(overrides: Partial<ExchangeKeyCardProps> & Pick<ExchangeKeyC
     onToggle: () => undefined,
     ...overrides,
   };
-  render(<ExchangeKeyCard {...props} />);
-  return screen.getByRole("article");
+  render(
+    <table>
+      <ExchangeKeyRow {...props} />
+    </table>,
+  );
+  return screen.getByRole("rowgroup");
 }
 
-describe("the card's shell", () => {
+describe("the row's shell", () => {
   it.each([
     ["bybit", "Bybit"],
     ["binance", "Binance"],
     ["pionex", "Pionex"],
     ["kraken", "Kraken"],
-  ])("is an article named by its one h3, the proper name of %s: %s", (exchange, name) => {
+  ])("is a row group named by its one h3, the proper name of %s: %s", (exchange, name) => {
     renderCard({ exchange, entry: stored(exchange) });
 
-    expect(screen.queryByRole("article", { name })).toBeInTheDocument();
+    expect(screen.queryByRole("rowgroup", { name })).toBeInTheDocument();
     const headings = screen.getAllByRole("heading");
     expect(headings).toHaveLength(1);
     expect(headings[0]).toHaveAccessibleName(name);
@@ -89,37 +94,37 @@ describe("the card's shell", () => {
     expect([within(heading).queryByRole("img"), heading.textContent]).toEqual([null, "Kraken"]);
   });
 
-  it("has the card's classes and the grid that puts the actions beside the head from sm", () => {
+  it("is one row of six cells, then a row that spans them all for what needs a sentence (ex6)", () => {
     const card = renderCard({ exchange: "bybit", entry: stored("bybit") });
 
-    expect(card).toHaveClass("bg-panel", "border", "border-rule", "rounded-lg", "p-5");
-    expect(card).toHaveClass("grid", "grid-cols-1", "sm:grid-cols-[minmax(0,1fr)_auto]", "items-start");
-    const areas = Array.from(card.children);
-    expect(areas[0]).toContainElement(screen.getByRole("heading"));
-    expect(areas[1]).toHaveClass("sm:col-span-2");
-    expect(areas[2]).toHaveClass("sm:col-start-2", "sm:row-start-1");
+    expect(card.tagName).toBe("TBODY");
+    const rows = Array.from(card.children);
+    expect(rows.map((row) => row.tagName)).toEqual(["TR", "TR"]);
+    expect(Array.from(rows[0]?.children ?? []).map((cell) => cell.tagName)).toEqual(Array(6).fill("TD"));
+    expect(rows[0]?.children[0]).toContainElement(screen.getByRole("heading"));
+    expect(rows[0]?.children[5]).toHaveClass("text-right");
+    expect(rows[1]?.children).toHaveLength(1);
+    expect(rows[1]?.children[0]).toHaveAttribute("colspan", "6");
   });
 });
 
-describe("the key line", () => {
-  it("is a paragraph that is not a heading, with the label, four dots and the last four, hidden from assistive technology", () => {
+describe("the key cell", () => {
+  it("is mono, with the four dots and the last four hidden from assistive technology and a hidden text in words", () => {
     renderCard({ exchange: "bybit", entry: stored("bybit") });
 
-    const hint = textNode("7Q2d").closest("p") as HTMLElement;
-    expect(hint.tagName).toBe("P");
-    expect(hint).toHaveClass("font-mono", "text-xl", "font-semibold", "whitespace-nowrap");
+    const hint = textNode("7Q2d").closest(".font-mono") as HTMLElement;
+    expect(hint).toHaveClass("font-mono", "tabular-nums");
     expect(screen.getAllByRole("heading")).toHaveLength(1);
 
     const visible = textNode("7Q2d").closest('[aria-hidden="true"]') as HTMLElement;
     expect(visible).toBeInTheDocument();
     expect(hint).toContainElement(visible);
-    expect(visible.textContent).toBe("key ••••7Q2d");
-    // The label and the dots are inside the same hidden subtree, not read out.
+    expect(visible.textContent).toBe("••••7Q2d");
+    // The dots are inside the same hidden subtree, not read out.
     expect(textNode("••••").closest('[aria-hidden="true"]')).toBe(visible);
-    expect(textNode("key").closest('[aria-hidden="true"]')).toBe(visible);
     // The characters are the only part in `ink`.
-    expect(textNode("7Q2d")).toHaveClass("text-ink", "tracking-wider");
-    expect(textNode("••••")).toHaveClass("text-ink-3", "font-normal");
+    expect(textNode("7Q2d")).toHaveClass("text-ink");
+    expect(textNode("••••")).toHaveClass("text-ink-3");
     // A text says it in words, and the hidden subtree is not it.
     const words = textNode("key ending in 7Q2d");
     expect(hint).toContainElement(words);
@@ -134,15 +139,13 @@ describe("the key line", () => {
     expect(textNode("key ending in 7Q2d").textContent).toBe("key ending in 7Q2d");
   });
 
-  it("puts the checked day beside the hint, in a second unbreakable paragraph", () => {
+  it("puts the checked day in the row under the key, in an unbreakable mono line", () => {
     renderCard({ exchange: "bybit", entry: stored("bybit") });
 
-    const hint = textNode("7Q2d").closest("p") as HTMLElement;
     const date = textNode("checked Oct 2, 2026");
     expect(date.tagName).toBe("P");
     expect(date).toHaveClass("font-mono", "text-xs", "text-ink-3", "whitespace-nowrap");
-    expect(date.parentElement).toBe(hint.parentElement);
-    expect(date.parentElement).toHaveClass("flex", "flex-wrap", "items-baseline", "gap-x-3", "gap-y-0.5");
+    expect(date.closest("td")).toHaveAttribute("colspan", "6");
     expect(screen.queryByText("not validated")).not.toBeInTheDocument();
   });
 
@@ -156,7 +159,7 @@ describe("the key line", () => {
     expect(screen.queryByText("7Q2d")).toBeInTheDocument();
   });
 
-  it("holds the `no key` mark as a tag, and no hint and no date, when no key is stored", () => {
+  it("holds the `no key` mark as the state pill, and no hint and no date, when no key is stored", () => {
     renderCard({ exchange: "binance", entry: empty("binance"), poolOn: false });
 
     expect(screen.queryByText("no key")).toBeInTheDocument();
@@ -172,8 +175,6 @@ describe("a key checked by the venue", () => {
 
     expect(screen.queryByText("key ending in 7Q2d")).toBeInTheDocument();
     expect(screen.queryByText("checked Oct 2, 2026")).toBeInTheDocument();
-    expect(card).toHaveClass("border-rule");
-    expect(card).not.toHaveClass("border-decision");
     expect(card.outerHTML).not.toMatch(AMBER);
     expect(screen.queryByText("read-only")).not.toBeInTheDocument();
     expect(screen.queryByText(/This key cannot trade/)).not.toBeInTheDocument();
@@ -183,48 +184,44 @@ describe("a key checked by the venue", () => {
 });
 
 describe("the states that ask the owner to act are amber, the rest are neutral", () => {
-  it("test_readonly_key_shows_amber_border_and_cannot_trade_sentence", () => {
-    const card = renderCard({ exchange: "bybit", entry: stored("bybit", { trade_capable: false }) });
+  it("test_readonly_key_shows_amber_mark_and_no_sentence_under_the_row", () => {
+    renderCard({ exchange: "bybit", entry: stored("bybit", { trade_capable: false }) });
 
-    const sentence = screen.queryByText(READ_ONLY_SENTENCE);
-    expect(sentence).toBeInTheDocument();
-    expect(sentence).toHaveClass("text-decision");
-    expect(card).toHaveClass("border-decision");
-    expect(card).not.toHaveClass("border-rule");
+    // L13: the amber mark says it; the sentence under the row is gone.
+    expect(screen.queryByText(READ_ONLY_SENTENCE)).not.toBeInTheDocument();
+    expect(screen.queryByText(/This key cannot trade/)).not.toBeInTheDocument();
     const mark = screen.queryByText("read-only");
     expect(mark).toBeInTheDocument();
     expect(mark).toHaveClass("border-decision", "text-decision");
+    // The permissions cell says it neutrally, as the prototype does; the amber is the warning under the row.
+    expect(screen.queryByText("Read-only")).not.toHaveClass("text-decision");
   });
 
-  it("test_degraded_no_key_but_enabled_pool_shows_amber_border_and_no_key_stored_sentence", () => {
-    const card = renderCard({ exchange: "binance", entry: empty("binance"), poolOn: true });
+  it("test_degraded_no_key_but_enabled_pool_shows_amber_state_pill_and_no_sentence", () => {
+    renderCard({ exchange: "binance", entry: empty("binance"), poolOn: true });
 
-    const sentence = screen.queryByText(DEGRADED_SENTENCE);
-    expect(sentence).toBeInTheDocument();
-    expect(sentence).toHaveClass("text-decision");
-    expect(card).toHaveClass("border-decision");
-    expect(screen.queryByText("no key")).toHaveClass("border-decision", "text-decision");
+    expect(screen.queryByText(DEGRADED_SENTENCE)).not.toBeInTheDocument();
+    expect(screen.queryByText(/No key stored/)).not.toBeInTheDocument();
+    expect(screen.queryByText("no key")).toHaveClass("border-decision/40", "text-decision");
   });
 
-  it("gives an exchange the API does not list at all the same degraded card", () => {
-    const card = renderCard({ exchange: "binance", entry: undefined, poolOn: true });
+  it("gives an exchange the API does not list at all the same degraded row", () => {
+    renderCard({ exchange: "binance", entry: undefined, poolOn: true });
 
-    expect(screen.queryByText(DEGRADED_SENTENCE)).toBeInTheDocument();
-    expect(card).toHaveClass("border-decision");
+    expect(screen.queryByText(DEGRADED_SENTENCE)).not.toBeInTheDocument();
+    expect(screen.queryByText("no key")).toHaveClass("text-decision");
   });
 
   it.each([
     ["an exchange that never had a key", undefined],
     ["a key that was deleted (an EMPTY row)", empty("binance")],
-  ])("test_no_key_ever_stored_shows_neutral_empty_state_no_amber_border: %s", (_label, entry) => {
+  ])("test_no_key_ever_stored_shows_neutral_empty_state_no_amber: %s", (_label, entry) => {
     const card = renderCard({ exchange: "binance", entry, poolOn: false });
 
     const sentence = screen.queryByText(EMPTY_SENTENCE);
     expect(sentence).toBeInTheDocument();
     expect(sentence).not.toHaveClass("text-decision");
-    expect(card).toHaveClass("border-rule");
-    expect(card).not.toHaveClass("border-decision");
-    expect(screen.queryByText("no key")).toHaveClass("border-rule-strong", "text-ink-3");
+    expect(screen.queryByText("no key")).toHaveClass("border-ink-2/40", "text-ink-2");
     expect(card.outerHTML).not.toMatch(AMBER);
   });
 
@@ -232,7 +229,6 @@ describe("the states that ask the owner to act are amber, the rest are neutral",
     const card = renderCard({ exchange: "binance", entry: empty("binance"), poolOn: null });
 
     expect(screen.queryByText(EMPTY_SENTENCE)).toBeInTheDocument();
-    expect(card).toHaveClass("border-rule");
     expect(card.outerHTML).not.toMatch(AMBER);
   });
 });
@@ -261,7 +257,6 @@ describe("an exchange the panel does not manage", () => {
   it("is amber only when a pool of it is on", () => {
     const card = renderCard({ exchange: "pionex", entry: undefined, poolOn: true, served: false });
 
-    expect(card).toHaveClass("border-decision");
     expect(screen.queryByText("no key")).toHaveClass("text-decision");
     // The sentence that says it cannot be managed here is still quiet.
     expect(screen.queryByText(NOT_SERVED_SENTENCE)).toHaveClass("text-ink-3");
@@ -285,9 +280,11 @@ describe("the only control a card draws is its toggle, and only when the exchang
     ];
     for (const [exchange, entry, poolOn, served] of cases) {
       const { unmount } = render(
-        <ExchangeKeyCard exchange={exchange} entry={entry} poolOn={poolOn} served={served} open={false} onToggle={() => undefined} />,
+        <table>
+          <ExchangeKeyRow exchange={exchange} entry={entry} poolOn={poolOn} served={served} open={false} onToggle={() => undefined} />
+        </table>,
       );
-      const names = screen.queryAllByRole("button").map((button) => button.textContent);
+      const names = screen.queryAllByRole("button").map((button) => button.getAttribute("title"));
       expect(names, `${exchange} ${entry?.status}`).toEqual(served ? [entry?.status === "STORED" ? "Replace key" : "Add key"] : []);
       unmount();
     }
@@ -297,51 +294,52 @@ describe("the only control a card draws is its toggle, and only when the exchang
 describe("the toggle (design § D Buttons, task 13.5.8)", () => {
   const toggle = () => screen.queryByRole<HTMLButtonElement>("button", { name: /^(Add|Replace) key/ });
 
-  it("is `Add key` on a keyless served card: filled teal, 44 px, named with its exchange", () => {
+  it("is `Add key` on a keyless served row: an icon button in teal, 32 px, named with its exchange", () => {
     renderCard({ exchange: "binance", entry: empty("binance") });
 
     const button = toggle();
     expect(button).toBeInTheDocument();
     expect(button).toHaveAccessibleName("Add key Binance");
-    expect(button).toHaveTextContent("Add key");
-    expect(button).toHaveClass("bg-gain", "text-ground", "min-h-11");
-    expect(button).not.toHaveClass("border-rule");
+    expect(button).toHaveAttribute("title", "Add key");
+    expect(button).toHaveTextContent("");
+    expect(button).toHaveClass("size-8", "rounded-lg", "border-gain", "text-gain");
+    expect(button).not.toHaveClass("bg-gain");
   });
 
-  it("is `Replace key` once a key is stored: outlined, 44 px, named with its exchange", () => {
+  it("is `Replace key` once a key is stored: a neutral icon button, 32 px, named with its exchange", () => {
     renderCard({ exchange: "bybit", entry: stored("bybit") });
 
     const button = toggle();
     expect(button).toBeInTheDocument();
     expect(button).toHaveAccessibleName("Replace key Bybit");
-    expect(button).toHaveClass("border", "border-rule", "min-h-11");
+    expect(button).toHaveClass("size-8", "border", "border-rule", "bg-panel", "text-ink-2", "rounded-lg");
     expect(button).not.toHaveClass("bg-gain");
   });
 
   it.each([
-    ["Add key Binance", "binance", "empty", "lucide-key-round"],
-    ["Replace key Bybit", "bybit", "stored", "lucide-arrow-left-right"],
-  ] as const)("draws an aria-hidden icon left of the text of %s, its name unchanged", (name, exchange, kind, iconClass) => {
+    ["Add key Binance", "binance", "empty"],
+    ["Replace key Bybit", "bybit", "stored"],
+  ] as const)("draws an aria-hidden key icon alone in %s, its name unchanged", (name, exchange, kind) => {
     renderCard({ exchange, entry: kind === "empty" ? empty(exchange) : stored(exchange) });
 
     const button = toggle() as HTMLButtonElement;
     const svg = button.querySelector("svg");
-    expect(svg).toHaveClass(iconClass, "size-4", "shrink-0");
+    expect(svg).toHaveClass("lucide-key-round", "size-4", "shrink-0");
     expect(svg).toHaveAttribute("aria-hidden", "true");
-    expect(button.firstElementChild).toBe(svg);
-    expect(button).toHaveClass("inline-flex", "items-center", "gap-1.5");
+    expect(button.children).toHaveLength(1);
+    expect(button).toHaveClass("inline-flex", "items-center", "justify-center");
     expect(button).toHaveAccessibleName(name);
   });
 
-  it("names the two buttons of two cards differently, never `Replace key` twice", () => {
+  it("names the two buttons of two rows differently, never `Replace key` twice", () => {
     render(
-      <>
-        <ExchangeKeyCard exchange="bybit" entry={stored("bybit")} poolOn={false} served open={false} onToggle={() => undefined} />
-        <ExchangeKeyCard exchange="binance" entry={stored("binance")} poolOn={false} served open={false} onToggle={() => undefined} />
-      </>,
+      <table>
+        <ExchangeKeyRow exchange="bybit" entry={stored("bybit")} poolOn={false} served open={false} onToggle={() => undefined} />
+        <ExchangeKeyRow exchange="binance" entry={stored("binance")} poolOn={false} served open={false} onToggle={() => undefined} />
+      </table>,
     );
 
-    const names = screen.getAllByRole("button", { name: /^Replace key/ }).map((button) => button.getAttribute("aria-labelledby"));
+    const names = screen.getAllByRole("button", { name: /^Replace key/ }).map((button) => button.getAttribute("aria-label"));
     expect(new Set(names).size).toBe(2);
     expect(screen.queryByRole("button", { name: "Replace key Bybit" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Replace key Binance" })).toBeInTheDocument();
@@ -360,8 +358,8 @@ describe("the toggle (design § D Buttons, task 13.5.8)", () => {
     expect(toggle()).toHaveAttribute("aria-expanded", "false");
   });
 
-  it("is the SAME element when its text changes, so it can keep the focus across a first save", () => {
-    const props: ExchangeKeyCardProps = {
+  it("is the SAME element when its name changes, so it can keep the focus across a first save", () => {
+    const props: ExchangeKeyRowProps = {
       exchange: "binance",
       entry: empty("binance"),
       poolOn: false,
@@ -369,13 +367,21 @@ describe("the toggle (design § D Buttons, task 13.5.8)", () => {
       open: false,
       onToggle: () => undefined,
     };
-    const { rerender } = render(<ExchangeKeyCard {...props} />);
+    const { rerender } = render(
+      <table>
+        <ExchangeKeyRow {...props} />
+      </table>,
+    );
     const before = toggle();
-    expect(before).toHaveTextContent("Add key");
+    expect(before).toHaveAccessibleName("Add key Binance");
 
-    rerender(<ExchangeKeyCard {...props} entry={stored("binance")} />);
+    rerender(
+      <table>
+        <ExchangeKeyRow {...props} entry={stored("binance")} />
+      </table>,
+    );
 
-    expect(toggle()).toHaveTextContent("Replace key");
+    expect(toggle()).toHaveAccessibleName("Replace key Binance");
     expect(toggle()).toBe(before);
   });
 
@@ -393,27 +399,31 @@ describe("the toggle (design § D Buttons, task 13.5.8)", () => {
     expect(toggle()).toBeDisabled();
   });
 
-  it("draws the form it is given under the facts and the buttons, only when open", () => {
+  it("draws the form it is given in a row of its own under the key and its facts, only when open", () => {
     const { rerender } = render(
-      <ExchangeKeyCard exchange="bybit" entry={stored("bybit")} poolOn={false} served open={false} onToggle={() => undefined}>
-        <section aria-label="the form" />
-      </ExchangeKeyCard>,
+      <table>
+        <ExchangeKeyRow exchange="bybit" entry={stored("bybit")} poolOn={false} served open={false} onToggle={() => undefined}>
+          <section aria-label="the form" />
+        </ExchangeKeyRow>
+      </table>,
     );
     expect(screen.queryByRole("region", { name: "the form" })).not.toBeInTheDocument();
 
     rerender(
-      <ExchangeKeyCard exchange="bybit" entry={stored("bybit")} poolOn={false} served open onToggle={() => undefined}>
-        <section aria-label="the form" />
-      </ExchangeKeyCard>,
+      <table>
+        <ExchangeKeyRow exchange="bybit" entry={stored("bybit")} poolOn={false} served open onToggle={() => undefined}>
+          <section aria-label="the form" />
+        </ExchangeKeyRow>
+      </table>,
     );
 
-    const card = screen.getByRole("article");
+    const card = screen.getByRole("rowgroup");
     expect(screen.queryByRole("region", { name: "the form" })).toBeInTheDocument();
-    const areas = Array.from(card.children);
-    expect(areas).toHaveLength(4);
-    expect(areas[2]).toContainElement(toggle());
-    expect(areas[3]).toContainElement(screen.getByRole("region", { name: "the form" }));
-    expect(areas[3]).toHaveClass("sm:col-span-2");
+    const rows = Array.from(card.children);
+    expect(rows).toHaveLength(3);
+    expect(rows[0]).toContainElement(toggle());
+    expect(rows[2]).toContainElement(screen.getByRole("region", { name: "the form" }));
+    expect(rows[2]?.children[0]).toHaveAttribute("colspan", "6");
   });
 
   it("has no button of any kind on a card that is not served", () => {
@@ -608,8 +618,8 @@ describe("a key the owner confirmed", () => {
 
   it("draws no information button for a key the venue checked, nor for one with nothing on record", () => {
     renderCard({ exchange: "bybit", entry: stored("bybit") });
-    // The card's own toggle is the only button (task 13.5.1, R12).
-    expect(screen.queryAllByRole("button").map((button) => button.textContent)).toEqual(["Replace key"]);
+    // The row's own toggle is the only button (task 13.5.1, R12).
+    expect(screen.queryAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual(["Replace key Bybit"]);
     expect(screen.queryByRole("button", { name: /About what you confirmed/ })).not.toBeInTheDocument();
   });
 });
@@ -623,8 +633,7 @@ describe("a key with no recorded facts", () => {
     expect(card.textContent).not.toContain("confirmed");
     const hint = textNode(UNRECORDED_HINT);
     expect(hint).toHaveClass("text-ink-3");
-    expect(screen.queryAllByRole("button").map((button) => button.textContent)).toEqual(["Replace key"]);
-    expect(card).toHaveClass("border-rule");
+    expect(screen.queryAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual(["Replace key Binance"]);
     expect(card.outerHTML).not.toMatch(AMBER);
   });
 
@@ -659,7 +668,9 @@ describe("one phrase per fact (decision 55)", () => {
                   withdraw_confirmed_at: withdrawConfirmedAt,
                 });
                 const { unmount } = render(
-                  <ExchangeKeyCard exchange="binance" entry={entry} poolOn={false} served open={false} onToggle={() => undefined} />,
+                  <table>
+                    <ExchangeKeyRow exchange="binance" entry={entry} poolOn={false} served open={false} onToggle={() => undefined} />
+                  </table>,
                 );
                 const texts = tagTexts();
                 const label = JSON.stringify({ tradeSource, tradeCapable, validatedAt, tradeConfirmedAt, withdrawSource, withdrawConfirmedAt });
@@ -690,11 +701,12 @@ describe("one phrase per fact (decision 55)", () => {
   it("test_confirmed_and_not_verified_tags_are_neutral_not_amber", () => {
     for (const entry of [confirmed(), unrecorded(), confirmed({ trade_confirmed_at: null })]) {
       const { unmount } = render(
-        <ExchangeKeyCard exchange="binance" entry={entry} poolOn={false} served open={false} onToggle={() => undefined} />,
+        <table>
+          <ExchangeKeyRow exchange="binance" entry={entry} poolOn={false} served open={false} onToggle={() => undefined} />
+        </table>,
       );
-      const card = screen.getByRole("article");
+      const card = screen.getByRole("rowgroup");
       expect(card.outerHTML).not.toMatch(AMBER);
-      expect(card).toHaveClass("border-rule");
       unmount();
     }
   });

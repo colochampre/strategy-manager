@@ -212,7 +212,7 @@ function SubscribeBody({ strategy }: { strategy: PublicStrategy }) {
         <p className="text-sm text-ink-2">
           {t("strategies.subscribe.needsKey", { exchange: exchangeName(t, i18n, strategy.exchange) })}
         </p>
-        <Link to="/settings" className={LINK}>
+        <Link to="/exchanges" className={LINK}>
           {t("strategies.subscribe.addKey")}
         </Link>
       </>

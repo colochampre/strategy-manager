@@ -1,23 +1,22 @@
 import { Trash } from "lucide-react";
-import { useId, useState } from "react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { DeleteAccountDialog } from "@/features/settings/DeleteAccountDialog";
 import { useDeleteAccount, useMe } from "@/shared/api/me";
+import { Card } from "@/shared/ui/Card";
 import { DANGER_CONTROL } from "@/shared/ui/danger-control";
-import { ReportSection } from "@/shared/ui/ReportSection";
 
 /**
- * The last section of Settings (account-deletion S1): what deleting the account erases, closes and keeps, and the
- * button that opens the confirmation. The deletion itself is `useDeleteAccount`'s; once it worked the app draws
- * only the screen that says so.
+ * The last card of Mi cuenta (account-deletion S1; ex7's "Eliminar cuenta", loss-coloured): what deleting the account
+ * erases, closes and keeps, and the button that opens the confirmation. The deletion itself is `useDeleteAccount`'s;
+ * once it worked the app draws only the screen that says so.
  */
 export function DeleteAccountSection() {
   const { t } = useTranslation();
   const me = useMe().data;
   const deletion = useDeleteAccount();
   const [open, setOpen] = useState(false);
-  const headingId = useId();
 
   if (me === undefined) return null;
 
@@ -27,25 +26,24 @@ export function DeleteAccountSection() {
   };
 
   return (
-    <section aria-labelledby={headingId} className="flex flex-col gap-4">
-      <h2 id={headingId} className="font-display text-base font-semibold text-ink">
-        {t("settings.account.title")}
-      </h2>
-      <ReportSection>
-        <div className="flex flex-col gap-3">
-          <ul className="flex flex-col gap-1.5 text-xs text-ink-2">
-            <li>{t("settings.account.erased")}</li>
-            <li>{t("settings.account.closed")}</li>
-            <li>{t("settings.account.kept")}</li>
-          </ul>
-          <p className="text-xs text-ink-3">{t("settings.account.refused")}</p>
+    <>
+      <Card title={t("settings.account.title")} danger>
+        <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
+          <div className="flex min-w-0 flex-col gap-3">
+            <ul className="flex flex-col gap-1.5 text-[15px] text-ink">
+              <li>{t("settings.account.erased")}</li>
+              <li>{t("settings.account.closed")}</li>
+              <li>{t("settings.account.kept")}</li>
+            </ul>
+            <p className="text-[13px] text-ink-3">{t("settings.account.refused")}</p>
+          </div>
           {/* Deleting is final, so the button keeps its words beside its icon, as a strategy's delete does. */}
-          <button type="button" className={`${DANGER_CONTROL} self-start`} onClick={() => setOpen(true)}>
+          <button type="button" className={DANGER_CONTROL} onClick={() => setOpen(true)}>
             <Trash aria-hidden="true" className="size-4" />
             {t("settings.account.open")}
           </button>
         </div>
-      </ReportSection>
+      </Card>
       {open && (
         <DeleteAccountDialog
           email={me.email}
@@ -55,6 +53,6 @@ export function DeleteAccountSection() {
           onCancel={close}
         />
       )}
-    </section>
+    </>
   );
 }

@@ -262,6 +262,7 @@ describe("the Discrepancies item and its badge", () => {
       "/strategies/authored",
       "/strategies",
       "/strategies/explore",
+      "/exchanges",
       "/safety-events",
       "/discrepancies",
       "/users",

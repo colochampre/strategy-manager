@@ -1,96 +1,93 @@
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { CONFIRMED_KEY, useConfirmedDiscrepancies } from "@/shared/api/discrepancies";
 import { ModeBadge } from "@/shared/layout/ModeBadge";
+import i18n from "@/shared/i18n";
 import { jsonResponse, renderAt, SIGNED_UP, stubApi, unlock } from "@/test/harness";
 
 const HEALTH = { kind: "ok", body: { status: "ok", dry_run: false } } as const;
 
-const REAL_ORDERS = "Real orders will be placed on your exchanges with your capital, from the next opening signal on.";
-
-interface Server {
-  mode: "LIVE" | "SIMULATION";
-  brake: boolean;
-  /** Answers the POST instead of accepting it. */
-  refuse?: () => Response;
-  /** Holds the POST until the test resolves it. */
-  hold?: Promise<Response>;
-}
-
-function serve(server: Server) {
-  return stubApi(HEALTH, [], undefined, {}, (url, init) => {
-    if (url.endsWith("/api/me")) {
-      return Promise.resolve(
-        jsonResponse({ email: "owner@example.com", is_admin: true, mode: server.mode, dry_run_brake: server.brake, ...SIGNED_UP }),
-      );
-    }
-    if (!url.endsWith("/api/me/mode")) return undefined;
-    if (server.hold !== undefined) return server.hold;
-    if (server.refuse !== undefined) return Promise.resolve(server.refuse());
-    server.mode = (JSON.parse(String(init?.body)) as { mode: Server["mode"] }).mode;
-    return Promise.resolve(
-      jsonResponse({ email: "owner@example.com", is_admin: true, mode: server.mode, dry_run_brake: server.brake, ...SIGNED_UP }),
-    );
-  });
-}
-
-function posts(fetchMock: ReturnType<typeof stubApi>) {
-  return fetchMock.mock.calls.filter(([url]) => String(url).endsWith("/api/me/mode"));
-}
-
-function refusal(error: string, symbols: string[] = []) {
-  return () => jsonResponse({ detail: { error, message: "server wording", symbols } }, 409);
-}
-
-/** Opens the badge's menu and picks the mode the badge does not show: the one that asks for a confirmation. */
-async function openDialog(name: RegExp) {
-  fireEvent.click(await screen.findByRole("button", { name }));
-  const other = String(name).includes("Simulation") ? "Live" : "Simulation";
-  fireEvent.click(within(screen.getByRole("menu")).getByRole("menuitemradio", { name: other }));
-  return screen.findByRole("dialog");
+function serve(mode: "LIVE" | "SIMULATION", brake: boolean) {
+  return stubApi(HEALTH, [], undefined, {}, (url) =>
+    url.endsWith("/api/me")
+      ? Promise.resolve(
+          jsonResponse({ email: "owner@example.com", is_admin: true, mode, dry_run_brake: brake, ...SIGNED_UP }),
+        )
+      : undefined,
+  );
 }
 
 beforeEach(() => {
   unlock();
 });
 
-afterEach(() => {
+afterEach(async () => {
   vi.unstubAllGlobals();
+  await i18n.changeLanguage("en");
 });
 
-describe("what the badge says", () => {
-  it("says Simulation in amber, as a button", async () => {
-    serve({ mode: "SIMULATION", brake: false });
+/** The badge's own element: the status that holds the word and the dot. */
+async function badge(text: string): Promise<HTMLElement> {
+  const word = await screen.findByText(text);
+  return word.closest('[role="status"]') as HTMLElement;
+}
+
+describe("what the badge says (L12: it only shows the mode)", () => {
+  it("says Live in sentence case, tinted in the gain colour with a dot, as the prototype's .badge-live", async () => {
+    serve("LIVE", false);
     renderAt(<ModeBadge />);
 
-    const badge = await screen.findByText("Simulation");
-    expect(badge).toHaveClass("text-decision", "border-decision");
-    expect(screen.getByRole("button", { name: /Mode: Simulation/ })).toContainElement(badge);
+    const live = await badge("Live");
+    expect(live).toHaveClass("h-9", "rounded-lg", "border-gain/45", "bg-gain/12", "text-gain-bright", "font-medium");
+    expect(live).not.toHaveClass("uppercase");
+    expect(live.querySelector('[data-dot="true"]')).toHaveClass("bg-gain", "rounded-full");
+    expect(live.textContent).toBe("Live");
   });
 
-  it("says Live in the gain colour, as a button", async () => {
-    serve({ mode: "LIVE", brake: false });
+  it("says En vivo in Spanish, not EN VIVO", async () => {
+    await i18n.changeLanguage("es");
+    serve("LIVE", false);
     renderAt(<ModeBadge />);
 
-    const badge = await screen.findByText("Live");
-    expect(badge).toHaveClass("text-gain", "border-gain");
-    expect(badge).not.toHaveClass("text-loss");
-    expect(screen.getByRole("button", { name: /Mode: Live/ })).toContainElement(badge);
+    const live = await badge("En vivo");
+    expect(live.textContent).toBe("En vivo");
+    expect(live).not.toHaveClass("uppercase");
+  });
+
+  it("says Simulation in the same shape, neutral and not amber: it is a state, not a decision", async () => {
+    serve("SIMULATION", false);
+    renderAt(<ModeBadge />);
+
+    const simulation = await badge("Simulation");
+    expect(simulation).toHaveClass("h-9", "rounded-lg", "text-ink-2");
+    expect(simulation.outerHTML).not.toMatch(/-decision\b/);
+    expect(simulation.querySelector('[data-dot="true"]')).toHaveClass("bg-ink-3");
+  });
+
+  it("has no menu and no button, whatever the mode: the mode is changed from My account", async () => {
+    serve("LIVE", false);
+    renderAt(<ModeBadge />);
+
+    await badge("Live");
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText("Live"));
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
   it.each(["SIMULATION", "LIVE"] as const)(
-    "says simulation is forced for everyone when the brake is on, and cannot be clicked (user in %s)",
+    "says simulation is forced for everyone when the brake is on, in the amber that needs a decision (user in %s)",
     async (mode) => {
-      serve({ mode, brake: true });
+      serve(mode, true);
       renderAt(<ModeBadge />);
 
-      const badge = await screen.findByText("Simulation forced");
-      expect(badge).toHaveClass("text-decision");
+      const forced = await badge("Simulation forced");
+      expect(forced).toHaveClass("h-9", "rounded-lg", "text-decision", "border-decision/45", "bg-decision/12");
       // Why, behind an (i) right of the badge, shown on hover and focus, below it (L.10).
-      expect(badge).not.toHaveAttribute("title");
+      expect(forced).not.toHaveAttribute("title");
       const info = screen.getByRole("img", { name: "About the brake" });
-      expect(badge.nextElementSibling).toContainElement(info);
+      expect(forced.parentElement).toContainElement(info);
       expect(screen.queryByRole("tooltip")).toBeNull();
       fireEvent.mouseEnter(info.parentElement as HTMLElement);
       const tip = screen.getByRole("tooltip");
@@ -102,10 +99,10 @@ describe("what the badge says", () => {
   );
 
   it("draws no (i) while the brake is off (L.10)", async () => {
-    serve({ mode: "LIVE", brake: false });
+    serve("LIVE", false);
     renderAt(<ModeBadge />);
 
-    await screen.findByRole("button");
+    await badge("Live");
     expect(screen.queryByRole("img", { name: "About the brake" })).toBeNull();
   });
 
@@ -115,7 +112,7 @@ describe("what the badge says", () => {
     );
     renderAt(<ModeBadge />);
 
-    expect(screen.getByText("Checking mode")).toHaveClass("text-ink-3");
+    expect(screen.getByText("Checking mode").closest('[role="status"]')).toHaveClass("text-ink-3");
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 
@@ -127,259 +124,8 @@ describe("what the badge says", () => {
     stubApi(HEALTH, [], undefined, {}, (url) => (url.endsWith("/api/me") ? answer() : undefined));
     renderAt(<ModeBadge />);
 
-    expect(await screen.findByText("Mode unknown")).toHaveClass("text-ink-3");
+    expect((await badge("Mode unknown"))).toHaveClass("text-ink-3");
     expect(screen.queryByText("Live")).not.toBeInTheDocument();
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
-  });
-});
-
-describe("the badge drops down the two modes (owner, 2026-11-06)", () => {
-  it.each([
-    ["SIMULATION", /Mode: Simulation/, "Simulation"],
-    ["LIVE", /Mode: Live/, "Live"],
-  ] as const)("in %s, lists Live and Simulation with the current one checked, and sends nothing", async (mode, name, current) => {
-    const fetchMock = serve({ mode, brake: false });
-    renderAt(<ModeBadge />);
-
-    const button = await screen.findByRole("button", { name });
-    expect(button).toHaveAttribute("aria-haspopup", "menu");
-    expect(button).toHaveAttribute("aria-expanded", "false");
-    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
-    fireEvent.click(button);
-
-    expect(button).toHaveAttribute("aria-expanded", "true");
-    const items = within(screen.getByRole("menu")).getAllByRole("menuitemradio");
-    expect(items.map((item) => [item.textContent, item.getAttribute("aria-checked")])).toEqual([
-      ["Live", String(current === "Live")],
-      ["Simulation", String(current === "Simulation")],
-    ]);
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    expect(posts(fetchMock)).toHaveLength(0);
-  });
-
-  it("picking the mode already in force closes the menu and asks nothing", async () => {
-    const fetchMock = serve({ mode: "SIMULATION", brake: false });
-    renderAt(<ModeBadge />);
-
-    fireEvent.click(await screen.findByRole("button", { name: /Mode: Simulation/ }));
-    fireEvent.click(screen.getByRole("menuitemradio", { name: "Simulation" }));
-
-    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    expect(posts(fetchMock)).toHaveLength(0);
-  });
-
-  it("picking the other mode closes the menu and asks for the confirmation", async () => {
-    serve({ mode: "SIMULATION", brake: false });
-    renderAt(<ModeBadge />);
-
-    fireEvent.click(await screen.findByRole("button", { name: /Mode: Simulation/ }));
-    fireEvent.click(screen.getByRole("menuitemradio", { name: "Live" }));
-
-    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
-    expect(within(await screen.findByRole("dialog")).getByRole("heading", { name: "Go live?" })).toBeInTheDocument();
-  });
-
-  it("closes on Escape, giving the focus back to the badge", async () => {
-    serve({ mode: "LIVE", brake: false });
-    renderAt(<ModeBadge />);
-
-    const button = await screen.findByRole("button", { name: /Mode: Live/ });
-    fireEvent.click(button);
-    fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
-
-    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
-    expect(button).toHaveFocus();
-  });
-
-  it("closes on a click anywhere else, and a second click on the badge closes it too", async () => {
-    serve({ mode: "LIVE", brake: false });
-    renderAt(
-      <div>
-        <p>elsewhere</p>
-        <ModeBadge />
-      </div>,
-    );
-
-    const button = await screen.findByRole("button", { name: /Mode: Live/ });
-    fireEvent.click(button);
-    fireEvent.pointerDown(screen.getByText("elsewhere"));
-    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
-
-    fireEvent.click(button);
-    fireEvent.click(button);
-    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
-  });
-});
-
-describe("changing the mode", () => {
-  it("asks first: the click sends nothing, and Cancel has the focus", async () => {
-    const fetchMock = serve({ mode: "SIMULATION", brake: false });
-    renderAt(<ModeBadge />);
-
-    const dialog = await openDialog(/Mode: Simulation/);
-
-    expect(within(dialog).getByRole("heading", { name: "Go live?" })).toBeInTheDocument();
-    expect(within(dialog).getByText(REAL_ORDERS)).toBeInTheDocument();
-    expect(within(dialog).getByRole("button", { name: "Cancel" })).toHaveFocus();
-    expect(posts(fetchMock)).toHaveLength(0);
-  });
-
-  it("sends nothing on Cancel", async () => {
-    const fetchMock = serve({ mode: "SIMULATION", brake: false });
-    renderAt(<ModeBadge />);
-    const dialog = await openDialog(/Mode: Simulation/);
-
-    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
-
-    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
-    expect(posts(fetchMock)).toHaveLength(0);
-    expect(screen.getByText("Simulation")).toBeInTheDocument();
-  });
-
-  it("goes live on the dialog's own button, and the badge follows", async () => {
-    const fetchMock = serve({ mode: "SIMULATION", brake: false });
-    renderAt(<ModeBadge />);
-    const dialog = await openDialog(/Mode: Simulation/);
-
-    fireEvent.click(within(dialog).getByRole("button", { name: "Go live" }));
-
-    expect(await screen.findByText("Live")).toBeInTheDocument();
-    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
-    expect(posts(fetchMock)).toHaveLength(1);
-    expect(JSON.parse(String(posts(fetchMock)[0]?.[1]?.body))).toEqual({ mode: "LIVE" });
-  });
-
-  it("goes back to simulation, saying no real order is placed", async () => {
-    const fetchMock = serve({ mode: "LIVE", brake: false });
-    renderAt(<ModeBadge />);
-    const dialog = await openDialog(/Mode: Live/);
-
-    expect(
-      within(dialog).getByText("Openings will be simulated against your real balance. No real order is placed for them."),
-    ).toBeInTheDocument();
-    fireEvent.click(within(dialog).getByRole("button", { name: "Move to simulation" }));
-
-    expect(await screen.findByText("Simulation")).toBeInTheDocument();
-    expect(JSON.parse(String(posts(fetchMock)[0]?.[1]?.body))).toEqual({ mode: "SIMULATION" });
-  });
-
-  it("reads the discrepancies again, because whether they are compared follows the mode", async () => {
-    const fetchMock = serve({ mode: "SIMULATION", brake: false });
-    function Reader() {
-      useConfirmedDiscrepancies();
-      return <ModeBadge />;
-    }
-    renderAt(<Reader />);
-    const confirmedReads = () =>
-      fetchMock.mock.calls.filter(([url]) => String(url).endsWith(CONFIRMED_KEY.join("/"))).length;
-    const dialog = await openDialog(/Mode: Simulation/);
-    await waitFor(() => expect(confirmedReads()).toBe(1));
-
-    fireEvent.click(within(dialog).getByRole("button", { name: "Go live" }));
-
-    await waitFor(() => expect(confirmedReads()).toBe(2));
-  });
-
-  it("holds the dialog while the change is in flight", async () => {
-    let release: (response: Response) => void = () => undefined;
-    const hold = new Promise<Response>((resolve) => {
-      release = resolve;
-    });
-    serve({ mode: "SIMULATION", brake: false, hold });
-    renderAt(<ModeBadge />);
-    const dialog = await openDialog(/Mode: Simulation/);
-
-    fireEvent.click(within(dialog).getByRole("button", { name: "Go live" }));
-
-    const cancel = within(dialog).getByRole("button", { name: "Cancel" });
-    await waitFor(() => expect(cancel).toBeDisabled());
-    expect(within(dialog).getByRole("button", { name: "Changing…" })).toBeDisabled();
-    fireEvent.keyDown(dialog, { key: "Escape" });
-    expect(screen.getByRole("dialog")).toBeInTheDocument();
-
-    release(jsonResponse({ email: "owner@example.com", is_admin: true, mode: "LIVE", dry_run_brake: false, ...SIGNED_UP }));
-    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
-  });
-
-  it("closes on Escape when nothing is in flight", async () => {
-    serve({ mode: "SIMULATION", brake: false });
-    renderAt(<ModeBadge />);
-    const dialog = await openDialog(/Mode: Simulation/);
-
-    fireEvent.keyDown(dialog, { key: "Escape" });
-
-    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
-  });
-});
-
-describe("each refusal in words", () => {
-  it("says a key that can trade is missing, and the mode stays", async () => {
-    serve({ mode: "SIMULATION", brake: false, refuse: refusal("MODE_LIVE_NEEDS_TRADE_KEY") });
-    renderAt(<ModeBadge />);
-    const dialog = await openDialog(/Mode: Simulation/);
-
-    fireEvent.click(within(dialog).getByRole("button", { name: "Go live" }));
-
-    expect(await within(dialog).findByRole("alert")).toHaveTextContent(
-      "Going live needs an active key that can trade. Add one in Settings.",
-    );
-    expect(screen.getByText("Simulation")).toBeInTheDocument();
-  });
-
-  it("lists the symbols of a flat refusal", async () => {
-    serve({ mode: "LIVE", brake: false, refuse: refusal("MODE_SIMULATION_NEEDS_FLAT", ["SFPUSDT", "STXUSDT"]) });
-    renderAt(<ModeBadge />);
-    const dialog = await openDialog(/Mode: Live/);
-
-    fireEvent.click(within(dialog).getByRole("button", { name: "Move to simulation" }));
-
-    const alert = await within(dialog).findByRole("alert");
-    expect(alert).toHaveTextContent("Going to simulation needs nothing real held.");
-    expect(within(alert).getAllByRole("listitem").map((item) => item.textContent)).toEqual(["SFPUSDT", "STXUSDT"]);
-  });
-
-  it("says the brake is on, and keeps saying it after the badge has followed", async () => {
-    const server: Server = { mode: "SIMULATION", brake: false };
-    server.refuse = () => {
-      server.brake = true;
-      return refusal("MODE_BRAKE_ON")();
-    };
-    serve(server);
-    renderAt(<ModeBadge />);
-    const dialog = await openDialog(/Mode: Simulation/);
-
-    fireEvent.click(within(dialog).getByRole("button", { name: "Go live" }));
-
-    expect(await screen.findByText("Simulation forced")).toBeInTheDocument();
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "The brake is on: everyone is in simulation until it is released, so the mode cannot change.",
-    );
-  });
-
-  it("says the change failed on anything else, never with the server's words", async () => {
-    serve({ mode: "SIMULATION", brake: false, refuse: () => jsonResponse({ detail: "server wording" }, 500) });
-    renderAt(<ModeBadge />);
-    const dialog = await openDialog(/Mode: Simulation/);
-
-    fireEvent.click(within(dialog).getByRole("button", { name: "Go live" }));
-
-    const alert = await within(dialog).findByRole("alert");
-    expect(alert).toHaveTextContent("The mode could not be changed. Try again.");
-    expect(alert).not.toHaveTextContent("server wording");
-  });
-
-  it("forgets the last refusal when the dialog is opened again", async () => {
-    serve({ mode: "SIMULATION", brake: false, refuse: refusal("MODE_LIVE_NEEDS_TRADE_KEY") });
-    renderAt(<ModeBadge />);
-    const first = await openDialog(/Mode: Simulation/);
-    fireEvent.click(within(first).getByRole("button", { name: "Go live" }));
-    await within(first).findByRole("alert");
-    fireEvent.click(within(first).getByRole("button", { name: "Cancel" }));
-    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
-
-    const second = await openDialog(/Mode: Simulation/);
-
-    expect(within(second).queryByRole("alert")).not.toBeInTheDocument();
   });
 });

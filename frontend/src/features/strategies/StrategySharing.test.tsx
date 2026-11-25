@@ -287,7 +287,7 @@ describe("a private strategy's invitation codes", () => {
 
   it.each([
     [jsonResponse({ detail: { error: "STRATEGY_NOT_PRIVATE", message: "x" } }, 409), "The strategy is no longer private, so no code was created."],
-    [jsonResponse({ detail: { error: "AUTHOR_HAS_NO_DISPLAY_NAME", message: "x" } }, 409), "Choose your name in Settings first: a strategy offered to others shows its author."],
+    [jsonResponse({ detail: { error: "AUTHOR_HAS_NO_DISPLAY_NAME", message: "x" } }, 409), "Choose your name in My account first: a strategy offered to others shows its author."],
     [jsonResponse({ detail: { error: "STRATEGY_ARCHIVED", message: "x" } }, 409), "This strategy is archived and can no longer change."],
     [jsonResponse({ detail: "no such strategy" }, 404), "This strategy no longer exists."],
     [jsonResponse({ detail: "boom" }, 500), "The code was not created. Try again."],

@@ -123,7 +123,7 @@ function setup(respond: () => Promise<Response>, lists: { credentials?: () => un
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={["/settings"]}>
+      <MemoryRouter initialEntries={["/exchanges"]}>
         <AppRoutes />
       </MemoryRouter>
     </QueryClientProvider>,
@@ -142,7 +142,7 @@ function reads(fetchMock: ReturnType<typeof stubApi>) {
 }
 
 async function card(name: string): Promise<HTMLElement> {
-  return screen.findByRole("article", { name });
+  return screen.findByRole("rowgroup", { name });
 }
 
 /** A card's toggle, "Add key" or "Replace key" with the exchange after it. */
@@ -369,8 +369,8 @@ describe("row 10: leaving, switching exchange and a 401", () => {
     fireEvent.click(screen.getAllByRole("link", { name: "Overview" })[0] as HTMLElement);
     await screen.findByRole("heading", { level: 1, name: "Overview" });
     expect(screen.queryByLabelText("API key")).not.toBeInTheDocument();
-    fireEvent.click(screen.getAllByRole("link", { name: /My account/ })[0] as HTMLElement);
-    await screen.findByRole("heading", { level: 1, name: "My account" });
+    fireEvent.click(screen.getAllByRole("link", { name: /Link exchange/ })[0] as HTMLElement);
+    await screen.findByRole("heading", { level: 1, name: "Link exchange" });
     await card("Bybit");
 
     expect(screen.queryByLabelText("API key")).not.toBeInTheDocument();
@@ -392,7 +392,7 @@ describe("row 10: leaving, switching exchange and a 401", () => {
     expect(leaks(document.body.innerHTML)).toEqual([]);
 
     fireEvent.click(await toggleOf("Bybit"));
-    await waitFor(() => expect(within(screen.getByRole("article", { name: "Bybit" })).queryByLabelText("API key")).toBeInTheDocument());
+    await waitFor(() => expect(within(screen.getByRole("rowgroup", { name: "Bybit" })).queryByLabelText("API key")).toBeInTheDocument());
     expect(keyField().value).toBe("");
     expect(secretField().value).toBe("");
   });

@@ -33,29 +33,22 @@ describe("the words of a mark", () => {
     ["es", NO_KEY_GREY, "sin clave"],
   ] as const)("in %s a %j is the text %s", async (language, mark, text) => {
     await i18n.changeLanguage(language);
-    render(<KeyMark mark={mark} variant="tab" />);
+    render(<KeyMark mark={mark} />);
     expect(markNode(text)).toBeInTheDocument();
   });
 });
 
-describe("a mark on a tab is plain text", () => {
-  it("is amber with text-decision and grey with text-ink-3", () => {
-    const { rerender } = render(<KeyMark mark={READ_ONLY} variant="tab" />);
-    expect(markNode("read-only")).toHaveClass("text-decision");
-    expect(markNode("read-only")).not.toHaveClass("text-ink-3");
-
-    rerender(<KeyMark mark={NO_KEY_GREY} variant="tab" />);
-    expect(markNode("no key")).toHaveClass("text-ink-3");
-    expect(markNode("no key")).not.toHaveClass("text-decision");
+describe("a mark has one look: the tag", () => {
+  it("has no tab variant any more: nothing draws a mark on an exchange button since L9", () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const source = readFileSync(join(here, "KeyMark.tsx"), "utf8");
+    expect(source).not.toMatch(/\btab\b|TAB|text-\[11px\]/i);
   });
 
-  it("carries the tab type and the caller's own classes, and no border", () => {
-    render(<KeyMark mark={NO_KEY_AMBER} variant="tab" className="row-start-3 self-start" />);
+  it("is a tag when the caller names no variant, and carries the caller's own classes", () => {
+    render(<KeyMark mark={NO_KEY_AMBER} className="row-start-3 self-start" />);
     const mark = markNode("no key");
-    expect(mark).toHaveClass("font-mono", "text-[11px]", "leading-3.5", "whitespace-nowrap");
-    expect(mark).toHaveClass("row-start-3", "self-start");
-    expect(mark).not.toHaveClass("border");
-    expect(mark).not.toHaveClass("rounded");
+    expect(mark).toHaveClass("border", "border-decision", "text-decision", "row-start-3", "self-start");
   });
 });
 
@@ -63,14 +56,14 @@ describe("a mark on a card is a tag", () => {
   const TAG = ["whitespace-nowrap", "rounded", "border", "px-2", "py-0.5", "font-mono", "text-xs"];
 
   it("is amber with a solid amber border", () => {
-    render(<KeyMark mark={READ_ONLY} variant="tag" />);
+    render(<KeyMark mark={READ_ONLY} />);
     const tag = markNode("read-only");
     expect(tag).toHaveClass(...TAG, "border-decision", "text-decision");
     expect(tag).not.toHaveClass("border-dashed");
   });
 
   it("is grey with a solid grey border", () => {
-    render(<KeyMark mark={NO_KEY_GREY} variant="tag" />);
+    render(<KeyMark mark={NO_KEY_GREY} />);
     const tag = markNode("no key");
     expect(tag).toHaveClass(...TAG, "border-rule-strong", "text-ink-3");
     expect(tag).not.toHaveClass("border-dashed");
@@ -81,7 +74,7 @@ describe("a mark on a card is a tag", () => {
   it("is the element the caller asks for, a list item inside a list", () => {
     render(
       <ul>
-        <KeyMark mark={READ_ONLY} variant="tag" as="li" />
+        <KeyMark mark={READ_ONLY} as="li" />
       </ul>,
     );
     expect(screen.queryByRole("listitem")).toHaveTextContent("read-only");
@@ -90,14 +83,11 @@ describe("a mark on a card is a tag", () => {
 
 describe("a mark is never drawn with a hex colour, var() or a style", () => {
   it("has none in its classes or its markup", () => {
-    for (const variant of ["tab", "tag"] as const) {
-      const { container, unmount } = render(<KeyMark mark={READ_ONLY} variant={variant} className="row-start-3" />);
-      const html = container.innerHTML;
-      expect(html, variant).toContain("read-only");
-      expect(html, variant).not.toMatch(/#[0-9a-fA-F]{3,8}|var\(/);
-      expect(html, variant).not.toContain("style=");
-      unmount();
-    }
+    const { container } = render(<KeyMark mark={READ_ONLY} className="row-start-3" />);
+    const html = container.innerHTML;
+    expect(html).toContain("read-only");
+    expect(html).not.toMatch(/#[0-9a-fA-F]{3,8}|var\(/);
+    expect(html).not.toContain("style=");
   });
 
   it("has none in its source", () => {

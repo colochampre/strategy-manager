@@ -277,6 +277,9 @@ describe("scoped routes", () => {
   it.each([
     "/settings",
     "/settings/",
+    // Link exchange lists every exchange, as My subscriptions does, so it has no exchange buttons (ex8, ex9).
+    "/exchanges",
+    "/exchanges/",
     "/nope",
     "/strategies/a/b",
     "/no/such/page",

@@ -1,7 +1,8 @@
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { SettingsPage } from "@/features/settings/SettingsPage";
+import { DisplayNameSection } from "@/features/settings/DisplayNameSection";
+import { IdentitySection } from "@/features/settings/IdentitySection";
 import i18n from "@/shared/i18n";
 import { jsonResponse, lock, renderAt, resetExchangeScope, SIGNED_UP, stubApi, unlock } from "@/test/harness";
 
@@ -31,7 +32,14 @@ function setup(stored: string | null, outcome: Response | Promise<Response> | "s
     }
     return undefined;
   });
-  renderAt(<SettingsPage />, "/settings");
+  // The two forms of the name, as `AccountDetails` opens them under its card from `Edit name`.
+  renderAt(
+    <>
+      <DisplayNameSection />
+      <IdentitySection />
+    </>,
+    "/settings",
+  );
   return { sent, meReads: () => reads };
 }
 

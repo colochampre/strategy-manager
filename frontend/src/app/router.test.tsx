@@ -24,6 +24,7 @@ describe("route map", () => {
       [`/strategies/${STRATEGY_ID}`, "Strategy"],
       ["/discrepancies", "Discrepancies"],
       ["/settings", "My account"],
+      ["/exchanges", "Link exchange"],
     ];
     for (const [path, title] of cases) {
       const { unmount } = renderAt(<AppRoutes />, path);

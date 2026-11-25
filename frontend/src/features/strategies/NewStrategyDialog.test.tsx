@@ -807,7 +807,7 @@ describe("the new-strategy dialog", () => {
     fireEvent.click(submitButton());
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Choose your name in Settings first: a strategy offered to others shows its author.",
+      "Choose your name in My account first: a strategy offered to others shows its author.",
     );
     expect(screen.getByRole("dialog")).toBeInTheDocument();
   });

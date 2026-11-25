@@ -4,7 +4,7 @@ import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AppRoutes } from "@/app/router";
-import { SettingsPage } from "@/features/settings/SettingsPage";
+import { ExchangesPage } from "@/features/exchanges/ExchangesPage";
 import i18n from "@/shared/i18n";
 import en from "@/shared/i18n/locales/en.json";
 import es from "@/shared/i18n/locales/es.json";
@@ -109,12 +109,12 @@ function deletePage({
     return undefined;
   };
   const fetchMock = stubApi(HEALTH, [], { kind: "ok", body: poolsBefore }, {}, extra, {}, { kind: "ok", body: credentials });
-  if (shell) renderAt(<AppRoutes />, "/settings");
+  if (shell) renderAt(<AppRoutes />, "/exchanges");
   else {
     render(
       <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-        <MemoryRouter initialEntries={["/settings"]}>
-          <SettingsPage />
+        <MemoryRouter initialEntries={["/exchanges"]}>
+          <ExchangesPage />
         </MemoryRouter>
       </QueryClientProvider>,
     );
@@ -122,11 +122,14 @@ function deletePage({
   return { fetchMock, state };
 }
 
+/** The row groups of the keys' grid, one per exchange: the `tbody`s, not the header's group. */
+const keyRows = () => screen.queryAllByRole("rowgroup").filter((group) => group.tagName === "TBODY");
+
 async function cardsDrawn() {
-  await waitFor(() => expect(screen.queryAllByRole("article").length).toBeGreaterThan(0));
+  await waitFor(() => expect(keyRows().length).toBeGreaterThan(0));
 }
 
-const card = (name: string) => screen.getByRole("article", { name });
+const card = (name: string) => screen.getByRole("rowgroup", { name });
 const deleteButton = (name = "Bybit") => screen.queryByRole("button", { name: `Delete key ${name}` });
 
 function present(element: HTMLElement | null): HTMLElement {
@@ -158,14 +161,16 @@ describe("where Delete key is drawn (spec: operable by keyboard and named for as
     expect(screen.queryAllByRole("button", { name: /^Delete key/ })).toHaveLength(1);
   });
 
-  it("is outlined in loss, a 44 px icon, named with its exchange, and enabled when shown (L.8)", async () => {
+  it("is a loss-coloured 32 px icon button (L13), named with its exchange, and enabled when shown (L.8)", async () => {
     deletePage();
     await cardsDrawn();
 
     const button = present(deleteButton());
     expect(button).toHaveAccessibleName("Delete key Bybit");
+    expect(button).toHaveAttribute("title", "Delete key");
     expect(button).toHaveTextContent("");
-    expect(button).toHaveClass("size-11", "border-loss", "text-loss");
+    expect(button).toHaveClass("size-8", "border-loss", "text-loss", "hover:bg-loss/10");
+    expect(button).not.toHaveClass("border-rule", "text-ink-2");
     expect(button).toBeEnabled();
     // The shared danger look of the buttons that carry a word is untouched.
     expect(DANGER_CONTROL).toBe(
@@ -173,17 +178,17 @@ describe("where Delete key is drawn (spec: operable by keyboard and named for as
     );
   });
 
-  it("draws an aria-hidden Trash alone, keeps its explicit name, and says Delete key in a tooltip", async () => {
+  it("draws an aria-hidden Unlink alone, keeps its explicit name, and says Delete key in its title", async () => {
     deletePage();
     await cardsDrawn();
 
     const button = present(deleteButton());
     const svg = button.querySelector("svg");
-    expect(svg).toHaveClass("lucide-trash", "size-4");
+    expect(svg).toHaveClass("lucide-unlink", "size-4");
     expect(svg).toHaveAttribute("aria-hidden", "true");
     expect(button).toHaveAccessibleName("Delete key Bybit");
-    fireEvent.mouseEnter(button.parentElement as HTMLElement);
-    expect(screen.getByRole("tooltip")).toHaveTextContent(/^Delete key$/);
+    // A floating tip would be clipped by the grid's own scrolling frame, so the row's buttons carry a title.
+    expect(button).toHaveAttribute("title", "Delete key");
   });
 
   it("is disabled while that card's form is open, and only that card's", async () => {
@@ -267,16 +272,16 @@ describe("the end of a delete that worked (spec: the empty state is the one of a
 
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     // The lists were read again before the dialog closed: with no key and no pool on, Bybit has no card (decision 80).
-    expect(screen.queryByRole("article", { name: "Bybit" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("rowgroup", { name: "Bybit" })).not.toBeInTheDocument();
     expect(deleteButton()).not.toBeInTheDocument();
     expect(document.body.textContent).not.toContain(OLD_LAST4);
 
     const status = present(screen.queryByText(DELETED_STATUS));
     expect(status).toHaveAttribute("role", "status");
     expect(status).toHaveClass("sr-only");
-    expect(status.closest("article")).toBeNull();
+    expect(status.closest("tbody")).toBeNull();
     // The card whose button had the focus is gone, so `New key`, which now offers Bybit, takes it (p24.5).
-    await waitFor(() => expect(screen.getByRole("button", { name: "New key" })).toHaveFocus());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Link exchange" })).toHaveFocus());
   });
 
   it("keeps the card, degraded with `Add key`, when the exchange's pool is still on", async () => {
@@ -298,9 +303,9 @@ describe("the end of a delete that worked (spec: the empty state is the one of a
     });
     await cardsDrawn();
     await confirmDelete();
-    await waitFor(() => expect(screen.queryByRole("article", { name: "Bybit" })).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole("rowgroup", { name: "Bybit" })).not.toBeInTheDocument());
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
-    const afterDelete = screen.getAllByRole("article").map((article) => article.textContent);
+    const afterDelete = keyRows().map((row) => row.textContent);
     cleanup();
 
     deletePage({
@@ -308,9 +313,9 @@ describe("the end of a delete that worked (spec: the empty state is the one of a
       poolsBefore: [disabledPool("bybit")],
     });
     await cardsDrawn();
-    const neverConfigured = screen.getAllByRole("article").map((article) => article.textContent);
+    const neverConfigured = keyRows().map((row) => row.textContent);
 
-    expect(screen.queryByRole("article", { name: "Bybit" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("rowgroup", { name: "Bybit" })).not.toBeInTheDocument();
     expect(afterDelete).toEqual(neverConfigured);
   });
 
@@ -366,8 +371,8 @@ describe("a delete that did not work leaves the card telling the truth", () => {
 
     // Closing the dialog lets the card go, so the page takes the focus to `New key` (p24.5).
     fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Cancel" }));
-    await waitFor(() => expect(screen.queryByRole("article", { name: "Bybit" })).not.toBeInTheDocument());
-    await waitFor(() => expect(screen.getByRole("button", { name: "New key" })).toHaveFocus());
+    await waitFor(() => expect(screen.queryByRole("rowgroup", { name: "Bybit" })).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Link exchange" })).toHaveFocus());
   });
 
   it("test_a_delete_whose_page_left_still_reads_both_lists_again", async () => {
@@ -381,7 +386,7 @@ describe("a delete that did not work leaves the card telling the truth", () => {
     await waitFor(() => expect(requests(fetchMock, "DELETE")).toHaveLength(1));
 
     fireEvent.click(screen.getAllByRole("link", { name: "Overview" })[0] as HTMLElement);
-    await waitFor(() => expect(screen.queryByRole("article")).not.toBeInTheDocument());
+    await waitFor(() => expect(keyRows()).toEqual([]));
     const mark = fetchMock.mock.calls.length;
     release(jsonResponse({ exchange: "bybit" }));
 
@@ -409,7 +414,7 @@ describe("the requests of a session (spec: the panel reads the two routes and wr
       fetchMock.mock.calls.map(([url, init]) => `${init?.method ?? "GET"} ${String(url).replace(/^.*\/api/, "")}`),
     );
     expect([...seen].sort()).toEqual(
-      ["DELETE /credentials/bybit", "GET /credentials", "GET /me", "GET /pools", "PUT /credentials/bybit"].sort(),
+      ["DELETE /credentials/bybit", "GET /credentials", "GET /pools", "PUT /credentials/bybit"].sort(),
     );
     expect(requests(fetchMock, "PUT")).toHaveLength(1);
     expect(requests(fetchMock, "DELETE")).toHaveLength(1);
@@ -516,7 +521,7 @@ describe("the page, an open form and an open dialog read in Spanish", () => {
     await i18n.changeLanguage("es");
     deletePage({ onDelete, serverDeletes });
     await cardsDrawn();
-    expect(screen.queryByRole("heading", { level: 1, name: "Mi cuenta" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { level: 1, name: "Vincular exchange" })).toBeInTheDocument();
 
     // An open form.
     fireEvent.click(screen.getByRole("button", { name: "Reemplazar clave Bybit" }));
@@ -528,7 +533,7 @@ describe("the page, an open form and an open dialog read in Spanish", () => {
     // An open dialog, then the answer.
     fireEvent.click(present(screen.queryByRole("button", { name: "Eliminar clave Bybit" })));
     const dialog = present(screen.queryByRole("dialog", { name: "¿Eliminar la clave de Bybit?" }));
-    expect(dialog).toHaveTextContent(`La clave terminada en ${OLD_LAST4} se elimina de este sistema.`);
+    expect(dialog).toHaveTextContent(`Se elimina la clave terminada en ${OLD_LAST4}.`);
     expect(within(dialog).getAllByRole("button").map((button) => button.textContent)).toEqual(["Cancelar", "Eliminar clave"]);
     expectNoEnglishSettingsText();
     fireEvent.click(within(dialog).getByRole("button", { name: "Eliminar clave" }));

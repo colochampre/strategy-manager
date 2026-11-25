@@ -10,8 +10,8 @@ const LAST4 = "7Q2d";
 const DETAIL = "SERVER-DETAIL-SENTINEL: the text the server wrote";
 
 const TITLE = "Delete the Bybit key?";
-const BODY = `The key ending in ${LAST4} is removed from this system. Bybit is no longer read or traded from here until a key is added again. Its history stays.`;
-const CONDITION = "The server allows this only while every Bybit strategy is disabled and nothing is open on it.";
+const BODY = `The key ending in ${LAST4} is removed. Bybit is no longer traded from here until you add another. Your history is kept.`;
+const CONDITION = "Only possible with no active strategy and nothing open on Bybit.";
 const NOT_FLAT = "The Bybit key cannot be deleted yet. This is in the way:";
 const UNLISTED =
   "The Bybit key cannot be deleted yet: a strategy is still enabled, a position is open or an order is in progress.";
@@ -135,6 +135,25 @@ describe("the dialog's shape (spec: deleting a key is confirmed with a plain but
     const titleId = dialog.getAttribute("aria-labelledby");
     expect(titleId).not.toBeNull();
     expect(document.getElementById(titleId as string)).toHaveTextContent(TITLE);
+  });
+
+  it("is wide enough for its text and wraps it, whatever white-space the table cell around its trigger sets (L13)", () => {
+    mount();
+
+    const dialog = openDialog();
+
+    // 32 rem at most, and a 16 px gutter either side on a narrow screen.
+    expect(dialog).toHaveClass("w-[calc(100%-2rem)]", "max-w-lg", "whitespace-normal", "break-words");
+    expect(dialog).not.toHaveClass("whitespace-nowrap");
+  });
+
+  it("starts its text at the beginning of the line, whatever alignment the actions cell around its trigger sets", () => {
+    mount();
+
+    const dialog = openDialog();
+
+    expect(dialog).toHaveClass("text-left");
+    expect(dialog).not.toHaveClass("text-right");
   });
 
   it("says the key's last four, what leaves this system, and what the server allows, word for word", () => {
@@ -362,7 +381,7 @@ describe("what the dialog says for each answer", () => {
     const lines = within(alert).getAllByRole("listitem").map((line) => line.textContent);
     expect(lines).toHaveLength(5);
     expect(lines[4]).toBe(
-      "Unresolved reconciliation discrepancy on: STXUSDT, ETHUSDT. The venue may hold a position this system does not track, and this key is what can close it. To change keys, save the new one instead of deleting this one: it replaces it.",
+      "There is an unresolved discrepancy on STXUSDT, ETHUSDT, and this key is the one that can close it. To change it, save the new one: it replaces this one.",
     );
   });
 
@@ -383,7 +402,7 @@ describe("what the dialog says for each answer", () => {
 
     const alert = await screen.findByRole("alert");
     expect(within(alert).getAllByRole("listitem")).toHaveLength(1);
-    expect(alert).toHaveTextContent("Unresolved reconciliation discrepancy on: STXUSDT.");
+    expect(alert).toHaveTextContent("There is an unresolved discrepancy on STXUSDT, and this key");
   });
 
   it("still lists the other reasons for a 409 that has no open_discrepancies field", async () => {

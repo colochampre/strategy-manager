@@ -584,7 +584,8 @@ describe("whether this user can subscribe", () => {
 
     await waitFor(() => expect(screen.getByTestId("public-return")).toHaveTextContent("+5.1%"));
     expect(await screen.findByText(i18n.t("strategies.subscribe.needsKey", { exchange: "Bybit" }))).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: i18n.t("strategies.subscribe.addKey") })).toHaveAttribute("href", "/settings");
+    expect(screen.getByRole("link", { name: i18n.t("strategies.subscribe.addKey") })).toHaveAttribute("href", "/exchanges");
+    expect(screen.getByRole("link", { name: "Add a key in Link exchange" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: i18n.t("strategies.subscribe.submit") })).not.toBeInTheDocument();
   });
 
