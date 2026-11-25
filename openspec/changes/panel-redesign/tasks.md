@@ -290,3 +290,4 @@ The owner's words (2026-11-24) are quoted as written.
 - L18 (2026-11-25, owner, reviewing RD.3d): "al abrir un dialogo largo 'La moneda base del par no se puede determinar a partir de la moneda del pool, por lo que el lado y el tamaño no se calculan · En vivo' genera overflow horizontal en la tabla. Se le podría aplicar saltos de línea y/o acotar el mensaje. El texto escapa del borde del tooltip"
   - The tooltip inherited the cell's single line and monospaced face. `Tooltip` now resets both, so its text wraps inside its box, as it does everywhere else.
   - The missing-figures tooltip is short: "Cifras sin calcular · En vivo". The whole reason stays in the dialog.
+- L19 (2026-11-25, owner, on RD.3 after L18): "Perfecto! Se ve muy bien". RD.3 is approved as built. Its deploy pulls the backend change (`GET /positions/open` gains `mark_price` and `unrealized_pnl`) and restarts `strategy-api`, besides publishing the bundle.
