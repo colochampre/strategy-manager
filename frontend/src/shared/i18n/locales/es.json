@@ -269,7 +269,6 @@
       "All": "Todo"
     },
     "monthlyGrid": {
-      "title": "Mes a mes",
       "year": "Año",
       "empty": "Todavía no hay meses con operaciones cerradas",
       "noTrades": "sin operaciones cerradas",

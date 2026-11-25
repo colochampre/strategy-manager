@@ -59,17 +59,18 @@ describe("MonthlyGrid", () => {
     expect(element).toHaveTextContent(/^0\.0$/);
   });
 
-  it("test_month_with_no_closed_trade_renders_dashed_empty_cell", () => {
+  it("draws a month with no closed trade as the dashboard's empty tile, with no figure", () => {
     render(<MonthlyGrid monthly={[month(2026, 3, "0.0000000000"), month(2026, 4, "0.0310000000")]} />);
     const empty = screen.getByTestId("month-2026-1");
-    expect(empty).toHaveClass("border", "border-dashed", "border-rule");
+    // One grid everywhere, the dashboard's (L29): a quiet filled tile, not a dashed outline.
+    expect(empty).toHaveClass("h-[34px]", "rounded", "bg-rule-soft");
+    expect(empty).not.toHaveClass("border-dashed");
     expect(empty).toBeEmptyDOMElement();
     expect(bandClasses(empty)).toEqual([]);
     expect(empty).toHaveAccessibleName("January 2026: no closed trades");
 
     // A month at exactly 0% closed trades and is NOT the empty cell.
     const flat = screen.getByTestId("month-2026-3");
-    expect(flat).not.toHaveClass("border-dashed");
     expect(flat).toHaveTextContent(/^0\.0$/);
     expect(flat).toHaveAccessibleName("March 2026: 0.0%");
   });
@@ -107,7 +108,8 @@ describe("MonthlyGrid", () => {
     // (L28, over decision 67 Q2); the name still says it.
     expect(cell("January 2026: +3.1%")).toHaveTextContent(/^\+3\.1$/);
     const header = screen.getAllByRole("columnheader").map((node) => node.textContent);
-    expect(header).toEqual(["J", "F", "M", "A", "M", "J", "J", "A", "S", "O", "N", "D", "Year"]);
+    // The dashboard's three-letter names, on every page (L29).
+    expect(header).toEqual(["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec", "Year"]);
   });
 
   it("writes the compounded year return, coloured by sign, from the server's months", () => {
@@ -126,10 +128,11 @@ describe("MonthlyGrid", () => {
     expect(gain).toHaveTextContent(/^\+21\.0$/);
     // The figure drops its sign; the name keeps it, as a month's does (L28).
     expect(gain).toHaveAccessibleName("Year 2026: +21.0%");
-    expect(gain).toHaveClass("text-gain", "font-semibold");
+    // The year sits in the dashboard's bordered box on every page (L29).
+    expect(gain).toHaveClass("text-gain", "h-[34px]", "rounded", "border", "border-rule", "font-medium");
     const loss = screen.getByTestId("year-2025");
     expect(loss).toHaveTextContent(/^-5\.5$/);
-    expect(loss).toHaveClass("text-loss", "font-semibold");
+    expect(loss).toHaveClass("text-loss", "border", "border-rule");
     expect(gain.className).not.toMatch(/\bbg-/);
   });
 
@@ -139,8 +142,8 @@ describe("MonthlyGrid", () => {
     process.env.TZ = "America/Los_Angeles";
     try {
       render(<MonthlyGrid monthly={[month(2026, 1, "0.0310000000"), month(2026, 12, "0.0100000000")]} />);
-      expect(screen.getByRole("columnheader", { name: "January" })).toHaveTextContent("J");
-      expect(screen.getByRole("columnheader", { name: "December" })).toHaveTextContent("D");
+      expect(screen.getByRole("columnheader", { name: "January" })).toHaveTextContent("Jan");
+      expect(screen.getByRole("columnheader", { name: "December" })).toHaveTextContent("Dec");
       expect(cell("January 2026: +3.1%")).toBeInTheDocument();
       expect(cell("December 2026: +1.0%")).toBeInTheDocument();
     } finally {
@@ -149,10 +152,11 @@ describe("MonthlyGrid", () => {
     }
   });
 
-  it("is a labelled table: a title, column headers per month and a row header per year", () => {
+  it("is a labelled table under its card's title: column headers per month and a row header per year", () => {
     render(<MonthlyGrid monthly={[month(2026, 1, "0.0310000000")]} />);
-    expect(screen.getByRole("heading", { name: "Month by month", level: 2 })).toBeInTheDocument();
-    const table = screen.getByRole("table", { name: "Month by month" });
+    // The card names it, so the grid draws no heading of its own (L29).
+    expect(screen.queryByRole("heading")).toBeNull();
+    const table = screen.getByRole("table", { name: "Monthly performance" });
     expect(within(table).getAllByRole("columnheader")).toHaveLength(13);
     expect(within(table).getByRole("columnheader", { name: "Year" })).toBeInTheDocument();
     expect(within(table).getByRole("rowheader", { name: "2026" })).toBeInTheDocument();
@@ -161,7 +165,7 @@ describe("MonthlyGrid", () => {
   it("reads every word and month name in the active language", async () => {
     await act(() => i18n.changeLanguage("es"));
     render(<MonthlyGrid monthly={[month(2026, 7, "0.0310000000"), month(2026, 8, "-0.0100000000")]} />);
-    expect(screen.getByRole("heading", { name: "Mes a mes" })).toBeInTheDocument();
+    expect(screen.getByRole("table", { name: "Rendimiento mensual" })).toBeInTheDocument();
     expect(screen.getByRole("columnheader", { name: "Año" })).toBeInTheDocument();
     expect(screen.getByRole("columnheader", { name: "julio" })).toBeInTheDocument();
     expect(screen.getByTestId("month-2026-7")).toHaveAccessibleName(/^julio 2026: \+3,1/);
@@ -281,26 +285,27 @@ describe("the earlier years toggle (decision 34)", () => {
 });
 
 describe("the grid at narrow widths", () => {
-  it("keeps its rows compact so three years fit under the chart", () => {
+  it("keeps the dashboard's 34 px rows on every page", () => {
     render(<MonthlyGrid monthly={[month(2026, 1, "0.0310000000"), month(2026, 2, "0.0000000000")]} />);
-    expect(screen.getByTestId("month-2026-1")).toHaveClass("h-8");
-    expect(screen.getByTestId("month-2026-2")).toHaveClass("h-8");
-    expect(screen.getByTestId("month-2026-3")).toHaveClass("h-8");
+    expect(screen.getByTestId("month-2026-1")).toHaveClass("h-[34px]");
+    expect(screen.getByTestId("month-2026-2")).toHaveClass("h-[34px]");
+    expect(screen.getByTestId("month-2026-3")).toHaveClass("h-[34px]");
   });
 
   it("scrolls sideways inside a wrapper instead of squeezing its figures together", () => {
     render(<MonthlyGrid monthly={[month(2026, 1, "0.0310000000")]} />);
     const table = screen.getByRole("table");
     // 13 columns of figures need a floor width; below it the wrapper scrolls, like the chart's. Without the percent
-    // sign a month needs 5 characters of 11 px mono (33 px), so the floor fits the 627 px a 1440 px window leaves the
-    // grid beside a strategy's aside (L28).
-    expect(table).toHaveClass("min-w-[37rem]");
+    // sign a month needs 5 characters of 12 px mono (36 px), so the floor fits the grid a 1440 px window leaves inside
+    // a card beside a strategy's aside (L28, L29).
+    expect(table).toHaveClass("min-w-[38rem]", "text-xs");
     expect(table).not.toHaveClass("min-w-[42rem]");
     expect(table.parentElement).toHaveClass("overflow-x-auto");
   });
 
-  it("keeps the dashboard's floor, in its larger type", () => {
-    render(<MonthlyGrid bare monthly={[month(2026, 1, "0.0310000000")]} />);
-    expect(screen.getByRole("table")).toHaveClass("min-w-[42rem]");
+  it("puts the earlier years toggle right under the table, with no gap between them (L29)", () => {
+    render(<MonthlyGrid monthly={fiveYears()} />);
+    const section = screen.getByRole("table").closest("section") as HTMLElement;
+    expect(section.className).not.toMatch(/\bgap-/);
   });
 });

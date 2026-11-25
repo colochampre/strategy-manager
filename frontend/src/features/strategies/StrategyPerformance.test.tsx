@@ -135,7 +135,8 @@ describe("StrategyPerformance", () => {
     expect(title.parentElement).toContainElement(within(card).getByRole("group", { name: "Range" }));
     expect(screen.queryByRole("heading", { name: "Return of the strategies, compounded" })).toBeNull();
     expect(Number(screen.getByTestId("return-curve").getAttribute("data-final-return"))).toBeCloseTo(0.025, 6);
-    expect(screen.getByRole("heading", { name: "Month by month" })).toBeInTheDocument();
+    // The dashboard's card, on the strategy pages too (L29).
+    expect(screen.getByRole("region", { name: "Monthly performance" })).toBeInTheDocument();
     expect(screen.getByText("1 of 1 month positive · best +2.5% · worst +2.5%")).toBeInTheDocument();
   });
 

@@ -2,8 +2,7 @@ import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
 import { LedgerLine } from "@/features/overview/LedgerLine";
-import { MonthlyGrid } from "@/features/overview/MonthlyGrid";
-import { MonthlySummary } from "@/features/overview/MonthlySummary";
+import { MonthlyCard } from "@/features/overview/MonthlyCard";
 import { RangeSelector } from "@/features/overview/RangeSelector";
 import { useRangeStore } from "@/features/overview/range-store";
 import { ReturnChart } from "@/features/overview/ReturnChart";
@@ -11,7 +10,6 @@ import { PairStatsTable } from "@/features/strategies/PairStatsTable";
 import { useStrategyPerformance } from "@/shared/api/performance";
 import type { StrategyPerformance as StrategyReport } from "@/shared/api/types";
 import { Card } from "@/shared/ui/Card";
-import { ReportSection } from "@/shared/ui/ReportSection";
 
 interface PerformanceCardProps {
   /** The range selector, at the right of the title, once there is a chart to pick a range for. */
@@ -74,12 +72,7 @@ function ReportView({ report, asOf, ledger }: ReportViewProps) {
           <ReturnChart bare curve={report.curve} origin={report.origin ?? null} range={range} asOf={asOf} />
         </PerformanceCard>
       </div>
-      <ReportSection>
-        <div className="flex flex-col gap-1.5">
-          <MonthlyGrid monthly={report.monthly} />
-          <MonthlySummary monthly={report.monthly} excluded={report.excluded} />
-        </div>
-      </ReportSection>
+      <MonthlyCard monthly={report.monthly} excluded={report.excluded} />
       <PairStatsTable pairs={report.by_pair} currency={report.currency} />
     </>
   );

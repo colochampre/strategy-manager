@@ -311,7 +311,7 @@ describe("StrategyDetailPage", () => {
     expect(screen.getByRole("button", { name: en.strategies.webhook.open })).toHaveAttribute("aria-expanded", "false");
   });
 
-  it("frames the chart, Month by month, By pair, Open positions and Closed trades (owner decision 67 Q4, Q7)", async () => {
+  it("frames the chart, Monthly performance, By pair, Open positions and Closed trades (owner decision 67 Q4, Q7)", async () => {
     renderPage(strategy(), { byPair: TWO_PAIRS });
     await heading("ETH Breakout");
 
@@ -327,7 +327,10 @@ describe("StrategyDetailPage", () => {
     const chart = (await screen.findAllByRole("img", { name: /./ })).find((image) => image.closest("figure") !== null);
     // The chart sits in the Performance card, which is the frame the other report boxes have (L26).
     expect(screen.getByRole("region", { name: en.strategies.report.title })).toContainElement(chart?.closest("figure") as HTMLElement);
-    expect(screen.getAllByTestId("report-section").length).toBeGreaterThanOrEqual(4);
+    // The months sit in the dashboard's own card (L29), the other three in their frames.
+    const monthly = await screen.findByRole("region", { name: "Monthly performance" });
+    expect(monthly.closest('[data-testid="report-section"]')).toBeNull();
+    expect(screen.getAllByTestId("report-section").length).toBeGreaterThanOrEqual(3);
   });
 
   it("puts the closed trades table in a full-width section under the two-column grid and above the delete control", async () => {

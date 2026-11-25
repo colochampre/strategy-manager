@@ -269,7 +269,6 @@
       "All": "All"
     },
     "monthlyGrid": {
-      "title": "Month by month",
       "year": "Year",
       "empty": "No closed months yet",
       "noTrades": "no closed trades",

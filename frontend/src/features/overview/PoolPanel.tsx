@@ -2,8 +2,7 @@ import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
 import { HeaderCard } from "@/features/overview/HeaderCard";
-import { MonthlyGrid } from "@/features/overview/MonthlyGrid";
-import { MonthlySummary } from "@/features/overview/MonthlySummary";
+import { MonthlyCard } from "@/features/overview/MonthlyCard";
 import type { OpenCount } from "@/features/overview/MonthlySummary";
 import { RANGES } from "@/features/overview/RangeSelector";
 import { useRangeStore } from "@/features/overview/range-store";
@@ -130,15 +129,7 @@ export function PoolPanel({ pool, sole = false }: PoolPanelProps) {
               asOf={performance.dataUpdatedAt}
             />
           </Card>
-          <Card
-            title={t("overview.card.monthly")}
-            action={<span className="text-[12.5px] text-ink-3">{t("overview.card.monthlyScale")}</span>}
-          >
-            <div className="flex flex-col gap-1.5">
-              <MonthlyGrid bare monthly={report.monthly} />
-              <MonthlySummary monthly={report.monthly} excluded={report.excluded} open={openCount} />
-            </div>
-          </Card>
+          <MonthlyCard monthly={report.monthly} excluded={report.excluded} open={openCount} />
         </>
       )}
       {/* Outside the report condition: a pool whose report is missing or failed can still hold a position (design § K row 24). */}

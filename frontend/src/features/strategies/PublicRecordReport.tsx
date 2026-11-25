@@ -1,7 +1,6 @@
 import { useTranslation } from "react-i18next";
 
-import { MonthlyGrid } from "@/features/overview/MonthlyGrid";
-import { MonthlySummary } from "@/features/overview/MonthlySummary";
+import { MonthlyCard } from "@/features/overview/MonthlyCard";
 import { RangeSelector } from "@/features/overview/RangeSelector";
 import { useRangeStore } from "@/features/overview/range-store";
 import { ReturnChart } from "@/features/overview/ReturnChart";
@@ -9,7 +8,6 @@ import { PairStatsTable } from "@/features/strategies/PairStatsTable";
 import { PerformanceCard } from "@/features/strategies/StrategyPerformance";
 import { usePublicRecord } from "@/shared/api/public-record";
 import type { Excluded, PublicRecord } from "@/shared/api/types";
-import { ReportSection } from "@/shared/ui/ReportSection";
 
 /** A record leaves nothing out that it could count: it has no open trades, rehearsals or unconverted fees to name. */
 const NOTHING_EXCLUDED: Excluded = {
@@ -55,12 +53,7 @@ function RecordView({ record, asOf, joined }: { record: PublicRecord; asOf: numb
           />
         </PerformanceCard>
       </div>
-      <ReportSection>
-        <div className="flex flex-col gap-1.5">
-          <MonthlyGrid monthly={record.monthly} />
-          <MonthlySummary monthly={record.monthly} excluded={NOTHING_EXCLUDED} />
-        </div>
-      </ReportSection>
+      <MonthlyCard monthly={record.monthly} excluded={NOTHING_EXCLUDED} />
       <PairStatsTable pairs={record.by_pair} />
     </>
   );

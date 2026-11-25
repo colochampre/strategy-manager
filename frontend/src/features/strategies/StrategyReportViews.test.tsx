@@ -106,7 +106,7 @@ describe("StrategyReportViews", () => {
     renderAt(<StrategyReportViews strategy={STRATEGY} />);
 
     expect(await screen.findByTestId("return-curve")).toBeInTheDocument();
-    expect(screen.getByRole("table", { name: "Month by month" })).toBeInTheDocument();
+    expect(screen.getByRole("table", { name: "Monthly performance" })).toBeInTheDocument();
     expect(screen.getByRole("row", { name: /^SOLUSDT\b/ })).toBeInTheDocument();
     expect(screen.getByTestId("public-return")).toHaveTextContent("+5.1%");
     // No money in the record: no PnL column, no amount, no currency (the capital above is the strategy's).
