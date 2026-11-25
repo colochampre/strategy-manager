@@ -332,6 +332,8 @@ tr:last-child td{border-bottom:0}
 .sc-note b{font-weight:500;color:var(--ink)}
 .hint{display:flex;align-items:center;gap:8px;color:var(--ink-3);font-size:13px;margin-top:4px}
 .hint .ic{width:16px;height:16px}
+.hint.tb-foot{margin:0;padding:12px 22px 16px}
+.btn.tg{width:96px;justify-content:center}
 
 /* strategy page (ex11, ex12): the real page's grid, the record beside a 25rem (400 px) aside, gap-9 (36 px) */
 .i-copy{--i:url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><rect width='14' height='14' x='8' y='8' rx='2' ry='2'/><path d='M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2'/></svg>")}
@@ -1566,7 +1568,7 @@ tr:last-child td{border-bottom:0}
 
 <!-- ============ ex13 ============ -->
 <section class="screen" id="ex13">
-<p class="cap">ex13 — PROPUESTA (S15), para comparar con ex10: Mis estrategias como tabla, al estilo de las Posiciones abiertas del Panel de control. Mismas tres estrategias y mismos controles encima (búsqueda, orden, "Mostrar archivadas", "Nueva estrategia", botones de exchange). Dónde fue cada cosa de la tarjeta: el punto junto al nombre es el interruptor Activada/Desactivada (gain = activada, gris = desactivada; el texto va en el tooltip); el interruptor pasa a un botón de texto al final de la fila ("Desactivar" / "Activar"); "USDT-M" va en el encabezado de Pares (todas las filas lo son); el período "21 oct 2026 – 24 nov 2026" muestra su inicio y el rango completo está en el tooltip; PnL en USDT y % son dos columnas; el chip "Corto ETHUSDT" es la columna Abierta (Corto en loss); suscriptores y AuM son dos columnas; Tasa de acierto junta el % y la razón.</p>
+<p class="cap">ex13 — PROPUESTA (S15), para comparar con ex10: Mis estrategias como tabla, al estilo de las Posiciones abiertas del Panel de control. Mismas tres estrategias y mismos controles encima (búsqueda, orden, "Nueva estrategia", botones de exchange). Dónde fue cada cosa de la tarjeta: el punto junto al nombre es el interruptor Activada/Desactivada (gain = activada, gris = desactivada; el texto va en el tooltip); el interruptor pasa a un botón de texto al final de la fila, "Desactivar" en loss y "Activar" en gain, los dos del mismo ancho; "USDT-M" va en el encabezado de Pares (todas las filas lo son); el período "21 oct 2026 – 24 nov 2026" muestra su inicio y el rango completo está en el tooltip; PnL en USDT y % son dos columnas; suscriptores y AuM son dos columnas; Tasa de acierto junta el % y la razón. Ajustes del dueño (L21): PnL (%) y Caída máx. llevan "%"; sin la columna Abierta (la posición se ve al entrar a la estrategia); Acierto alineado a la izquierda; "Mostrar archivadas" sale de la tarjeta de búsqueda y es el enlace de la nota al pie de la tabla.</p>
 <div class="frame">
   <aside class="side">
     <div class="side-top">
@@ -1606,7 +1608,7 @@ tr:last-child td{border-bottom:0}
 
     <div class="card"><div class="pad">
       <div class="tb"><div class="inp"><span>Buscar por nombre</span><i class="ic i-search"></i></div>
-        <div class="tb-r"><span class="chk"><i></i>Mostrar archivadas</span><button class="btn fill"><i class="ic i-plus"></i>Nueva estrategia</button></div></div>
+        <div class="tb-r"><button class="btn fill"><i class="ic i-plus"></i>Nueva estrategia</button></div></div>
       <div class="sortrow"><span>Ordenar por</span>
         <button class="sb">Antigüedad</button><button class="sb">Operaciones cerradas</button><button class="sb on">Rendimiento<i class="ic i-arrdown"></i></button><button class="sb">Suscriptores</button><button class="sb">Capital</button></div>
     </div></div>
@@ -1614,16 +1616,14 @@ tr:last-child td{border-bottom:0}
     <div class="card">
       <div class="card-h"><h2>Estrategias</h2><span class="chip-n">3 estrategias</span></div>
       <div class="tbl-w t"><table>
-        <thead><tr><th>Estrategia</th><th>Pares (USDT-M)</th><th>Desde</th><th class="r">PnL (USDT)</th><th class="r">PnL (%)</th><th class="r">Caída máx.</th><th class="r">Acierto</th><th class="r">Subs.</th><th class="r">AuM (USDT)</th><th>Abierta</th><th></th></tr></thead>
+        <thead><tr><th>Estrategia</th><th>Pares (USDT-M)</th><th>Desde</th><th class="r">PnL (USDT)</th><th class="r">PnL (%)</th><th class="r">Caída máx.</th><th>Acierto</th><th class="r">Subs.</th><th class="r">AuM (USDT)</th><th></th></tr></thead>
         <tbody>
-          <tr><td><span class="nm"><i class="sd g" title="Activada"></i><a class="lk">ETH Mean Reversion</a></span></td><td class="num">ETHUSDT, BTCUSDT</td><td title="21 oct 2026 – 24 nov 2026">21 oct 2026</td><td class="r num gain">+187,25</td><td class="r num gain">+5,2</td><td class="r num loss">−4,8</td><td class="r num">61% · 11/18</td><td class="r num">9</td><td class="r num">4.200,00</td><td><span class="loss">Corto</span> <span class="num">ETHUSDT</span></td><td class="r"><button class="btn sm">Desactivar</button></td></tr>
-          <tr><td><span class="nm"><i class="sd" title="Desactivada"></i><a class="lk">BTC Range Fade 1h</a></span></td><td class="num">BTCUSDT</td><td title="09 nov 2026 – 24 nov 2026">09 nov 2026</td><td class="r num loss">−9,10</td><td class="r num loss">−0,4</td><td class="r num loss">−2,3</td><td class="r num">40% · 2/5</td><td class="r num">0</td><td class="r num">—</td><td class="mt">—</td><td class="r"><button class="btn sm">Activar</button></td></tr>
-          <tr><td><span class="nm"><i class="sd g" title="Activada"></i><a class="lk">Momentum 15m</a></span></td><td class="num">SOLUSDT</td><td title="22 nov 2026 – 24 nov 2026">22 nov 2026</td><td class="r num">—</td><td class="r num">—</td><td class="r num">—</td><td class="r num">—</td><td class="r num">0</td><td class="r num">—</td><td class="mt">—</td><td class="r"><button class="btn sm">Desactivar</button></td></tr>
+          <tr><td><span class="nm"><i class="sd g" title="Activada"></i><a class="lk">ETH Mean Reversion</a></span></td><td class="num">ETHUSDT, BTCUSDT</td><td title="21 oct 2026 – 24 nov 2026">21 oct 2026</td><td class="r num gain">+187,25</td><td class="r num gain">+5,2%</td><td class="r num loss">−4,8%</td><td class="num">61% · 11/18</td><td class="r num">9</td><td class="r num">4.200,00</td><td class="r"><button class="btn sm danger tg">Desactivar</button></td></tr>
+          <tr><td><span class="nm"><i class="sd" title="Desactivada"></i><a class="lk">BTC Range Fade 1h</a></span></td><td class="num">BTCUSDT</td><td title="09 nov 2026 – 24 nov 2026">09 nov 2026</td><td class="r num loss">−9,10</td><td class="r num loss">−0,4%</td><td class="r num loss">−2,3%</td><td class="num">40% · 2/5</td><td class="r num">0</td><td class="r num">—</td><td class="r"><button class="btn sm line tg">Activar</button></td></tr>
+          <tr><td><span class="nm"><i class="sd g" title="Activada"></i><a class="lk">Momentum 15m</a></span></td><td class="num">SOLUSDT</td><td title="22 nov 2026 – 24 nov 2026">22 nov 2026</td><td class="r num">—</td><td class="r num">—</td><td class="r num">—</td><td class="num">—</td><td class="r num">0</td><td class="r num">—</td><td class="r"><button class="btn sm danger tg">Desactivar</button></td></tr>
         </tbody></table></div>
-      <div style="height:10px"></div>
+      <p class="hint tb-foot"><i class="ic i-archive"></i>Hay 1 estrategia archivada oculta. <a class="lk">Mostrar archivadas</a></p>
     </div>
-
-    <p class="hint"><i class="ic i-archive"></i>Hay 1 estrategia archivada oculta. Active «Mostrar archivadas» para verla.</p>
   </div></main>
 </div>
 </section>
