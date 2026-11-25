@@ -21,6 +21,20 @@ describe("Tooltip", () => {
     expect(screen.getByRole("tooltip")).toHaveTextContent("Explained");
   });
 
+  it("wraps its text inside its own box, whatever its trigger's cell inherits (L18)", () => {
+    // A table cell holds its figures on one line in a monospaced face; the tip must not inherit either.
+    render(
+      <p className="whitespace-nowrap font-mono">
+        <Tooltip text="A long explanation that has to break across several lines">
+          <span>Hover me</span>
+        </Tooltip>
+      </p>,
+    );
+
+    fireEvent.mouseEnter(trigger());
+    expect(screen.getByRole("tooltip")).toHaveClass("max-w-64", "whitespace-normal", "break-words", "text-left", "font-sans");
+  });
+
   it("hides on mouse leave", () => {
     render(
       <Tooltip text="Explained">

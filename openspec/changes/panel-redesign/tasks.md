@@ -287,3 +287,6 @@ The owner's words (2026-11-24) are quoted as written.
     - The warning sign shows a short tooltip on hover and focus. A click opens a native dialog with the full line, its link and the origin.
     - The first version placed a popover with an inline `style`, which the panel's CSP drops in production. `theme.test.ts` caught it, and it was replaced by the dialog.
     - Gate, run by the parent: lint reported 0 errors, and vitest passed 177 files and 4251 tests.
+- L18 (2026-11-25, owner, reviewing RD.3d): "al abrir un dialogo largo 'La moneda base del par no se puede determinar a partir de la moneda del pool, por lo que el lado y el tamaño no se calculan · En vivo' genera overflow horizontal en la tabla. Se le podría aplicar saltos de línea y/o acotar el mensaje. El texto escapa del borde del tooltip"
+  - The tooltip inherited the cell's single line and monospaced face. `Tooltip` now resets both, so its text wraps inside its box, as it does everywhere else.
+  - The missing-figures tooltip is short: "Cifras sin calcular · En vivo". The whole reason stays in the dialog.

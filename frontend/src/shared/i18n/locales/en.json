@@ -861,6 +861,7 @@
     "sign": {
       "name": "Attention needed, {{pair}}",
       "origin": "Origin: {{origin}}",
+      "figuresMissing": "Figures not calculated",
       "close": "Close"
     },
     "sideUnreadable": "side not readable",

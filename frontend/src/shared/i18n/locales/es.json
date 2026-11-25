@@ -861,6 +861,7 @@
     "sign": {
       "name": "Requiere atención, {{pair}}",
       "origin": "Origen: {{origin}}",
+      "figuresMissing": "Cifras sin calcular",
       "close": "Cerrar"
     },
     "sideUnreadable": "lado no legible",

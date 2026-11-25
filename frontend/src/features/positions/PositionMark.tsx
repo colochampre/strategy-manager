@@ -193,7 +193,8 @@ export function PositionMark({ position, asOf }: { position: OpenPosition; asOf:
       <SignShell
         position={position}
         groupName={t("positions.sign.name", { pair: position.markets.join(" / ") })}
-        summary={reasonText(position.figures_missing, t)}
+        // The tooltip says what is missing in a few words; the reason, which can be long, is in the dialog (L18).
+        summary={t("positions.sign.figuresMissing")}
       >
         <Reason position={position} />
       </SignShell>

@@ -524,14 +524,14 @@ describe("the origin dot and the warning sign (RD.3d, L17)", () => {
     expect(document.activeElement).toBe(sign);
   });
 
-  it("says the missing-figures reason and the origin in the tooltip, and all of it in the dialog, for a position the facts could not decorate", async () => {
+  it("says a short summary and the origin in the tooltip, and the whole reason in the dialog, for a position the facts could not decorate (L18)", async () => {
     await mountList(answering([noFacts({ markets: ["AAVEUSDT"] })]));
 
     const sign = within(symbolCell()).queryByRole("button", { name: SIGN }) as HTMLElement;
     expect(sign).toBeInTheDocument();
     expect(rowCount()).toBe(2);
     fireEvent.mouseEnter(sign.parentElement as HTMLElement);
-    expect(screen.queryByRole("tooltip")).toHaveTextContent("The figures could not be derived from the fills. · Live");
+    expect(screen.queryByRole("tooltip")).toHaveTextContent(/^Figures not calculated · Live$/);
     fireEvent.click(sign);
     const dialog = screen.queryByRole("dialog", { name: SIGN });
     expect(dialog).toHaveTextContent("The figures could not be derived from the fills.");
