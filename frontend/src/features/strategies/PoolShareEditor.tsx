@@ -1,12 +1,10 @@
 import { useId, useState } from "react";
-import { Save } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { InfoButton, InfoText, useInfoDisclosure } from "@/shared/ui/InfoDisclosure";
-import { StatusButton } from "@/shared/ui/StatusButton";
 import { clockText } from "@/shared/lib/figure-text";
 import { ShareAmount } from "@/features/strategies/ShareAmount";
-import { ShareSlider } from "@/features/strategies/ShareSlider";
+import { FieldSaveButton, ShareSlider } from "@/features/strategies/ShareSlider";
 import { readStored } from "@/features/strategies/share-value";
 import { DRAFT_REFUSAL_TEXT, useShareDraft } from "@/features/strategies/useShareDraft";
 import { ApiError } from "@/shared/api/client";
@@ -124,19 +122,13 @@ export function PoolShareEditor({ strategy, leverage }: PoolShareEditorProps) {
         // Save is on the field's row, as wide as its own text needs; the field takes the width that is left.
         // Both start at the top, so Save does not move when anything opens or appears under the row.
         action={
-          <div className="flex shrink-0 items-start gap-x-3">
-            <StatusButton
-              texts={[saveText, savingText, savedText]}
-              shown={busy ? savingText : saved ? savedText : saveText}
-              message={saved ? savedText : null}
-              onClick={handleSave}
-              disabled={readOnly || busy || !changed || saved}
-              icon={Save}
-              iconOnly
-              busy={busy}
-              look="primary"
-            />
-          </div>
+          <FieldSaveButton
+            label={busy ? savingText : saved ? savedText : saveText}
+            message={saved ? savedText : null}
+            onClick={handleSave}
+            disabled={readOnly || busy || !changed || saved}
+            busy={busy}
+          />
         }
       />
       {/* 10 px more than the column's gap, so the slider's stops never reach over the amount's information button. */}

@@ -80,7 +80,8 @@ export function ShareAmount({ view, trailing, explanation }: ShareAmountProps) {
   return (
     <div className="flex flex-col gap-1.5">
       <div className="flex items-start">
-        <p className={cn("text-sm", figure ? "text-ink" : "text-ink-2")}>{line}</p>
+        {/* The prototype's hint line: small, quiet, and the figures in the mono face. */}
+        <p className={cn("text-xs text-ink-3", figure && "font-mono")}>{line}</p>
         {trailing}
       </div>
       {explanation}

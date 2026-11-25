@@ -198,29 +198,30 @@ describe("StopLevelEditor layout, as Share and Leverage", () => {
     while (row !== null && !row.contains(field())) row = row.parentElement;
     const holding = (node: Element) => Array.from(row!.children).find((child) => child.contains(node)) as HTMLElement;
 
-    expect(classesOf(row!)).toEqual(expect.arrayContaining(["flex", "items-start"]));
+    expect(classesOf(row!)).toEqual(expect.arrayContaining(["flex", "items-center"]));
     expect(classesOf(row!)).not.toContain("flex-col");
     expect(row!.children).toHaveLength(2);
     expect(classesOf(holding(field()))).toEqual(expect.arrayContaining(["min-w-0", "flex-1"]));
     expect(classesOf(holding(saveButton()))).toContain("shrink-0");
   });
 
-  it("writes the unit right after the value, the input as wide as its text", async () => {
+  // The prototype (`ex12`, RD.7e) puts the unit at the end of the box and the input takes the room it leaves.
+  it("writes the unit at the end of the box, the input taking the room it leaves", async () => {
     setup(strategy());
     await ready();
 
     expect(field().nextElementSibling).toHaveTextContent("% of price");
-    expect(classesOf(field())).toContain("field-sizing-content");
-    expect(classesOf(field())).not.toContain("flex-1");
+    expect(classesOf(field())).toContain("flex-1");
+    expect(classesOf(field())).not.toContain("field-sizing-content");
   });
 
-  it("names the section at the size of the Share and Leverage names", async () => {
+  // The prototype names the stop level in small bold type, as it names the link and the pairs.
+  it("names the section in small bold type", async () => {
     setup(strategy());
     await ready();
 
     const name = screen.getByText("Stop level", { selector: "label" });
-    expect(classesOf(name)).toEqual(expect.arrayContaining(["text-sm", "leading-5", "text-ink-2"]));
-    expect(classesOf(name)).not.toContain("text-xs");
-    expect(classesOf(name)).not.toContain("font-semibold");
+    expect(classesOf(name)).toEqual(expect.arrayContaining(["text-xs", "font-semibold", "leading-5", "text-ink-2"]));
+    expect(classesOf(name)).not.toContain("text-sm");
   });
 });

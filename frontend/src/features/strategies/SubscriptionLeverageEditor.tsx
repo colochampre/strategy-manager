@@ -1,15 +1,14 @@
 import { useId, useState } from "react";
-import { Save } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { LeverageSlider } from "@/features/strategies/LeverageSlider";
+import { FieldSaveButton } from "@/features/strategies/ShareSlider";
 import { leverageProblem, useLeverageDraft, type LeverageDraft } from "@/features/strategies/useLeverageDraft";
 import { maxLeverage, stopLevelText } from "@/features/strategies/stop-level";
 import { ApiError } from "@/shared/api/client";
 import { useSetSubscriptionLeverage } from "@/shared/api/subscriptions";
 import type { Strategy } from "@/shared/api/types";
 import { InfoButton, InfoText, useInfoDisclosure } from "@/shared/ui/InfoDisclosure";
-import { StatusButton } from "@/shared/ui/StatusButton";
 
 interface SubscriptionLeverageEditorProps {
   /** Only what it reads, so a subscriber's row, which holds no whole strategy, can use it. */
@@ -101,19 +100,13 @@ export function SubscriptionLeverageEditor({ strategy, draft }: SubscriptionLeve
         reachBelow
         // Save is on the field's row, as wide as its own text needs; the field takes the width that is left.
         action={
-          <div className="flex shrink-0 items-start gap-x-3">
-            <StatusButton
-              texts={[saveText, savingText, savedText]}
-              shown={busy ? savingText : saved ? savedText : saveText}
-              message={saved ? savedText : null}
-              onClick={handleSave}
-              disabled={readOnly || busy || !changed || saved}
-              icon={Save}
-              iconOnly
-              busy={busy}
-              look="primary"
-            />
-          </div>
+          <FieldSaveButton
+            label={busy ? savingText : saved ? savedText : saveText}
+            message={saved ? savedText : null}
+            onClick={handleSave}
+            disabled={readOnly || busy || !changed || saved}
+            busy={busy}
+          />
         }
         note={max < 20 && reading.valid && <p className="text-xs text-ink-3">{t("strategies.leverage.capNote", { max, stop: stopLevelText(strategy.stop_loss_pct, i18n.language) })}</p>}
       />

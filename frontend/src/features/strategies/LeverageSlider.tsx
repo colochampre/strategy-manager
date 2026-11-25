@@ -2,7 +2,7 @@ import type { MouseEvent, ReactNode } from "react";
 import { useRef } from "react";
 import { useTranslation } from "react-i18next";
 
-import { RANGE_CLASS } from "@/features/strategies/ShareSlider";
+import { FIELD_INPUT_CLASS, FIELD_UNIT_CLASS, RANGE_CLASS, fieldBoxClass } from "@/features/strategies/ShareSlider";
 import { FIRST_LEVERAGE, LAST_LEVERAGE, leveragePosition } from "@/features/strategies/leverage-value";
 import { cn } from "@/shared/lib/cn";
 
@@ -54,9 +54,9 @@ const STOPS = [
 const FIELD_MAX_LENGTH = 4;
 
 /**
- * The leverage control, built like `ShareSlider`: a field with its "x" sign together at the left, so the
- * value reads "x5", and a range from 1 to 20 with four stops under it. The wrapper carries everything that
- * makes it look like a field; the sign comes before the input and is not part of the text.
+ * The leverage control, built like `ShareSlider`: a field with its "x" sign at the end of the box, and a range
+ * from 1 to 20 with four stops under it. The wrapper carries everything that makes it look like a field; the
+ * sign comes after the input and is not part of the text.
  */
 export function LeverageSlider({
   fieldId,
@@ -90,19 +90,8 @@ export function LeverageSlider({
   return (
     <div className="flex flex-col gap-1.5">
       {/* One row: the field takes the width that is left, the action beside it keeps its own. */}
-      <div className="flex items-start gap-x-3">
-      <div
-        onMouseDown={focusField}
-        className={cn(
-          "flex min-h-11 min-w-0 flex-1 items-center rounded-md border bg-ground px-3 font-mono text-sm text-ink",
-          "focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-gain",
-          invalid ? "border-loss" : "border-rule",
-          disabled ? "cursor-not-allowed opacity-50" : "cursor-text",
-        )}
-      >
-        <span aria-hidden="true" className="pr-0.5 text-ink">
-          x
-        </span>
+      <div className="flex items-center gap-2">
+      <div onMouseDown={focusField} className={fieldBoxClass(invalid, disabled)}>
         <input
           ref={inputRef}
           id={fieldId}
@@ -116,8 +105,11 @@ export function LeverageSlider({
           aria-invalid={invalid}
           aria-describedby={describedBy}
           onChange={(event) => onText(event.target.value)}
-          className="field-sizing-content min-w-[1ch] border-0 bg-transparent font-mono text-sm text-ink outline-none disabled:cursor-not-allowed"
+          className={FIELD_INPUT_CLASS}
         />
+        <span aria-hidden="true" className={FIELD_UNIT_CLASS}>
+          x
+        </span>
       </div>
       {action}
       </div>

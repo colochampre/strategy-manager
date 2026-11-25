@@ -22,6 +22,17 @@ function renderAmount(view: ShareAmountView) {
 }
 
 describe("ShareAmount", () => {
+  it("draws its line as the prototype's hint: small and quiet, a figure in the mono face, a message in the sans", () => {
+    const { unmount } = renderAmount(KNOWN);
+    expect(screen.getByText("Margin: 335.00 USDT")).toHaveClass("text-xs", "text-ink-3", "font-mono");
+    unmount();
+
+    renderAmount({ kind: "noBalance" });
+    const message = screen.getByText(i18n.t("strategies.detail.share.amountNoBalance"));
+    expect(message).toHaveClass("text-xs", "text-ink-3");
+    expect(message).not.toHaveClass("font-mono");
+  });
+
   it("a known amount reads 'Margin: 335.00 USDT' from the served string", () => {
     renderAmount(KNOWN);
 

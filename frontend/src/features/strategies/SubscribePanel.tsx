@@ -22,6 +22,7 @@ import type { HeldSubscription, PublicStrategy } from "@/shared/api/types";
 import { DANGER_CONTROL } from "@/shared/ui/danger-control";
 import { exchangeName } from "@/shared/exchanges/exchange-name";
 import { InfoButton, InfoText, useInfoDisclosure } from "@/shared/ui/InfoDisclosure";
+import { GAIN_OUTLINE } from "@/shared/ui/button-styles";
 import { StatusButton } from "@/shared/ui/StatusButton";
 
 /** The share the form starts from: none (decision 39). It is never sent; the user types how much to use. */
@@ -78,7 +79,9 @@ function SubscribeForm({ strategyId, stopLevel }: { strategyId: string; stopLeve
   const pendingText = t("strategies.subscribe.pending");
 
   return (
-    <form onSubmit={send} className="flex flex-col gap-3">
+    // 16 px between the fields, each a group of its own, as the prototype's `ex11` draws it.
+    <form onSubmit={send} className="flex flex-col gap-4">
+      <div role="group" aria-labelledby={ids.label} className="flex flex-col gap-1.5">
       <label id={ids.label} htmlFor={ids.field} className="text-sm leading-5 text-ink-2">
         {t("strategies.detail.share.label")}
       </label>
@@ -106,6 +109,8 @@ function SubscribeForm({ strategyId, stopLevel }: { strategyId: string; stopLeve
             {t("strategies.detail.share.startHint")}
           </p>
         ))}
+      </div>
+      <div role="group" aria-labelledby={leverageIds.label} className="flex flex-col gap-1.5">
       <div className="flex items-start">
         <label id={leverageIds.label} htmlFor={leverageIds.field} className="text-sm leading-5 text-ink-2">
           {t("strategies.leverage.label")}
@@ -141,6 +146,7 @@ function SubscribeForm({ strategyId, stopLevel }: { strategyId: string; stopLeve
           )}
         </p>
       )}
+      </div>
       <p className="text-xs text-ink-3">{t("strategies.subscribe.publicSum")}</p>
       <div>
         <StatusButton
@@ -150,7 +156,7 @@ function SubscribeForm({ strategyId, stopLevel }: { strategyId: string; stopLeve
           submit
           disabled={busy || !reading.valid || !leverage.reading.valid}
           icon={UserPlus}
-          className="min-h-11 rounded-lg bg-gain px-3 text-sm font-medium text-ground hover:opacity-90 disabled:opacity-50"
+          className={`min-h-11 rounded-lg px-3 text-sm ${GAIN_OUTLINE} disabled:opacity-50`}
         />
       </div>
       {subscribe.isError && (

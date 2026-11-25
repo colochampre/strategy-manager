@@ -397,16 +397,16 @@ describe.each([
     rerender(strategy({ allowed_pairs: ["ETHUSDT", "SOLUSDT"] }));
   };
 
-  it("draws only an aria-hidden Save icon, the accessible name unchanged", () => {
+  it("draws only an aria-hidden check icon, the accessible name unchanged", () => {
     setup(strategy());
 
     const host = button(T.save);
     expect(host).toHaveTextContent("");
     const svg = host.querySelector("svg");
-    expect(svg).toHaveClass("lucide-save");
+    expect(svg).toHaveClass("lucide-check");
     expect(svg).toHaveAttribute("aria-hidden", "true");
     expect(host).toHaveAccessibleName(T.save);
-    expect(classesOf(host)).toContain("size-11");
+    expect(classesOf(host)).toContain("size-9");
   });
 
   it("names the button Saved after a save, disabled, with a check and the tooltip", async () => {
@@ -452,7 +452,7 @@ describe.each([
     remove("SOLUSDT");
 
     expect(button(T.save)).toBeEnabled();
-    expect(button(T.save).querySelector("svg")).toHaveClass("lucide-save");
+    expect(button(T.save).querySelector("svg")).toHaveClass("lucide-check");
   });
 
   it("keeps the last-pair warning and a failed save's alert outside the search row", async () => {
@@ -474,14 +474,15 @@ function precedes(before: Element, after: Element): boolean {
 
 
 describe("AllowedPairsEditor layout (L.7)", () => {
-  it("names the section at the size of the Share and Leverage names", async () => {
+  // The prototype's `ex12` names the allowed pairs in small bold type, as it names the link and the stop level
+  // (RD.7e); it was the size of the Share and Leverage names before.
+  it("names the section in small bold type", async () => {
     setup(strategy());
     await catalogueReady();
 
     const name = classesOf(screen.getByText(i18n.t("strategies.detail.pairs.title"), { selector: "span" }));
-    expect(name).toEqual(expect.arrayContaining(["text-sm", "leading-5", "text-ink-2"]));
-    expect(name).not.toContain("text-xs");
-    expect(name).not.toContain("font-semibold");
+    expect(name).toEqual(expect.arrayContaining(["text-xs", "font-semibold", "text-ink-2"]));
+    expect(name).not.toContain("text-sm");
   });
 
   it("puts Save, as an icon, on the search field's row", async () => {
@@ -489,18 +490,20 @@ describe("AllowedPairsEditor layout (L.7)", () => {
     await catalogueReady();
 
     const search = screen.getByLabelText(i18n.t("strategies.pairs.search"));
-    expect(search.parentElement).toContainElement(saveButton());
+    // The row holds the search box (the field and its icon) and Save.
+    expect(search.parentElement?.parentElement).toContainElement(saveButton());
     expect(saveButton()).toHaveTextContent("");
   });
 
-  it("keeps the note behind an information button beside the name, with no paragraph for it", async () => {
+  it("keeps the note behind an information button beside the name, with no paragraph for it, and the chips on their own row", async () => {
     setup(strategy());
     await catalogueReady();
 
     const hint = i18n.t("strategies.detail.pairs.hint");
     expect(screen.queryByText(hint)).toBeNull();
     const info = screen.getByRole("button", { name: i18n.t("strategies.detail.pairs.info") });
-    expect(info.parentElement).toContainElement(screen.getByRole("list", { name: i18n.t("strategies.pairs.selected") }));
+    const chips = screen.getByRole("list", { name: i18n.t("strategies.pairs.selected") });
+    expect(info.parentElement).not.toContainElement(chips);
     fireEvent.click(info);
     expect(screen.getByText(hint)).toBeInTheDocument();
   });

@@ -1,13 +1,12 @@
 import { useState } from "react";
-import { Save } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
+import { FieldSaveButton } from "@/features/strategies/ShareSlider";
 import { StopLevelField } from "@/features/strategies/StopLevelField";
 import { readStopLevel } from "@/features/strategies/stop-level";
 import { ApiError } from "@/shared/api/client";
 import { useSetStrategyStopLevel } from "@/shared/api/strategies";
 import type { Strategy } from "@/shared/api/types";
-import { StatusButton } from "@/shared/ui/StatusButton";
 
 interface StopLevelEditorProps {
   /** Only what it reads. */
@@ -68,24 +67,19 @@ export function StopLevelEditor({ strategy }: StopLevelEditorProps) {
           setSaved(false);
         }}
         disabled={readOnly || busy}
-        look="section"
+        // Its name reads in small bold type, as the prototype draws the stop level's.
+        look="field"
         // The leverage section on this page already says what the level caps.
         showCap={false}
-        // Save is on the field's row, as wide as its own text needs, as for Share and Leverage.
+        // Save is on the field's row, beside the box, as for Share and Leverage.
         action={
-          <div className="flex shrink-0 items-start">
-            <StatusButton
-              texts={[saveText, savingText, savedText]}
-              shown={busy ? savingText : saved ? savedText : saveText}
-              message={saved ? savedText : null}
-              onClick={handleSave}
-              disabled={readOnly || busy || !reading.valid || !changed || saved}
-              icon={Save}
-              iconOnly
-              busy={busy}
-              look="primary"
-            />
-          </div>
+          <FieldSaveButton
+            label={busy ? savingText : saved ? savedText : saveText}
+            message={saved ? savedText : null}
+            onClick={handleSave}
+            disabled={readOnly || busy || !reading.valid || !changed || saved}
+            busy={busy}
+          />
         }
       />
       {save.status === "error" && (

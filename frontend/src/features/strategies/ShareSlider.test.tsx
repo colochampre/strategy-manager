@@ -72,11 +72,13 @@ describe("ShareSlider, step 1: the field and its value", () => {
     expect(field().getAttribute("size")).toBe("1");
   });
 
-  it("the input carries the field-sizing class and the one-character minimum width", () => {
+  // The prototype (`ex11`/`ex12`, RD.7e) puts the sign at the end of the box: the input takes the room it leaves.
+  it("the input takes the room the sign leaves, with no width of its own", () => {
     renderSlider();
 
-    expect(field()).toHaveClass("field-sizing-content");
-    expect(field()).toHaveClass("min-w-[1ch]");
+    expect(field()).toHaveClass("flex-1");
+    expect(field()).toHaveClass("min-w-0");
+    expect(field()).not.toHaveClass("field-sizing-content");
   });
 
   it("the field is named by the visible label", () => {
@@ -98,10 +100,10 @@ describe("ShareSlider, step 1: the field and its value", () => {
   it("the wrapper has the look of a field and the input has none of its own", () => {
     renderSlider();
 
-    for (const name of ["min-h-11", "border", "bg-ground", "cursor-text", "focus-within:outline-2"]) {
+    for (const name of ["h-9.5", "rounded-lg", "border", "bg-ground", "cursor-text", "focus-within:outline-2"]) {
       expect(wrapper()).toHaveClass(name);
     }
-    for (const name of ["border-0", "bg-transparent", "pr-0.5", "outline-none"]) {
+    for (const name of ["border-0", "bg-transparent", "outline-none"]) {
       expect(field()).toHaveClass(name);
     }
   });
@@ -333,8 +335,11 @@ describe("ShareSlider, step 2: the track and the stops", () => {
     expect(track()).toHaveClass("appearance-none");
     for (const name of RANGE_CLASS.split(" ")) expect(track()).toHaveClass(name);
     expect(RANGE_CLASS).toContain("[&::-webkit-slider-thumb]:appearance-none");
-    expect(RANGE_CLASS).toContain("[&::-webkit-slider-thumb]:bg-gain");
-    expect(RANGE_CLASS).toContain("[&::-moz-range-thumb]:bg-gain");
+    // The thumb is the prototype's: an ink dot ringed in gain, 16 px.
+    expect(RANGE_CLASS).toContain("[&::-webkit-slider-thumb]:bg-ink");
+    expect(RANGE_CLASS).toContain("[&::-webkit-slider-thumb]:border-gain");
+    expect(RANGE_CLASS).toContain("[&::-moz-range-thumb]:bg-ink");
+    expect(RANGE_CLASS).toContain("[&::-moz-range-thumb]:size-4");
     expect(RANGE_CLASS).toContain("[&::-webkit-slider-runnable-track]:bg-transparent");
   });
 
