@@ -6,6 +6,7 @@ import { OpenPositionsSection } from "@/features/positions/OpenPositionsSection"
 import { ORIGIN_STYLE } from "@/features/positions/origin";
 import { PoolOpenPositions } from "@/features/positions/PoolOpenPositions";
 import { OPEN_POSITIONS_KEY } from "@/shared/api/positions";
+import { useHiddenStore } from "@/shared/hidden/hidden-store";
 import type { OpenPool, OpenPosition } from "@/shared/api/positions";
 import type { Strategy } from "@/shared/api/types";
 import i18n from "@/shared/i18n";
@@ -94,18 +95,18 @@ function theTable(): HTMLElement {
   return screen.getByRole("table");
 }
 
-/** The rows of the table that are positions (eight cells), not sub-rows (one cell across the eight). */
+/** The rows of the table that are positions (seven cells), not sub-rows (one cell across the seven). */
 function positionRows(table: HTMLElement): HTMLElement[] {
   return within(table)
     .getAllByRole("row")
-    .filter((row) => row.querySelectorAll("td").length === 8);
+    .filter((row) => row.querySelectorAll("td").length === 7);
 }
 
 function cellsOf(row: HTMLElement): HTMLElement[] {
   return [...row.querySelectorAll<HTMLElement>("td")];
 }
 
-const COLUMN = { strategy: 0, opened: 1, pair: 2, side: 3, size: 4, entry: 5, margin: 6, leverage: 7 } as const;
+const COLUMN = { strategy: 0, pair: 1, side: 2, entry: 3, mark: 4, pnl: 5, close: 6 } as const;
 
 function onlyRow(): HTMLElement[] {
   const rows = positionRows(theTable());
@@ -119,7 +120,7 @@ function pairsOfTable(): string[] {
   // Found by its heading, so that a missing or extra column cannot make this read another column's text.
   const at = within(table)
     .getAllByRole("columnheader")
-    .findIndex((heading) => within(heading).getByRole("img").getAttribute("aria-label") === "Pair");
+    .findIndex((heading) => heading.textContent === "Symbol");
   return positionRows(table).map((row) => (cellsOf(row)[at]?.firstChild?.textContent ?? "").trim());
 }
 
@@ -213,38 +214,22 @@ describe("the list is the pool's own (T13; rule 7)", () => {
 });
 
 describe("the columns and the cells (T13; example 22)", () => {
-  it("has eight columns, the strategy first, and no Fees column", async () => {
+  it("has seven columns, the strategy first, and no Fees, Size, Margin or Leverage column", async () => {
     await mountList(answering([aave()]));
 
-    const headings = within(theTable())
-      .getAllByRole("columnheader")
-      .map((heading) => within(heading).getByRole("img").getAttribute("aria-label"));
-    expect(headings).toEqual([
-      "Strategy",
-      "Opened (UTC)",
-      "Pair",
-      "Side",
-      "Size",
-      "Entry",
-      "Margin granted USDT",
-      "Leverage",
-    ]);
-    expect(screen.queryByText(/^Fees/)).not.toBeInTheDocument();
-    expect(cellsOf(positionRows(theTable())[0] as HTMLElement)).toHaveLength(8);
+    expect(cellsOf(positionRows(theTable())[0] as HTMLElement)).toHaveLength(7);
+    const text = theTable().querySelector("thead")?.textContent ?? "";
+    for (const dropped of ["Fees", "Size", "Margin", "Leverage", "Opened"]) expect(text, dropped).not.toContain(dropped);
   });
 
-  it("writes a live position's figures under their columns, with its origin in the Pair cell", async () => {
+  it("writes a live position's figures under their columns, with its origin in the Symbol cell", async () => {
     await mountList(answering([aave()]));
 
     const cells = onlyRow();
     expect(cells[COLUMN.strategy]).toHaveTextContent("STX 4h - RSI Divergences");
-    expect(cells[COLUMN.opened]).toHaveTextContent("10/11/2026");
     expect(cells[COLUMN.pair]).toHaveTextContent("AAVEUSDTLive");
-    expect(cells[COLUMN.side]).toHaveTextContent("LONG");
-    expect(cells[COLUMN.size]).toHaveTextContent("0.82 AAVE");
+    expect(cells[COLUMN.side]).toHaveTextContent("Long");
     expect(cells[COLUMN.entry]).toHaveTextContent("184.3");
-    expect(cells[COLUMN.margin]?.textContent).toBe("121.80");
-    expect(cells[COLUMN.leverage]?.textContent).toBe("2x");
   });
 
   it("lists dry-run and live positions together, each with its own origin", async () => {
@@ -274,6 +259,104 @@ describe("the columns and the cells (T13; example 22)", () => {
     expect(screen.queryByText(/order in flight/)).not.toBeInTheDocument();
     expect(screen.queryByText(/ORDERUSDT/)).not.toBeInTheDocument();
     expect(screen.queryAllByRole("list")).toHaveLength(0);
+  });
+});
+
+/** RD.3c, L16: the table as the prototype's ex1 draws it. */
+describe("the open positions table follows ex1 (RD.3c)", () => {
+  const MARKED = { mark_price: "187.5", unrealized_pnl: "3.2" } as Partial<OpenPosition>;
+  const at = (row: HTMLElement, index: number): HTMLElement => cellsOf(row)[index] as HTMLElement;
+  const rowsOfTable = (): HTMLElement[] => {
+    const rows = within(theTable()).getAllByRole("row").filter((row) => row.querySelectorAll("td").length === 7);
+    expect(rows, "position rows of seven cells").not.toHaveLength(0);
+    return rows;
+  };
+
+  it("has text headings, not icons: Strategy, Symbol, Side, Entry, Mark price and PnL in the pool's currency", async () => {
+    await mountList(answering([aave(MARKED)]));
+
+    const heads = within(theTable()).getAllByRole("columnheader");
+    expect(heads.map((head) => head.textContent).slice(0, 6)).toEqual(["Strategy", "Symbol", "Side", "Entry", "Mark price", "PnL (USDT)"]);
+    expect(within(theTable()).queryByRole("img")).not.toBeInTheDocument();
+    expect(heads).toHaveLength(7);
+  });
+
+  it("writes a position in seven cells: name, symbol with its origin, side in words, entry, mark price, PnL, close", async () => {
+    await mountList(answering([aave(MARKED)]));
+
+    const row = rowsOfTable()[0] as HTMLElement;
+    expect(at(row, 0)).toHaveTextContent("STX 4h - RSI Divergences");
+    expect(at(row, 1)).toHaveTextContent("AAVEUSDTLive");
+    expect(at(row, 2).textContent).toBe("Long");
+    expect(at(row, 3).textContent).toBe("184.3");
+    expect(at(row, 4).textContent).toBe("187.5");
+    expect(at(row, 5).textContent).toBe("+3.20");
+    expect(within(at(row, 6)).getByRole("button", { name: "Close now" })).toHaveTextContent("Close now");
+  });
+
+  it("colours the PnL by its sign", async () => {
+    await mountList(answering([aave(MARKED), aave({ mark_price: "180", unrealized_pnl: "-3.5" })]));
+
+    const [gain, loss] = rowsOfTable();
+    expect(at(gain as HTMLElement, 5)).toHaveClass("text-gain");
+    expect(at(loss as HTMLElement, 5)).toHaveClass("text-loss");
+    expect(at(loss as HTMLElement, 5).textContent).toBe("-3.50");
+  });
+
+  it("writes a dash for a mark price and a PnL the server left out or sent as null", async () => {
+    await mountList(answering([aave({ mark_price: null, unrealized_pnl: null })]));
+
+    const row = rowsOfTable()[0] as HTMLElement;
+    expect(within(at(row, 4)).getByText("—")).toHaveAttribute("aria-hidden", "true");
+    expect(within(at(row, 5)).getByText("—")).toHaveAttribute("aria-hidden", "true");
+  });
+
+  it("keeps the mark price while the balances are hidden and masks the PnL", async () => {
+    useHiddenStore.setState({ hidden: true });
+    try {
+      await mountList(answering([aave(MARKED)]));
+
+      const row = rowsOfTable()[0] as HTMLElement;
+      expect(at(row, 3).textContent).toBe("184.3");
+      expect(at(row, 4).textContent).toBe("187.5");
+      expect(at(row, 5).textContent).toBe("******");
+      expect(row.textContent).not.toContain("3.20");
+    } finally {
+      useHiddenStore.setState({ hidden: false });
+    }
+  });
+
+  it("draws the venue line as a sub-row across the seven columns", async () => {
+    await mountList(
+      answering([
+        aave({
+          ...MARKED,
+          venue_disagreement: {
+            discrepancy_id: "d-1",
+            venue_net_base: "0",
+            ledger_net_base: "0.82000000",
+            allocation_count: 1,
+            last_observed_at: "2026-10-12T21:39:12Z",
+          },
+        }),
+      ]),
+    );
+
+    const rows = within(theTable()).getAllByRole("row");
+    const after = rows[rows.indexOf(rowsOfTable()[0] as HTMLElement) + 1] as HTMLElement;
+    expect(after.querySelector("td")).toHaveAttribute("colspan", "7");
+    expect(within(after).getByRole("group", { name: "Venue disagrees, AAVEUSDT" })).toBeInTheDocument();
+  });
+
+  it("writes the headings and the words in Spanish", async () => {
+    await act(() => i18n.changeLanguage("es"));
+    await mountList(answering([aave({ ...MARKED, side: "SHORT" })]));
+
+    const heads = within(theTable()).getAllByRole("columnheader");
+    expect(heads.map((head) => head.textContent).slice(0, 6)).toEqual(["Estrategia", "Símbolo", "Lado", "Entrada", "Precio de marca", "PnL (USDT)"]);
+    const row = rowsOfTable()[0] as HTMLElement;
+    expect(at(row, 2).textContent).toBe("Corto");
+    expect(within(at(row, 6)).getByRole("button", { name: "Cerrar ahora" })).toHaveTextContent("Cerrar ahora");
   });
 });
 
@@ -310,11 +393,11 @@ describe("the strategy's name (T13)", () => {
 });
 
 describe("a position the facts could not decorate (T13; K row 10)", () => {
-  it("is a row whose six figures are each a dash named 'figures not readable'", async () => {
+  it("is a row whose side, entry, mark price and PnL are each a dash named 'figures not readable'", async () => {
     await mountList(answering([noFacts()]));
 
     const cells = onlyRow();
-    for (const column of ["opened", "side", "size", "entry", "margin", "leverage"] as const) {
+    for (const column of ["side", "entry", "mark", "pnl"] as const) {
       expect(cells[COLUMN[column]]?.textContent, column).toBe("—figures not readable");
     }
     expect(cells[COLUMN.pair]).toHaveTextContent("STXUSDT");
@@ -325,13 +408,18 @@ describe("a position the facts could not decorate (T13; K row 10)", () => {
 
     const text = theTable().textContent ?? "";
     expect(text).not.toContain("Invalid Date");
-    expect(onlyRow()[COLUMN.leverage]?.textContent).not.toBe("x");
     expect(text).not.toMatch(/(^|[^\w])x($|[^\w])/);
+  });
+
+  it("offers no Close now for a position whose size or side could not be read", async () => {
+    await mountList(answering([noFacts()]));
+
+    expect(screen.queryByRole("button", { name: "Close now" })).not.toBeInTheDocument();
   });
 });
 
 describe("the venue line under its row (T13; spec 'On The Detail Page And The Overview The Venue Mark Is One Solid Red Line')", () => {
-  it("is drawn under its row, as the table's own sub-row across the eight columns", async () => {
+  it("is drawn under its row, as the table's own sub-row across the seven columns", async () => {
     await mountList(
       answering([
         aave({
@@ -351,7 +439,7 @@ describe("the venue line under its row (T13; spec 'On The Detail Page And The Ov
     const own = positionRows(table)[0] as HTMLElement;
     const after = rows[rows.indexOf(own) + 1] as HTMLElement;
     expect(after.querySelectorAll("td")).toHaveLength(1);
-    expect(after.querySelector("td")).toHaveAttribute("colspan", "8");
+    expect(after.querySelector("td")).toHaveAttribute("colspan", "7");
     const line = within(after).getByRole("group", { name: "Venue disagrees, AAVEUSDT" });
     expect(line).toHaveClass("border-solid", "border-loss");
   });
@@ -497,8 +585,8 @@ describe("below md the positions are cards (T13; N2)", () => {
     expect(parts[2]?.tagName).toBe("DL");
   });
 
-  it("carries five labelled values and no Fees", async () => {
-    await mountList(answering(TWO));
+  it("carries seven labelled values, with the mark price and the PnL, and no Fees", async () => {
+    await mountList(answering([aave({ mark_price: "187.5", unrealized_pnl: "3.2" })]));
 
     const [card] = screen.queryAllByRole("article") as [HTMLElement];
     const values = Object.fromEntries(
@@ -508,9 +596,22 @@ describe("below md the positions are cards (T13; N2)", () => {
       "Opened (UTC)": "10/11/2026 14:05",
       Size: "0.82 AAVE",
       Entry: "184.3",
+      "Mark price": "187.5",
+      "PnL (USDT)": "+3.20",
       "Margin granted USDT": "121.80",
       Leverage: "2x",
     });
+  });
+
+  it("writes a dash named 'not available' for a mark price and a PnL the server did not send", async () => {
+    await mountList(answering(TWO));
+
+    const [card] = screen.queryAllByRole("article") as [HTMLElement];
+    const values = Object.fromEntries(
+      [...card.querySelectorAll("dl > div")].map((pair) => [pair.querySelector("dt")?.textContent ?? "", pair.querySelector("dd")?.textContent ?? ""]),
+    );
+    expect(values["Mark price"]).toBe("—not available");
+    expect(values["PnL (USDT)"]).toBe("—not available");
   });
 
   it("writes the name of a row with no strategy id as plain text", async () => {
@@ -585,29 +686,24 @@ describe("in Spanish (T10 and T11; owner decision Q9, 2026-10-13)", () => {
     await mountList(answering([aave()]));
 
     expect(screen.queryByRole("heading", { level: 2, name: "Posiciones abiertas" })).toBeInTheDocument();
-    const headings = within(screen.getByRole("table", { name: "Posiciones abiertas" }))
-      .getAllByRole("columnheader")
-      .map((heading) => within(heading).getByRole("img").getAttribute("aria-label"));
-    expect(headings).toEqual([
+    const headings = within(screen.getByRole("table", { name: "Posiciones abiertas" })).getAllByRole("columnheader");
+    expect(headings.map((heading) => heading.textContent).slice(0, 6)).toEqual([
       "Estrategia",
-      "Apertura (UTC)",
-      "Par",
-      "Sentido",
-      "Tamaño",
+      "Símbolo",
+      "Lado",
       "Entrada",
-      "Margen otorgado USDT",
-      "Apalancamiento",
+      "Precio de marca",
+      "PnL (USDT)",
     ]);
   });
 
-  it("writes a price and a size with a POINT and money with the language's separator, as the detail section does", async () => {
-    await mountList(answering([aave()]));
+  it("writes a price with a POINT and the PnL with the language's separator, as the detail section does", async () => {
+    await mountList(answering([aave({ mark_price: "187.5", unrealized_pnl: "12345.5" })]));
 
     const cells = onlyRow();
-    expect(cells[COLUMN.size]?.textContent).toBe("0.82 AAVE");
     expect(cells[COLUMN.entry]?.textContent).toBe("184.3");
-    expect(cells[COLUMN.margin]?.textContent).toBe("121,80");
-    expect(cells[COLUMN.leverage]?.textContent).toBe("2x");
+    expect(cells[COLUMN.mark]?.textContent).toBe("187.5");
+    expect(cells[COLUMN.pnl]?.textContent).toBe("+12.345,50");
     expect(cells[COLUMN.pair]).toHaveTextContent("AAVEUSDTEn vivo");
   });
 
@@ -623,6 +719,8 @@ describe("in Spanish (T10 and T11; owner decision Q9, 2026-10-13)", () => {
       "Apertura (UTC)": "11/10/2026 14:05",
       Tamaño: "0.82 AAVE",
       Entrada: "184.3",
+      "Precio de marca": "—no disponible",
+      "PnL (USDT)": "—no disponible",
       "Margen otorgado USDT": "121,80",
       Apalancamiento: "2x",
     });
@@ -644,7 +742,7 @@ describe("in Spanish (T10 and T11; owner decision Q9, 2026-10-13)", () => {
   it("writes the dash's reason in Spanish, in the sr-only text of each cell", async () => {
     await mountList(answering([noFacts()]));
 
-    const cell = onlyRow()[COLUMN.size] as HTMLElement;
+    const cell = onlyRow()[COLUMN.entry] as HTMLElement;
     expect(cell.textContent).toBe("—cifras no legibles");
     expect(within(cell).getByText("—")).toHaveAttribute("aria-hidden", "true");
     expect(within(cell).getByText("cifras no legibles")).toHaveClass("sr-only");
@@ -655,7 +753,7 @@ describe("the dashes carry their reason for a screen reader (T13)", () => {
   it("hides the dash itself and gives the reason in sr-only text, in the table and in the card", async () => {
     await mountList(answering([noFacts()]));
 
-    for (const column of ["opened", "side", "size", "entry", "margin", "leverage"] as const) {
+    for (const column of ["side", "entry", "mark", "pnl"] as const) {
       const cell = onlyRow()[COLUMN[column]] as HTMLElement;
       expect(within(cell).getByText("—"), column).toHaveAttribute("aria-hidden", "true");
       expect(within(cell).getByText("figures not readable"), column).toHaveClass("sr-only");
@@ -669,8 +767,8 @@ describe("the dashes carry their reason for a screen reader (T13)", () => {
     const [card] = screen.queryAllByRole("article") as [HTMLElement];
     expect(card.getAttribute("aria-label")).toBe("STXUSDT side not readable");
     const reasons = within(card).getAllByText("figures not readable");
-    // The side in the head and the five labelled values.
-    expect(reasons).toHaveLength(6);
+    // The side in the head and the seven labelled values.
+    expect(reasons).toHaveLength(8);
     for (const reason of reasons) expect(reason).toHaveClass("sr-only");
   });
 });

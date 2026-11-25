@@ -78,7 +78,14 @@ function report(): PerformanceStub {
 
 function positions(count: number): OpenPosition[] {
   return Array.from({ length: count }, (_, index) =>
-    openPosition({ pool: USDT_POOL, currency: "USDT", markets: [`PAIR${index}USDT`], strategy_name: `Strategy ${index}` }),
+    openPosition({
+      pool: USDT_POOL,
+      currency: "USDT",
+      markets: [`PAIR${index}USDT`],
+      strategy_name: `Strategy ${index}`,
+      mark_price: "190",
+      unrealized_pnl: "4.5",
+    }),
   );
 }
 
@@ -196,13 +203,13 @@ describe("the eye on the header card (S1)", () => {
     expect(within(panel).getByTestId("ledger-lead")).toHaveTextContent("1,284.52");
   });
 
-  it("draws the chart without its axes while hidden", async () => {
+  it("keeps the chart's axes while hidden, since they are a percentage and dates", async () => {
     const panel = await mountPanel();
     expect(within(panel).getAllByTestId("y-label").length).toBeGreaterThan(0);
 
     fireEvent.click(within(panel).getByRole("button", { name: "Hide balances" }));
 
-    expect(within(panel).queryAllByTestId("y-label")).toHaveLength(0);
+    expect(within(panel).getAllByTestId("y-label").length).toBeGreaterThan(0);
   });
 
   it("reads the stored choice when the page opens", async () => {

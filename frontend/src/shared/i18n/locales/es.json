@@ -888,6 +888,15 @@
       "count_one": "{{count}} posición",
       "count_other": "{{count}} posiciones",
       "empty": "Sin posiciones abiertas.",
+      "head": {
+        "symbol": "Símbolo",
+        "side": "Lado",
+        "markPrice": "Precio de marca",
+        "pnl": "PnL ({{currency}})",
+        "actions": "Acciones"
+      },
+      "sideWord": { "LONG": "Largo", "SHORT": "Corto" },
+      "unavailable": "no disponible",
       "margin": "Margen otorgado {{currency}}",
       "leverage": "Apalancamiento",
       "leverageValue": "{{value}}x",

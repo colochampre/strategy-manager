@@ -47,10 +47,12 @@ export function PoolOpenPositions({ pool }: PoolOpenPositionsProps) {
     <Card
       title={title}
       headingId={headingId}
+      dense
       action={<CountChip testId="positions-count">{t("positions.table.count", { count: mine.positions.length })}</CountChip>}
     >
       <div className="flex flex-col gap-4">
-        <div aria-live="polite" className="flex flex-col gap-1">
+        {/* Empty most of the time: it takes back the gap it would otherwise leave above the table (ex1). */}
+        <div aria-live="polite" className="flex flex-col gap-1 empty:-mb-4">
           {open.status === "error" && <p className="text-sm text-loss">{t("positions.state.stale", { time: lastRead })}</p>}
         </div>
         {mine.positions.length === 0 ? (

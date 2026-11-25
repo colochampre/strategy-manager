@@ -888,6 +888,15 @@
       "count_one": "{{count}} position",
       "count_other": "{{count}} positions",
       "empty": "No open position.",
+      "head": {
+        "symbol": "Symbol",
+        "side": "Side",
+        "markPrice": "Mark price",
+        "pnl": "PnL ({{currency}})",
+        "actions": "Actions"
+      },
+      "sideWord": { "LONG": "Long", "SHORT": "Short" },
+      "unavailable": "not available",
       "margin": "Margin granted {{currency}}",
       "leverage": "Leverage",
       "leverageValue": "{{value}}x",

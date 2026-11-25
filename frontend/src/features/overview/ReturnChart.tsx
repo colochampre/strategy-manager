@@ -68,8 +68,6 @@ const DEFAULT_WIDTH = 796;
 const MIN_WIDTH = 280;
 const VIEW_HEIGHT = 280;
 const AXIS_LEFT = 44;
-/** The plot's left edge while the balances are hidden (ex2): no axis labels sit there, so the plot starts near the box. */
-const BARE_LEFT = 8;
 /** The gap between the plot's right edge and the box's. */
 const RIGHT_MARGIN = 6;
 const TOP = 12;
@@ -158,7 +156,8 @@ export function ReturnChart({
   const drawdownGradientId = useId();
   const [hovered, setHovered] = useState<number | null>(null);
   const hidden = useHidden();
-  const left = hidden ? BARE_LEFT : AXIS_LEFT;
+  // The axes are a percentage and dates, never money (L16): they stay while the balances are hidden.
+  const left = AXIS_LEFT;
   const viewWidth = Math.max(MIN_WIDTH, measuredWidth);
   const right = viewWidth - RIGHT_MARGIN;
   const series = readCurve(curve);
@@ -363,11 +362,9 @@ export function ReturnChart({
                     className="stroke-rule-soft"
                   />
                 )}
-                {!hidden && (
-                  <text data-testid="y-label" x={0} y={y + 3}>
-                    {percentLabel(value)}
-                  </text>
-                )}
+                <text data-testid="y-label" x={0} y={y + 3}>
+                  {percentLabel(value)}
+                </text>
               </g>
             ))}
           </g>
@@ -510,7 +507,7 @@ export function ReturnChart({
             </g>
           )}
           <g className="fill-ink-3 font-mono text-[10px]">
-            {(hidden ? [] : labels).map(({ date, x: tickX, kind }) => (
+            {labels.map(({ date, x: tickX, kind }) => (
               <text
                 key={date}
                 data-testid={kind === "month" ? "month-label" : "day-label"}

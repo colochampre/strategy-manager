@@ -6,7 +6,7 @@ import type { CurvePoint } from "@/shared/api/types";
 import { useHiddenStore } from "@/shared/hidden/hidden-store";
 import i18n from "@/shared/i18n";
 
-/** S1, L15, ex2: while the balances are hidden every chart hides its axes and what its tooltip would say. */
+/** S1, L16: while the balances are hidden a chart keeps its axes (a percentage and dates) and hides only what its tooltip would say. */
 
 const AS_OF = Date.UTC(2026, 6, 4, 12);
 const point = (date: string, index: number, drawdown: number): CurvePoint => ({
@@ -40,21 +40,20 @@ function hover() {
 }
 
 describe("the return chart while the balances are hidden", () => {
-  it("draws no axis label, on either axis, and keeps the curve and its gridlines", () => {
+  it("keeps both axes, which are a percentage and dates and never money, with the curve and its gridlines", () => {
     render(<ReturnChart curve={CURVE} range="All" asOf={AS_OF} />);
 
-    expect(screen.queryAllByTestId("y-label")).toHaveLength(0);
-    expect(screen.queryAllByTestId("month-label")).toHaveLength(0);
-    expect(screen.queryAllByTestId("day-label")).toHaveLength(0);
+    expect(screen.getAllByTestId("y-label").length).toBeGreaterThan(0);
+    expect(screen.queryAllByTestId("month-label").length + screen.queryAllByTestId("day-label").length).toBeGreaterThan(0);
     expect(screen.getByTestId("return-curve")).toBeInTheDocument();
     expect(screen.getByTestId("waterline")).toBeInTheDocument();
     expect(screen.getAllByTestId("gridline").length).toBeGreaterThan(0);
   });
 
-  it("draws the plot from the left edge, where the axis labels were", () => {
+  it("starts the plot where the axis labels end, as when the balances are shown", () => {
     render(<ReturnChart curve={CURVE} range="All" asOf={AS_OF} />);
 
-    expect(Number(screen.getByTestId("waterline").getAttribute("x1"))).toBeLessThan(44);
+    expect(Number(screen.getByTestId("waterline").getAttribute("x1"))).toBe(44);
   });
 
   it("marks the hovered day with its guide and dot, and writes no value", () => {
@@ -67,7 +66,7 @@ describe("the return chart while the balances are hidden", () => {
     expect(screen.queryByTestId("hover-drawdown")).toBeNull();
   });
 
-  it("draws the axes and the tooltip again once the balances are shown", () => {
+  it("draws the tooltip's values again once the balances are shown", () => {
     useHiddenStore.setState({ hidden: false });
     render(<ReturnChart curve={CURVE} range="All" asOf={AS_OF} />);
     hover();

@@ -2,7 +2,6 @@ import {
   ArrowLeftRight,
   ArrowUpDown,
   CalendarPlus,
-  ChartCandlestick,
   Gauge,
   LogIn,
   PiggyBank,
@@ -18,7 +17,7 @@ import { CloseNowControl } from "@/features/positions/CloseNowControl";
 import { VenueLine } from "@/features/positions/MarkLine";
 import { OriginTag } from "@/features/positions/OriginTag";
 import type { OpenPosition } from "@/shared/api/positions";
-import { amountText, parseDecimal } from "@/shared/lib/amount-text";
+import { amountText, parseDecimal, toneClass } from "@/shared/lib/amount-text";
 import { cn } from "@/shared/lib/cn";
 import { Masked, Revealed } from "@/shared/hidden/Masked";
 import { clockText, compactDateText, figureText, tableFigureText } from "@/shared/lib/figure-text";
@@ -137,10 +136,8 @@ function cellsOf(position: OpenPosition, locale: string, t: Translate, inlineOpe
   ];
 }
 
-/** Eight columns in both variants: the strategy variant has Fees, the pool variant has the strategy's name first instead. */
+/** Eight columns in the strategy variant's table (the pool variant has its own seven, `POOL_COLUMNS`). */
 const COLUMNS = 8;
-/** Where Fees sits among the cells of `cellsOf`. */
-const FEES_INDEX = 5;
 
 /** The page this user can open: the detail is the author's, and a subscriber reaches the public page while it is listed. */
 function strategyHref({ strategy_id: id, strategy_page: page }: OpenPosition): string | null {
@@ -164,10 +161,57 @@ function StrategyName({ position }: { position: OpenPosition }) {
   );
 }
 
-/** The pool variant's cells: the strategy first and no Fees (the sixth cell of the strategy variant's). */
-function poolCellsOf(position: OpenPosition, locale: string, t: Translate): ReactNode[] {
-  const cells = cellsOf(position, locale, t);
-  return [<StrategyName key="strategy" position={position} />, ...cells.filter((_, index) => index !== FEES_INDEX)];
+/** The seven columns of the pool variant, as the prototype's ex1 draws them. */
+const POOL_COLUMNS = 7;
+/** The prototype's `td` and `th`: 13 px cells padded 11 / 12 px, 12.5 px tinted headings padded 10 / 12 px. */
+const POOL_CELL = "whitespace-nowrap border-b border-rule-soft px-3 py-[11px] text-[13px]";
+const POOL_HEAD = "whitespace-nowrap border-b border-rule bg-ground px-3 py-2.5 text-left text-[12.5px] font-medium text-ink-3";
+
+/**
+ * The pool variant's cells, in the order of its columns: the strategy, the symbol with its origin, the side in
+ * words, the entry, the mark price, the unrealized PnL and the close button. A figure the server did not send
+ * (the mark price and the PnL are optional) is a dash, never a zero. The PnL is the user's money, so it goes
+ * through `Masked`; the prices do not.
+ */
+function poolCellsOf(position: OpenPosition, locale: string, t: Translate): { content: ReactNode; className?: string }[] {
+  const unreadable = reasonOf(position, t, "other");
+  const unreadableFigure = t("positions.state.unreadable");
+  // The venue's mark price is read apart from the facts: a position that has its facts but no mark was not priced.
+  const unpriced = position.figures_missing === "NO_FACTS" ? unreadable : t("positions.table.unavailable");
+  const price = (value: string | null | undefined, absent = unreadable): ReactNode => {
+    if (value === null || value === undefined) return <Absent reason={absent} />;
+    return tableFigureText(value) ?? unreadableFigure;
+  };
+  const pnl = ((): { content: ReactNode; className?: string } => {
+    const raw = position.unrealized_pnl;
+    if (raw === null || raw === undefined) return { content: <Absent reason={unpriced} /> };
+    const parsed = parseDecimal(raw);
+    if (parsed === null) return { content: unreadableFigure };
+    return { content: <Masked>{amountText(parsed, position.currency, locale, true)}</Masked>, className: toneClass(parsed) };
+  })();
+
+  return [
+    { content: <StrategyName position={position} />, className: "text-ink" },
+    {
+      content: (
+        <>
+          {position.markets.join(" / ")}
+          <span className="block font-sans text-[11px] leading-4">
+            <OriginTag origin={position.origin} />
+          </span>
+        </>
+      ),
+      className: "font-mono text-ink",
+    },
+    {
+      content: position.side === null ? <Absent reason={unreadable} /> : t(`positions.table.sideWord.${position.side}`),
+      className: "text-ink",
+    },
+    { content: price(position.entry_price), className: "text-right font-mono tabular-nums text-ink-2" },
+    { content: price(position.mark_price, unpriced), className: "text-right font-mono tabular-nums text-ink-2" },
+    { ...pnl, className: cn("text-right font-mono tabular-nums", pnl.className) },
+    { content: <CloseNowControl position={position} appearance="text" />, className: "text-right" },
+  ];
 }
 
 /** Tailwind's `md`: the width at which the cards become a table. */
@@ -210,26 +254,75 @@ export function subRowsOf(position: OpenPosition, asOf: string, t: Translate): S
 
 type TableProps = PositionsTableProps;
 
-/** The table, from `md` upward (design addendum § H). */
-function DesktopTable({ positions, asOf, currency, labelledBy, variant }: TableProps) {
+/**
+ * The pool variant's table, as the prototype's ex1 draws it (L16): a boxed table with a tinted heading row of
+ * words, never icons. The sub-rows (the venue's line, the missing-figures reason, the reservation's note) stay
+ * under their row, across the seven columns.
+ */
+function PoolTable({ positions, asOf, currency, labelledBy }: TableProps) {
+  const { t, i18n } = useTranslation();
+  const locale = i18n.resolvedLanguage ?? "en";
+  const heads: { label: ReactNode; className?: string }[] = [
+    { label: t("overview.open.strategy") },
+    { label: t("positions.table.head.symbol") },
+    { label: t("positions.table.head.side") },
+    { label: t("strategies.performance.trades.entry"), className: "text-right" },
+    { label: t("positions.table.head.markPrice"), className: "text-right" },
+    { label: t("positions.table.head.pnl", { currency }), className: "text-right" },
+    { label: <span className="sr-only">{t("positions.table.head.actions")}</span> },
+  ];
+
+  return (
+    <div className="overflow-x-auto rounded-lg border border-rule">
+      <table aria-labelledby={labelledBy} className="w-full border-collapse">
+        <thead>
+          <tr>
+            {heads.map((head, index) => (
+              <th key={index} scope="col" className={cn(POOL_HEAD, head.className)}>
+                {head.label}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody className="text-left font-sans">
+          {positions.map((position) => (
+            <Fragment key={position.allocation_id}>
+              <tr>
+                {poolCellsOf(position, locale, t).map((cell, index) => (
+                  <td key={index} className={cn(POOL_CELL, cell.className)}>
+                    {cell.content}
+                  </td>
+                ))}
+              </tr>
+              {subRowsOf(position, asOf, t).map((sub) => (
+                <tr key={sub.key}>
+                  <td colSpan={POOL_COLUMNS} className={cn(SUB_CELL, "px-3")}>
+                    {sub.content}
+                  </td>
+                </tr>
+              ))}
+            </Fragment>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/** The strategy variant's table, from `md` upward (design addendum § H). */
+function DesktopTable({ positions, asOf, currency, labelledBy }: TableProps) {
   const { t, i18n } = useTranslation();
   const locale = i18n.resolvedLanguage ?? "en";
   const left = "text-left";
-  const pool = variant === "pool";
   // The columns that read left-aligned, and the one (the pair) that reads in the full ink.
-  const leftColumns = pool ? 4 : 3;
-  const pairColumn = pool ? 2 : 1;
+  const leftColumns = 3;
+  const pairColumn = 1;
 
   return (
     <div className="overflow-x-auto">
       <table aria-labelledby={labelledBy} className="w-full border-collapse font-mono text-[13px] tabular-nums">
         <thead>
           <tr className="text-right text-[10px] uppercase tracking-[0.09em] text-ink-3">
-            {pool && (
-              <th scope="col" className={cn(HEADER, left)}>
-                <ColumnHead icon={ChartCandlestick} label={t("overview.open.strategy")} align="start" />
-              </th>
-            )}
             <th scope="col" className={cn(HEADER, left)}>
               <ColumnHead icon={CalendarPlus} label={t("strategies.performance.trades.opened")} align="start" />
             </th>
@@ -245,11 +338,9 @@ function DesktopTable({ positions, asOf, currency, labelledBy, variant }: TableP
             <th scope="col" className={HEADER}>
               <ColumnHead icon={LogIn} label={t("strategies.performance.trades.entry")} />
             </th>
-            {!pool && (
-              <th scope="col" className={HEADER}>
-                <ColumnHead icon={Receipt} label={t("strategies.performance.trades.fees", { currency })} />
-              </th>
-            )}
+            <th scope="col" className={HEADER}>
+              <ColumnHead icon={Receipt} label={t("strategies.performance.trades.fees", { currency })} />
+            </th>
             <th scope="col" className={HEADER}>
               <ColumnHead icon={PiggyBank} label={t("positions.table.margin", { currency })} hint={t("positions.note.margin")} />
             </th>
@@ -260,7 +351,7 @@ function DesktopTable({ positions, asOf, currency, labelledBy, variant }: TableP
         </thead>
         <tbody className="text-right text-ink-2">
           {positions.map((position) => {
-            const cells = pool ? poolCellsOf(position, locale, t) : cellsOf(position, locale, t);
+            const cells = cellsOf(position, locale, t);
             return (
               <Fragment key={position.allocation_id}>
                 <tr>
@@ -315,10 +406,19 @@ function PositionCard({
   const pair = position.markets.join(" / ");
   const side = position.side === null ? t("positions.sideUnreadable") : position.side;
   const pool = variant === "pool";
+  // The Overview's card also shows what its table shows: the mark price and the position's PnL.
+  const [, , , , markPrice, pnl] = poolCellsOf(position, locale, t);
+  const pnlParsed = position.unrealized_pnl == null ? null : parseDecimal(position.unrealized_pnl);
   const labelled: ReadonlyArray<readonly [string, ReactNode]> = [
     [t("strategies.performance.trades.opened"), cells[0]],
     [t("strategies.performance.trades.size"), cells[3]],
     [t("strategies.performance.trades.entry"), cells[4]],
+    ...(pool && markPrice !== undefined && pnl !== undefined
+      ? ([
+          [t("positions.table.head.markPrice"), markPrice.content],
+          [t("positions.table.head.pnl", { currency }), <span className={pnlParsed === null ? undefined : toneClass(pnlParsed)}>{pnl.content}</span>],
+        ] as const)
+      : []),
     ...(pool ? [] : ([[t("strategies.performance.trades.fees", { currency }), cells[5]]] as const)),
     [t("positions.table.margin", { currency }), cells[6]],
     [t("positions.table.leverage"), cells[7]],
@@ -365,7 +465,7 @@ function PositionCard({
 export function PositionsTable(props: PositionsTableProps) {
   const { i18n } = useTranslation();
   const table = useIsWide(MD_QUERY);
-  if (table) return <DesktopTable {...props} />;
+  if (table) return props.variant === "pool" ? <PoolTable {...props} /> : <DesktopTable {...props} />;
   const locale = i18n.resolvedLanguage ?? "en";
   return (
     <div className="flex flex-col gap-4">
