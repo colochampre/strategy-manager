@@ -16,6 +16,8 @@ interface SegmentedProps<T extends string> {
   value: T;
   onChange: (value: T) => void;
   disabled?: boolean;
+  /** `big` is the prototype's `.seg.big` (34 px, the settings choices); `sm` is its plain `.seg` (28 px, a card's range). */
+  size?: "big" | "sm";
 }
 
 /**
@@ -23,7 +25,7 @@ interface SegmentedProps<T extends string> {
  * with a 1 px strong rule. A radio group, so a screen reader hears which one is in force. Pressing the option in
  * force does nothing, and `onChange` says only a move to another one.
  */
-export function Segmented<T extends string>({ label, options, value, onChange, disabled = false }: SegmentedProps<T>) {
+export function Segmented<T extends string>({ label, options, value, onChange, disabled = false, size = "big" }: SegmentedProps<T>) {
   return (
     <div role="radiogroup" aria-label={label} className="inline-flex rounded-lg border border-rule bg-ground p-0.5">
       {options.map((option) => {
@@ -39,7 +41,8 @@ export function Segmented<T extends string>({ label, options, value, onChange, d
               if (!on) onChange(option.value);
             }}
             className={cn(
-              "inline-flex h-[34px] items-center gap-2 rounded-md px-4 text-sm transition-colors motion-reduce:transition-none disabled:opacity-60 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-gain",
+              "inline-flex items-center gap-2 rounded-md transition-colors motion-reduce:transition-none disabled:opacity-60 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-gain",
+              size === "sm" ? "h-7 px-[13px] text-[13px]" : "h-[34px] px-4 text-sm",
               on ? "bg-panel-2 text-ink ring-1 ring-rule-strong ring-inset" : "text-ink-3 hover:text-ink-2",
             )}
           >

@@ -2,6 +2,7 @@ import { useTranslation } from "react-i18next";
 
 import { dateTimeText, figureText } from "@/shared/lib/figure-text";
 import { useOperationFills } from "@/shared/api/performance";
+import { Masked } from "@/shared/hidden/Masked";
 
 /** The route serves at most this many fills and says so with `truncated` (design § D). */
 const FILLS_CAP = 200;
@@ -97,9 +98,11 @@ export function OperationFillsTable({
                   )}
                 </td>
                 <td className={CELL}>{figureText(fill.price) ?? unreadable}</td>
-                <td className={CELL}>{figureText(fill.quantity) ?? unreadable}</td>
                 <td className={CELL}>
-                  {figureText(fill.fee) ?? unreadable} {fill.fee_currency}
+                  <Masked>{figureText(fill.quantity) ?? unreadable}</Masked>
+                </td>
+                <td className={CELL}>
+                  <Masked>{figureText(fill.fee) ?? unreadable}</Masked> {fill.fee_currency}
                 </td>
               </tr>
             ))}

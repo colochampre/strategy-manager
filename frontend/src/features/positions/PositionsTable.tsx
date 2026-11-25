@@ -20,6 +20,7 @@ import { OriginTag } from "@/features/positions/OriginTag";
 import type { OpenPosition } from "@/shared/api/positions";
 import { amountText, parseDecimal } from "@/shared/lib/amount-text";
 import { cn } from "@/shared/lib/cn";
+import { Masked, Revealed } from "@/shared/hidden/Masked";
 import { clockText, compactDateText, figureText, tableFigureText } from "@/shared/lib/figure-text";
 import { useIsWide } from "@/shared/layout/useIsWide";
 import { Absent } from "@/shared/ui/Absent";
@@ -64,9 +65,9 @@ function cellsOf(position: OpenPosition, locale: string, t: Translate, inlineOpe
   const unreadableFigure = t("positions.state.unreadable");
   const nullable = (value: string | null, write: (value: string) => ReactNode): ReactNode =>
     value === null ? <Absent reason={unreadable} /> : write(value);
-  const money = (amount: string): string => {
+  const money = (amount: string): ReactNode => {
     const parsed = parseDecimal(amount);
-    return parsed === null ? unreadableFigure : amountText(parsed, position.currency, locale);
+    return parsed === null ? unreadableFigure : <Masked>{amountText(parsed, position.currency, locale)}</Masked>;
   };
   const opened = position.opened_size === null ? null : tableFigureText(position.opened_size);
   const held = position.size === null ? null : tableFigureText(position.size);
@@ -89,14 +90,18 @@ function cellsOf(position: OpenPosition, locale: string, t: Translate, inlineOpe
     position.side === null ? <Absent reason={unreadable} /> : t(`strategies.performance.trades.direction.${position.side}`),
     nullable(position.size, () => (
       <>
-        {held ?? unreadableFigure}
+        <Masked>{held ?? unreadableFigure}</Masked>
         {position.base_currency !== null && (
           <>
             {" "}
             <span className="font-sans text-[11px] text-ink-3">{position.base_currency}</span>
           </>
         )}
-        {opened !== null && opened !== held && <span className={ASIDE}>{t("positions.table.ofOpened", { opened })}</span>}
+        {opened !== null && opened !== held && (
+          <Revealed>
+            <span className={ASIDE}>{t("positions.table.ofOpened", { opened })}</span>
+          </Revealed>
+        )}
       </>
     )),
     nullable(position.entry_price, (price) => (
@@ -109,12 +114,14 @@ function cellsOf(position: OpenPosition, locale: string, t: Translate, inlineOpe
       <>
         {money(fees)}
         {position.other_fees.map((fee) => (
-          <span key={fee.currency} className="ml-2 font-sans text-[11px] text-ink-3">
-            {t("strategies.performance.trades.otherFee", {
-              amount: figureText(fee.amount) ?? unreadableFigure,
-              currency: fee.currency,
-            })}
-          </span>
+          <Revealed key={fee.currency}>
+            <span className="ml-2 font-sans text-[11px] text-ink-3">
+              {t("strategies.performance.trades.otherFee", {
+                amount: figureText(fee.amount) ?? unreadableFigure,
+                currency: fee.currency,
+              })}
+            </span>
+          </Revealed>
         ))}
       </>
     )),

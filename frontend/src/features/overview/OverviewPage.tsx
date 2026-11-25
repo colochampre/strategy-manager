@@ -48,7 +48,7 @@ export function OverviewPage() {
       {panels.length > 0 && (
         <div data-testid="overview-layout" className="flex min-w-0 flex-col gap-4">
           {panels.map((pool) => (
-            <PoolPanel key={`${pool.exchange}/${pool.venue}/${pool.settlement_currency}`} pool={pool} />
+            <PoolPanel key={`${pool.exchange}/${pool.venue}/${pool.settlement_currency}`} pool={pool} sole={panels.length === 1} />
           ))}
         </div>
       )}

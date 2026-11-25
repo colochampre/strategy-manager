@@ -11,6 +11,8 @@ const COMPONENTS = [
   "LedgerLine",
   "RangeSelector",
   "PoolEyebrow",
+  "HeaderCard",
+  "Sparkline",
   "PoolPanel",
   "OverviewPage",
 ];

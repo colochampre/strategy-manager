@@ -6,7 +6,8 @@ import { PositionsTable } from "@/features/positions/PositionsTable";
 import { ofPool, useOpenPositions } from "@/shared/api/positions";
 import type { OpenPool } from "@/shared/api/positions";
 import { timeOfAnswerText } from "@/shared/lib/figure-text";
-import { ReportSection } from "@/shared/ui/ReportSection";
+import { Card } from "@/shared/ui/Card";
+import { CountChip } from "@/shared/ui/CountChip";
 
 interface PoolOpenPositionsProps {
   pool: OpenPool;
@@ -14,9 +15,10 @@ interface PoolOpenPositionsProps {
 
 /**
  * One pool's open positions on the Overview, every one of them, dry run and live together, each with its
- * origin and the strategy's name first (examples 22 and 24). It selects by the pool's three values and never by
- * the exchange alone (rule 7), keeps the server's order, and draws no order in flight (owner decision Q8,
- * 2026-10-13) and no note. It does not depend on the pool's performance report.
+ * origin and the strategy's name first (examples 22 and 24), in a card of its own with the count beside the title
+ * (ex1). It selects by the pool's three values and never by the exchange alone (rule 7), keeps the server's order,
+ * and draws no order in flight (owner decision Q8, 2026-10-13) and no note. It does not depend on the pool's
+ * performance report.
  *
  * The heading is always drawn. A failed first read is an error with "Read again", never "No open position.":
  * the Overview's count is absent both when nothing is open and when the read failed, so this sentence is what
@@ -27,21 +29,13 @@ export function PoolOpenPositions({ pool }: PoolOpenPositionsProps) {
   const headingId = useId();
   const open = useOpenPositions();
   const locale = i18n.resolvedLanguage ?? "en";
-
-  const heading = (
-    <h2 id={headingId} className="font-display text-base font-semibold text-ink">
-      {t("positions.table.title")}
-    </h2>
-  );
+  const title = t("positions.table.title");
 
   if (open.data === undefined) {
     return (
-      <ReportSection>
-        <section aria-labelledby={headingId} className="flex flex-col gap-4">
-          {heading}
-          <OpenReadState status={open.status} errorUpdateCount={open.errorUpdateCount} />
-        </section>
-      </ReportSection>
+      <Card title={title} headingId={headingId}>
+        <OpenReadState status={open.status} errorUpdateCount={open.errorUpdateCount} />
+      </Card>
     );
   }
 
@@ -50,9 +44,12 @@ export function PoolOpenPositions({ pool }: PoolOpenPositionsProps) {
   const lastRead = timeOfAnswerText(answer.as_of, answer.as_of, locale, true) ?? answer.as_of;
 
   return (
-    <ReportSection>
-      <section aria-labelledby={headingId} className="flex flex-col gap-4">
-        {heading}
+    <Card
+      title={title}
+      headingId={headingId}
+      action={<CountChip testId="positions-count">{t("positions.table.count", { count: mine.positions.length })}</CountChip>}
+    >
+      <div className="flex flex-col gap-4">
         <div aria-live="polite" className="flex flex-col gap-1">
           {open.status === "error" && <p className="text-sm text-loss">{t("positions.state.stale", { time: lastRead })}</p>}
         </div>
@@ -67,7 +64,7 @@ export function PoolOpenPositions({ pool }: PoolOpenPositionsProps) {
             labelledBy={headingId}
           />
         )}
-      </section>
-    </ReportSection>
+      </div>
+    </Card>
   );
 }

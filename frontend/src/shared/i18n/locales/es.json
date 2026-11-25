@@ -221,6 +221,11 @@
       "agrees": "el exchange vuelve a coincidir"
     }
   },
+  "hidden": {
+    "label": "Oculto",
+    "hide": "Ocultar saldos",
+    "show": "Mostrar saldos"
+  },
   "overview": {
     "title": "Panel de control",
     "scope": {
@@ -236,6 +241,20 @@
       "emptyRange": "Sin operaciones cerradas en este rango",
       "unreadable": "No se pudo leer la curva de rendimiento.",
       "hoverDrawdown": "Caída {{value}}"
+    },
+    "header": {
+      "pool": "{{exchange}}, pool {{venue}} en {{currency}}",
+      "poolSole": "{{exchange}}, pool único en {{currency}}",
+      "capital": "Capital en posiciones",
+      "spark": "Rendimiento, últimos {{days}} días",
+      "return": "Rendimiento",
+      "drawdown": "Drawdown máximo",
+      "open": "Posiciones abiertas"
+    },
+    "card": {
+      "compound": "Rendimiento compuesto",
+      "monthly": "Rendimiento mensual",
+      "monthlyScale": "Rango fijo de ±15%"
     },
     "ledger": {
       "available": "Saldo disponible",
@@ -866,6 +885,8 @@
     },
     "table": {
       "title": "Posiciones abiertas",
+      "count_one": "{{count}} posición",
+      "count_other": "{{count}} posiciones",
       "empty": "Sin posiciones abiertas.",
       "margin": "Margen otorgado {{currency}}",
       "leverage": "Apalancamiento",

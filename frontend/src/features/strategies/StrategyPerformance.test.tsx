@@ -99,7 +99,8 @@ describe("StrategyPerformance", () => {
     );
     const first = renderAt(<PoolPanel pool={poolRow} />);
     await screen.findByTestId("ledger-line");
-    fireEvent.click(screen.getByRole("button", { name: "1Y" }));
+    // The dashboard's range is a segmented control (RD.3): a radio, not a button.
+    fireEvent.click(screen.getByRole("radio", { name: "1Y" }));
     first.unmount();
 
     const second = renderAt(<StrategyPerformance strategyId={ID} />);
