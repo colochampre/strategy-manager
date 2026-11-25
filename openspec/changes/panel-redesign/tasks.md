@@ -315,3 +315,9 @@ The owner's words (2026-11-24) are quoted as written.
     - "Desactivar" is drawn in loss and "Activar" in gain, both 96 px wide.
     - "Mostrar archivadas" is now the link of the note at the foot of the table.
   - The open questions of RD.7a (the "Desde" column, grey dots, row actions in `ex14` and `ex15`) stay as drawn ("El resto que quede como está").
+- L22 (2026-11-25, owner, after L21): "Los cambios quedaron bien en Mis estrategias, pero no se aplicaron en Mis suscripciones y Explorar. De paso agrego algo: Si una estrategia tuviera varios pares, por ejemplo 4 o más, la columna Pares quedaría muy grande. Si hay más de un par, indicar el número de pares y en un tooltip el detalle de qué pares son. Te parece bien?"
+  - The parent had applied L21 to `ex13` only. `ex14` and `ex15` now carry it too:
+    - "%" on PnL (%) and Caída máx.;
+    - Acierto aligned to the start;
+    - `ex14` without the Abierta column.
+  - With more than one pair, the Pares column says how many ("2 pares", underlined with dots) and lists them in its tooltip. With one pair, it shows the symbol.
