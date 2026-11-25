@@ -125,7 +125,7 @@ The owner's words (2026-11-24) are quoted as written.
       - `backend files changed by the pull: 0`;
       - `bundle: 2cbd857cb90e` and `checkout: 2cbd857cb90e`;
       - `favicon: 200 image/png` and `manifest: 200 application/manifest+json`, both on loopback.
-- [ ] RD.2 PR 2: Mi cuenta and Vincular exchange separated, on branch `feat/panel-account` (S4, S9).
+- [x] RD.2 PR 2: Mi cuenta and Vincular exchange separated, on branch `feat/panel-account` (S4, S9).
   - Route: delegated to one Sonnet writer, for the parent's context backstop.
   - Scope defaults, set by the parent for the owner to correct:
     - Mi cuenta keeps its address, `/settings`, so no link or bookmark breaks.
@@ -171,6 +171,14 @@ The owner's words (2026-11-24) are quoted as written.
     - The writer ran every new rule red on an assertion before implementing it.
     - The mode-change tests moved from `ModeBadge.test.tsx` to `ModeSection.test.tsx` with every behaviour assertion kept.
     - Gate, run by the parent: lint reported 0 errors, and vitest passed 172 files and 4189 tests.
+  - *Delivered 2026-11-25 as PR #134*, two commits. The owner merged it with a merge commit, `2ca3adca4786`.
+    - **Deploy (pps.6), run by the owner, on its own (L11).** The bundle was built from a clean worktree of `origin/main` at `2ca3adca4786` (SHA-256 `5cd4289e…63e8c5ba`), copied with `scp`, and published by `panel_2ca3adca4786.sh`.
+    - Nothing in `backend/` changed since `2cbd857cb90e`, so the checkout was fast-forwarded as `strategy` and no service was restarted.
+    - The VPS answered:
+      - the archive's checksum `OK`, and `readable`;
+      - `backend files changed by the pull: 0`;
+      - `bundle: 2ca3adca4786` and `checkout: 2ca3adca4786`;
+      - `exchanges: 200 text/html` and `settings: 200 text/html`, both on loopback.
 - [ ] RD.3 PR 3: the dashboard's header card, and hide balances (S1, S8).
 - [ ] RD.4 PR 4: My trades (S5).
 - [ ] RD.5 PR 5: Notifications (S6).
