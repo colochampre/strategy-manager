@@ -858,6 +858,11 @@
       "mixed": "Simulación y en vivo",
       "unknown": "origen desconocido"
     },
+    "sign": {
+      "name": "Requiere atención, {{pair}}",
+      "origin": "Origen: {{origin}}",
+      "close": "Cerrar"
+    },
     "sideUnreadable": "lado no legible",
     "order": {
       "inFlight": "orden en curso",

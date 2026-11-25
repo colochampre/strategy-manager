@@ -10,8 +10,21 @@ import { useHiddenStore } from "@/shared/hidden/hidden-store";
 import type { OpenPool, OpenPosition } from "@/shared/api/positions";
 import type { Strategy } from "@/shared/api/types";
 import i18n from "@/shared/i18n";
-import { failsOnceThenHolds, jsonResponse, lock, openOrder, openPosition, openState, renderAt, setViewport, stubApi, unlock } from "@/test/harness";
-import type { OpenPositionsStub } from "@/test/harness";
+import {
+  confirmedBody,
+  discrepancy,
+  failsOnceThenHolds,
+  jsonResponse,
+  lock,
+  openOrder,
+  openPosition,
+  openState,
+  renderAt,
+  setViewport,
+  stubApi,
+  unlock,
+} from "@/test/harness";
+import type { ConfirmedStub, OpenPositionsStub } from "@/test/harness";
 
 /**
  * T13, the list half (design addendum § H, the Overview part; spec "The Overview Lists Every Open Position Of
@@ -227,7 +240,9 @@ describe("the columns and the cells (T13; example 22)", () => {
 
     const cells = onlyRow();
     expect(cells[COLUMN.strategy]).toHaveTextContent("STX 4h - RSI Divergences");
-    expect(cells[COLUMN.pair]).toHaveTextContent("AAVEUSDTLive");
+    // The origin is the dot's name, not text under the symbol (RD.3d, L17).
+    expect(cells[COLUMN.pair]).toHaveTextContent("AAVEUSDT");
+    expect(within(cells[COLUMN.pair] as HTMLElement).queryByRole("img", { name: "Live" })).toBeInTheDocument();
     expect(cells[COLUMN.side]).toHaveTextContent("Long");
     expect(cells[COLUMN.entry]).toHaveTextContent("184.3");
   });
@@ -236,8 +251,12 @@ describe("the columns and the cells (T13; example 22)", () => {
     await mountList(answering([held("SFPUSDT", USDT_POOL, { origin: "rehearsal" }), held("STXUSDT", USDT_POOL, { origin: "live" })]));
 
     const rows = positionRows(theTable());
-    expect(cellsOf(rows[0] as HTMLElement)[COLUMN.pair]).toHaveTextContent("SFPUSDTDry run");
-    expect(cellsOf(rows[1] as HTMLElement)[COLUMN.pair]).toHaveTextContent("STXUSDTLive");
+    const first = cellsOf(rows[0] as HTMLElement)[COLUMN.pair] as HTMLElement;
+    const second = cellsOf(rows[1] as HTMLElement)[COLUMN.pair] as HTMLElement;
+    expect(first).toHaveTextContent("SFPUSDT");
+    expect(within(first).queryByRole("img", { name: "Dry run" })).toBeInTheDocument();
+    expect(second).toHaveTextContent("STXUSDT");
+    expect(within(second).queryByRole("img", { name: "Live" })).toBeInTheDocument();
   });
 
   it("draws no note under the list, whatever the origins", async () => {
@@ -277,7 +296,8 @@ describe("the open positions table follows ex1 (RD.3c)", () => {
 
     const heads = within(theTable()).getAllByRole("columnheader");
     expect(heads.map((head) => head.textContent).slice(0, 6)).toEqual(["Strategy", "Symbol", "Side", "Entry", "Mark price", "PnL (USDT)"]);
-    expect(within(theTable()).queryByRole("img")).not.toBeInTheDocument();
+    // The origin dots in the body are images by role; the headings hold none.
+    expect(within(theTable().querySelector("thead") as HTMLElement).queryByRole("img")).not.toBeInTheDocument();
     expect(heads).toHaveLength(7);
   });
 
@@ -286,7 +306,8 @@ describe("the open positions table follows ex1 (RD.3c)", () => {
 
     const row = rowsOfTable()[0] as HTMLElement;
     expect(at(row, 0)).toHaveTextContent("STX 4h - RSI Divergences");
-    expect(at(row, 1)).toHaveTextContent("AAVEUSDTLive");
+    expect(at(row, 1).textContent).toBe("AAVEUSDT");
+    expect(within(at(row, 1)).queryByRole("img", { name: "Live" })).toBeInTheDocument();
     expect(at(row, 2).textContent).toBe("Long");
     expect(at(row, 3).textContent).toBe("184.3");
     expect(at(row, 4).textContent).toBe("187.5");
@@ -326,28 +347,6 @@ describe("the open positions table follows ex1 (RD.3c)", () => {
     }
   });
 
-  it("draws the venue line as a sub-row across the seven columns", async () => {
-    await mountList(
-      answering([
-        aave({
-          ...MARKED,
-          venue_disagreement: {
-            discrepancy_id: "d-1",
-            venue_net_base: "0",
-            ledger_net_base: "0.82000000",
-            allocation_count: 1,
-            last_observed_at: "2026-10-12T21:39:12Z",
-          },
-        }),
-      ]),
-    );
-
-    const rows = within(theTable()).getAllByRole("row");
-    const after = rows[rows.indexOf(rowsOfTable()[0] as HTMLElement) + 1] as HTMLElement;
-    expect(after.querySelector("td")).toHaveAttribute("colspan", "7");
-    expect(within(after).getByRole("group", { name: "Venue disagrees, AAVEUSDT" })).toBeInTheDocument();
-  });
-
   it("writes the headings and the words in Spanish", async () => {
     await act(() => i18n.changeLanguage("es"));
     await mountList(answering([aave({ ...MARKED, side: "SHORT" })]));
@@ -357,6 +356,225 @@ describe("the open positions table follows ex1 (RD.3c)", () => {
     const row = rowsOfTable()[0] as HTMLElement;
     expect(at(row, 2).textContent).toBe("Corto");
     expect(within(at(row, 6)).getByRole("button", { name: "Cerrar ahora" })).toHaveTextContent("Cerrar ahora");
+  });
+});
+
+/**
+ * RD.3d, L17: the origin is a round dot beside the symbol (the mode badge's dot), and a position the venue
+ * disagrees with, or whose figures are missing, shows a warning sign in its place, whose message carries the
+ * old sub-row's text and the origin. Neither draws a row of its own.
+ */
+describe("the origin dot and the warning sign (RD.3d, L17)", () => {
+  const DISCREPANCY_ID = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+  const SIGN = "Attention needed, AAVEUSDT";
+  const DISAGREEMENT = {
+    discrepancy_id: DISCREPANCY_ID,
+    venue_net_base: "0",
+    ledger_net_base: "0.82000000",
+    allocation_count: 1,
+    last_observed_at: "2026-10-12T21:39:12Z",
+  };
+  const BEING_BOOKED: ConfirmedStub = {
+    kind: "ok",
+    body: confirmedBody({ being_booked: [discrepancy({ discrepancy_id: DISCREPANCY_ID, symbol: "AAVEUSDT.P", reason: null })] }),
+  };
+
+  // jsdom has no `showModal` or `close`; the dialog upgrades itself where they exist.
+  beforeEach(() => {
+    Object.defineProperty(HTMLDialogElement.prototype, "showModal", {
+      configurable: true,
+      writable: true,
+      value: function (this: HTMLDialogElement) {
+        this.setAttribute("open", "");
+      },
+    });
+    Object.defineProperty(HTMLDialogElement.prototype, "close", {
+      configurable: true,
+      writable: true,
+      value: function (this: HTMLDialogElement) {
+        this.removeAttribute("open");
+      },
+    });
+  });
+  afterEach(() => {
+    Reflect.deleteProperty(HTMLDialogElement.prototype, "showModal");
+    Reflect.deleteProperty(HTMLDialogElement.prototype, "close");
+  });
+
+  const DIALOG = "Venue disagrees, AAVEUSDT";
+
+  async function mountWithConfirmed(position: OpenPosition) {
+    stubApi(HEALTH, [], undefined, {}, undefined, {}, undefined, answering([position]), BEING_BOOKED);
+    renderAt(<PoolOpenPositions pool={USDT_POOL} />);
+    await settle();
+  }
+
+  const symbolCell = (): HTMLElement => onlyRow()[COLUMN.pair] as HTMLElement;
+  const rowCount = (): number => within(theTable()).getAllByRole("row").length;
+  const signOf = (): HTMLElement => {
+    const sign = within(symbolCell()).queryByRole("button", { name: SIGN });
+    expect(sign).toBeInTheDocument();
+    return sign as HTMLElement;
+  };
+
+  it.each([
+    ["rehearsal", "Dry run", "bg-decision"],
+    ["live", "Live", "bg-gain"],
+    ["mixed", "Dry run and live", "bg-loss"],
+  ] as const)("draws a %s position's origin as a round dot named %s, with no word under the symbol", async (origin, word, tone) => {
+    await mountList(answering([aave({ origin })]));
+
+    const cell = symbolCell();
+    expect(cell.textContent).toBe("AAVEUSDT");
+    const mark = within(cell).queryByRole("img", { name: word });
+    expect(mark).toBeInTheDocument();
+    const dot = (mark as HTMLElement).querySelector("[data-dot]");
+    expect(dot).toHaveClass("size-[7px]", "rounded-full", tone);
+  });
+
+  it("explains the dot in a tooltip on hover and on keyboard focus, and the dot is reachable by keyboard", async () => {
+    await mountList(answering([aave({ origin: "rehearsal" })]));
+
+    const mark = within(symbolCell()).queryByRole("img", { name: "Dry run" });
+    expect(mark).toBeInTheDocument();
+    const wrapper = (mark as HTMLElement).parentElement as HTMLElement;
+    expect(wrapper).toHaveAttribute("tabindex", "0");
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+    fireEvent.mouseEnter(wrapper);
+    expect(screen.queryByRole("tooltip")).toHaveTextContent("Dry run");
+    fireEvent.mouseLeave(wrapper);
+    fireEvent.focus(wrapper);
+    expect(screen.queryByRole("tooltip")).toHaveTextContent("Dry run");
+  });
+
+  it("keeps the row one line high: a clean position has no row but its own", async () => {
+    await mountList(answering([aave()]));
+
+    expect(rowCount()).toBe(2);
+  });
+
+  it("puts a warning sign in loss in place of the dot for a position the venue disagrees with, and draws no row for it", async () => {
+    await mountWithConfirmed(aave({ venue_disagreement: DISAGREEMENT }));
+
+    const cell = symbolCell();
+    const sign = within(cell).queryByRole("button", { name: SIGN });
+    expect(sign).toBeInTheDocument();
+    expect(sign).toHaveAttribute("aria-haspopup", "dialog");
+    expect(sign?.querySelector("svg")).toHaveClass("text-loss");
+    expect(cell.querySelector("[data-dot]")).not.toBeInTheDocument();
+    expect(cell.textContent).toBe("AAVEUSDT");
+    expect(rowCount()).toBe(2);
+    expect(screen.queryByRole("dialog", { name: DIALOG })).not.toBeInTheDocument();
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+  });
+
+  it("says a short summary and the origin in a tooltip on hover and on keyboard focus, never a positioned box", async () => {
+    await mountWithConfirmed(aave({ venue_disagreement: DISAGREEMENT }));
+
+    const sign = signOf();
+    fireEvent.mouseEnter(sign.parentElement as HTMLElement);
+    expect(screen.queryByRole("tooltip")).toHaveTextContent("Venue disagrees · Live");
+    expect(screen.queryByRole("tooltip")).not.toHaveTextContent("See the discrepancy");
+    expect(screen.queryByRole("dialog", { name: DIALOG })).not.toBeInTheDocument();
+    fireEvent.mouseLeave(sign.parentElement as HTMLElement);
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+    fireEvent.focus(sign);
+    expect(screen.queryByRole("tooltip")).toHaveTextContent("Venue disagrees · Live");
+    expect(document.querySelector("[style]")).not.toBeInTheDocument();
+  });
+
+  it("opens the whole disagreement line, the link and the origin in a modal dialog when the sign is clicked", async () => {
+    await mountWithConfirmed(aave({ venue_disagreement: DISAGREEMENT }));
+
+    const sign = signOf();
+    fireEvent.click(sign);
+
+    const dialog = screen.queryByRole("dialog", { name: DIALOG });
+    expect(dialog).toBeInTheDocument();
+    expect(dialog).toHaveTextContent(
+      "AAVEUSDT · venue disagrees · exchange 0 AAVE, ledger 0.82 AAVE · last compared 21:39:12 UTC · being booked automatically · See the discrepancy",
+    );
+    expect(dialog).toHaveTextContent("Origin: Live");
+    const link = within(dialog as HTMLElement).queryByRole("link", { name: "See the discrepancy, AAVEUSDT" });
+    expect(link).toHaveAttribute("href", `/discrepancies#discrepancy-${DISCREPANCY_ID}`);
+    expect(within(dialog as HTMLElement).queryByRole("button", { name: "Close" })).toBeInTheDocument();
+    expect(document.querySelector("[style]")).not.toBeInTheDocument();
+  });
+
+  it("closes the dialog with its Close button and returns the focus to the sign", async () => {
+    await mountWithConfirmed(aave({ venue_disagreement: DISAGREEMENT }));
+
+    const sign = signOf();
+    fireEvent.click(sign);
+    fireEvent.click(within(screen.getByRole("dialog", { name: DIALOG })).getByRole("button", { name: "Close" }));
+
+    expect(screen.queryByRole("dialog", { name: DIALOG })).not.toBeInTheDocument();
+    expect(document.activeElement).toBe(sign);
+  });
+
+  it("closes the dialog on Escape and returns the focus to the sign", async () => {
+    await mountWithConfirmed(aave({ venue_disagreement: DISAGREEMENT }));
+
+    const sign = signOf();
+    fireEvent.click(sign);
+    expect(screen.queryByRole("dialog", { name: DIALOG })).toBeInTheDocument();
+    fireEvent.keyDown(screen.getByRole("link", { name: "See the discrepancy, AAVEUSDT" }), { key: "Escape" });
+
+    expect(screen.queryByRole("dialog", { name: DIALOG })).not.toBeInTheDocument();
+    expect(document.activeElement).toBe(sign);
+  });
+
+  it("says the missing-figures reason and the origin in the tooltip, and all of it in the dialog, for a position the facts could not decorate", async () => {
+    await mountList(answering([noFacts({ markets: ["AAVEUSDT"] })]));
+
+    const sign = within(symbolCell()).queryByRole("button", { name: SIGN }) as HTMLElement;
+    expect(sign).toBeInTheDocument();
+    expect(rowCount()).toBe(2);
+    fireEvent.mouseEnter(sign.parentElement as HTMLElement);
+    expect(screen.queryByRole("tooltip")).toHaveTextContent("The figures could not be derived from the fills. · Live");
+    fireEvent.click(sign);
+    const dialog = screen.queryByRole("dialog", { name: SIGN });
+    expect(dialog).toHaveTextContent("The figures could not be derived from the fills.");
+    expect(dialog).toHaveTextContent("Origin: Live");
+  });
+
+  it("keeps the reservation's note as a row of its own, under a position that has neither warning", async () => {
+    await mountList(answering([aave({ reservation_status: "EXPIRED" })]));
+
+    expect(rowCount()).toBe(3);
+    expect(theTable()).toHaveTextContent("Its reservation reads EXPIRED, not FILLED.");
+    expect(symbolCell().querySelector("[data-dot]")).toBeInTheDocument();
+  });
+
+  it("gives a card the same dot beside the pair and the same sign, and no line under it", async () => {
+    setViewport("narrow");
+    await mountWithConfirmed(aave({ venue_disagreement: DISAGREEMENT }));
+
+    const [card] = screen.queryAllByRole("article") as [HTMLElement];
+    expect(within(card).queryByRole("button", { name: SIGN })).toBeInTheDocument();
+    expect(within(card).queryByRole("dialog", { name: DIALOG })).not.toBeInTheDocument();
+    expect(card.querySelector("[data-dot]")).not.toBeInTheDocument();
+  });
+
+  it("gives a clean card the origin's dot, named by its word, in place of the tag", async () => {
+    setViewport("narrow");
+    await mountList(answering([aave({ origin: "rehearsal" })]));
+
+    const [card] = screen.queryAllByRole("article") as [HTMLElement];
+    const mark = within(card).queryByRole("img", { name: "Dry run" });
+    expect(mark?.querySelector("[data-dot]")).toHaveClass("bg-decision", "rounded-full");
+    expect(within(card).queryByText("Dry run")).not.toBeInTheDocument();
+  });
+
+  it("names the sign and says the origin in Spanish", async () => {
+    await act(() => i18n.changeLanguage("es"));
+    await mountList(answering([noFacts({ markets: ["AAVEUSDT"] })]));
+
+    const sign = within(symbolCell()).queryByRole("button", { name: "Requiere atención, AAVEUSDT" });
+    expect(sign).toBeInTheDocument();
+    fireEvent.click(sign as HTMLElement);
+    expect(screen.queryByRole("dialog", { name: "Requiere atención, AAVEUSDT" })).toHaveTextContent("Origen: En vivo");
+    expect(within(screen.getByRole("dialog")).queryByRole("button", { name: "Cerrar" })).toBeInTheDocument();
   });
 });
 
@@ -415,33 +633,6 @@ describe("a position the facts could not decorate (T13; K row 10)", () => {
     await mountList(answering([noFacts()]));
 
     expect(screen.queryByRole("button", { name: "Close now" })).not.toBeInTheDocument();
-  });
-});
-
-describe("the venue line under its row (T13; spec 'On The Detail Page And The Overview The Venue Mark Is One Solid Red Line')", () => {
-  it("is drawn under its row, as the table's own sub-row across the seven columns", async () => {
-    await mountList(
-      answering([
-        aave({
-          venue_disagreement: {
-            discrepancy_id: "d-1",
-            venue_net_base: "0",
-            ledger_net_base: "0.82000000",
-            allocation_count: 1,
-            last_observed_at: "2026-10-12T21:39:12Z",
-          },
-        }),
-      ]),
-    );
-
-    const table = theTable();
-    const rows = within(table).getAllByRole("row");
-    const own = positionRows(table)[0] as HTMLElement;
-    const after = rows[rows.indexOf(own) + 1] as HTMLElement;
-    expect(after.querySelectorAll("td")).toHaveLength(1);
-    expect(after.querySelector("td")).toHaveAttribute("colspan", "7");
-    const line = within(after).getByRole("group", { name: "Venue disagrees, AAVEUSDT" });
-    expect(line).toHaveClass("border-solid", "border-loss");
   });
 });
 
@@ -579,7 +770,8 @@ describe("below md the positions are cards (T13; N2)", () => {
 
     const [card] = screen.queryAllByRole("article") as [HTMLElement];
     const parts = [...card.children];
-    expect(parts[0]).toHaveTextContent("AAVEUSDTLONGLive");
+    expect(parts[0]).toHaveTextContent("AAVEUSDTLONG");
+    expect(within(parts[0] as HTMLElement).queryByRole("img", { name: "Live" })).toBeInTheDocument();
     const link = within(parts[1] as HTMLElement).getByRole("link", { name: "STX 4h - RSI Divergences" });
     expect(link).toHaveAttribute("href", `/strategies/${STX}`);
     expect(parts[2]?.tagName).toBe("DL");
@@ -623,24 +815,25 @@ describe("below md the positions are cards (T13; N2)", () => {
   });
 });
 
-describe("the origin's tag comes from origin.ts (T21, the Overview's half)", () => {
-  it.each(["rehearsal", "live", "mixed"] as const)("draws a %s position's tag with the table's text key and class", async (origin) => {
+// RD.3d (L17): the tag under the symbol became a dot beside it; the word and the tone still come from origin.ts.
+describe("the origin's dot comes from origin.ts (T21, the Overview's half)", () => {
+  it.each(["rehearsal", "live", "mixed"] as const)("draws a %s position's dot with the table's text key and class", async (origin) => {
     await mountList(answering([held("AAVEUSDT", USDT_POOL, { origin })]));
 
     const cell = onlyRow()[COLUMN.pair] as HTMLElement;
     const style = ORIGIN_STYLE[origin];
-    const tag = within(cell).getByText(String(i18n.t(style.textKey)));
-    expect(tag).toHaveClass(style.text);
-    // A dry-run tag is amber, a live one cyan, and a position of both origins red: three different words and colours.
-    expect(new Set([ORIGIN_STYLE.rehearsal.text, ORIGIN_STYLE.live.text, ORIGIN_STYLE.mixed.text]).size).toBe(3);
+    const mark = within(cell).getByRole("img", { name: String(i18n.t(style.textKey)) });
+    expect(mark.querySelector("[data-dot]")).toHaveClass(style.dot);
+    // A dry-run dot is amber, a live one cyan, and a position of both origins red: three different words and colours.
+    expect(new Set([ORIGIN_STYLE.rehearsal.dot, ORIGIN_STYLE.live.dot, ORIGIN_STYLE.mixed.dot]).size).toBe(3);
   });
 
-  it("draws the card's tag the same way", async () => {
+  it("draws the card's dot the same way", async () => {
     setViewport("narrow");
     await mountList(answering([held("SFPUSDT", USDT_POOL, { origin: "rehearsal" })]));
 
     const [card] = screen.queryAllByRole("article") as [HTMLElement];
-    expect(within(card).getByText("Dry run")).toHaveClass(ORIGIN_STYLE.rehearsal.text);
+    expect(within(card).getByRole("img", { name: "Dry run" }).querySelector("[data-dot]")).toHaveClass(ORIGIN_STYLE.rehearsal.dot);
   });
 });
 
@@ -704,7 +897,8 @@ describe("in Spanish (T10 and T11; owner decision Q9, 2026-10-13)", () => {
     expect(cells[COLUMN.entry]?.textContent).toBe("184.3");
     expect(cells[COLUMN.mark]?.textContent).toBe("187.5");
     expect(cells[COLUMN.pnl]?.textContent).toBe("+12.345,50");
-    expect(cells[COLUMN.pair]).toHaveTextContent("AAVEUSDTEn vivo");
+    expect(cells[COLUMN.pair]?.textContent).toBe("AAVEUSDT");
+    expect(within(cells[COLUMN.pair] as HTMLElement).queryByRole("img", { name: "En vivo" })).toBeInTheDocument();
   });
 
   it("writes the card's labels and values in Spanish, the strategy's name under the head", async () => {

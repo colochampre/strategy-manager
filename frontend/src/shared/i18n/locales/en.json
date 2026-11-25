@@ -858,6 +858,11 @@
       "mixed": "Dry run and live",
       "unknown": "origin unknown"
     },
+    "sign": {
+      "name": "Attention needed, {{pair}}",
+      "origin": "Origin: {{origin}}",
+      "close": "Close"
+    },
     "sideUnreadable": "side not readable",
     "order": {
       "inFlight": "order in flight",

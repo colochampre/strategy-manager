@@ -35,13 +35,7 @@ function Separator() {
  * null is left out, with its separator.
  */
 export function MarkLine(props: MarkLineProps) {
-  const parts = props.parts.filter((part): part is Exclude<ReactNode, null> => part !== null);
-  const content = parts.map((part, index) => (
-    <Fragment key={index}>
-      {index > 0 && <Separator />}
-      {part}
-    </Fragment>
-  ));
+  const content = <JoinedParts parts={props.parts} />;
 
   if (props.variant === "venue") {
     return (
@@ -110,7 +104,13 @@ interface DisagreeingLineProps extends VenueLineProps {
   disagreement: VenueDisagreement;
 }
 
-function DisagreeingLine({ position, disagreement, asOf }: DisagreeingLineProps) {
+/**
+ * The parts of the venue line, in order: pair, "venue disagrees" in red, both nets, when it was last compared, how
+ * many positions share the difference, the discrepancy's state and its link. A part that does not apply is null.
+ * The line under a position (the strategy variant) and the warning sign's message (the Overview's table, RD.3d)
+ * both read it, so the two cannot say different things.
+ */
+export function useVenueParts(position: OpenPosition, disagreement: VenueDisagreement, asOf: string): ReactNode[] {
   const { t, i18n } = useTranslation();
   const followUp = useVenueFollowUp(disagreement.discrepancy_id);
 
@@ -119,24 +119,41 @@ function DisagreeingLine({ position, disagreement, asOf }: DisagreeingLineProps)
   const unreadable = t("positions.state.unreadable");
   const comparedAt = timeOfAnswerText(disagreement.last_observed_at, asOf, locale, true);
 
+  return [
+    pair,
+    <span key="disagrees" className="text-loss">
+      {t("positions.venue.line.disagrees")}
+    </span>,
+    t("positions.venue.line.nets", {
+      venue: netText(disagreement.venue_net_base, position.base_currency, unreadable),
+      ledger: netText(disagreement.ledger_net_base, position.base_currency, unreadable),
+    }),
+    comparedAt === null ? null : t("positions.venue.line.compared", { time: comparedAt }),
+    disagreement.allocation_count > 1 ? t("positions.venue.line.shared", { positions: disagreement.allocation_count }) : null,
+    followUp?.words ?? null,
+    followUp === null ? null : <DiscrepancyLink key="link" followUp={followUp} pair={pair} />,
+  ];
+}
+
+/** The parts of a `MarkLine` or a message, joined by the faint separator and with the nulls (and their separators) left out. */
+export function JoinedParts({ parts }: { parts: ReactNode[] }) {
   return (
-    <MarkLine
-      variant="venue"
-      name={t("positions.venue.groupName", { pair })}
-      parts={[
-        pair,
-        <span key="disagrees" className="text-loss">
-          {t("positions.venue.line.disagrees")}
-        </span>,
-        t("positions.venue.line.nets", {
-          venue: netText(disagreement.venue_net_base, position.base_currency, unreadable),
-          ledger: netText(disagreement.ledger_net_base, position.base_currency, unreadable),
-        }),
-        comparedAt === null ? null : t("positions.venue.line.compared", { time: comparedAt }),
-        disagreement.allocation_count > 1 ? t("positions.venue.line.shared", { positions: disagreement.allocation_count }) : null,
-        followUp?.words ?? null,
-        followUp === null ? null : <DiscrepancyLink key="link" followUp={followUp} pair={pair} />,
-      ]}
-    />
+    <>
+      {parts
+        .filter((part): part is Exclude<ReactNode, null> => part !== null)
+        .map((part, index) => (
+          <Fragment key={index}>
+            {index > 0 && <Separator />}
+            {part}
+          </Fragment>
+        ))}
+    </>
   );
+}
+
+function DisagreeingLine({ position, disagreement, asOf }: DisagreeingLineProps) {
+  const { t } = useTranslation();
+  const pair = position.markets.join(" / ");
+  const parts = useVenueParts(position, disagreement, asOf);
+  return <MarkLine variant="venue" name={t("positions.venue.groupName", { pair })} parts={parts} />;
 }

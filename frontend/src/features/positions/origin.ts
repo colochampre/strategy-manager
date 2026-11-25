@@ -15,11 +15,13 @@ export interface OriginStyle {
   text: string;
   /** The class of a mark's border. */
   border: string;
+  /** The fill of the round dot that stands for the origin in a table row (RD.3d, L17). */
+  dot: string;
 }
 
 export const ORIGIN_STYLE: Readonly<Record<Origin, OriginStyle>> = {
-  rehearsal: { textKey: "positions.origin.rehearsal", text: "text-decision", border: "border-decision" },
-  live: { textKey: "positions.origin.live", text: "text-gain", border: "border-gain" },
-  mixed: { textKey: "positions.origin.mixed", text: "text-loss", border: "border-loss" },
-  unknown: { textKey: "positions.origin.unknown", text: "text-ink-3", border: "border-rule-strong" },
+  rehearsal: { textKey: "positions.origin.rehearsal", text: "text-decision", border: "border-decision", dot: "bg-decision" },
+  live: { textKey: "positions.origin.live", text: "text-gain", border: "border-gain", dot: "bg-gain" },
+  mixed: { textKey: "positions.origin.mixed", text: "text-loss", border: "border-loss", dot: "bg-loss" },
+  unknown: { textKey: "positions.origin.unknown", text: "text-ink-3", border: "border-rule-strong", dot: "bg-ink-3" },
 };

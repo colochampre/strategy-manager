@@ -16,6 +16,7 @@ import { Link } from "react-router";
 import { CloseNowControl } from "@/features/positions/CloseNowControl";
 import { VenueLine } from "@/features/positions/MarkLine";
 import { OriginTag } from "@/features/positions/OriginTag";
+import { PositionMark, reasonText } from "@/features/positions/PositionMark";
 import type { OpenPosition } from "@/shared/api/positions";
 import { amountText, parseDecimal, toneClass } from "@/shared/lib/amount-text";
 import { cn } from "@/shared/lib/cn";
@@ -173,7 +174,12 @@ const POOL_HEAD = "whitespace-nowrap border-b border-rule bg-ground px-3 py-2.5 
  * (the mark price and the PnL are optional) is a dash, never a zero. The PnL is the user's money, so it goes
  * through `Masked`; the prices do not.
  */
-function poolCellsOf(position: OpenPosition, locale: string, t: Translate): { content: ReactNode; className?: string }[] {
+function poolCellsOf(
+  position: OpenPosition,
+  locale: string,
+  t: Translate,
+  asOf: string,
+): { content: ReactNode; className?: string }[] {
   const unreadable = reasonOf(position, t, "other");
   const unreadableFigure = t("positions.state.unreadable");
   // The venue's mark price is read apart from the facts: a position that has its facts but no mark was not priced.
@@ -194,12 +200,11 @@ function poolCellsOf(position: OpenPosition, locale: string, t: Translate): { co
     { content: <StrategyName position={position} />, className: "text-ink" },
     {
       content: (
-        <>
+        // The origin is a dot beside the symbol, or a warning sign in its place (L17): the row stays one line high.
+        <span className="inline-flex items-center gap-1.5">
+          <PositionMark position={position} asOf={asOf} />
           {position.markets.join(" / ")}
-          <span className="block font-sans text-[11px] leading-4">
-            <OriginTag origin={position.origin} />
-          </span>
-        </>
+        </span>
       ),
       className: "font-mono text-ink",
     },
@@ -225,22 +230,19 @@ interface SubRow {
   content: ReactNode;
 }
 
-/** The reason a position's figures are missing: its own text for the three codes the server names, the generic one for any other. */
-function reasonText(code: string, t: Translate): string {
-  return t(code === "UNRESOLVED_SYMBOL" || code === "SEVERAL_MARKETS" || code === "FLIPPED" ? `positions.reason.${code}` : "positions.reason.other");
-}
-
 /**
  * What goes under a position's row, in this order: the venue line, the reason its figures are missing, and the
  * reservation's note when its status is not FILLED. A position the venue disagrees on is a red line, and an
  * unresolved or unreserved one says so: none of them reads as a clean row (design § K rows 2, 4, 14, 22).
+ * The pool variant draws the first two in its warning sign instead (L17), so only the reservation's note is
+ * left under its row.
  */
-export function subRowsOf(position: OpenPosition, asOf: string, t: Translate): SubRow[] {
+export function subRowsOf(position: OpenPosition, asOf: string, t: Translate, variant: PositionsTableProps["variant"] = "strategy"): SubRow[] {
   const rows: SubRow[] = [];
-  if (position.venue_disagreement !== null) {
+  if (variant === "strategy" && position.venue_disagreement !== null) {
     rows.push({ key: "venue", content: <VenueLine position={position} asOf={asOf} /> });
   }
-  if (position.figures_missing !== null) {
+  if (variant === "strategy" && position.figures_missing !== null) {
     rows.push({ key: "reason", content: <p className={SUB_TEXT}>{reasonText(position.figures_missing, t)}</p> });
   }
   if (position.reservation_status !== null && position.reservation_status !== "FILLED") {
@@ -256,8 +258,8 @@ type TableProps = PositionsTableProps;
 
 /**
  * The pool variant's table, as the prototype's ex1 draws it (L16): a boxed table with a tinted heading row of
- * words, never icons. The sub-rows (the venue's line, the missing-figures reason, the reservation's note) stay
- * under their row, across the seven columns.
+ * words, never icons. The venue's line and the missing-figures reason are in the warning sign beside the
+ * symbol (L17); the reservation's note stays under its row, across the seven columns.
  */
 function PoolTable({ positions, asOf, currency, labelledBy }: TableProps) {
   const { t, i18n } = useTranslation();
@@ -288,13 +290,13 @@ function PoolTable({ positions, asOf, currency, labelledBy }: TableProps) {
           {positions.map((position) => (
             <Fragment key={position.allocation_id}>
               <tr>
-                {poolCellsOf(position, locale, t).map((cell, index) => (
+                {poolCellsOf(position, locale, t, asOf).map((cell, index) => (
                   <td key={index} className={cn(POOL_CELL, cell.className)}>
                     {cell.content}
                   </td>
                 ))}
               </tr>
-              {subRowsOf(position, asOf, t).map((sub) => (
+              {subRowsOf(position, asOf, t, "pool").map((sub) => (
                 <tr key={sub.key}>
                   <td colSpan={POOL_COLUMNS} className={cn(SUB_CELL, "px-3")}>
                     {sub.content}
@@ -407,7 +409,7 @@ function PositionCard({
   const side = position.side === null ? t("positions.sideUnreadable") : position.side;
   const pool = variant === "pool";
   // The Overview's card also shows what its table shows: the mark price and the position's PnL.
-  const [, , , , markPrice, pnl] = poolCellsOf(position, locale, t);
+  const [, , , , markPrice, pnl] = poolCellsOf(position, locale, t, asOf);
   const pnlParsed = position.unrealized_pnl == null ? null : parseDecimal(position.unrealized_pnl);
   const labelled: ReadonlyArray<readonly [string, ReactNode]> = [
     [t("strategies.performance.trades.opened"), cells[0]],
@@ -430,11 +432,14 @@ function PositionCard({
       className="flex min-w-0 flex-col gap-2.5 rounded-lg border border-rule bg-panel p-3.5"
     >
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 font-sans text-[11px] leading-4">
-        <span className="font-display text-base font-semibold text-ink">
-          {pair}
-          <span className="ml-1.5 font-mono text-xs font-normal text-ink-2">{cells[2]}</span>
+        <span className="inline-flex items-center gap-1.5 font-display text-base font-semibold text-ink">
+          {pool && <PositionMark position={position} asOf={asOf} />}
+          <span>
+            {pair}
+            <span className="ml-1.5 font-mono text-xs font-normal text-ink-2">{cells[2]}</span>
+          </span>
         </span>
-        <OriginTag origin={position.origin} />
+        {!pool && <OriginTag origin={position.origin} />}
       </div>
       {pool && (
         <div className="text-sm">
@@ -449,7 +454,7 @@ function PositionCard({
           </div>
         ))}
       </dl>
-      {subRowsOf(position, asOf, t).map((sub) => (
+      {subRowsOf(position, asOf, t, variant).map((sub) => (
         <div key={sub.key}>{sub.content}</div>
       ))}
     </article>
