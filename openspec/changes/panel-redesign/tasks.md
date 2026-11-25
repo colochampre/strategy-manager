@@ -185,7 +185,7 @@ The owner's words (2026-11-24) are quoted as written.
       - `backend files changed by the pull: 0`;
       - `bundle: 2ca3adca4786` and `checkout: 2ca3adca4786`;
       - `exchanges: 200 text/html` and `settings: 200 text/html`, both on loopback.
-- [ ] RD.3 PR 3: the dashboard's header card, and hide balances (S1, S8), on branch `feat/panel-header-card`.
+- [x] RD.3 PR 3: the dashboard's header card, and hide balances (S1, S8), on branch `feat/panel-header-card`.
   - Route: delegated to one Sonnet writer, for the parent's context backstop. Hiding the balances and the header card share the card and the chart, so they are one unit, not two parallel ones.
   - The prototype's `ex1`, `ex2` and `ex3` are the spec, down to their styles (L12). Each screen is compared against its render before it is reported done.
   - Scope defaults, set by the parent for the owner to correct:
@@ -224,6 +224,19 @@ The owner's words (2026-11-24) are quoted as written.
       - frontend: lint reported 0 errors, and vitest passed 177 files and 4238 tests;
       - backend: `ruff` and `mypy` were clean (414 files).
       - `pytest` failed once in `test_archive_vs_allocate_concurrency.py::test_disable_wins_lock_first_allocation_in_lock_reread_sees_disabled_skips`, a lock test this change does not touch. Run alone, it failed 1 time in 3, so it is intermittent and not caused by this change.
+  - RD.3d and the L18 fix are logged under L17 and L18; the owner approved RD.3 in L19.
+  - *Delivered 2026-11-25 as PR #136*, six commits. The owner merged it with a merge commit, `41e052204769`.
+    - **Deploy, run by the owner, on its own (L11)**, by `deploy_41e052204769.sh`.
+      - The backend part: the checkout was fast-forwarded as `strategy`, and `strategy-api` and `strategy-worker` were restarted. The worker imports `main.py`, which changed.
+      - The panel part (pps.6): the bundle was built from a clean worktree of `origin/main` at `41e052204769` (SHA-256 `783f7d85…8fe2506`) and copied with `scp`.
+    - The VPS answered:
+      - the archive's checksum `OK`, and `readable`;
+      - `checkout: 41e052204769` and `migrations changed by the pull: 0`;
+      - `api: active` and `worker: active`;
+      - `bundle: 41e052204769` and `panel: 200 text/html`;
+      - `positions: 401` without a session, as expected.
+    - The script counted one "warning". It was the INFO line in which `strategy_manager.alerts.composition` says ERROR and above go to Telegram; the grep matched the word. There was no real warning or error.
+    - **Not yet seen live:** the mark price and the unrealized PnL. The owner held no open position at deploy time, so they are checked on the next one.
 - [ ] RD.7: the strategy pages' header card (S14). First the prototype's strategy screens are edited for the owner's approval; then the pages are built.
 
 - [ ] RD.4 PR 4: My trades (S5).
