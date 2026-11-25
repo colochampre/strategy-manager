@@ -138,21 +138,32 @@ describe("StrategyReportViews", () => {
     fireEvent.click(screen.getByRole("button", { name: "30D" }));
   });
 
-  it("draws the record line in the cards' groups, and keeps the (i) on the return's", async () => {
+  it("draws the record line as the header card's row, and keeps the (i) on the return's", async () => {
     serve();
     renderAt(<StrategyReportViews strategy={STRATEGY} />);
     const line = await screen.findByTestId("record-line");
     await waitFor(() => expect(screen.getByTestId("public-return")).toHaveTextContent("+5.1%"));
 
     const pnl = within(line).getByTestId("public-group-pnl");
-    expect(pnl.querySelector("dt svg.lucide-coins")).not.toBeNull();
+    expect(pnl.querySelector("dt")).toHaveTextContent(/^Total PnL/);
     const drawdown = within(line).getByTestId("public-group-drawdown");
-    expect(drawdown.querySelector("dt svg.lucide-trending-down")).not.toBeNull();
+    expect(drawdown.querySelector("dt")).toHaveTextContent(/^Max drawdown$/);
     expect(within(drawdown).getByTestId("public-deepest")).toHaveClass("text-loss");
     // The unleveraged, before-fees disclosure stays with the return.
     expect(
-      within(pnl.querySelector("dt") as HTMLElement).getByRole("button", { name: i18n.t("strategies.public.returnInfo") }),
+      within(pnl.querySelector("dt") as HTMLElement).getByRole("img", { name: i18n.t("strategies.public.returnInfo") }),
     ).toBeInTheDocument();
+  });
+
+  it("draws the description in the same card as the row, ahead of the report", async () => {
+    serve();
+    renderAt(<StrategyReportViews strategy={{ ...STRATEGY, description: "Trend follower." }} />);
+    const line = await screen.findByTestId("record-line");
+
+    const card = screen.getByTestId("strategy-header-card");
+    expect(within(card).getByTestId("public-description")).toHaveTextContent("Trend follower.");
+    expect(card).toContainElement(line);
+    expect(card.compareDocumentPosition(screen.getByRole("region", { name: "Performance" })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("names the range in the Total PnL label only when it is not All", async () => {

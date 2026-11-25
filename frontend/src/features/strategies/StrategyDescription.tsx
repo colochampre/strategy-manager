@@ -31,9 +31,9 @@ function FoldedText({ text }: { text: string }) {
   }, [text, open]);
 
   return (
-    <div className="flex flex-col items-start gap-1">
+    <div className="flex flex-col items-start">
       {/* Plain text: React escapes it; only http and https URLs become links, nothing is parsed as HTML or Markdown. */}
-      <p ref={body} className={cn("whitespace-pre-line break-words text-sm text-ink", !open && "line-clamp-4")}>
+      <p ref={body} className={cn("max-w-[640px] whitespace-pre-line break-words text-sm text-ink", !open && "line-clamp-4")}>
         <LinkifiedText text={text} />
       </p>
       {(overflows || open) && (
@@ -41,7 +41,7 @@ function FoldedText({ text }: { text: string }) {
           type="button"
           aria-expanded={open}
           onClick={() => setOpen(!open)}
-          className="min-h-11 text-xs text-ink-3 hover:text-ink-2"
+          className="mt-1.5 text-xs text-ink-3 hover:text-ink-2"
         >
           {t(open ? "strategies.description.less" : "strategies.description.more")}
         </button>
@@ -50,12 +50,15 @@ function FoldedText({ text }: { text: string }) {
   );
 }
 
-/** The heading's row: as tall as the author's pencil on both pages, so the text below starts at one height. */
+/**
+ * The header card's label, as the dashboard's "Available balance" is drawn (17 px, display, 6 px apart): a row as
+ * tall as the author's pencil on both pages, so the text below starts at one height.
+ */
 function Heading({ children }: { children?: ReactNode }) {
   const { t } = useTranslation();
   return (
-    <div className="flex min-h-11 items-center gap-1">
-      <h2 className="text-xs font-semibold text-ink-2">{t("strategies.description.publicHeading")}</h2>
+    <div className="mb-3 flex min-h-[30px] items-center gap-1.5">
+      <h2 className="font-display text-[17px] font-semibold text-ink">{t("strategies.description.publicHeading")}</h2>
       {children}
     </div>
   );
@@ -100,9 +103,9 @@ export function AuthorDescription({ strategy }: { strategy: Pick<Strategy, "id" 
             type="button"
             aria-label={t("strategies.description.edit")}
             onClick={() => setEditing(true)}
-            className="inline-flex size-11 items-center justify-center rounded-lg text-ink-3 hover:bg-panel-2 hover:text-ink"
+            className="inline-flex size-[30px] items-center justify-center rounded-lg text-ink-3 transition-colors hover:bg-panel-2 hover:text-ink motion-reduce:transition-none focus-visible:outline-2 focus-visible:outline-gain"
           >
-            <Pencil aria-hidden="true" className="size-4" />
+            <Pencil aria-hidden="true" className="size-[15px]" />
           </button>
         )}
       </Heading>

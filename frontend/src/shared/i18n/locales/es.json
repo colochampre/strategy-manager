@@ -305,6 +305,46 @@
   "strategies": {
     "title": "Estrategias",
     "archivedToggle": "Mostrar archivadas",
+    "table": {
+      "title": {
+        "authored": "Estrategias",
+        "subscriptions": "Suscripciones",
+        "explore": "Estrategias públicas"
+      },
+      "strategiesCount_one": "{{count}} estrategia",
+      "strategiesCount_other": "{{count}} estrategias",
+      "subscriptionsCount_one": "{{count}} suscripción",
+      "subscriptionsCount_other": "{{count}} suscripciones",
+      "head": {
+        "strategy": "Estrategia",
+        "pairs": "Pares",
+        "pairsVenue": "Pares ({{venue}})",
+        "author": "Autor",
+        "exchange": "Exchange",
+        "since": "Desde",
+        "pnlMoney": "PnL ({{currency}})",
+        "pnlMoneyPlain": "PnL",
+        "pnlPercent": "PnL (%)",
+        "drawdown": "Caída máx.",
+        "winRate": "Acierto",
+        "subscribers": "Subs.",
+        "aum": "AuM ({{currency}})",
+        "aumPlain": "AuM",
+        "seat": "Pool / Apal.",
+        "actions": "Acciones"
+      },
+      "pairsCount_one": "{{count}} par",
+      "pairsCount_other": "{{count}} pares",
+      "enable": "Activar",
+      "disable": "Desactivar",
+      "enableLabel": "Activar {{name}}",
+      "disableLabel": "Desactivar {{name}}",
+      "archivedHidden_one": "Hay {{count}} estrategia archivada oculta.",
+      "archivedHidden_other": "Hay {{count}} estrategias archivadas ocultas.",
+      "archivedShown_one": "Se muestra {{count}} estrategia archivada.",
+      "archivedShown_other": "Se muestran {{count}} estrategias archivadas.",
+      "hideArchived": "Ocultar archivadas"
+    },
     "search": {
       "label": "Buscar estrategias por nombre",
       "placeholder": "Buscar por nombre",
@@ -424,6 +464,9 @@
       },
       "tooMany": "Demasiados códigos incorrectos en la última hora. Inténtelo más tarde.",
       "lookupFailed": "No se pudo comprobar el código. Inténtelo de nuevo."
+    },
+    "header": {
+      "wins": "{{wins}}/{{closed}} operaciones"
     },
     "report": {
       "title": "Rendimiento",

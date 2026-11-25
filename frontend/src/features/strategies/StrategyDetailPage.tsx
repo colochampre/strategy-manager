@@ -15,6 +15,7 @@ import { StrategyCrumbs } from "@/features/strategies/StrategyPageHeader";
 import { StopLevelEditor } from "@/features/strategies/StopLevelEditor";
 import { AuthorDescription } from "@/features/strategies/StrategyDescription";
 import { BackToStrategies, StrategyHeader } from "@/features/strategies/StrategyHeader";
+import { StrategyHeaderCard } from "@/features/strategies/StrategyHeaderCard";
 import { StrategyPerformance } from "@/features/strategies/StrategyPerformance";
 import { StrategySharing } from "@/features/strategies/StrategySharing";
 import { TradesTable } from "@/features/strategies/TradesTable";
@@ -81,14 +82,15 @@ export function StrategyDetailPage() {
     <StrategyCrumbs value={crumbs}>
     <div className="flex flex-col gap-4">
       <div className="grid gap-9 lg:grid-cols-[minmax(0,1fr)_25rem]">
-        {/* The header, the description and Performance as another author's page draws them (owner, 2026-11-17). */}
+        {/* The header, the header card (the description and the figures, S14) and Performance as another author's page draws them (owner, 2026-11-17). */}
         <div className="flex min-w-0 flex-col gap-4">
           <StrategyHeader strategy={subject} />
-          <AuthorDescription key={`description-${subject.id}`} strategy={subject} />
+          <StrategyHeaderCard about={<AuthorDescription key={`description-${subject.id}`} strategy={subject} />}>
+            <AuthorFigures strategy={subject} />
+          </StrategyHeaderCard>
           <section aria-label={t("strategies.report.title")} className="flex min-w-0 flex-col gap-4">
             <h2 className="font-display text-base font-semibold text-ink">{t("strategies.report.title")}</h2>
-            <AuthorFigures strategy={subject} />
-            {/* Its PnL, return and drawdown are in the figures above, so the report draws no second line of them. */}
+            {/* Its PnL, return and drawdown are in the header card's figures, so the report draws no second line of them. */}
             <StrategyPerformance key={subject.id} strategyId={subject.id} ledger={false} />
           </section>
         </div>

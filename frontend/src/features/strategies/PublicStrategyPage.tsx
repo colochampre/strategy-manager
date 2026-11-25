@@ -4,7 +4,6 @@ import { Link, useParams, useSearchParams } from "react-router";
 
 import { entryRefusal } from "@/features/strategies/entry-refusal";
 import { EnabledBadge } from "@/features/strategies/StrategyCard";
-import { PublicDescription } from "@/features/strategies/StrategyDescription";
 import { STRATEGY_TITLE, StrategyCrumbs, StrategyPageHeader } from "@/features/strategies/StrategyPageHeader";
 import { StrategyReportViews } from "@/features/strategies/StrategyReportViews";
 import { SubscribePanel } from "@/features/strategies/SubscribePanel";
@@ -35,7 +34,7 @@ function PublicRecord({ strategy }: { strategy: PublicStrategy }) {
   return (
     <StrategyCrumbs value={crumbs}>
       <div className="grid gap-9 lg:grid-cols-[minmax(0,1fr)_25rem]">
-        {/* Blocks 4 apart, as on every view; the header, the description and Performance as the own page draws them. */}
+        {/* Blocks 4 apart, as on every view; the header, then the header card (the description and the figures) and Performance, as the own page draws them. */}
         <div className="flex min-w-0 flex-col gap-4">
           <StrategyPageHeader
             prefix="public"
@@ -46,7 +45,6 @@ function PublicRecord({ strategy }: { strategy: PublicStrategy }) {
             market={`${strategy.exchange} · ${strategy.venue} · ${strategy.settlement_currency}`}
             since={strategy.created_at}
           />
-          <PublicDescription text={strategy.description} />
           <StrategyReportViews strategy={strategy} />
         </div>
         <SubscribePanel strategy={strategy} />
