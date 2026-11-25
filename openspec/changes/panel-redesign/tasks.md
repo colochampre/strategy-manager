@@ -72,6 +72,8 @@ The owner's words (2026-11-24) are quoted as written.
   - `prefers-reduced-motion` turns every animation off.
 - **S14 Strategy header card.** "me gustaría que las vistas de las estrategias tengan una similar para mostrar su rendimiento, drawdown, etc en una tarjeta similar. [...] Nombre de la estrategia y nombre de autor como estan en el prototipo, pero Acerca de esta estrategia pasa a una tarjeta antes de la de Rendimiento, ocupando el lugar que en Panel de control ocupa Saldo disponible, y debajo en la misma tarjeta, la fila de valores que estan en la tarjeta Rendimiento, pasan a la de Acerca de... con los estilos que ahora tiene la primer tarjeta del Panel de control." (L16)
   - The prototype's strategy screens are edited first, for the owner's approval, then built.
+- **S15 Strategy lists as tables (proposal).** "Además de las tarjetas de encabezado, me gustaría ver adicionalmente, una propuesta de el listado de estrategias como una tabla, como las Posiciones abiertas del Panel de control, porque me gustó cómo quedó" (L20)
+  - A proposal for the owner to approve or reject. It covers My strategies, My subscriptions and Explore, drawn as the open positions table of `ex1` as built in RD.3.
 
 ## Tasks
 
@@ -237,7 +239,10 @@ The owner's words (2026-11-24) are quoted as written.
       - `positions: 401` without a session, as expected.
     - The script counted one "warning". It was the INFO line in which `strategy_manager.alerts.composition` says ERROR and above go to Telegram; the grep matched the word. There was no real warning or error.
     - **Not yet seen live:** the mark price and the unrealized PnL. The owner held no open position at deploy time, so they are checked on the next one.
-- [ ] RD.7: the strategy pages' header card (S14). First the prototype's strategy screens are edited for the owner's approval; then the pages are built.
+- [ ] RD.7: the strategy pages' header card (S14), and the lists as tables if approved (S15). First the prototype's strategy screens are edited for the owner's approval; then the pages are built.
+  - **RD.7a, prototype, on branch `design/strategy-pages`.** Route: delegated to one Sonnet writer, for the parent's context backstop.
+    - `ex11` and `ex12` are edited in place for S14 (git keeps the earlier version).
+    - The tables of S15 are new screens after `ex12`, so the owner can compare them with the card lists of `ex8` to `ex10`.
 
 - [ ] RD.4 PR 4: My trades (S5).
 - [ ] RD.5 PR 5: Notifications (S6).
@@ -304,3 +309,4 @@ The owner's words (2026-11-24) are quoted as written.
   - The tooltip inherited the cell's single line and monospaced face. `Tooltip` now resets both, so its text wraps inside its box, as it does everywhere else.
   - The missing-figures tooltip is short: "Cifras sin calcular · En vivo". The whole reason stays in the dialog.
 - L19 (2026-11-25, owner, on RD.3 after L18): "Perfecto! Se ve muy bien". RD.3 is approved as built. Its deploy pulls the backend change (`GET /positions/open` gains `mark_price` and `unrealized_pnl`) and restarts `strategy-api`, besides publishing the bundle.
+- L20 (2026-11-25, owner, choosing what follows RD.3): "Primero prototipo. Además de las tarjetas de encabezado, me gustaría ver adicionalmente, una propuesta de el listado de estrategias como una tabla, como las Posiciones abiertas del Panel de control, porque me gustó cómo quedó". RD.7's prototype comes before RD.4.
