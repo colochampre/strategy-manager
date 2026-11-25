@@ -121,15 +121,38 @@ describe("StrategyPerformance", () => {
     expect(screen.getByRole("button", { name: "90D" })).toHaveAttribute("aria-pressed", "true");
   });
 
-  it("draws the strategy's own curve and months, under a title that says it is a contribution", async () => {
+  it("draws the chart in a card titled Performance, with the contribution line under it and the selector at its right (ex11, ex12, L26)", async () => {
     serve(() => Promise.resolve(jsonResponse(report())));
     renderAt(<StrategyPerformance strategyId={ID} />);
 
-    expect(await screen.findByRole("heading", { name: "Contribution to the pool, compounded" })).toBeInTheDocument();
+    await screen.findByTestId("return-curve");
+    const title = screen.getByRole("heading", { level: 2, name: "Performance" });
+    const card = screen.getByRole("region", { name: "Performance" });
+    expect(card).toContainElement(title);
+    // "Performance" replaces the old title, which is gone, not moved to a subtitle (L26).
+    expect(screen.queryByText("Contribution to the pool, compounded")).toBeNull();
+    // The range selector stays on the title's row, inside the card.
+    expect(title.parentElement).toContainElement(within(card).getByRole("group", { name: "Range" }));
     expect(screen.queryByRole("heading", { name: "Return of the strategies, compounded" })).toBeNull();
     expect(Number(screen.getByTestId("return-curve").getAttribute("data-final-return"))).toBeCloseTo(0.025, 6);
     expect(screen.getByRole("heading", { name: "Month by month" })).toBeInTheDocument();
     expect(screen.getByText("1 of 1 month positive · best +2.5% · worst +2.5%")).toBeInTheDocument();
+  });
+
+  it("leaves the dashboard's chart card with its own title and no strategy line (L26)", async () => {
+    const poolRow = pool("bybit", "usdt-m", "USDT");
+    stubApi(
+      HEALTH,
+      [],
+      { kind: "ok", body: [poolRow] },
+      { "bybit/usdt-m/USDT": { kind: "ok", body: emptyPerformance("bybit", "usdt-m", "USDT") } },
+    );
+
+    renderAt(<PoolPanel pool={poolRow} />);
+
+    expect(await screen.findByRole("heading", { level: 2, name: "Compounded return" })).toBeInTheDocument();
+    expect(screen.queryByText("Contribution to the pool, compounded")).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Performance" })).toBeNull();
   });
 
   it("starts the strategy's curve and the pool's at 0 on the day the first trade opened (decision 36)", async () => {
@@ -286,7 +309,9 @@ describe("StrategyPerformance", () => {
     await screen.findByTestId("ledger-line");
 
     expect(ledger()).toContain("PnL total · 30D +70,00USDT +6,0%");
-    expect(screen.getByRole("heading", { name: "Aporte al pool, compuesto" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 2, name: "Rendimiento" })).toBeInTheDocument();
+    // "Rendimiento" replaced the chart's old title (L26).
+    expect(screen.queryByText("Aporte al pool, compuesto")).toBeNull();
     expect(screen.getByRole("heading", { name: "Por par" })).toBeInTheDocument();
   });
 });

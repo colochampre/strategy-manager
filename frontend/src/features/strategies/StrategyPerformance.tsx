@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
 import { LedgerLine } from "@/features/overview/LedgerLine";
@@ -9,7 +10,28 @@ import { ReturnChart } from "@/features/overview/ReturnChart";
 import { PairStatsTable } from "@/features/strategies/PairStatsTable";
 import { useStrategyPerformance } from "@/shared/api/performance";
 import type { StrategyPerformance as StrategyReport } from "@/shared/api/types";
+import { Card } from "@/shared/ui/Card";
 import { ReportSection } from "@/shared/ui/ReportSection";
+
+interface PerformanceCardProps {
+  /** The range selector, at the right of the title, once there is a chart to pick a range for. */
+  action?: ReactNode;
+  children: ReactNode;
+}
+
+/**
+ * The strategy pages' chart card: "Performance" is the card's own title with the range selector at its right, in
+ * place of the chart's old title, which is gone (L26). It is drawn in every state of the read, so the page's title is
+ * there while the report loads or fails.
+ */
+export function PerformanceCard({ action, children }: PerformanceCardProps) {
+  const { t } = useTranslation();
+  return (
+    <Card title={t("strategies.report.title")} action={action}>
+      {children}
+    </Card>
+  );
+}
 
 interface StrategyPerformanceProps {
   strategyId: string;
@@ -46,16 +68,11 @@ function ReportView({ report, asOf, ledger }: ReportViewProps) {
             maxDrawdown={report.max_drawdown}
           />
         )}
-        <ReportSection>
-          <ReturnChart
-            curve={report.curve}
-            origin={report.origin ?? null}
-            range={range}
-            asOf={asOf}
-            title={t("strategies.performance.chartTitle")}
-            headerAction={<RangeSelector value={range} onChange={setRange} />}
-          />
-        </ReportSection>
+        <PerformanceCard
+          action={<RangeSelector value={range} onChange={setRange} />}
+        >
+          <ReturnChart bare curve={report.curve} origin={report.origin ?? null} range={range} asOf={asOf} />
+        </PerformanceCard>
       </div>
       <ReportSection>
         <div className="flex flex-col gap-1.5">
@@ -83,32 +100,38 @@ export function StrategyPerformance({ strategyId, ledger = true }: StrategyPerfo
 
   if (performance.status === "pending") {
     return (
-      <p role="status" className="text-sm text-ink-3">
-        {t("strategies.performance.loading")}
-      </p>
+      <PerformanceCard>
+        <p role="status" className="text-sm text-ink-3">
+          {t("strategies.performance.loading")}
+        </p>
+      </PerformanceCard>
     );
   }
   if (performance.status === "error") {
     return (
-      <div className="flex flex-wrap items-center gap-3 rounded-md border border-loss bg-panel p-4">
-        <p role="alert" className="text-sm text-ink-2">
-          {t("strategies.performance.error")}
-        </p>
-        <button
-          type="button"
-          onClick={() => void performance.refetch()}
-          className="min-h-11 rounded-lg border border-rule px-3.5 text-sm text-ink hover:bg-panel-2"
-        >
-          {t("strategies.performance.retry")}
-        </button>
-      </div>
+      <PerformanceCard>
+        <div className="flex flex-wrap items-center gap-3">
+          <p role="alert" className="text-sm text-ink-2">
+            {t("strategies.performance.error")}
+          </p>
+          <button
+            type="button"
+            onClick={() => void performance.refetch()}
+            className="min-h-11 rounded-lg border border-rule px-3.5 text-sm text-ink hover:bg-panel-2"
+          >
+            {t("strategies.performance.retry")}
+          </button>
+        </div>
+      </PerformanceCard>
     );
   }
   if (performance.data === null) {
     return (
-      <p role="status" className="text-sm text-ink-3">
-        {t("strategies.performance.noReport")}
-      </p>
+      <PerformanceCard>
+        <p role="status" className="text-sm text-ink-3">
+          {t("strategies.performance.noReport")}
+        </p>
+      </PerformanceCard>
     );
   }
   return (

@@ -35,14 +35,17 @@ export interface CardFigures {
 export function EnabledBadge({ enabled, archived = false, testId }: { enabled: boolean; archived?: boolean; testId: string }) {
   const { t } = useTranslation();
   const status = archived ? "strategies.row.archived" : enabled ? "strategies.detail.enabled" : "strategies.detail.disabled";
+  const running = enabled && !archived;
   return (
+    // The prototype's `.pill.dot` (ex11, ex12): 24 px tall, a tinted ground, a dot and the word in sentence case.
     <span
       data-testid={testId}
       className={cn(
-        "rounded border px-2 py-1 font-mono text-[11px] uppercase tracking-[0.12em]",
-        enabled && !archived ? "border-gain text-gain" : "border-rule text-ink-3",
+        "inline-flex h-6 items-center gap-1.5 rounded-xl border px-2.5 text-xs font-medium",
+        running ? "border-gain/45 bg-gain/12 text-gain-bright" : "border-ink-3/40 bg-ink-3/10 text-ink-2",
       )}
     >
+      <i data-dot="true" aria-hidden="true" className={cn("size-1.5 shrink-0 rounded-full", running ? "bg-gain" : "bg-ink-3")} />
       {t(status)}
     </span>
   );

@@ -22,6 +22,7 @@ import { TradesTable } from "@/features/strategies/TradesTable";
 import { VisibilityControl } from "@/features/strategies/VisibilityControl";
 import { ApiError } from "@/shared/api/client";
 import { useStrategy } from "@/shared/api/strategies";
+import { useWideMain } from "@/shared/layout/AppShell";
 import { useExchangeScope } from "@/shared/scope/exchange-store";
 
 /**
@@ -43,6 +44,8 @@ export function StrategyDetailPage() {
   const { strategyId = "" } = useParams();
   const strategy = useStrategy(strategyId);
   const scope = useExchangeScope();
+  // The page has an aside, so its main may grow wider (L26); asked from the first render, loading included.
+  useWideMain();
 
   const strategyExchange = strategy.data?.exchange;
   const scopeSelect = scope.status === "ready" ? scope.select : null;
@@ -88,11 +91,9 @@ export function StrategyDetailPage() {
           <StrategyHeaderCard about={<AuthorDescription key={`description-${subject.id}`} strategy={subject} />}>
             <AuthorFigures strategy={subject} />
           </StrategyHeaderCard>
-          <section aria-label={t("strategies.report.title")} className="flex min-w-0 flex-col gap-4">
-            <h2 className="font-display text-base font-semibold text-ink">{t("strategies.report.title")}</h2>
-            {/* Its PnL, return and drawdown are in the header card's figures, so the report draws no second line of them. */}
-            <StrategyPerformance key={subject.id} strategyId={subject.id} ledger={false} />
-          </section>
+          {/* Its PnL, return and drawdown are in the header card's figures, so the report draws no second line of them.
+              The Performance card carries its own title (L26), so no heading sits above it. */}
+          <StrategyPerformance key={subject.id} strategyId={subject.id} ledger={false} />
         </div>
         <aside
           aria-label={t("strategies.detail.settings")}

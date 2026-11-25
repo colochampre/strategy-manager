@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { createContext, use, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, Outlet, useLocation } from "react-router";
 
@@ -6,9 +6,25 @@ import { ProfileGate } from "@/features/sign-up/ProfileGate";
 import { useSignUpPending } from "@/shared/api/me";
 
 import { SignInGate } from "@/shared/auth/SignInGate";
+import { cn } from "@/shared/lib/cn";
 import { MobileDrawer } from "@/shared/layout/MobileDrawer";
 import { ShellTopRow } from "@/shared/layout/ShellTopRow";
 import { Sidebar } from "@/shared/layout/Sidebar";
+
+/** What a page calls to ask the shell for the wider column; the shell provides it, a lone page gets a no-op. */
+const WideMainContext = createContext<(wide: boolean) => void>(() => undefined);
+
+/**
+ * A page with an aside (the two strategy pages) asks for a wider main (L26): its record column is what is tight, the
+ * aside keeps its own width. The column is back at the common cap when the page is left, so every other page keeps it.
+ */
+export function useWideMain(): void {
+  const setWide = use(WideMainContext);
+  useLayoutEffect(() => {
+    setWide(true);
+    return () => setWide(false);
+  }, [setWide]);
+}
 
 /**
  * The page frame. It is exactly one viewport tall (`#root` is 100% high), a flex row of the sidebar (from `lg`; below
@@ -22,6 +38,10 @@ import { Sidebar } from "@/shared/layout/Sidebar";
  * `main` stays full width, so its scrollbar sits at the window edge. Every page lives in one centred column capped at
  * 1100 px (owner, 2026-11-24: "sin alargarse para ocupar todo el ancho"), with the same padding on every page so
  * nothing jumps when navigating, and a very wide screen adds margin around the content instead of stretching it.
+ * A page with an aside (the two strategy pages) calls `useWideMain` and gets 1400 px instead (L26): its aside keeps its
+ * 25 rem, so the extra width goes to the record column. Month by month needs about 1142 px of content beside the aside
+ * to draw without scrolling sideways, so any cap from there up serves; 1400 leaves 22 % of slack. The column is back at
+ * 1100 px when the page is left.
  *
  * Because `main` is the scroll container, a change of page puts it back at its
  * top; the browser does that for the window only, so a link followed from the
@@ -58,6 +78,7 @@ export function AppShell() {
   const mainRef = useRef<HTMLElement>(null);
   const menuRef = useRef<HTMLButtonElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [wide, setWide] = useState(false);
 
   // `main` scrolls, not the window, so the browser's own reset on navigation never reaches it.
   useEffect(() => {
@@ -73,11 +94,13 @@ export function AppShell() {
     <div className="flex h-full bg-ground">
       {!signUpPending && <Sidebar />}
       <main ref={mainRef} className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-auto px-4 pb-10 pt-4 lg:px-10 lg:pb-14 lg:pt-6">
-        <div className="mx-auto flex w-full max-w-[1100px] flex-1 flex-col">
+        <div className={cn("mx-auto flex w-full flex-1 flex-col", wide ? "max-w-[1400px]" : "max-w-[1100px]")}>
           <ShellTopRow pending={signUpPending} onOpenMenu={() => setMenuOpen(true)} menuRef={menuRef} />
           <SignInGate>
             <ProfileGate>
-              <Outlet />
+              <WideMainContext value={setWide}>
+                <Outlet />
+              </WideMainContext>
             </ProfileGate>
             <div className="mt-auto pt-10">
               <footer className="flex flex-wrap items-center gap-x-6 gap-y-2 border-t border-rule pt-5 text-xs text-ink-3">

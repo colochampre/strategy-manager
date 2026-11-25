@@ -11,6 +11,7 @@ import { ApiError } from "@/shared/api/client";
 import { type Entry, EntryProvider } from "@/shared/api/entry";
 import { usePublicStrategy } from "@/shared/api/public-strategies";
 import type { PublicStrategy } from "@/shared/api/types";
+import { useWideMain } from "@/shared/layout/AppShell";
 
 function BackToExplore() {
   const { t } = useTranslation();
@@ -63,6 +64,8 @@ function PublicRecord({ strategy }: { strategy: PublicStrategy }) {
  * its old data, and drawing that data would offer a Subscribe the API refuses.
  */
 export function PublicStrategyPage() {
+  // The page has an aside, so its main may grow wider (L26).
+  useWideMain();
   const [search] = useSearchParams();
   const entry = useMemo(() => entryOf(search), [search]);
   return (

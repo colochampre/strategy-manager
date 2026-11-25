@@ -295,9 +295,9 @@ describe("StrategyDetailPage", () => {
     await heading("ETH Breakout");
 
     const titles = [
-      await screen.findByRole("heading", { name: "Contribution to the pool, compounded" }),
       await screen.findByRole("heading", { name: en.strategies.performance.byPair.title }),
-    ];
+      screen.getByRole("heading", { name: en.strategies.report.title }),
+    ].reverse();
     const grid = screen.getByRole("complementary", { name: en.strategies.detail.settings }).parentElement as HTMLElement;
     const column = grid.firstElementChild as HTMLElement;
     for (const title of titles) expect(column).toContainElement(title);
@@ -325,8 +325,9 @@ describe("StrategyDetailPage", () => {
     }
     // The chart is the one image inside a figure; the ledger's icons are images too.
     const chart = (await screen.findAllByRole("img", { name: /./ })).find((image) => image.closest("figure") !== null);
-    expect(framed(chart?.closest("figure") as HTMLElement)).not.toBeNull();
-    expect(screen.getAllByTestId("report-section").length).toBeGreaterThanOrEqual(5);
+    // The chart sits in the Performance card, which is the frame the other report boxes have (L26).
+    expect(screen.getByRole("region", { name: en.strategies.report.title })).toContainElement(chart?.closest("figure") as HTMLElement);
+    expect(screen.getAllByTestId("report-section").length).toBeGreaterThanOrEqual(4);
   });
 
   it("puts the closed trades table in a full-width section under the two-column grid and above the delete control", async () => {
@@ -814,10 +815,13 @@ describe("the own page reads like another author's (owner, 2026-11-17)", () => {
     renderPage(strategy(), { reportAnswer: () => jsonResponse(TRADED_REPORT) });
     await heading("ETH Breakout");
 
+    await screen.findByTestId("return-curve");
     const performance = screen.getByRole("region", { name: en.strategies.report.title });
     expect(within(performance).getByRole("heading", { level: 2, name: en.strategies.report.title })).toBeInTheDocument();
-    expect(await within(performance).findByRole("button", { name: "30D" })).toBeInTheDocument();
-    expect(await within(performance).findByTestId("return-curve")).toBeInTheDocument();
+    expect(within(performance).getByRole("button", { name: "30D" })).toBeInTheDocument();
+    expect(within(performance).getByTestId("return-curve")).toBeInTheDocument();
+    // The title is the card's own: nothing above the card repeats it (L26).
+    expect(screen.getAllByRole("heading", { level: 2, name: en.strategies.report.title })).toHaveLength(1);
     expect(screen.queryByTestId("ledger-line")).not.toBeInTheDocument();
   });
 });
@@ -930,7 +934,7 @@ describe("the header card (S14, RD.7b)", () => {
 describe("StrategyDetailPage settings column (L.7)", () => {
   const settingsColumn = () => screen.getByRole("complementary", { name: en.strategies.detail.settings });
 
-  it("puts Disable and Archive in one row at equal width, Enable history below the row", async () => {
+  it("puts Disable and Archive in one row, both growing to fill it, Enable history below the row", async () => {
     renderPage(strategy({ enabled: false }), {
       events: [{ enabled: true, occurred_at: "2026-08-12T10:00:00+00:00", origin: "OBSERVED" }],
     });

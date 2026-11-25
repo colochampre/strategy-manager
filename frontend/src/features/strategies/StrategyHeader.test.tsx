@@ -73,8 +73,11 @@ describe("StrategyHeader status", () => {
 
     const mark = screen.getByTestId("strategy-status");
     expect(mark).toHaveTextContent(/^Enabled$/);
-    expect(mark).toHaveClass("rounded", "border", "px-2", "py-1", "font-mono", "uppercase", "border-gain", "text-gain");
-    expect(mark).not.toHaveClass("rounded-full");
+    // The prototype's pill (`.pill.dot`, ex11 and ex12): 24 px tall, a tinted ground, sentence case and a dot.
+    expect(mark).toHaveClass("inline-flex", "h-6", "rounded-xl", "border", "px-2.5", "text-xs", "font-medium");
+    expect(mark).toHaveClass("border-gain/45", "bg-gain/12", "text-gain-bright");
+    expect(mark).not.toHaveClass("uppercase", "font-mono");
+    expect(mark.querySelector("[data-dot]")).toHaveClass("bg-gain");
     expect(mark.parentElement).toHaveClass("items-center");
     // The title steps 6 to the page's blocks, which stack 4 apart (L.13).
     expect(mark.closest("header")).toHaveClass("mb-2");
@@ -84,8 +87,9 @@ describe("StrategyHeader status", () => {
     setup({ ...STRATEGY, enabled: true, archived_at: "2026-11-01T00:00:00Z" });
     const mark = screen.getByTestId("strategy-status");
     expect(mark).toHaveTextContent(/^Archived$/);
-    expect(mark).toHaveClass("border-rule", "text-ink-3");
-    expect(mark).not.toHaveClass("text-gain");
+    expect(mark).toHaveClass("border-ink-3/40", "bg-ink-3/10", "text-ink-2");
+    expect(mark).not.toHaveClass("text-gain-bright");
+    expect(mark.querySelector("[data-dot]")).toHaveClass("bg-ink-3");
   });
 
   it("says Disabled for a strategy that does not run (L.12)", () => {
@@ -100,6 +104,29 @@ describe("StrategyHeader subscribers", () => {
 
     expect(screen.queryByTestId("strategy-subscribers")).not.toBeInTheDocument();
     expect(screen.queryByTestId("strategy-capital")).not.toBeInTheDocument();
+  });
+});
+
+describe("StrategyHeader byline row (ex12, L26)", () => {
+  it("puts the webhook button on the author and market row, at its height, not on a row of its own", () => {
+    setup();
+
+    const row = toggle().parentElement as HTMLElement;
+    // The author and the market line share the row with the button, which sits at their foot, as `.hd-row` draws it.
+    expect(row).toContainElement(screen.getByTestId("strategy-origin"));
+    expect(row).toContainElement(screen.getByTestId("strategy-market"));
+    expect(row).toHaveClass("flex", "items-end", "justify-between");
+    // The title's row holds the name, the pencil and the status, and no button of the webhook.
+    const title = screen.getByRole("heading", { level: 1, name: "ETH Breakout" }).parentElement as HTMLElement;
+    expect(title).not.toContainElement(toggle());
+    expect(title).toContainElement(screen.getByTestId("strategy-status"));
+  });
+
+  it("draws the byline in 13 px and the market line as the prototype does", () => {
+    setup();
+
+    expect(screen.getByTestId("strategy-origin")).toHaveClass("text-[13px]", "text-ink-2");
+    expect(screen.getByTestId("strategy-market")).toHaveClass("text-[11px]", "text-ink-3");
   });
 });
 

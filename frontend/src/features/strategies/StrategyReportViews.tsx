@@ -5,7 +5,7 @@ import { PublicRecordReport } from "@/features/strategies/PublicRecordReport";
 import { RecordFigures } from "@/features/strategies/RecordFigures";
 import { PublicDescription } from "@/features/strategies/StrategyDescription";
 import { StrategyHeaderCard } from "@/features/strategies/StrategyHeaderCard";
-import { StrategyPerformance } from "@/features/strategies/StrategyPerformance";
+import { PerformanceCard, StrategyPerformance } from "@/features/strategies/StrategyPerformance";
 import { useOwnSeat } from "@/features/strategies/SubscribePanel";
 import { useStrategyPerformance } from "@/shared/api/performance";
 import { useMe } from "@/shared/api/me";
@@ -23,9 +23,11 @@ function MyResults({ strategyId }: { strategyId: string }) {
   const performance = useStrategyPerformance(strategyId);
   if (performance.data !== undefined && performance.data !== null && performance.data.trade_count === 0) {
     return (
-      <p role="status" className="text-sm text-ink-3">
-        {t("strategies.report.mineEmpty")}
-      </p>
+      <PerformanceCard>
+        <p role="status" className="text-sm text-ink-3">
+          {t("strategies.report.mineEmpty")}
+        </p>
+      </PerformanceCard>
     );
   }
   // Its PnL, return and drawdown are in the figure row above, so the report draws no second line of them.
@@ -58,12 +60,14 @@ export function StrategyReportViews({ strategy }: { strategy: PublicStrategy }) 
       <StrategyHeaderCard about={<PublicDescription text={strategy.description} />}>
         <RecordFigures strategy={strategy} view={settled ? view : null} />
       </StrategyHeaderCard>
-      <section aria-label={t("strategies.report.title")} className="flex min-w-0 flex-col gap-4">
-        <h2 className="font-display text-base font-semibold text-ink">{t("strategies.report.title")}</h2>
+      {/* The Performance card carries its own title (L26), so no heading sits above the views. */}
+      <div className="flex min-w-0 flex-col gap-4">
         {!settled && (
-          <p role="status" className="text-sm text-ink-3">
-            {t("strategies.report.recordLoading")}
-          </p>
+          <PerformanceCard>
+            <p role="status" className="text-sm text-ink-3">
+              {t("strategies.report.recordLoading")}
+            </p>
+          </PerformanceCard>
         )}
         {settled && seat !== undefined && (
           <div role="group" aria-label={t("strategies.report.views")} className="flex flex-wrap gap-2">
@@ -89,7 +93,7 @@ export function StrategyReportViews({ strategy }: { strategy: PublicStrategy }) 
           ) : (
             <PublicRecordReport strategyId={strategy.id} joined={seat?.created_at?.slice(0, 10) ?? null} />
           ))}
-      </section>
+      </div>
     </>
   );
 }

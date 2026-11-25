@@ -6,6 +6,7 @@ import { RangeSelector } from "@/features/overview/RangeSelector";
 import { useRangeStore } from "@/features/overview/range-store";
 import { ReturnChart } from "@/features/overview/ReturnChart";
 import { PairStatsTable } from "@/features/strategies/PairStatsTable";
+import { PerformanceCard } from "@/features/strategies/StrategyPerformance";
 import { usePublicRecord } from "@/shared/api/public-record";
 import type { Excluded, PublicRecord } from "@/shared/api/types";
 import { ReportSection } from "@/shared/ui/ReportSection";
@@ -41,17 +42,18 @@ function RecordView({ record, asOf, joined }: { record: PublicRecord; asOf: numb
   return (
     <>
       <div className="flex min-w-0 flex-col gap-4">
-        <ReportSection>
+        <PerformanceCard
+          action={<RangeSelector value={range} onChange={setRange} />}
+        >
           <ReturnChart
+            bare
             curve={record.curve}
             origin={record.origin}
             range={range}
             asOf={asOf}
-            title={t("strategies.report.recordChartTitle")}
-            headerAction={<RangeSelector value={range} onChange={setRange} />}
             marker={joined === null ? null : { date: joined, label: t("strategies.report.joined", { date: dayText(joined, locale) }) }}
           />
-        </ReportSection>
+        </PerformanceCard>
       </div>
       <ReportSection>
         <div className="flex flex-col gap-1.5">
@@ -75,39 +77,47 @@ export function PublicRecordReport({ strategyId, joined }: PublicRecordReportPro
 
   if (query.status === "pending") {
     return (
-      <p role="status" className="text-sm text-ink-3">
-        {t("strategies.report.recordLoading")}
-      </p>
+      <PerformanceCard>
+        <p role="status" className="text-sm text-ink-3">
+          {t("strategies.report.recordLoading")}
+        </p>
+      </PerformanceCard>
     );
   }
   if (query.status === "error") {
     return (
-      <div className="flex flex-wrap items-center gap-3 rounded-md border border-loss bg-panel p-4">
-        <p role="alert" className="text-sm text-ink-2">
-          {t("strategies.report.recordError")}
-        </p>
-        <button
-          type="button"
-          onClick={() => void query.refetch()}
-          className="min-h-11 rounded-lg border border-rule px-3.5 text-sm text-ink hover:bg-panel-2"
-        >
-          {t("strategies.performance.retry")}
-        </button>
-      </div>
+      <PerformanceCard>
+        <div className="flex flex-wrap items-center gap-3">
+          <p role="alert" className="text-sm text-ink-2">
+            {t("strategies.report.recordError")}
+          </p>
+          <button
+            type="button"
+            onClick={() => void query.refetch()}
+            className="min-h-11 rounded-lg border border-rule px-3.5 text-sm text-ink hover:bg-panel-2"
+          >
+            {t("strategies.performance.retry")}
+          </button>
+        </div>
+      </PerformanceCard>
     );
   }
   if (query.data === null) {
     return (
-      <p role="status" className="text-sm text-ink-3">
-        {t("strategies.report.recordGone")}
-      </p>
+      <PerformanceCard>
+        <p role="status" className="text-sm text-ink-3">
+          {t("strategies.report.recordGone")}
+        </p>
+      </PerformanceCard>
     );
   }
   if (query.data.closed_trade_count === 0) {
     return (
-      <p role="status" className="text-sm text-ink-3">
-        {t("strategies.report.recordEmpty")}
-      </p>
+      <PerformanceCard>
+        <p role="status" className="text-sm text-ink-3">
+          {t("strategies.report.recordEmpty")}
+        </p>
+      </PerformanceCard>
     );
   }
   return (

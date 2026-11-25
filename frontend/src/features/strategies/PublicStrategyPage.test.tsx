@@ -163,7 +163,8 @@ describe("the public page", () => {
       expect(grid.className).toContain("lg:grid-cols-[minmax(0,1fr)_25rem]");
       expect(column).not.toBe(aside);
       expect(column).toContainElement(screen.getByRole("heading", { level: 1, name: "Alpha" }));
-      expect(column).toContainElement(await screen.findByRole("heading", { name: "Performance" }));
+      // The card is redrawn once the reads settle, so the title is looked up again until the column holds it.
+      await waitFor(() => expect(column).toContainElement(screen.getByRole("heading", { name: "Performance" })));
       expect(aside).not.toContainElement(screen.getByTestId("public-return"));
       // Stacked on a phone, the aside comes last, as on an own strategy.
       expect(column.compareDocumentPosition(aside) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -281,10 +282,15 @@ describe("the public page", () => {
     expect(
       within(card).getByTestId("public-description").compareDocumentPosition(line) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
+    await screen.findByTestId("return-curve");
     const performance = screen.getByRole("region", { name: i18n.t("strategies.report.title") });
     expect(card.compareDocumentPosition(performance) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(performance).not.toContainElement(line);
-    expect(await within(performance).findByRole("button", { name: "30D" })).toBeInTheDocument();
+    expect(within(performance).getByRole("button", { name: "30D" })).toBeInTheDocument();
+    // The title is the chart card's own, and it replaces the old chart title, which is gone (L26).
+    expect(within(performance).getByRole("heading", { level: 2, name: "Performance" })).toBeInTheDocument();
+    expect(within(performance).queryByText(i18n.t("strategies.report.recordChartTitle"))).toBeNull();
+    expect(screen.getAllByRole("heading", { level: 2, name: "Performance" })).toHaveLength(1);
   });
 
   it("leads the record's PnL with its return, wins out of trades and AuM with its currency and its subscribers (ex11)", async () => {
@@ -436,10 +442,10 @@ describe("the public page", () => {
 
     const pill = await screen.findByTestId("public-enabled");
     expect(pill).toHaveTextContent("Enabled");
-    expect(pill).toHaveClass("border-gain", "text-gain");
-    // The same mark as the author's own page draws beside its name (L.12).
-    expect(pill).toHaveClass("rounded", "border", "px-2", "py-1", "font-mono", "uppercase");
-    expect(pill).not.toHaveClass("rounded-full");
+    // The same pill as the author's own page draws beside its name, as ex11 and ex12 draw it (L26).
+    expect(pill).toHaveClass("inline-flex", "h-6", "rounded-xl", "border-gain/45", "bg-gain/12", "text-gain-bright");
+    expect(pill).not.toHaveClass("uppercase", "font-mono");
+    expect(pill.querySelector("[data-dot]")).toHaveClass("bg-gain");
     const title = screen.getByRole("heading", { level: 1, name: "Alpha" }).parentElement as HTMLElement;
     expect(title).toContainElement(pill);
     // The name and its mark share one centred line (L.11).
@@ -455,8 +461,8 @@ describe("the public page", () => {
 
     const pill = await screen.findByTestId("public-enabled");
     expect(pill).toHaveTextContent("Disabled");
-    expect(pill).toHaveClass("text-ink-3");
-    expect(pill).not.toHaveClass("text-gain");
+    expect(pill).toHaveClass("text-ink-2");
+    expect(pill).not.toHaveClass("text-gain-bright");
   });
 
   it("reads a 404 as off the list, in plain words and not as a fault", async () => {
