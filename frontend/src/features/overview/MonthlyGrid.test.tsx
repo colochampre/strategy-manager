@@ -56,7 +56,7 @@ describe("MonthlyGrid", () => {
     const element = screen.getByTestId("month-2026-3");
     expect(element).toHaveClass("bg-rule-soft");
     expect(bandClasses(element)).toEqual([]);
-    expect(element).toHaveTextContent(/^0\.0%$/);
+    expect(element).toHaveTextContent(/^0\.0$/);
   });
 
   it("test_month_with_no_closed_trade_renders_dashed_empty_cell", () => {
@@ -70,7 +70,7 @@ describe("MonthlyGrid", () => {
     // A month at exactly 0% closed trades and is NOT the empty cell.
     const flat = screen.getByTestId("month-2026-3");
     expect(flat).not.toHaveClass("border-dashed");
-    expect(flat).toHaveTextContent(/^0\.0%$/);
+    expect(flat).toHaveTextContent(/^0\.0$/);
     expect(flat).toHaveAccessibleName("March 2026: 0.0%");
   });
 
@@ -103,8 +103,9 @@ describe("MonthlyGrid", () => {
     );
     const years = screen.getAllByRole("rowheader").map((node) => node.textContent);
     expect(years).toEqual(["2026", "2025", "2024"]);
-    // The month carries the percent sign like the year column (owner decision 67 Q2).
-    expect(cell("January 2026: +3.1%")).toHaveTextContent(/^\+3\.1%$/);
+    // The prototype's figures, no percent sign, so a 1440 px window fits the grid beside a strategy's aside
+    // (L28, over decision 67 Q2); the name still says it.
+    expect(cell("January 2026: +3.1%")).toHaveTextContent(/^\+3\.1$/);
     const header = screen.getAllByRole("columnheader").map((node) => node.textContent);
     expect(header).toEqual(["J", "F", "M", "A", "M", "J", "J", "A", "S", "O", "N", "D", "Year"]);
   });
@@ -122,10 +123,12 @@ describe("MonthlyGrid", () => {
     );
     // 1.1 * 1.1 - 1 = 21%; 0.9 * 1.05 - 1 = -5.5%.
     const gain = screen.getByTestId("year-2026");
-    expect(gain).toHaveTextContent("+21.0%");
+    expect(gain).toHaveTextContent(/^\+21\.0$/);
+    // The figure drops its sign; the name keeps it, as a month's does (L28).
+    expect(gain).toHaveAccessibleName("Year 2026: +21.0%");
     expect(gain).toHaveClass("text-gain", "font-semibold");
     const loss = screen.getByTestId("year-2025");
-    expect(loss).toHaveTextContent("-5.5%");
+    expect(loss).toHaveTextContent(/^-5\.5$/);
     expect(loss).toHaveClass("text-loss", "font-semibold");
     expect(gain.className).not.toMatch(/\bbg-/);
   });
@@ -262,11 +265,11 @@ describe("the earlier years toggle (decision 34)", () => {
   it("keeps each year's total over all of its months, visible or revealed", () => {
     render(<MonthlyGrid monthly={fiveYears()} />);
     // 1.01^12 - 1 = 12.68%: every month of 2024 counts, though 2023 and 2022 are hidden.
-    expect(screen.getByTestId("year-2024")).toHaveTextContent("+12.7%");
-    expect(screen.getByTestId("year-2026")).toHaveTextContent("+5.2%");
+    expect(screen.getByTestId("year-2024")).toHaveTextContent(/^\+12\.7$/);
+    expect(screen.getByTestId("year-2026")).toHaveTextContent(/^\+5\.2$/);
     fireEvent.click(screen.getByRole("button", { name: "Show earlier years" }));
-    expect(screen.getByTestId("year-2023")).toHaveTextContent("+4.0%");
-    expect(screen.getByTestId("year-2022")).toHaveTextContent("-5.0%");
+    expect(screen.getByTestId("year-2023")).toHaveTextContent(/^\+4\.0$/);
+    expect(screen.getByTestId("year-2022")).toHaveTextContent(/^-5\.0$/);
   });
 
   it("is labelled in Spanish", async () => {
@@ -288,8 +291,16 @@ describe("the grid at narrow widths", () => {
   it("scrolls sideways inside a wrapper instead of squeezing its figures together", () => {
     render(<MonthlyGrid monthly={[month(2026, 1, "0.0310000000")]} />);
     const table = screen.getByRole("table");
-    // 13 columns of figures need a floor width; below it the wrapper scrolls, like the chart's.
-    expect(table).toHaveClass("min-w-[42rem]");
+    // 13 columns of figures need a floor width; below it the wrapper scrolls, like the chart's. Without the percent
+    // sign a month needs 5 characters of 11 px mono (33 px), so the floor fits the 627 px a 1440 px window leaves the
+    // grid beside a strategy's aside (L28).
+    expect(table).toHaveClass("min-w-[37rem]");
+    expect(table).not.toHaveClass("min-w-[42rem]");
     expect(table.parentElement).toHaveClass("overflow-x-auto");
+  });
+
+  it("keeps the dashboard's floor, in its larger type", () => {
+    render(<MonthlyGrid bare monthly={[month(2026, 1, "0.0310000000")]} />);
+    expect(screen.getByRole("table")).toHaveClass("min-w-[42rem]");
   });
 });

@@ -131,8 +131,10 @@ export function MonthlyGrid({ monthly, bare = false }: MonthlyGridProps) {
         <table
           {...tableLabel}
           className={cn(
-            "w-full min-w-[42rem] table-fixed border-separate border-spacing-1 font-mono tabular-nums",
-            bare ? "text-xs" : "text-[11px]",
+            "w-full table-fixed border-separate border-spacing-1 font-mono tabular-nums",
+            // The figures carry no percent sign (L28): a month is 5 characters, 33 px at 11 px, so the floor fits the
+            // 627 px a 1440 px window leaves beside a strategy's aside. The dashboard's larger type keeps its floor.
+            bare ? "min-w-[42rem] text-xs" : "min-w-[37rem] text-[11px]",
           )}
         >
           <thead>
@@ -187,19 +189,20 @@ export function MonthlyGrid({ monthly, bare = false }: MonthlyGridProps) {
                           band >= FIRST_CONTRAST_BAND && "font-semibold",
                         )}
                       >
-                        {percentText(value, locale)}
+                        {percentText(value, locale, false)}
                       </td>
                     );
                   })}
                   <td
                     data-testid={`year-${year}`}
+                    aria-label={`${t("overview.monthlyGrid.year")} ${year}: ${percentText(total, locale)}`}
                     className={cn(
                       "text-center",
                       bare ? "h-[34px] rounded border border-rule font-medium" : "font-semibold",
                       toneClass(total),
                     )}
                   >
-                    {percentText(total, locale)}
+                    {percentText(total, locale, false)}
                   </td>
                 </tr>
               );
