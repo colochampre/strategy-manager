@@ -323,3 +323,4 @@ The owner's words (2026-11-24) are quoted as written.
   - With more than one pair, the Pares column says how many ("2 pares", underlined with dots) and lists them in its tooltip. With one pair, it shows the symbol.
 - L23 (2026-11-25, owner, after L22): "Una ultima prueba: alinear también a la izquierda PnL (USDT), PnL (%) y Caída máx. Sino quedan Caída max y Acierto muy juntos, y Acierto muy separado de Subs."
   - In `ex13`, `ex14` and `ex15`, PnL (USDT), PnL (%) and Caída máx. are aligned to the start, like Acierto. Subs. and AuM stay aligned to the end.
+- L24 (2026-11-25, owner, on RD.7a after L23): "Mucho mejor. Ahora si apruebo". The prototype's `ex11` to `ex15` are approved. S15 is no longer a proposal: the strategy lists are built as the tables of `ex13` to `ex15`, in RD.7 with the header card of S14.
