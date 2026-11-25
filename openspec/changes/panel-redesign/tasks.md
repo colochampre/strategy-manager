@@ -210,6 +210,20 @@ The owner's words (2026-11-24) are quoted as written.
     - Two units, launched in parallel with disjoint edit surfaces:
       - **RD.3b (backend).** `GET /positions/open` gains `mark_price` and `unrealized_pnl` per position, from the venue's public mark price. Both are null when the read fails or the position lacks a figure.
       - **RD.3c (frontend).** The table restyle and the chart axes.
+    - *Built 2026-11-25:*
+      - **RD.3c** (`d5e406b`).
+        - The dashboard's table has ex1's columns. The origin tag stays under the symbol, so a simulated position remains distinguishable. The venue-disagreement and missing-figures lines stay as sub-rows.
+        - The strategy page's table keeps today's columns until RD.7.
+        - The renders were compared with `ex1`.
+      - **RD.3b.**
+        - Each distinct market is read once per request, concurrently, from the public mark sources of decision 35, within the venues' timeout.
+        - A failed read is a WARNING naming the exchange and the market, and leaves only that market null.
+        - The operator panel's fixture body `open-positions.json` gains both keys as null, because its test validates it against the route's model.
+      - TDD: every new rule was seen red on an assertion. The router and wiring tests, written after the use case, were proved by mutation.
+    - Gate, run by the parent:
+      - frontend: lint reported 0 errors, and vitest passed 177 files and 4238 tests;
+      - backend: `ruff` and `mypy` were clean (414 files).
+      - `pytest` failed once in `test_archive_vs_allocate_concurrency.py::test_disable_wins_lock_first_allocation_in_lock_reread_sees_disabled_skips`, a lock test this change does not touch. Run alone, it failed 1 time in 3, so it is intermittent and not caused by this change.
 - [ ] RD.7: the strategy pages' header card (S14). First the prototype's strategy screens are edited for the owner's approval; then the pages are built.
 
 - [ ] RD.4 PR 4: My trades (S5).

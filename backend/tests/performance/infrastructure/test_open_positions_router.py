@@ -39,6 +39,7 @@ from strategy_manager.performance.infrastructure.open_positions_router import (
     get_disagreement_source,
     get_facts_source,
     get_open_state_source,
+    get_position_marks,
     get_snapshot_session,
 )
 from tests.identity_auth import ADMIN_HEADERS, FORGED_HEADERS, act_as, sign_in_as_admin
@@ -46,6 +47,7 @@ from tests.owner import OWNER_ID
 from tests.performance.fakes import (
     FakeDisagreementSource,
     FakeFactsSource,
+    FakeMarkPrices,
     FakeOpenStateReader,
     FixedClock,
 )
@@ -67,7 +69,7 @@ POSITION_KEYS = {
     "allocation_id", "strategy_id", "strategy_name", "strategy_archived", "strategy_page", "pool",
     "currency", "markets", "origin", "figures_missing", "side", "base_currency", "size",
     "opened_size", "entry_price", "opened_at", "fill_count", "fees", "other_fees", "margin_granted",
-    "leverage", "reservation_status", "venue_disagreement",
+    "leverage", "reservation_status", "venue_disagreement", "mark_price", "unrealized_pnl",
 }  # fmt: skip
 ORDER_KEYS = {
     "attempt_id", "strategy_id", "strategy_archived", "strategy_name", "pool", "market",
@@ -183,6 +185,8 @@ async def test_a_live_futures_position_is_served_field_by_field() -> None:
                 "leverage": "2.00000000",
                 "reservation_status": "FILLED",
                 "venue_disagreement": None,
+                "mark_price": None,
+                "unrealized_pnl": None,
             }
         ],
         "orders": [],
@@ -299,6 +303,8 @@ async def test_a_position_with_no_facts_writes_its_nullable_fields_as_json_null(
             "leverage": None,
             "reservation_status": None,
             "venue_disagreement": None,
+            "mark_price": None,
+            "unrealized_pnl": None,
         }
     ]
 
@@ -403,6 +409,56 @@ async def test_a_position_the_venue_disagrees_on_carries_the_finding() -> None:
         "allocation_count": 2,
         "last_observed_at": "2026-10-12T09:00:00Z",
     }]
+
+
+# --- the venue's mark and the unrealized PnL (RD.3b) ------------------------------------
+
+
+def _marked_app(marks: FakeMarkPrices, *, side: str = "BUY") -> tuple[FastAPI, UUID]:
+    allocation, strategy = uuid4(), uuid4()
+    element = open_element(
+        rehearsal=False, live=True, allocation_id=allocation, symbol="STXUSDT / STXUSDT.P"
+    )
+    facts = FakeFactsSource(
+        {
+            allocation: position_facts(
+                allocation,
+                strategy,
+                (fill_aggregate(allocation, strategy, side=side, quantity="100", price="0.45"),),
+            )
+        }
+    )
+    app = _app(FakeOpenStateReader([element]), facts)
+    app.dependency_overrides[get_position_marks] = lambda: marks
+    return app, allocation
+
+
+async def test_a_position_is_served_with_its_mark_and_unrealized_pnl_as_strings() -> None:
+    app, _ = _marked_app(FakeMarkPrices({("bybit", "STXUSDT"): Decimal("0.47")}))
+
+    body = await _body(app)
+
+    [position] = _elements(body, "positions")
+    assert position["mark_price"] == "0.470000000000000000"
+    assert position["unrealized_pnl"] == "2.00"
+
+
+async def test_a_losing_short_serves_a_negative_unrealized_pnl() -> None:
+    app, _ = _marked_app(FakeMarkPrices({("bybit", "STXUSDT"): Decimal("0.47")}), side="SELL")
+
+    body = await _body(app)
+
+    assert _field(body, "positions", "unrealized_pnl") == ["-2.00"]
+
+
+async def test_a_mark_that_cannot_be_read_is_null_and_the_route_still_answers() -> None:
+    app, _ = _marked_app(FakeMarkPrices({("bybit", "STXUSDT"): TimeoutError()}))
+
+    body = await _body(app)
+
+    [position] = _elements(body, "positions")
+    assert (position["mark_price"], position["unrealized_pnl"]) == (None, None)
+    assert position["entry_price"] == "0.450000000000000000"
 
 
 # --- several pools, no narrowing ------------------------------------------------------

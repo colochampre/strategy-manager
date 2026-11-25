@@ -234,6 +234,11 @@ class OpenPosition:
     leverage: Decimal | None
     reservation_status: str | None
     venue_disagreement: VenueDisagreement | None
+    # The venue's current mark of the position's one market, and what the position
+    # would make or lose at it, in the settlement currency and before fees. Both
+    # ``None`` when no mark was read; never a zero (RD.3b).
+    mark_price: Decimal | None = None
+    unrealized_pnl: Decimal | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -320,6 +325,16 @@ def open_position_figures(
         opened_size=opened_size,
         entry_price=entry_price,
     )
+
+
+def unrealized_pnl(figures: OpenPositionFigures, mark_price: Decimal) -> Decimal:
+    """What the open size would make at ``mark_price``, before fees: a LONG gains
+    as the mark rises above the entry, a SHORT as it falls below. ``size`` is in
+    base units, so the answer is in the settlement currency (CLAUDE.md, "Futures
+    execution"). Exchanges show this figure before fees, and so does the panel."""
+    if figures.side is Direction.LONG:
+        return (mark_price - figures.entry_price) * figures.size
+    return (figures.entry_price - mark_price) * figures.size
 
 
 def origin_of(allocation: OpenAllocationElement) -> Origin:

@@ -101,6 +101,15 @@ class OpenStateSourcePort(Protocol):
     async def open_allocations(self, user_id: UUID) -> Sequence[OpenAllocationElement]: ...
 
 
+class PositionMarkPort(Protocol):
+    """The venue's current public mark price of one market, for the panel's
+    unrealized PnL. ``market`` is the market key (``STXUSDT``), never a venue's
+    own spelling: the adapter chooses that. ``None`` means the exchange has no
+    public mark source; a read that fails raises, and the caller tells the log."""
+
+    async def mark_price(self, exchange: str, market: str) -> Decimal | None: ...
+
+
 @dataclass(frozen=True, slots=True)
 class PositionFacts:
     """What the facts read says about ONE open allocation: the reservation (its

@@ -148,6 +148,9 @@ from strategy_manager.ledger.application.read_symbol_holdings import ReadSymbolH
 from strategy_manager.ledger.application.read_symbol_positions import ReadSymbolPositions
 from strategy_manager.ledger.application.record_fill import RecordFill
 from strategy_manager.ledger.infrastructure.repository import SqlAlchemyLedgerRepository
+from strategy_manager.performance.infrastructure.open_position_marks import (
+    PublicOpenPositionMarks,
+)
 from strategy_manager.performance.infrastructure.open_positions_router import (
     router as open_positions_router,
 )
@@ -2561,6 +2564,14 @@ def create_app() -> FastAPI:
     # no credential in this process. ``get_pair_catalog`` reads it back from here
     # and tests override that dependency with a fake.
     app.state.pair_catalog = VenuePairCatalog.for_settings(settings)
+
+    # The open positions' mark price (RD.3b): the same PUBLIC sources a simulated
+    # fill prices at, so nothing here signs. One read of all of them may take as
+    # long as the slowest venue's own timeout, and no longer.
+    app.state.open_position_marks = PublicOpenPositionMarks(
+        public_mark_prices(settings),
+        max(settings.bybit_timeout_seconds, settings.binance_timeout_seconds),
+    )
 
     # Every administrative router lives under one prefix (design.md §13, spec:
     # admin-api). Each included router keeps its OWN

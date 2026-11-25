@@ -23,7 +23,7 @@ from datetime import UTC, datetime
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -37,6 +37,7 @@ from strategy_manager.performance.application.ports import (
     ConfirmedDisagreementSourcePort,
     OpenPositionFactsSourcePort,
     OpenStateSourcePort,
+    PositionMarkPort,
 )
 from strategy_manager.performance.application.read_open_positions import ReadOpenPositions
 from strategy_manager.performance.domain.open_position import (
@@ -49,6 +50,9 @@ from strategy_manager.performance.infrastructure.confirmed_disagreement_source i
 )
 from strategy_manager.performance.infrastructure.open_position_facts_source import (
     SqlAlchemyOpenPositionFactsSource,
+)
+from strategy_manager.performance.infrastructure.open_position_marks import (
+    NoOpenPositionMarks,
 )
 from strategy_manager.reconciliation.infrastructure.repository import (
     SqlAlchemyDiscrepancyRepository,
@@ -108,10 +112,21 @@ def get_clock() -> ClockPort:
     return SystemClock()
 
 
+def get_position_marks(request: Request) -> PositionMarkPort:
+    """The ONE mark source ``create_app()`` keeps on ``app.state``. An application
+    built without it (a test that mounts this router alone) answers every mark as
+    unknown, which is the wire's own "no mark" and never a price; the real
+    application's wiring is pinned in ``test_open_positions_wiring``. Tests
+    override this dependency with a fake, so no router test needs a network."""
+    marks: PositionMarkPort | None = getattr(request.app.state, "open_position_marks", None)
+    return NoOpenPositionMarks() if marks is None else marks
+
+
 OpenStateDep = Annotated[OpenStateSourcePort, Depends(get_open_state_source)]
 FactsDep = Annotated[OpenPositionFactsSourcePort, Depends(get_facts_source)]
 DisagreementDep = Annotated[ConfirmedDisagreementSourcePort, Depends(get_disagreement_source)]
 ClockDep = Annotated[ClockPort, Depends(get_clock)]
+MarksDep = Annotated[PositionMarkPort, Depends(get_position_marks)]
 
 
 class PoolBody(BaseModel):
@@ -157,6 +172,8 @@ class PositionBody(BaseModel):
     leverage: Money | None
     reservation_status: str | None
     venue_disagreement: VenueDisagreementBody | None
+    mark_price: Price | None
+    unrealized_pnl: Money | None
 
 
 class OrderBody(BaseModel):
@@ -221,6 +238,8 @@ def _position_body(position: OpenPosition) -> PositionBody:
                 last_observed_at=mark.last_observed_at,
             )
         ),
+        mark_price=position.mark_price,
+        unrealized_pnl=position.unrealized_pnl,
     )
 
 
@@ -268,12 +287,13 @@ async def read_open_positions(
     facts: FactsDep,
     disagreements: DisagreementDep,
     clock: ClockDep,
+    marks: MarksDep,
     user: Annotated[User, Depends(current_user)],
 ) -> OpenPositionsBody:
     # The instant of the snapshot: taken before the first read, after the
     # snapshot dependency has opened the transaction.
     as_of = clock.now()
-    answer = await ReadOpenPositions(state, facts, disagreements).read(user.id)
+    answer = await ReadOpenPositions(state, facts, disagreements, marks).read(user.id)
     return OpenPositionsBody(
         as_of=as_of,
         positions=[_position_body(p) for p in sorted(answer.positions, key=_position_order)],

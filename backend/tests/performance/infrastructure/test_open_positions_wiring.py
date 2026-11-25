@@ -20,6 +20,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from strategy_manager.identity.infrastructure.dependencies import UNAUTHORIZED_DETAIL
 from strategy_manager.main import create_app
 from strategy_manager.performance.infrastructure import open_positions_router
+from strategy_manager.performance.infrastructure.open_position_marks import (
+    PublicOpenPositionMarks,
+)
 from strategy_manager.shared import db as shared_db
 from tests.identity_auth import ADMIN_HEADERS, act_as, sign_in_as_admin
 from tests.owner import OWNER_ID
@@ -37,6 +40,16 @@ def test_the_router_module_imports_the_guards_reader_from_its_one_home() -> None
     assert (
         "from strategy_manager.execution.infrastructure.mode_origin_reader import" in source
     ), "the reader must be the guard's, imported from its own module"
+
+
+def test_the_application_keeps_the_public_mark_source_the_route_reads(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sign_in_as_admin(monkeypatch)
+
+    app = create_app()
+
+    assert isinstance(app.state.open_position_marks, PublicOpenPositionMarks)
 
 
 @pytest.mark.integration
