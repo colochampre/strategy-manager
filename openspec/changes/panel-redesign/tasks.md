@@ -154,6 +154,23 @@ The owner's words (2026-11-24) are quoted as written.
       - Mi cuenta has no Mode and Language cards; `ex7` drew them.
       - The legal texts still say "Configuración" about deleting the account. Changing them bumps the privacy version, so it waits for the next legal change.
     - Copy the writer invented: the page's subtitle in English, the filter strings, the total and the no-match line.
+  - *Reopened 2026-11-24 (L12).* The owner approved the prototype to be followed, so `ex6` and `ex7` are the spec, down to their styles.
+    - **Vincular exchange (`ex6`):**
+      - The "Vincular exchange" action is the full-width dashed button.
+      - The one-key note sits under it.
+      - A "Vinculadas" card holds the filter, a "Total" pill reading "n registros", and a table: Exchange, Clave, Permisos, Estado, Vinculada el, Acciones (replace, unlink).
+      - The data exists already. `GET /credentials` gives `last4`, `trade_capable` and `stored_at`, so no backend change is needed.
+      - The key form and the safety notices the cards carry (no key with a pool on, read-only, refusals) stay reachable from the row or the action, with every rule unchanged.
+    - **Mi cuenta (`ex7`):**
+      - "Sus datos" lists the name (editable) and the locked fields.
+      - A "Modo" card holds the En vivo / Simulación switch, and an "Idioma" card holds Español / English.
+      - "Eliminar cuenta" closes the page.
+    - **Mode in the top row (S7, rewritten by L12).** The badge only shows the mode, drawn as in the prototype: a tinted background, a dot, and sentence case ("En vivo", not "EN VIVO"). The mode is changed from Mi cuenta. Every rule of today's mode switch moves there unchanged: the confirmation, the refusals, and the forced simulation under the brake.
+    - The parent's checks failed to catch this. Each screen is now compared against its prototype render before it is reported done.
+  - *Reworked and approved by the owner on 2026-11-25* ("Dale, por ahora no vi nada mas que ajustar. Podemos seguir"), after L12 to L14. Not yet pushed.
+    - The writer ran every new rule red on an assertion before implementing it.
+    - The mode-change tests moved from `ModeBadge.test.tsx` to `ModeSection.test.tsx` with every behaviour assertion kept.
+    - Gate, run by the parent: lint reported 0 errors, and vitest passed 172 files and 4189 tests.
 - [ ] RD.3 PR 3: the dashboard's header card, and hide balances (S1, S8).
 - [ ] RD.4 PR 4: My trades (S5).
 - [ ] RD.5 PR 5: Notifications (S6).
@@ -190,3 +207,17 @@ The owner's words (2026-11-24) are quoted as written.
   - Gate: lint exited 0, and vitest passed 169 files and 4142 tests.
   - The 390 px view of the gate could not be checked with headless Edge, which will not lay out under about 500 px. The owner checked it instead: "Confirmo que en pantalla chica se ve bien. Probé en Brave" (2026-11-24).
 - L11 (2026-11-24, owner, on deploying the rest): "Perfecto. Seguimos así entonces." Each PR from RD.2 to RD.6 is deployed on its own after its merge, as the assistant recommended. PR #133, the log of RD.1, is merged.
+- L12 (2026-11-24, owner, reviewing RD.2 against the local backend): "A mi me gusta todo lo que se vió en el prototipo. Prefiero que lo que cambia respecto a lo actual se implemente. Por ejemplo, el modo que se muestra arriba a la derecha no respetó lo que se mostraba en el prototipo. El background, el punto y que diga 'En vivo' en lugar de 'EN VIVO'. Además me parece más seguro que el modo se cambie desde Mi cuenta y que en la parte superior solo se muestre qué modo está seleccionado. Con respecto a la vista de API keys, tampoco se respetó el diseño del prototipo: el botón de vincular exchange no ocupa todo el ancho ni tiene los mismo estilos del prototipo. Aprobé el prototipo para seguirlo, no para ignorarlo. Si hay algo como lo de la tabla que se complicaría para implementar, está bien que me avises, pero el resto que es estético, no se está respetando". RD.2 is reopened; S7 is rewritten for the mode.
+- L13 (2026-11-24, owner, reviewing the RD.2 rework): "Esta bien. Hay un detalle que puede ser intencional, pero quiero corroborarlo: los botones de agregar clave y editar clave usan colores distintos y puedo entender por qué, pero el botón de eliminar clave a lo mejor debería ir en rojo. Las observaciones del tipo 'Esta clave no puede operar. En modo en vivo, las señales de apertura...' y 'No hay ninguna clave guardada. En modo en vivo, las señales...' tienen un límite de ch por lo que hacen un salto de linea que no considero necesario y solo hace que se ocupe más espacio vertical. De hecho las tags y el estado ya dan a entender lo que aclara el mensaje, por lo que se pueden remover directamente. La tarjeta al intentar eliminar una clave, se genera muy chica comparado a su contenido, y genera overflow horizontal. [...] Acotar el mensaje. Lo mismo sucede cuando hay una discrepancia pendiente. El mensaje es aún más largo y el usuario solo ve un tercio [...]. Aparte, cuando se hace clic en Vincular exchange, los botones de seleccion de exchange y cancelar no siguen el nuevo diseño. Adaptarlos para que mejoren estéticamente y ocupen un espacio adecuado."
+  - The unlink action is loss-coloured.
+  - The read-only and no-key notices under the rows are removed; the amber pills carry that meaning.
+  - The delete dialog is wide enough for its content and never scrolls sideways.
+  - Its copy is shortened by the parent:
+    - es: "Se elimina la clave terminada en {{last4}}. {{exchange}} deja de operarse desde aquí hasta que agregue otra. Su historial se conserva." / "Solo es posible sin estrategias activas ni nada abierto en {{exchange}}." / "Hay una discrepancia sin resolver en {{symbols}}, y esta clave es la que puede cerrarla. Para cambiarla, guarde la nueva: la reemplaza."
+    - en: "The key ending in {{last4}} is removed. {{exchange}} is no longer traded from here until you add another. Your history is kept." / "Only possible with no active strategy and nothing open on {{exchange}}." / "There is an unresolved discrepancy on {{symbols}}, and this key is the one that can close it. To change it, save the new one: it replaces this one."
+  - The exchange choice and Cancel under "Vincular exchange" follow the redesign.
+- L14 (2026-11-25, owner, on the picker under "Vincular exchange"): "quitaría el texto al lado del selector 'Exchange' porque el selector ya dice 'Elija un exchange', y alargaría el selector para que junto con el boton de cancelar, ocupen la mitad del ancho disponible. Pasar del boton que ocupa todo el ancho de vincular a el contenido corto del selector y el boton de cancelar es raro."
+  - The "Exchange" label is read by assistive technology only.
+  - The select fills a row that takes half the width on a wide screen and the whole width on a phone; Cancel keeps its own width.
+  - Also from this review: the delete dialog's text starts at the beginning of the line, which it had inherited from the actions cell.
+  - The owner checked the picker through `/exchanges?fixture=unlinked`, a local-only variant of `vite.fixture.config.ts` with no key and no pool.

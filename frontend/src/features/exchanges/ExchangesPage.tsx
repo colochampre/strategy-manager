@@ -1,10 +1,10 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { Search } from "lucide-react";
+import { Info, Search } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { DeleteKeyControl } from "@/features/settings/DeleteKeyControl";
-import { ExchangeKeyCard } from "@/features/settings/ExchangeKeyCard";
+import { ExchangeKeyRow } from "@/features/settings/ExchangeKeyCard";
 import { KeyEntryForm, type SavedKey } from "@/features/settings/KeyEntryForm";
 import { NewKeyControl } from "@/features/settings/NewKeyControl";
 import { type CredentialEntry, useCredentials } from "@/shared/api/credentials";
@@ -12,6 +12,8 @@ import { usePools } from "@/shared/api/pools";
 import { exchangeList, knownPools, poolOn } from "@/shared/credentials/key-state";
 import served from "@/shared/credentials/served-exchanges.json";
 import { exchangeName } from "@/shared/exchanges/exchange-name";
+import { ExchangeWordmark } from "@/shared/exchanges/ExchangeWordmark";
+import { Card } from "@/shared/ui/Card";
 import { InfoButton, InfoText, useInfoDisclosure } from "@/shared/ui/InfoDisclosure";
 import { PageHeader } from "@/shared/ui/PageHeader";
 
@@ -248,8 +250,9 @@ export function ExchangesPage() {
         {announcement}
       </p>
       {credentials.data !== undefined && (
-        // The page's action across the top; the card of the exchange chosen in its select is drawn right under it.
-        <div className="flex flex-col gap-4">
+        // The page's action across the top (ex6 `.bar-btn`), then the one-key line; the form of the exchange chosen
+        // in its select is drawn right under them, outside the grid.
+        <div className="mb-1 flex flex-col">
           <NewKeyControl
             available={available}
             open={adding !== null}
@@ -261,32 +264,30 @@ export function ExchangesPage() {
             buttonRef={newKeyButton}
           />
           {chosen !== null && available.includes(chosen) && (
-            <ExchangeKeyCard
-              exchange={chosen}
-              entry={credentials.data.find((row) => row.exchange === chosen)}
-              poolOn={poolOn(chosen, poolList)}
-              served
-              open={openForm === chosen}
-              busy={saving}
-              onToggle={() => (openForm === chosen ? cancelNewKey() : openFormOf(chosen))}
+            <section
+              aria-labelledby={`${titleId}-new`}
+              className="mt-3 flex flex-col gap-3 rounded-[10px] border border-rule bg-panel p-[22px]"
             >
+              <h3 id={`${titleId}-new`} className="flex h-6 items-center font-display text-[15px] font-semibold text-ink">
+                <ExchangeWordmark exchange={chosen} className="h-[15px]" />
+              </h3>
               {formOf(chosen, credentials.data)}
-            </ExchangeKeyCard>
+            </section>
           )}
+          <p className="mt-3 flex items-center gap-2 text-[13px] text-ink-2">
+            <Info aria-hidden="true" className="size-4 shrink-0 text-ink-3" />
+            {t("exchangesPage.help")}
+          </p>
         </div>
       )}
-      <section aria-labelledby={titleId} className="flex flex-col gap-4">
-        <div className="flex flex-col gap-1.5">
-          <div className="flex items-center">
-            <h2 id={titleId} className="font-display text-base font-semibold text-ink">
-              {t("settings.keys.title")}
-            </h2>
-            <InfoButton disclosure={keysInfo} label={t("settings.keys.info")} />
-          </div>
-          <InfoText disclosure={keysInfo}>
-            <p className="text-xs text-ink-3">{t("settings.keys.intro")}</p>
-          </InfoText>
-        </div>
+      <Card
+        title={t("exchangesPage.listTitle")}
+        dense
+        action={<InfoButton disclosure={keysInfo} label={t("settings.keys.info")} />}
+      >
+        <InfoText disclosure={keysInfo}>
+          <p className="mb-3 text-xs text-ink-3">{t("settings.keys.intro")}</p>
+        </InfoText>
 
         {credentials.status === "pending" && (
           <p role="status" className="text-[13px] text-ink-2">
@@ -318,85 +319,104 @@ export function ExchangesPage() {
               </div>
             )}
             {pools.isError && <p className="text-[13px] text-ink-2">{t("settings.keys.poolsUnknown")}</p>}
-            <div className="flex flex-col gap-2.5">
-              <div className="relative sm:w-1/2">
-                <label htmlFor={filterId} className="sr-only">
-                  {t("exchangesPage.filter")}
-                </label>
-                <input
-                  id={filterId}
-                  type="search"
-                  value={filter}
-                  placeholder={t("exchangesPage.filterPlaceholder")}
-                  onChange={(event) => setFilter(event.target.value)}
-                  className="min-h-11 w-full rounded-md border border-rule bg-ground py-2 pr-10 pl-3 text-sm text-ink placeholder:text-ink-3"
-                />
-                <Search
-                  aria-hidden="true"
-                  className="pointer-events-none absolute top-1/2 right-3 size-4 -translate-y-1/2 text-ink-3"
-                />
-              </div>
-              <p className="flex items-center gap-2 text-sm text-ink-2">
-                {t("exchangesPage.total")}{" "}
-                <span className="rounded border border-rule bg-panel-2 px-2 py-0.5 font-mono text-xs text-ink">
-                  {t("exchangesPage.count", { count: shown })}
-                </span>
-              </p>
-              {cards.length > 0 && shown === 0 && (
-                <p className="text-[13px] text-ink-2">{t("exchangesPage.noMatch")}</p>
-              )}
+            {/* The filter and the total (ex6 `.inp`, `.total`, `.chip-n`). */}
+            <div className="relative">
+              <label htmlFor={filterId} className="sr-only">
+                {t("exchangesPage.filter")}
+              </label>
+              <input
+                id={filterId}
+                type="search"
+                value={filter}
+                placeholder={t("exchangesPage.filterPlaceholder")}
+                onChange={(event) => setFilter(event.target.value)}
+                className="h-[38px] w-full rounded-full border border-rule bg-ground pr-11 pl-4 text-sm text-ink placeholder:text-ink-3 focus-visible:outline-2 focus-visible:outline-gain"
+              />
+              <Search
+                aria-hidden="true"
+                className="pointer-events-none absolute top-1/2 right-4 size-4 -translate-y-1/2 text-ink-3"
+              />
             </div>
-            <ul aria-labelledby={titleId} className="flex flex-col gap-4">
-              {cards.map((exchange) => (
-                <li key={exchange} hidden={!matches(exchange)}>
-                  <ExchangeKeyCard
-                    exchange={exchange}
-                    entry={credentials.data.find((row) => row.exchange === exchange)}
-                    poolOn={poolOn(exchange, poolList)}
-                    served={SERVED.includes(exchange)}
-                    open={openForm === exchange}
-                    busy={saving}
-                    saved={
-                      lastSave?.exchange === exchange
-                        ? {
-                            last4: lastSave.last4,
-                            readOnly: lastSave.readOnly,
-                            // Read again since the save only when `dataUpdatedAt` moved past the stamp; a failed
-                            // read does not move it, so the row stays drawn from the answer.
-                            pending: credentials.dataUpdatedAt <= lastSave.listStamp,
-                            showNotice: lastSave.noticeOn,
-                          }
-                        : null
-                    }
-                    onToggle={() => (openForm === exchange ? closeForm(exchange) : openFormOf(exchange))}
-                    toggleRef={(element) => {
-                      if (element === null) toggles.current.delete(exchange);
-                      else toggles.current.set(exchange, element);
-                    }}
-                    deleteSlot={
-                      <DeleteKeyControl
-                        exchange={exchange}
-                        name={exchangeName(t, i18n, exchange)}
-                        last4={listedLast4(exchange)}
-                        disabled={openForm === exchange || saving}
-                        onOpen={() => {
-                          endNotice();
-                          setDeleting(exchange);
-                        }}
-                        onDeleted={() => deleted(exchange)}
-                        onFocusFallback={() => setFocusRequest({ exchange })}
-                        onClosed={() => setDeleting(null)}
-                      />
-                    }
-                  >
-                    {formOf(exchange, credentials.data)}
-                  </ExchangeKeyCard>
-                </li>
-              ))}
-            </ul>
+            <p className="my-3.5 flex items-center gap-2.5 font-medium text-ink">
+              {t("exchangesPage.total")}{" "}
+              <span className="rounded-md border border-rule bg-ground px-2.5 py-[3px] text-[12.5px]">
+                {t("exchangesPage.count", { count: shown })}
+              </span>
+            </p>
+            {cards.length > 0 && shown === 0 && (
+              <p className="mb-3.5 text-[13px] text-ink-2">{t("exchangesPage.noMatch")}</p>
+            )}
+            {cards.length > 0 && (
+              // The grid scrolls sideways inside its own frame when the screen is narrower than its columns.
+              <div className="overflow-x-auto rounded-lg border border-rule">
+                <table className="w-full border-collapse">
+                  <thead>
+                    <tr>
+                      {(["exchange", "key", "permissions", "status", "linkedOn", "actions"] as const).map((column) => (
+                        <th
+                          key={column}
+                          scope="col"
+                          className={`border-b border-rule bg-ground px-3 py-2.5 text-[12.5px] font-medium whitespace-nowrap text-ink-3 ${
+                            column === "actions" ? "text-right" : "text-left"
+                          }`}
+                        >
+                          {t(`exchangesPage.columns.${column}`)}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  {cards.map((exchange) => (
+                    <ExchangeKeyRow
+                      key={exchange}
+                      hidden={!matches(exchange)}
+                      exchange={exchange}
+                      entry={credentials.data.find((row) => row.exchange === exchange)}
+                      poolOn={poolOn(exchange, poolList)}
+                      served={SERVED.includes(exchange)}
+                      open={openForm === exchange}
+                      busy={saving}
+                      saved={
+                        lastSave?.exchange === exchange
+                          ? {
+                              last4: lastSave.last4,
+                              readOnly: lastSave.readOnly,
+                              // Read again since the save only when `dataUpdatedAt` moved past the stamp; a failed
+                              // read does not move it, so the row stays drawn from the answer.
+                              pending: credentials.dataUpdatedAt <= lastSave.listStamp,
+                              showNotice: lastSave.noticeOn,
+                            }
+                          : null
+                      }
+                      onToggle={() => (openForm === exchange ? closeForm(exchange) : openFormOf(exchange))}
+                      toggleRef={(element) => {
+                        if (element === null) toggles.current.delete(exchange);
+                        else toggles.current.set(exchange, element);
+                      }}
+                      deleteSlot={
+                        <DeleteKeyControl
+                          exchange={exchange}
+                          name={exchangeName(t, i18n, exchange)}
+                          last4={listedLast4(exchange)}
+                          disabled={openForm === exchange || saving}
+                          onOpen={() => {
+                            endNotice();
+                            setDeleting(exchange);
+                          }}
+                          onDeleted={() => deleted(exchange)}
+                          onFocusFallback={() => setFocusRequest({ exchange })}
+                          onClosed={() => setDeleting(null)}
+                        />
+                      }
+                    >
+                      {formOf(exchange, credentials.data)}
+                    </ExchangeKeyRow>
+                  ))}
+                </table>
+              </div>
+            )}
           </>
         )}
-      </section>
+      </Card>
     </div>
   );
 }

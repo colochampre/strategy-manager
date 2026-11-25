@@ -21,13 +21,18 @@ interface IconButtonProps {
   name?: string | undefined;
   /** The id of a text that explains the button (why it is unavailable). */
   describedBy?: string | undefined;
+  /**
+   * `sm` is the 32 px button of a table row's actions (ex6 `.acts .icon-btn`): it carries its label as a `title`
+   * instead of a floating tip, which a table that scrolls sideways would clip.
+   */
+  size?: "md" | "sm";
   ref?: Ref<HTMLButtonElement>;
 }
 
 const TONE: Record<IconButtonTone, string> = {
   neutral: "border-rule text-ink-2 hover:bg-panel-2",
   primary: "border-gain bg-gain text-ground hover:opacity-90",
-  danger: "border-loss text-loss hover:bg-panel-2",
+  danger: "border-loss text-loss hover:bg-loss/10",
 };
 
 /**
@@ -45,24 +50,32 @@ export function IconButton({
   spin = false,
   name,
   describedBy,
+  size = "md",
   ref,
 }: IconButtonProps) {
+  const small = size === "sm";
+  const button = (
+    <button
+      type={submit ? "submit" : "button"}
+      ref={ref}
+      aria-label={name ?? label}
+      aria-describedby={describedBy}
+      title={small ? label : undefined}
+      onClick={onClick}
+      disabled={disabled}
+      className={cn(
+        "inline-flex shrink-0 items-center justify-center rounded-lg border disabled:opacity-50",
+        small ? "size-8" : "size-11",
+        TONE[tone],
+      )}
+    >
+      <Icon aria-hidden="true" className={cn("size-4", spin && "animate-spin")} />
+    </button>
+  );
+  if (small) return button;
   return (
     <Tooltip text={label} describes={false} tabbable={false}>
-      <button
-        type={submit ? "submit" : "button"}
-        ref={ref}
-        aria-label={name ?? label}
-        aria-describedby={describedBy}
-        onClick={onClick}
-        disabled={disabled}
-        className={cn(
-          "inline-flex size-11 shrink-0 items-center justify-center rounded-lg border disabled:opacity-50",
-          TONE[tone],
-        )}
-      >
-        <Icon aria-hidden="true" className={cn("size-4", spin && "animate-spin")} />
-      </button>
+      {button}
     </Tooltip>
   );
 }

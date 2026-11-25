@@ -32,7 +32,7 @@
     "subscriptions": "Las estrategias que usted opera, con su parte del pool y su apalancamiento.",
     "explore": "Las estrategias públicas de todos los autores, con su historial real.",
     "authored": "Las estrategias que usted escribió en el exchange seleccionado.",
-    "account": "Revise sus datos y administre su cuenta.",
+    "account": "Revise sus datos y elija el modo y el idioma del panel.",
     "exchanges": "Administre las claves de API de los exchanges vinculados a su cuenta.",
     "users": "Las cuentas del panel. Visible solo para administradores.",
     "notFound": "La página que busca no existe o ya no está disponible."
@@ -911,11 +911,50 @@
     "filter": "Filtrar exchanges",
     "filterPlaceholder": "Filtrar exchanges…",
     "total": "Total",
-    "count_one": "{{count}} exchange",
-    "count_other": "{{count}} exchanges",
+    "count_one": "{{count}} registro",
+    "count_other": "{{count}} registros",
+    "listTitle": "Vinculadas",
+    "help": "Se conserva una sola clave por exchange. Al guardar una nueva, reemplaza a la anterior.",
+    "none": "Sin dato",
+    "columns": {
+      "exchange": "Exchange",
+      "key": "Clave",
+      "permissions": "Permisos",
+      "status": "Estado",
+      "linkedOn": "Vinculada el",
+      "actions": "Acciones"
+    },
+    "permission": {
+      "trading": "Trading",
+      "readOnly": "Solo lectura"
+    },
+    "state": {
+      "active": "Activa"
+    },
     "noMatch": "Ningún exchange coincide con el filtro."
   },
   "settings": {
+    "details": {
+      "title": "Sus datos",
+      "editName": "Editar nombre",
+      "closeEdit": "Cerrar edición",
+      "displayName": "Nombre visible",
+      "name": "Nombre",
+      "none": "Aún no elegido",
+      "locked": "No se puede cambiar aquí",
+      "note": "Solo puede modificar el nombre. El CUIT y el país no se pueden cambiar desde el panel."
+    },
+    "mode": {
+      "title": "Modo",
+      "group": "Modo de operación",
+      "description": "En vivo envía órdenes reales. Simulación registra las señales sin operar.",
+      "forced": "El freno está activado: todos operan en simulación, por lo que el modo no se puede cambiar."
+    },
+    "language": {
+      "title": "Idioma",
+      "group": "Idioma",
+      "description": "Idioma de la interfaz."
+    },
     "profile": {
       "title": "Perfil"
     },
@@ -977,7 +1016,6 @@
       "confirmedHint": "«Confirmado» es lo que usted indicó a este panel ese día. {{exchange}} no permite que el panel compruebe qué puede hacer una clave, así que las órdenes se envían con su confirmación. Si la clave no puede operar futuros, {{exchange}} rechaza la primera orden real y usted recibe una alerta de Telegram. Nada comprueba el ajuste de retiros.",
       "unrecordedHint": "Se guardó antes de que el sistema registrara cómo se comprobaba una clave. Vuelva a introducirla para que se compruebe.",
       "readOnly": "Esta clave no puede operar. En modo en vivo, las señales de apertura de {{exchange}} se rechazan hasta que usted agregue una clave que pueda operar futuros.",
-      "degraded": "No hay ninguna clave guardada. En modo en vivo, las señales de apertura de {{exchange}} se rechazan hasta que se agregue una clave.",
       "empty": "No hay ninguna clave guardada. Agregue una para leer y operar en {{exchange}} desde aquí.",
       "emptyNotServed": "No hay ninguna clave guardada.",
       "notServed": "La clave de {{exchange}} se gestiona fuera de este panel, en el servidor. No se puede agregar, reemplazar ni eliminar desde aquí.",
@@ -1027,8 +1065,8 @@
     },
     "delete": {
       "confirmTitle": "¿Eliminar la clave de {{exchange}}?",
-      "confirmBody": "La clave terminada en {{last4}} se elimina de este sistema. {{exchange}} deja de leerse y de operarse desde aquí hasta que se agregue una clave de nuevo. Su historial se conserva.",
-      "condition": "El servidor lo permite solo mientras todas las estrategias de {{exchange}} estén desactivadas y no haya nada abierto en este exchange.",
+      "confirmBody": "Se elimina la clave terminada en {{last4}}. {{exchange}} deja de operarse desde aquí hasta que agregue otra. Su historial se conserva.",
+      "condition": "Solo es posible sin estrategias activas ni nada abierto en {{exchange}}.",
       "confirm": "Eliminar clave",
       "cancel": "Cancelar",
       "pending": "Eliminando…",
@@ -1049,7 +1087,7 @@
         "liveReservations_other": "{{count}} reservas vigentes: capital retenido para órdenes. Espere a que terminen y vuelva a intentarlo.",
         "inFlightAttempts_one": "{{count}} orden que se está enviando ahora mismo. Espere a que termine y vuelva a intentarlo.",
         "inFlightAttempts_other": "{{count}} órdenes que se están enviando ahora mismo. Espere a que terminen y vuelva a intentarlo.",
-        "openDiscrepancies": "Discrepancia de conciliación sin resolver en: {{symbols}}. El exchange puede tener una posición que este sistema no registra, y esta clave es la que puede cerrarla. Para cambiar de clave, guarde la nueva en lugar de eliminar esta: la reemplaza."
+        "openDiscrepancies": "Hay una discrepancia sin resolver en {{symbols}}, y esta clave es la que puede cerrarla. Para cambiarla, guarde la nueva: la reemplaza."
       }
     },
     "title": "Mi cuenta",

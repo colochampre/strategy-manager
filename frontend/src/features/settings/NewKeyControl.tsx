@@ -1,5 +1,5 @@
 import { type Ref, useEffect, useId, useRef } from "react";
-import { Plus, X } from "lucide-react";
+import { CirclePlus, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { exchangeName } from "@/shared/exchanges/exchange-name";
@@ -47,25 +47,25 @@ export function NewKeyControl({
   if (available.length === 0) return null;
 
   if (!open) {
+    // The prototype's `.bar-btn` (ex6): across the whole width, 44 px, dashed, on panel-2, the plus in gain.
     return (
-      <div>
-        <button
-          ref={buttonRef}
-          type="button"
-          disabled={busy}
-          onClick={onOpen}
-          className="inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-gain bg-gain px-3.5 text-sm font-medium text-ground disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gain"
-        >
-          <Plus aria-hidden="true" className="size-4 shrink-0" />
-          {t("settings.keys.newKey")}
-        </button>
-      </div>
+      <button
+        ref={buttonRef}
+        type="button"
+        disabled={busy}
+        onClick={onOpen}
+        className="flex h-11 w-full items-center justify-center gap-2.5 rounded-lg border border-dashed border-rule-strong bg-panel-2 text-sm font-medium text-ink transition-colors hover:border-gain/60 motion-reduce:transition-none disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gain"
+      >
+        <CirclePlus aria-hidden="true" className="size-[18px] shrink-0 text-gain" />
+        {t("settings.keys.newKey")}
+      </button>
     );
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-2">
-      <label htmlFor={selectId} className="text-sm text-ink-2">
+    <div className="flex w-full items-center gap-2 lg:w-1/2">
+      {/* Read by assistive technology only: the select's placeholder already says what to choose (L14). */}
+      <label htmlFor={selectId} className="sr-only">
         {t("settings.keys.exchange")}
       </label>
       <select
@@ -76,7 +76,7 @@ export function NewKeyControl({
         onChange={(event) => {
           if (event.target.value !== "") onChoose(event.target.value);
         }}
-        className="min-h-11 rounded-md border border-rule bg-ground px-3 text-sm text-ink disabled:opacity-50"
+        className="h-9 min-w-0 flex-1 rounded-lg border border-rule-strong bg-panel-2 px-3 text-sm text-ink disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gain"
       >
         <option value="" disabled>
           {t("settings.keys.choose")}
@@ -91,7 +91,7 @@ export function NewKeyControl({
         type="button"
         disabled={busy}
         onClick={onCancel}
-        className="inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-rule px-3.5 text-sm text-ink-2 hover:bg-panel-2 disabled:opacity-50"
+        className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-rule bg-panel px-3.5 text-sm text-ink-2 transition-colors hover:bg-panel-2 motion-reduce:transition-none disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gain"
       >
         <X aria-hidden="true" className="size-4 shrink-0" />
         {t("settings.keys.cancel")}

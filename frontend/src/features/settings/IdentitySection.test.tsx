@@ -1,7 +1,8 @@
 import { act, fireEvent, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { SettingsPage } from "@/features/settings/SettingsPage";
+import { DisplayNameSection } from "@/features/settings/DisplayNameSection";
+import { IdentitySection } from "@/features/settings/IdentitySection";
 import i18n from "@/shared/i18n";
 import es from "@/shared/i18n/locales/es.json";
 import { jsonResponse, lock, renderAt, resetExchangeScope, SIGNED_UP, stubApi, unlock } from "@/test/harness";
@@ -33,7 +34,14 @@ function setup(
     if (url.endsWith("/api/me")) return Promise.resolve(jsonResponse({ ...ME, profile: stored }));
     return undefined;
   });
-  renderAt(<SettingsPage />, "/settings");
+  // The two forms of the name, as `AccountDetails` opens them under its card from `Edit name`.
+  renderAt(
+    <>
+      <DisplayNameSection />
+      <IdentitySection />
+    </>,
+    "/settings",
+  );
   return { sent };
 }
 

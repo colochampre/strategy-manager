@@ -293,11 +293,13 @@ describe("the top row", () => {
   it("puts, on the right, the mode, the person, the language, in that order, all the same size", async () => {
     renderShell("/settings");
 
-    await screen.findByRole("button", { name: "Mode: Live. Change it" });
+    // The mode is only shown (L12): a status of the same 36 px, not a button, and the first of the tools.
+    const mode = await screen.findByText("Live");
     const tools = screen.getByRole("group", { name: "Tools" });
+    expect(mode.closest('[role="status"]')).toHaveClass("h-9");
+    expect(tools.firstElementChild).toContainElement(mode);
     const items = Array.from(tools.querySelectorAll("button, a"));
     expect(items.map((item) => item.getAttribute("aria-label"))).toEqual([
-      "Mode: Live. Change it",
       "My account",
       "Language: English. Switch to Spanish",
     ]);

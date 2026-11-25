@@ -66,10 +66,15 @@ function stub(credentials: CredentialsStub, pools: unknown[] = [pool("bybit")], 
   return stubApi(HEALTH, [], { kind: "ok", body: pools }, {}, extra, {}, credentials);
 }
 
-/** Waits until a card is drawn; a missing one fails as an assertion. */
+/** The row groups of the keys' grid, one per exchange: the `tbody`s, not the header's group. */
+function keyRows(): HTMLElement[] {
+  return screen.queryAllByRole("rowgroup").filter((group) => group.tagName === "TBODY");
+}
+
+/** Waits until a row is drawn; a missing one fails as an assertion. */
 async function cardsDrawn(): Promise<HTMLElement[]> {
-  await waitFor(() => expect(screen.queryAllByRole("article").length).toBeGreaterThan(0));
-  return screen.getAllByRole("article");
+  await waitFor(() => expect(keyRows().length).toBeGreaterThan(0));
+  return keyRows();
 }
 
 /** A heading's name as it is drawn: the logotype's accessible name, or its text where it has none (decision 77). */
@@ -86,7 +91,7 @@ function credentialCalls(fetchMock: ReturnType<typeof stubApi>) {
 }
 
 describe("the page's structure", () => {
-  it("names the h1 `Link exchange` as the sidebar does and adds the h2 `Exchange keys`, with its intro word for word behind an information button", async () => {
+  it("names the h1 `Link exchange` as the sidebar does and adds the h2 `Linked`, with the keys' intro word for word behind an information button", async () => {
     stub(ok(storedKey("bybit")));
     mountPage();
 
@@ -96,7 +101,7 @@ describe("the page's structure", () => {
     const title = screen.getByRole("heading", { level: 1, name: "Link exchange" });
     expect(title.closest("header")).toHaveClass("mb-2");
     expect(title.closest("header")?.parentElement).toHaveClass("gap-4");
-    expect(screen.queryByRole("heading", { level: 2, name: "Exchange keys" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { level: 2, name: "Linked" })).toBeInTheDocument();
     const info = screen.getByRole("button", { name: "About exchange keys" });
     expect(info).toHaveAttribute("aria-expanded", "false");
     expect(screen.queryByText(INTRO)).toBeNull();
@@ -114,23 +119,22 @@ describe("the page's structure", () => {
     await cardsDrawn();
 
     const outline = screen.getAllByRole("heading").map((heading) => `${heading.tagName} ${headingName(heading)}`);
-    expect(outline).toEqual(["H1 Link exchange", "H2 Exchange keys", "H3 Bybit"]);
+    expect(outline).toEqual(["H1 Link exchange", "H2 Linked", "H3 Bybit"]);
     expect(screen.queryByRole("heading", { name: /Profile|Delete account/ })).not.toBeInTheDocument();
   });
 
-  it("draws the cards as a list, one item per exchange, each holding its article", async () => {
+  it("draws the keys as a table, one row group per exchange, each holding its row of six cells", async () => {
     stub(ok(storedKey("bybit")));
     mountPage();
     await cardsDrawn();
 
-    const list = screen.queryByRole("list", { name: "Exchange keys" });
-    expect(list).toBeInTheDocument();
-    const items = within(list as HTMLElement).getAllByRole("listitem");
-    const articles = screen.getAllByRole("article");
-    // The tags of a card are a list too, so only the card's own items are counted.
-    const own = items.filter((item) => item.parentElement === list);
-    expect(own).toHaveLength(articles.length);
-    for (const item of own) expect(within(item).getAllByRole("article")).toHaveLength(1);
+    const grid = screen.getByRole("table");
+    const groups = keyRows();
+    expect(groups).toHaveLength(1);
+    for (const group of groups) {
+      expect(group.parentElement).toBe(grid);
+      expect(within(group).getAllByRole("cell").length).toBeGreaterThanOrEqual(6);
+    }
   });
 
   it("puts no width cap of its own around a card: the shell's column is the only one", async () => {
@@ -172,7 +176,7 @@ describe("the list of exchanges", () => {
     await cardsDrawn();
 
     expect(cardNames()).toEqual(["Bybit"]);
-    expect(screen.queryByRole("article", { name: "Binance" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("rowgroup", { name: "Binance" })).not.toBeInTheDocument();
   });
 
   it("gives no card to an exchange whose only row is EMPTY and whose pool is off", async () => {
@@ -189,7 +193,7 @@ describe("the list of exchanges", () => {
     await cardsDrawn();
 
     expect(cardNames()).toEqual(["Bybit", "Kraken"]);
-    const kraken = screen.getByRole("article", { name: "Kraken" });
+    const kraken = screen.getByRole("rowgroup", { name: "Kraken" });
     expect(within(kraken).queryByText("key ending in AB12")).toBeInTheDocument();
     expect(within(kraken).queryAllByRole("button")).toEqual([]);
   });
@@ -211,8 +215,8 @@ describe("the list of exchanges", () => {
     stub(ok(storedKey("bybit")), [pool("bybit"), pool("binance")]);
     mountPage();
     await cardsDrawn();
-    expect(screen.getByRole("article", { name: "Binance" })).toHaveClass("border-decision");
-    expect(screen.getByRole("article", { name: "Bybit" })).toHaveClass("border-rule");
+    expect(screen.getByRole("rowgroup", { name: "Binance" }).outerHTML).toMatch(AMBER);
+    expect(screen.getByRole("rowgroup", { name: "Bybit" }).outerHTML).not.toMatch(AMBER);
   });
 
   it("keeps the degraded card of an exchange with no key and an enabled pool, with its `Add key` (decision 80 Q2)", async () => {
@@ -220,7 +224,7 @@ describe("the list of exchanges", () => {
     mountPage();
     await cardsDrawn();
 
-    const binance = screen.getByRole("article", { name: "Binance" });
+    const binance = screen.getByRole("rowgroup", { name: "Binance" });
     expect(binance.outerHTML).toMatch(AMBER);
     expect(within(binance).queryByRole("button", { name: "Add key Binance" })).toBeInTheDocument();
   });
@@ -233,16 +237,16 @@ const totalLine = () => screen.queryByText(/^Total/);
 describe("the linked exchanges: a filter and the total (S9)", () => {
   const TWO = [storedKey("bybit"), storedKey("binance")];
 
-  it("counts the rows in a total line, and says `1 exchange` in the singular", async () => {
+  it("counts the rows in a total line, and says `1 record` in the singular", async () => {
     stub(ok(...TWO), [pool("bybit"), pool("binance")]);
     mountPage();
     await cardsDrawn();
 
-    expect(found(totalLine(), "the total")).toHaveTextContent("Total 2 exchanges");
+    expect(found(totalLine(), "the total")).toHaveTextContent("Total 2 records");
 
     fireEvent.change(found(filterField(), "the filter"), { target: { value: "bin" } });
 
-    expect(found(totalLine(), "the total")).toHaveTextContent("Total 1 exchange");
+    expect(found(totalLine(), "the total")).toHaveTextContent("Total 1 record");
   });
 
   it("narrows the rows to the exchanges whose name holds the text, whatever its case", async () => {
@@ -254,7 +258,7 @@ describe("the linked exchanges: a filter and the total (S9)", () => {
     fireEvent.change(found(filterField(), "the filter"), { target: { value: "BYB" } });
 
     expect(cardNames()).toEqual(["Bybit"]);
-    expect(screen.queryByRole("article", { name: "Binance" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("rowgroup", { name: "Binance" })).not.toBeInTheDocument();
 
     fireEvent.change(found(filterField(), "the filter"), { target: { value: "" } });
     expect(cardNames()).toEqual(["Bybit", "Binance"]);
@@ -267,9 +271,9 @@ describe("the linked exchanges: a filter and the total (S9)", () => {
 
     fireEvent.change(found(filterField(), "the filter"), { target: { value: "zzz" } });
 
-    expect(screen.queryAllByRole("article")).toEqual([]);
+    expect(keyRows()).toEqual([]);
     expect(screen.queryByText("No exchange matches the filter.")).toBeInTheDocument();
-    expect(found(totalLine(), "the total")).toHaveTextContent("Total 0 exchanges");
+    expect(found(totalLine(), "the total")).toHaveTextContent("Total 0 records");
   });
 
   it("keeps an open key form, with what was typed, while the filter hides its row and shows it again", async () => {
@@ -280,7 +284,7 @@ describe("the linked exchanges: a filter and the total (S9)", () => {
     fireEvent.change(screen.getByLabelText("API key"), { target: { value: "FAKE-typed-text" } });
 
     fireEvent.change(found(filterField(), "the filter"), { target: { value: "bin" } });
-    expect(screen.queryByRole("article", { name: "Bybit" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("rowgroup", { name: "Bybit" })).not.toBeInTheDocument();
     fireEvent.change(found(filterField(), "the filter"), { target: { value: "" } });
 
     expect((screen.getByLabelText("API key") as HTMLInputElement).value).toBe("FAKE-typed-text");
@@ -302,11 +306,11 @@ describe("each row says the state of its key (L9)", () => {
     mountPage();
     await cardsDrawn();
 
-    expect(within(screen.getByRole("article", { name: "Bybit" })).queryByText("read-only")).toBeInTheDocument();
-    expect(within(screen.getByRole("article", { name: "Binance" })).queryByText("no key")).toBeInTheDocument();
+    expect(within(screen.getByRole("rowgroup", { name: "Bybit" })).queryByText("read-only")).toBeInTheDocument();
+    expect(within(screen.getByRole("rowgroup", { name: "Binance" })).queryByText("no key")).toBeInTheDocument();
     // Both need the owner's action, so both are amber, as they are today.
-    expect(screen.getByRole("article", { name: "Bybit" })).toHaveClass("border-decision");
-    expect(screen.getByRole("article", { name: "Binance" })).toHaveClass("border-decision");
+    expect(screen.getByRole("rowgroup", { name: "Bybit" }).outerHTML).toMatch(AMBER);
+    expect(screen.getByRole("rowgroup", { name: "Binance" }).outerHTML).toMatch(AMBER);
   });
 
   it("gives each row its actions: `Replace key` and `Delete key` on a stored key, `Add key` on one with none", async () => {
@@ -314,10 +318,10 @@ describe("each row says the state of its key (L9)", () => {
     mountPage();
     await cardsDrawn();
 
-    const bybit = screen.getByRole("article", { name: "Bybit" });
+    const bybit = screen.getByRole("rowgroup", { name: "Bybit" });
     await waitFor(() => expect(within(bybit).queryByRole("button", { name: /^Delete key/ })).toBeInTheDocument());
     expect(within(bybit).queryByRole("button", { name: "Replace key Bybit" })).toBeInTheDocument();
-    expect(within(screen.getByRole("article", { name: "Binance" })).queryByRole("button", { name: "Add key Binance" })).toBeInTheDocument();
+    expect(within(screen.getByRole("rowgroup", { name: "Binance" })).queryByRole("button", { name: "Add key Binance" })).toBeInTheDocument();
   });
 });
 
@@ -329,8 +333,8 @@ describe("the page's own states", () => {
     // Task 13.5.10 (R12): the page now also holds a hidden status region, so the loading line is found by its text.
     await waitFor(() => expect(screen.queryByText("Loading exchange keys…")).toBeInTheDocument());
     expect(screen.getByText("Loading exchange keys…")).toHaveAttribute("role", "status");
-    expect(screen.queryAllByRole("article")).toEqual([]);
-    expect(screen.queryByRole("heading", { level: 2, name: "Exchange keys" })).toBeInTheDocument();
+    expect(keyRows()).toEqual([]);
+    expect(screen.queryByRole("heading", { level: 2, name: "Linked" })).toBeInTheDocument();
   });
 
   it.each([
@@ -345,7 +349,7 @@ describe("the page's own states", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("Exchange keys could not be loaded.");
     expect(screen.queryByRole("button", { name: "Try again" })).toBeInTheDocument();
     // A card drawn from the file alone would say "No key stored" about a key the panel could not read.
-    expect(screen.queryAllByRole("article")).toEqual([]);
+    expect(keyRows()).toEqual([]);
     expect(screen.queryByText(/No key stored/)).not.toBeInTheDocument();
   });
 
@@ -388,14 +392,14 @@ describe("the page's own states", () => {
 
     await waitFor(() => expect(screen.queryByRole("alert")).toBeInTheDocument());
     expect(screen.getByRole("alert")).toHaveTextContent("This list could not be refreshed and may be out of date.");
-    expect(screen.queryAllByRole("article")).toHaveLength(2);
+    expect(keyRows()).toHaveLength(2);
     expect(screen.queryByText("key ending in 1234")).toBeInTheDocument();
     expect(screen.queryByText("Exchange keys could not be loaded.")).not.toBeInTheDocument();
 
     fail = false;
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
-    expect(screen.queryAllByRole("article")).toHaveLength(2);
+    expect(keyRows()).toHaveLength(2);
   });
 
   it("draws the cards when the pools failed, marks no exchange amber for lack of a key, and says why in one line", async () => {
@@ -407,7 +411,7 @@ describe("the page's own states", () => {
     expect(screen.queryAllByText(POOLS_LINE)).toHaveLength(1);
     // Not known to be degraded, so Binance, which has no key, has no card at all (decision 80).
     expect(cardNames()).toEqual(["Bybit"]);
-    expect(screen.getAllByRole("article").every((card) => !AMBER.test(card.outerHTML))).toBe(true);
+    expect(keyRows().every((card) => !AMBER.test(card.outerHTML))).toBe(true);
   });
 
   it("does not show the pools line while the pools are fine", async () => {
@@ -423,7 +427,7 @@ describe("the page's own states", () => {
 
     await waitFor(() => expect(screen.queryByRole("alert")).toBeInTheDocument());
     expect(screen.getByRole("alert")).toHaveTextContent("Exchange keys could not be loaded.");
-    expect(screen.queryAllByRole("article")).toEqual([]);
+    expect(keyRows()).toEqual([]);
     expect(document.body.textContent).not.toContain("123456789012");
     expect(document.body.textContent).not.toContain("9012");
     expect(document.body.innerHTML).not.toContain("123456789012");
@@ -463,7 +467,7 @@ describe("the card takes the key's state from the shared module", () => {
 
 /** A card's toggle, "Add key" or "Replace key" with the exchange after it. */
 function toggleOf(name: string): HTMLElement {
-  const button = within(screen.getByRole("article", { name })).queryByRole("button", { name: /^(Add|Replace) key/ });
+  const button = within(screen.getByRole("rowgroup", { name })).queryByRole("button", { name: /^(Add|Replace) key/ });
   expect(button, `the toggle of ${name}`).toBeInTheDocument();
   return button as HTMLElement;
 }
@@ -484,7 +488,9 @@ describe("the toggles and the open form (task 13.5.8)", () => {
     mountPage();
     await cardsDrawn();
 
-    const names = screen.getAllByRole("button").map((button) => button.getAttribute("aria-labelledby") === null ? "" : button.textContent);
+    const names = screen
+      .getAllByRole("button")
+      .map((button) => (button.getAttribute("aria-controls")?.startsWith("key-form-") ? button.getAttribute("title") : ""));
     expect(names.filter((name) => name !== "")).toEqual(["Replace key", "Add key"]);
     expect(screen.queryByRole("button", { name: "Replace key Bybit" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Add key Binance" })).toBeInTheDocument();
@@ -495,7 +501,7 @@ describe("the toggles and the open form (task 13.5.8)", () => {
     mountPage();
     await cardsDrawn();
 
-    expect(within(screen.getByRole("article", { name: "Kraken" })).queryAllByRole("button")).toEqual([]);
+    expect(within(screen.getByRole("rowgroup", { name: "Kraken" })).queryAllByRole("button")).toEqual([]);
   });
 
   it("test_one_form_at_a_time: opening another card's form closes and unmounts the open one", async () => {
@@ -513,7 +519,7 @@ describe("the toggles and the open form (task 13.5.8)", () => {
     expect(formsOpen().map((heading) => heading.textContent)).toEqual(["Add a Binance key"]);
     expect(toggleOf("Bybit")).toHaveAttribute("aria-expanded", "false");
     expect(toggleOf("Binance")).toHaveAttribute("aria-expanded", "true");
-    expect(within(screen.getByRole("article", { name: "Bybit" })).queryByRole("region")).not.toBeInTheDocument();
+    expect(within(screen.getByRole("rowgroup", { name: "Bybit" })).queryByRole("region")).not.toBeInTheDocument();
     expect(document.body.innerHTML).not.toContain("FAKE-typed-text");
     expect((screen.getByLabelText("API key") as HTMLInputElement).value).toBe("");
   });
@@ -573,7 +579,7 @@ describe("the toggles and the open form (task 13.5.8)", () => {
     await waitFor(() => expect(fetchMock.mock.calls.some(([, init]) => init?.method === "PUT")).toBe(true));
     // The name is a write of its own that races nothing here, and an information button only reads.
     const info = screen.getByRole("button", { name: "About exchange keys" });
-    const buttons = within(screen.getByRole("region", { name: "Exchange keys" }))
+    const buttons = within(screen.getByRole("region", { name: "Linked" }))
       .getAllByRole("button")
       .filter((button) => button !== info);
     expect(info).toBeEnabled();
@@ -687,7 +693,7 @@ function expectNoEnglishSettingsText() {
 }
 
 const noteIn = (card: HTMLElement, text: string) => within(card).queryByText(text);
-const bybitCard = () => screen.getByRole("article", { name: "Bybit" });
+const bybitCard = () => screen.getByRole("rowgroup", { name: "Bybit" });
 /** The regions that tell of a key. The profile tells of its own save, from its own region. */
 const statusRegion = () => {
   const profile = screen.queryByRole("region", { name: /^(Profile|Perfil)$/ });
@@ -721,7 +727,7 @@ describe("the end of a save that worked (task 13.5.10)", () => {
     expect(card.textContent).not.toMatch(/checked|not validated/);
     // The answer said the key trades: no tag at all, and no state of the list is claimed.
     expect(within(card).queryByRole("list", { name: "What is known about this key" })).not.toBeInTheDocument();
-    expect(card).toHaveClass("border-rule");
+    expect(card.outerHTML).not.toMatch(AMBER);
     expect(within(card).queryByRole("button", { name: /^Replace key/ })).toBeInTheDocument();
     expect(within(card).queryByRole("button", { name: /^Delete key/ })).not.toBeInTheDocument();
   });
@@ -808,12 +814,13 @@ describe("the end of a save that worked (task 13.5.10)", () => {
     await cardsDrawn();
     await submitFor("Bybit");
 
-    // Before the list is read: amber tag, amber border and the sentence, all from the answer.
+    // Before the list is read: amber tag and the sentence, all from the answer.
     await waitFor(() => expect(noteIn(bybitCard(), PENDING_NOTICE)).toBeInTheDocument());
     const card = bybitCard();
-    expect(card).toHaveClass("border-decision");
+    expect(card.outerHTML).toMatch(AMBER);
     expect(within(card).queryByText("read-only")).toHaveClass("text-decision");
-    expect(within(card).queryByText(READ_ONLY_BYBIT)).toHaveClass("text-decision");
+    // L13: the amber mark carries it; the card draws no sentence.
+    expect(within(card).queryByText(READ_ONLY_BYBIT)).not.toBeInTheDocument();
   });
 
   it("test_a_read_only_key_is_a_state_of_the_card: the list says so afterwards, and the tab keeps the name alone", async () => {
@@ -827,8 +834,9 @@ describe("the end of a save that worked (task 13.5.10)", () => {
     await submitFor("Bybit");
 
     await waitFor(() => expect(noteIn(bybitCard(), SAVED_NOTICE)).toBeInTheDocument());
-    expect(bybitCard()).toHaveClass("border-decision");
-    expect(within(bybitCard()).queryByText(READ_ONLY_BYBIT)).toBeInTheDocument();
+    expect(bybitCard().outerHTML).toMatch(AMBER);
+    expect(within(bybitCard()).queryByText(READ_ONLY_BYBIT)).not.toBeInTheDocument();
+    expect(within(bybitCard()).queryByText("read-only")).toBeInTheDocument();
 
     fireEvent.click(screen.getAllByRole("link", { name: "Overview" })[0] as HTMLElement);
     await screen.findByRole("heading", { level: 1, name: "Overview" });
@@ -856,7 +864,7 @@ describe("the end of a save that worked (task 13.5.10)", () => {
     await waitFor(() => expect(noteIn(bybitCard(), "Key saved. The rest of this card appears when the list has been read again.")).toBeInTheDocument());
     expect(bybitCard().textContent).not.toContain(OLD_LAST4);
     expect(bybitCard().textContent).not.toContain("FAKE-WHOLE-KEY-VALUE");
-    expect(bybitCard().className.includes("border-decision")).toBe(readOnly);
+    expect(AMBER.test(bybitCard().outerHTML)).toBe(readOnly);
     expect(statusRegion().map((region) => region.textContent)).toEqual(["Key saved."]);
   });
 
@@ -881,14 +889,13 @@ describe("the end of a save that worked (task 13.5.10)", () => {
     savePage({ credentials: [storedKey("bybit")], reread: "pending", pools: [pool("bybit"), pool("binance")] });
     await cardsDrawn();
     const before = toggleOf("Binance");
-    expect(before).toHaveTextContent("Add key");
+    expect(before).toHaveAccessibleName("Add key Binance");
 
     await submitFor("Binance");
 
     await waitFor(() => expect(formsOpen()).toEqual([]));
     const after = toggleOf("Binance");
     expect(after).toBe(before);
-    expect(after).toHaveTextContent("Replace key");
     expect(after).toHaveAccessibleName("Replace key Binance");
     expect(document.activeElement).toBe(after);
   });
@@ -980,7 +987,7 @@ describe("the end of a save that worked (task 13.5.10)", () => {
     // This card's own form: the key is stored (it was just saved), so the form says it replaces it.
     fireEvent.click(toggleOf("Bybit"));
     expect(formsOpen().map((heading) => heading.textContent)).toEqual(["Replace the Bybit key"]);
-    expect(toggleOf("Bybit")).toHaveTextContent("Replace key");
+    expect(toggleOf("Bybit")).toHaveAccessibleName("Replace key Bybit");
     expect(bybitCard().textContent).not.toContain(OLD_LAST4);
   });
 
@@ -996,7 +1003,7 @@ describe("the end of a save that worked (task 13.5.10)", () => {
     await submitFor("Binance");
 
     await waitFor(() => expect(noteIn(bybitCard(), SAVED_NOTICE)).not.toBeInTheDocument());
-    const binance = screen.getByRole("article", { name: "Binance" });
+    const binance = screen.getByRole("rowgroup", { name: "Binance" });
     await waitFor(() => expect(noteIn(binance, SAVED_NOTICE)).toBeInTheDocument());
   });
 
@@ -1043,7 +1050,7 @@ describe("the page in Spanish", () => {
     stub({ kind: "pending" });
     mountPage();
 
-    expect(screen.queryByRole("heading", { level: 2, name: "Claves de los exchanges" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { level: 2, name: "Vinculadas" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Sobre las claves de los exchanges" }));
     expect(
       screen.queryByText(
@@ -1064,7 +1071,7 @@ describe("the page in Spanish", () => {
       respond: () => Promise.resolve(jsonResponse(savedAnswer("bybit", { warnings: ["READ_ONLY_KEY"] }))),
       pools: [pool("bybit"), pool("binance")],
     });
-    await waitFor(() => expect(screen.queryAllByRole("article").length).toBeGreaterThan(0));
+    await waitFor(() => expect(keyRows().length).toBeGreaterThan(0));
     expect(screen.queryByRole("button", { name: "Reemplazar clave Bybit" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Agregar clave Binance" })).toBeInTheDocument();
 
@@ -1092,7 +1099,7 @@ describe("the page in Spanish", () => {
       credentials: [storedKey("bybit", { last4: OLD_LAST4 })],
       after: [storedKey("bybit", { last4: NEW_LAST4 })],
     });
-    await waitFor(() => expect(screen.queryAllByRole("article").length).toBeGreaterThan(0));
+    await waitFor(() => expect(keyRows().length).toBeGreaterThan(0));
     fireEvent.click(screen.getByRole("button", { name: "Reemplazar clave Bybit" }));
     fireEvent.change(screen.getByLabelText("Clave de API"), { target: { value: KEY_VALUE } });
     fireEvent.change(screen.getByLabelText("Secreto de API"), { target: { value: SECRET_VALUE } });
@@ -1137,14 +1144,14 @@ function choose(id: string) {
 }
 
 describe("the `New key` button (p24.2)", () => {
-  it("is the action across the top, above the list of cards, while a served exchange has no card", async () => {
+  it("is the action across the top, above the table of keys, while a served exchange has no row", async () => {
     stub(ok(storedKey("bybit")));
     mountPage();
     await cardsDrawn();
 
     const button = await waitFor(() => found(newKeyButton(), "New key"));
-    const list = screen.getByRole("list", { name: "Exchange keys" });
-    expect(list.compareDocumentPosition(button) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
+    const grid = screen.getByRole("table");
+    expect(grid.compareDocumentPosition(button) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
     expect(button.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
   });
 
@@ -1153,7 +1160,7 @@ describe("the `New key` button (p24.2)", () => {
     mountPage();
 
     await waitFor(() => expect(newKeyButton()).toBeInTheDocument());
-    expect(screen.queryAllByRole("article")).toEqual([]);
+    expect(keyRows()).toEqual([]);
   });
 
   it("is not drawn when every served exchange has a key", async () => {
@@ -1217,6 +1224,35 @@ describe("the select of `New key` (p24.3)", () => {
     expect(optionsOf(found(exchangeSelect(), "the select"))).toEqual(["Choose an exchange", "Binance"]);
   });
 
+  it("draws the choice and Cancel in the redesign's look: a 36 px panel-2 select that fills its row and a secondary rounded-lg Cancel (L13)", async () => {
+    stub(ok(storedKey("bybit")));
+    mountPage();
+    await cardsDrawn();
+
+    await pressNewKey();
+
+    const select = found(exchangeSelect(), "the select");
+    expect(select).toHaveClass("h-9", "min-w-0", "flex-1", "rounded-lg", "border-rule-strong", "bg-panel-2");
+    const cancel = screen.getByRole("button", { name: "Cancel" });
+    expect(cancel).toHaveClass("h-9", "rounded-lg", "border", "border-rule", "text-ink-2");
+    // L14: the select and Cancel take half the width on a wide screen, the whole width on a phone.
+    const row = select.parentElement as HTMLElement;
+    expect(row).toHaveClass("w-full", "lg:w-1/2");
+    expect(row).toContainElement(cancel);
+  });
+
+  it("names the select for assistive technology only: its placeholder already says what to choose (L14)", async () => {
+    stub(ok(storedKey("bybit")));
+    mountPage();
+    await cardsDrawn();
+
+    await pressNewKey();
+
+    const select = found(exchangeSelect(), "the select");
+    const label = document.querySelector(`label[for="${select.id}"]`);
+    expect(label).toHaveClass("sr-only");
+  });
+
   it("closes on Cancel and gives the focus back to `New key`", async () => {
     stub(ok(storedKey("bybit")));
     mountPage();
@@ -1239,14 +1275,14 @@ describe("the card chosen in the select (p24.4)", () => {
 
     choose("binance");
 
-    const binance = screen.getByRole("article", { name: "Binance" });
+    const binance = screen.getByRole("region", { name: "Binance" });
     const select = found(exchangeSelect(), "the select");
     expect(select.compareDocumentPosition(binance) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(within(binance).queryByRole("heading", { level: 4, name: "Add a Binance key" })).toBeInTheDocument();
     expect(within(binance).queryByLabelText(WITHDRAWALS_LABEL)).toBeInTheDocument();
     expect(within(binance).getByLabelText("API key")).toHaveFocus();
-    // It is not one of the list's cards: the list holds the cards of keys that exist.
-    expect(binance.closest("ul")).toBeNull();
+    // It is not a row of the table: the table holds the rows of keys that exist.
+    expect(binance.closest("table")).toBeNull();
   });
 
   it("swaps the card when another exchange is chosen", async () => {
@@ -1272,7 +1308,7 @@ describe("the card chosen in the select (p24.4)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
 
     expect(exchangeSelect()).not.toBeInTheDocument();
-    expect(screen.queryByRole("article", { name: "Binance" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Binance" })).not.toBeInTheDocument();
     await waitFor(() => expect(newKeyButton()).toHaveFocus());
   });
 
@@ -1286,7 +1322,7 @@ describe("the card chosen in the select (p24.4)", () => {
     fireEvent.click(toggleOf("Bybit"));
 
     expect(exchangeSelect()).not.toBeInTheDocument();
-    expect(screen.queryByRole("article", { name: "Binance" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Binance" })).not.toBeInTheDocument();
     expect(formsOpen().map((heading) => heading.textContent)).toEqual(["Replace the Bybit key"]);
   });
 });
@@ -1310,10 +1346,10 @@ describe("a key saved from the select's card (p24.5)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Check and save" }));
 
     await waitFor(() => expect(exchangeSelect()).not.toBeInTheDocument());
-    const list = screen.getByRole("list", { name: "Exchange keys" });
-    const binance = screen.getByRole("article", { name: "Binance" });
-    expect(binance.closest("ul")).toBe(list);
-    expect(screen.getAllByRole("article", { name: "Binance" })).toHaveLength(1);
+    const grid = screen.getByRole("table");
+    const binance = screen.getByRole("rowgroup", { name: "Binance" });
+    expect(binance.closest("table")).toBe(grid);
+    expect(screen.getAllByRole("rowgroup", { name: "Binance" })).toHaveLength(1);
     expect(noteIn(binance, PENDING_NOTICE)).toBeInTheDocument();
     await waitFor(() => expect(screen.getByRole("button", { name: "Replace key Binance" })).toHaveFocus());
     expect(statusRegion().map((region) => region.textContent)).toContain(SAVED_NOTICE);

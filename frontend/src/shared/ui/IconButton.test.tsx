@@ -60,6 +60,17 @@ describe("IconButton", () => {
     );
   });
 
+  it("is 32 px in a row's actions (ex6), named by a title and with no floating tip", () => {
+    render(<IconButton label="Copy" icon={Copy} size="sm" onClick={() => undefined} />);
+    const button = screen.getByRole("button", { name: "Copy" });
+
+    expect(classesOf(button)).toEqual(expect.arrayContaining(["size-8", "shrink-0"]));
+    expect(classesOf(button)).not.toContain("size-11");
+    expect(button).toHaveAttribute("title", "Copy");
+    fireEvent.mouseEnter(button.parentElement as HTMLElement);
+    expect(screen.queryByRole("tooltip")).toBeNull();
+  });
+
   it("has a primary look for a Save", () => {
     render(<IconButton label="Save" icon={Copy} tone="primary" onClick={() => undefined} />);
 

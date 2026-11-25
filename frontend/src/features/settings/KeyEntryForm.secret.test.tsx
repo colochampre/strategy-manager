@@ -142,7 +142,7 @@ function reads(fetchMock: ReturnType<typeof stubApi>) {
 }
 
 async function card(name: string): Promise<HTMLElement> {
-  return screen.findByRole("article", { name });
+  return screen.findByRole("rowgroup", { name });
 }
 
 /** A card's toggle, "Add key" or "Replace key" with the exchange after it. */
@@ -392,7 +392,7 @@ describe("row 10: leaving, switching exchange and a 401", () => {
     expect(leaks(document.body.innerHTML)).toEqual([]);
 
     fireEvent.click(await toggleOf("Bybit"));
-    await waitFor(() => expect(within(screen.getByRole("article", { name: "Bybit" })).queryByLabelText("API key")).toBeInTheDocument());
+    await waitFor(() => expect(within(screen.getByRole("rowgroup", { name: "Bybit" })).queryByLabelText("API key")).toBeInTheDocument());
     expect(keyField().value).toBe("");
     expect(secretField().value).toBe("");
   });

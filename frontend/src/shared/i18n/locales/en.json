@@ -32,7 +32,7 @@
     "subscriptions": "The strategies you trade, with your share of the pool and your leverage.",
     "explore": "Public strategies from every author, with their real track record.",
     "authored": "The strategies you wrote on the selected exchange.",
-    "account": "Review your details and manage your account.",
+    "account": "Review your details and choose the panel's mode and language.",
     "exchanges": "Manage the API keys of the exchanges linked to your account.",
     "users": "The panel's accounts. Visible to administrators only.",
     "notFound": "The page you are looking for does not exist or is no longer available."
@@ -911,12 +911,51 @@
     "filter": "Filter exchanges",
     "filterPlaceholder": "Filter exchanges…",
     "total": "Total",
-    "count_one": "{{count}} exchange",
-    "count_other": "{{count}} exchanges",
+    "count_one": "{{count}} record",
+    "count_other": "{{count}} records",
+    "listTitle": "Linked",
+    "help": "One key is kept per exchange. Saving a new one replaces the previous one.",
+    "none": "No data",
+    "columns": {
+      "exchange": "Exchange",
+      "key": "Key",
+      "permissions": "Permissions",
+      "status": "Status",
+      "linkedOn": "Linked on",
+      "actions": "Actions"
+    },
+    "permission": {
+      "trading": "Trading",
+      "readOnly": "Read-only"
+    },
+    "state": {
+      "active": "Active"
+    },
     "noMatch": "No exchange matches the filter."
   },
   "settings": {
     "title": "My account",
+    "details": {
+      "title": "Your data",
+      "editName": "Edit name",
+      "closeEdit": "Close editing",
+      "displayName": "Display name",
+      "name": "Name",
+      "none": "Not chosen yet",
+      "locked": "Cannot be changed here",
+      "note": "You can only change your name. The CUIT and the country cannot be changed from the panel."
+    },
+    "mode": {
+      "title": "Mode",
+      "group": "Trading mode",
+      "description": "Live sends real orders. Simulation records the signals without trading.",
+      "forced": "The brake is on: everyone trades in simulation, so the mode cannot be changed."
+    },
+    "language": {
+      "title": "Language",
+      "group": "Language",
+      "description": "Language of the interface."
+    },
     "profile": {
       "title": "Profile"
     },
@@ -978,7 +1017,6 @@
       "confirmedHint": "\"Confirmed\" is what you told this panel on that day. {{exchange}} does not let the panel check what a key may do, so orders are sent on your confirmation. If the key cannot trade futures, {{exchange}} rejects the first live order and you get a Telegram alert. Nothing checks the withdrawal setting.",
       "unrecordedHint": "Stored before the system recorded how a key was checked. Enter it again to have it checked.",
       "readOnly": "This key cannot trade. In live mode, opening signals for {{exchange}} are refused until you add a key that can trade futures.",
-      "degraded": "No key stored. In live mode, opening signals for {{exchange}} are refused until a key is added.",
       "empty": "No key stored. Add one to read and trade on {{exchange}} from here.",
       "emptyNotServed": "No key stored.",
       "notServed": "The {{exchange}} key is managed outside this panel, on the server. It cannot be added, replaced or deleted here.",
@@ -1028,8 +1066,8 @@
     },
     "delete": {
       "confirmTitle": "Delete the {{exchange}} key?",
-      "confirmBody": "The key ending in {{last4}} is removed from this system. {{exchange}} is no longer read or traded from here until a key is added again. Its history stays.",
-      "condition": "The server allows this only while every {{exchange}} strategy is disabled and nothing is open on it.",
+      "confirmBody": "The key ending in {{last4}} is removed. {{exchange}} is no longer traded from here until you add another. Your history is kept.",
+      "condition": "Only possible with no active strategy and nothing open on {{exchange}}.",
       "confirm": "Delete key",
       "cancel": "Cancel",
       "pending": "Deleting…",
@@ -1050,7 +1088,7 @@
         "liveReservations_other": "{{count}} live reservations: capital held for orders. Wait for them to finish, then try again.",
         "inFlightAttempts_one": "{{count}} order being placed right now. Wait for it to finish, then try again.",
         "inFlightAttempts_other": "{{count}} orders being placed right now. Wait for them to finish, then try again.",
-        "openDiscrepancies": "Unresolved reconciliation discrepancy on: {{symbols}}. The venue may hold a position this system does not track, and this key is what can close it. To change keys, save the new one instead of deleting this one: it replaces it."
+        "openDiscrepancies": "There is an unresolved discrepancy on {{symbols}}, and this key is the one that can close it. To change it, save the new one: it replaces this one."
       }
     },
     "account": {

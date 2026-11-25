@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Trash } from "lucide-react";
+import { Unlink } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { DeleteKeyDialog } from "@/features/settings/DeleteKeyDialog";
@@ -101,11 +101,12 @@ export function DeleteKeyControl({
       {last4 !== null && (
         <IconButton
           ref={button}
-          icon={Trash}
+          icon={Unlink}
           label={t("settings.card.delete")}
           name={`${t("settings.card.delete")} ${name}`}
           disabled={disabled}
           onClick={open}
+          size="sm"
           tone="danger"
         />
       )}
