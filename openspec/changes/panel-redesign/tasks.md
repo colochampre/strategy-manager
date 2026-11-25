@@ -7,7 +7,8 @@ Redesign of the whole panel, keeping the palette (`frontend/src/index.css`, `@th
 The owner's words (2026-11-24) are quoted as written.
 
 - **S1 Hide balances.** "Modo ocultar saldos". Agreed with the owner:
-  - The amounts, the absolute PnL, and the charts' axes and tooltips are hidden. The percentages stay visible: the owner decided "Los porcentajes visibles me parecen bien" (2026-11-24).
+  - The amounts, the absolute PnL, and the charts' tooltip values are hidden. The percentages stay visible: the owner decided "Los porcentajes visibles me parecen bien" (2026-11-24).
+  - The charts' axes stay visible (L16): "Que el gráfico oculte sus ejes no me cierra. El eje vertical es en % que se muestra de todos modos en rendimiento, y las fechas tampoco veo porqué ocultarlas. Los valores al pasar el cursor si está bien."
   - The choice is stored in the browser, not on the server.
   - The toggle is an eye beside the balance, as on Binance.
 - **S2 Layout.** "Rediseño de la página, manteniendo la paleta de colores - inspirado en oficinavirtual.edelap.com.ar y binance.com". "Me gusta el espaciado de main de oficinavirtual, centrado y con buen margen, sin alargarse para ocupar todo el ancho. Lo mismo pasa en Binance."
@@ -45,6 +46,9 @@ The owner's words (2026-11-24) are quoted as written.
   - "El boton del exchange llama mucho la atencion. Que tenga la misma altura que los botones de En vivo y lo iconos de usuario y lenguaje. Además de los bordes y estilos. El borde de del exchange seleccionado activo, que no tenga color gain. Con mostrarlo como activo en el color del background alcanza. La fila de la key, por ejemplo 'sin clave' que no se muestre ahí. A lo sumo se verá en la vista de gestion de API keys, para que no agrande los botones" (L9).
 - **S8 Dashboard.** "La primer tarjeta muestra la fila de datos de la cuenta, como saldo, PnL y return, drawdown, etc." "Tarjeta header con el saldo del Exchange seleccionado activo, valores de rendimiento y drawdown".
   - Rule 7 applies: there is no total blended across currencies. An exchange with several pools shows one figure per currency.
+  - The open positions table follows `ex1` as drawn (L16): "Es mucho más limpia la tabla de ex1. Adapta la tabla tal cual el prototipo. El nombre de la estrategia debe seguir siendo un link que lleve a la vista de la estrategia. Y si se puede ver el PnL del momento de la posición, mejor."
+    - The columns are Estrategia (a link to the strategy's page, as today), Símbolo, Lado, Entrada, Precio de marca, PnL in the pool's currency, and "Cerrar ahora".
+    - The mark price and the unrealized PnL come from the venue's public mark price, read by the API. They are a new, optional part of `GET /positions/open`.
 - **S9 Link an exchange.** The owner sent Edelap's "Mis suministros" as the example for managing API keys, "una mejora con respecto al nuestro". It shows:
   - a "Vincular" button across the top;
   - a "Vinculados" card with a filter, the total, and a table with actions on each row.
@@ -66,6 +70,8 @@ The owner's words (2026-11-24) are quoted as written.
     - buttons, cards and rows change colour on hover and focus in about 120 ms.
   - The figures and charts are not animated: no count-up and no line drawing. Hiding the balances is instant.
   - `prefers-reduced-motion` turns every animation off.
+- **S14 Strategy header card.** "me gustaría que las vistas de las estrategias tengan una similar para mostrar su rendimiento, drawdown, etc en una tarjeta similar. [...] Nombre de la estrategia y nombre de autor como estan en el prototipo, pero Acerca de esta estrategia pasa a una tarjeta antes de la de Rendimiento, ocupando el lugar que en Panel de control ocupa Saldo disponible, y debajo en la misma tarjeta, la fila de valores que estan en la tarjeta Rendimiento, pasan a la de Acerca de... con los estilos que ahora tiene la primer tarjeta del Panel de control." (L16)
+  - The prototype's strategy screens are edited first, for the owner's approval, then built.
 
 ## Tasks
 
@@ -179,7 +185,47 @@ The owner's words (2026-11-24) are quoted as written.
       - `backend files changed by the pull: 0`;
       - `bundle: 2ca3adca4786` and `checkout: 2ca3adca4786`;
       - `exchanges: 200 text/html` and `settings: 200 text/html`, both on loopback.
-- [ ] RD.3 PR 3: the dashboard's header card, and hide balances (S1, S8).
+- [ ] RD.3 PR 3: the dashboard's header card, and hide balances (S1, S8), on branch `feat/panel-header-card`.
+  - Route: delegated to one Sonnet writer, for the parent's context backstop. Hiding the balances and the header card share the card and the chart, so they are one unit, not two parallel ones.
+  - The prototype's `ex1`, `ex2` and `ex3` are the spec, down to their styles (L12). Each screen is compared against its render before it is reported done.
+  - Scope defaults, set by the parent for the owner to correct:
+    - **Header card (`ex1`).** One card per pool, at the top of each pool's section, never merged across currencies (rule 7).
+      - Left side: "Saldo disponible" with the eye, a line naming the exchange and the pool, the balance (`balance.available`) with its currency, and "Capital en posiciones" (the pool's `reserved`).
+      - Right side: a sparkline of the last 30 days with that range's return.
+      - A row of four figures: total PnL with its currency, total return and maximum drawdown (all time), and the count of open positions.
+      - A stale balance keeps its (i).
+    - **Below the card**, each in a card of its own as in `ex1`:
+      - "Rendimiento compuesto", with the range selector drawn as the segmented control. The range now drives only the chart, because the card's figures are all time.
+      - "Rendimiento mensual": the month grid and its summary.
+      - "Posiciones abiertas", with its count.
+    - **Hide balances (S1, L15).**
+      - Panel-wide: one choice, stored in the browser, that every page reads.
+      - Masked as `******`: the user's balances, PnL in currency, capital, fees, margins and position sizes.
+      - Still visible: percentages, prices and counts.
+      - Every chart hides its money axes and its tooltip values while the mode is on. The eye on the header card switches it, and its name says what it does ("Ocultar saldos" or "Mostrar saldos").
+  - *Built 2026-11-25, not committed.* The writer ran each new rule red on an assertion first. Gate, run by the parent: lint reported 0 errors, and vitest passed 177 files and 4229 tests. The renders were compared with `ex1` and `ex2`.
+  - *Reviewed by the owner on 2026-11-25 (L16):*
+    - The charts keep their axes while hidden; only the tooltip values are hidden.
+    - The open positions table follows `ex1` as drawn, with the mark price and the unrealized PnL (S8).
+    - Two units, launched in parallel with disjoint edit surfaces:
+      - **RD.3b (backend).** `GET /positions/open` gains `mark_price` and `unrealized_pnl` per position, from the venue's public mark price. Both are null when the read fails or the position lacks a figure.
+      - **RD.3c (frontend).** The table restyle and the chart axes.
+    - *Built 2026-11-25:*
+      - **RD.3c** (`d5e406b`).
+        - The dashboard's table has ex1's columns. The origin tag stays under the symbol, so a simulated position remains distinguishable. The venue-disagreement and missing-figures lines stay as sub-rows.
+        - The strategy page's table keeps today's columns until RD.7.
+        - The renders were compared with `ex1`.
+      - **RD.3b.**
+        - Each distinct market is read once per request, concurrently, from the public mark sources of decision 35, within the venues' timeout.
+        - A failed read is a WARNING naming the exchange and the market, and leaves only that market null.
+        - The operator panel's fixture body `open-positions.json` gains both keys as null, because its test validates it against the route's model.
+      - TDD: every new rule was seen red on an assertion. The router and wiring tests, written after the use case, were proved by mutation.
+    - Gate, run by the parent:
+      - frontend: lint reported 0 errors, and vitest passed 177 files and 4238 tests;
+      - backend: `ruff` and `mypy` were clean (414 files).
+      - `pytest` failed once in `test_archive_vs_allocate_concurrency.py::test_disable_wins_lock_first_allocation_in_lock_reread_sees_disabled_skips`, a lock test this change does not touch. Run alone, it failed 1 time in 3, so it is intermittent and not caused by this change.
+- [ ] RD.7: the strategy pages' header card (S14). First the prototype's strategy screens are edited for the owner's approval; then the pages are built.
+
 - [ ] RD.4 PR 4: My trades (S5).
 - [ ] RD.5 PR 5: Notifications (S6).
 - [ ] RD.6 PR 6: info tooltips and motion (S13).
@@ -229,3 +275,19 @@ The owner's words (2026-11-24) are quoted as written.
   - The select fills a row that takes half the width on a wide screen and the whole width on a phone; Cancel keeps its own width.
   - Also from this review: the delete dialog's text starts at the beginning of the line, which it had inherited from the actions cell.
   - The owner checked the picker through `/exchanges?fixture=unlinked`, a local-only variant of `vite.fixture.config.ts` with no key and no pool.
+- L15 (2026-11-25, owner, on where "ocultar saldos" applies): asked whether hiding covers the whole panel, as on Binance, or the dashboard only, the owner chose "Todo el panel (Recomendado)". The mode hides the user's own amounts on every page: balances, PnL in currency, margins and position sizes, and the charts' axes and tooltips. Percentages and prices stay visible.
+- L16 (2026-11-25, owner, reviewing RD.3): "Es mucho más limpia la tabla de ex1. Adapta la tabla tal cual el prototipo. El nombre de la estrategia debe seguir siendo un link que lleve a la vista de la estrategia. Y si se puede ver el PnL del momento de la posición, mejor. Hasta ahora no se veía en ningún lado, y esta bueno conocerlo. Que el gráfico oculte sus ejes no me cierra. El eje vertical es en % que se muestra de todos modos en rendimiento, y las fechas tampoco veo porqué ocultarlas. Los valores al pasar el cursor si está bien. Si tiene una explicación, avisame, sino, los ejes que no se oculten. Me gusta la nueva tarjeta de Saldo disponible, y me gustaría que las vistas de las estrategias tengan una similar [...]" (S14 quotes the rest).
+  - There is no reason to hide the axes: both are a percentage and dates, never money. Hiding them was the prototype's proposal in `ex2`, not a requirement. They stay visible.
+  - The unrealized PnL can be shown: the API already reaches each venue's public mark price (`venue_mark_prices.py`, decision 35), so it needs no key.
+- L17 (2026-11-25, owner, reviewing RD.3's table): "En lugar de la etiqueta debajo del simbolo, podríamos poner un circulo al lado del mismo, con el color gain ambar o rojo según corresponda, y que al pasarle el cursor por encima muestre qué significa. Así ahorramos un poco de espacio vertical. Con respecto a los avisos de desacuerdo, actualmente se genera un recuadro dentro de la fila de la tabla, y compe un poco el flujo. Se puede cambiar el aviso por uno que siga llamando la atención, pero más prolijo? Ahora parece una fila aparte en lugar de parecer ligada a su fila. A lo mejor se puede incorporar a la lógica del punto con color rojo, o algun simbolo distintivo en el lugar del punto. El punto sería el que usamos para el modo de la parte superior, o el estado de una key en Vincular exchange"
+  - Decided by the parent, for the owner to correct. The dot keeps the tones the origin text already had: live is gain, dry run is amber, and dry run and live together is loss.
+  - A position the venue disagrees with, or whose figures are missing, shows a distinctive warning sign in loss in place of the dot. The sign carries the whole message, the origin included, so nothing the old sub-row said is lost, and the sub-row is gone.
+  - Built 2026-11-25 (RD.3d).
+    - The dot sits beside the symbol, with a tooltip naming the origin.
+    - The warning sign shows a short tooltip on hover and focus. A click opens a native dialog with the full line, its link and the origin.
+    - The first version placed a popover with an inline `style`, which the panel's CSP drops in production. `theme.test.ts` caught it, and it was replaced by the dialog.
+    - Gate, run by the parent: lint reported 0 errors, and vitest passed 177 files and 4251 tests.
+- L18 (2026-11-25, owner, reviewing RD.3d): "al abrir un dialogo largo 'La moneda base del par no se puede determinar a partir de la moneda del pool, por lo que el lado y el tamaño no se calculan · En vivo' genera overflow horizontal en la tabla. Se le podría aplicar saltos de línea y/o acotar el mensaje. El texto escapa del borde del tooltip"
+  - The tooltip inherited the cell's single line and monospaced face. `Tooltip` now resets both, so its text wraps inside its box, as it does everywhere else.
+  - The missing-figures tooltip is short: "Cifras sin calcular · En vivo". The whole reason stays in the dialog.
+- L19 (2026-11-25, owner, on RD.3 after L18): "Perfecto! Se ve muy bien". RD.3 is approved as built. Its deploy pulls the backend change (`GET /positions/open` gains `mark_price` and `unrealized_pnl`) and restarts `strategy-api`, besides publishing the bundle.

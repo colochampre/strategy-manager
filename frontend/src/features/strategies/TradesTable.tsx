@@ -20,6 +20,7 @@ import { useStrategyTrades } from "@/shared/api/performance";
 import type { StrategyTrade } from "@/shared/api/types";
 import { amountText, parseDecimal, percentText, toneClass } from "@/shared/lib/amount-text";
 import { cn } from "@/shared/lib/cn";
+import { Masked, MASK, useHidden } from "@/shared/hidden/Masked";
 import { dateTimeText, figureText, tableFigureText } from "@/shared/lib/figure-text";
 import { Absent } from "@/shared/ui/Absent";
 import { ColumnHead } from "@/shared/ui/ColumnHead";
@@ -63,6 +64,7 @@ function rehearsalTagKey(fillPrice: string | null): string {
 
 function TradeRow({ trade, currency, locale, onOpen }: TradeRowProps) {
   const { t } = useTranslation();
+  const hidden = useHidden();
   const pnl = parseDecimal(trade.pnl);
   const ret = trade.return === null ? null : parseDecimal(trade.return);
   // Fees are written like the PnL beside them: the pool currency's decimals, no sign (owner decision 46).
@@ -95,20 +97,20 @@ function TradeRow({ trade, currency, locale, onOpen }: TradeRowProps) {
       <td className={cn(CELL, "text-left")}>{side}</td>
       <td className={cn(CELL, FROM_MD)}>{figure(trade.entry_price)}</td>
       <td className={cn(CELL, FROM_MD)}>{figure(trade.exit_price)}</td>
-      <td className={cn(CELL, FROM_XL)}>{figure(trade.size)}</td>
+      <td className={cn(CELL, FROM_XL)}>{trade.size === null ? figure(trade.size) : <Masked>{figure(trade.size)}</Masked>}</td>
       <td className={cn(CELL, FROM_XL)}>
-        {fees === null ? unreadable : amountText(fees, currency, locale)}
+        {fees === null ? unreadable : <Masked>{amountText(fees, currency, locale)}</Masked>}
         {trade.other_fees.map((fee) => (
           <span key={fee.currency} className="ml-2 font-sans text-[11px] text-ink-3">
             {t("strategies.performance.trades.otherFee", {
-              amount: figureText(fee.amount) ?? unreadable,
+              amount: hidden ? MASK : (figureText(fee.amount) ?? unreadable),
               currency: fee.currency,
             })}
           </span>
         ))}
       </td>
       <td className={cn(CELL, pnl !== null && !trade.rehearsal && toneClass(pnl))}>
-        {pnl === null ? unreadable : amountText(pnl, currency, locale, true)}
+        {pnl === null ? unreadable : <Masked>{amountText(pnl, currency, locale, true)}</Masked>}
         {!trade.fees_complete && (
           <span title={t("strategies.performance.trades.feesIncompleteHint")} className="font-sans text-[11px] text-ink-3">
             <span aria-hidden="true">*</span>
@@ -125,7 +127,7 @@ function TradeRow({ trade, currency, locale, onOpen }: TradeRowProps) {
         ) : capital === null ? (
           unreadable
         ) : (
-          amountText(capital, currency, locale)
+          <Masked>{amountText(capital, currency, locale)}</Masked>
         )}
       </td>
       <td className="border-b border-rule-soft py-2.5">

@@ -9,6 +9,8 @@ import { cn } from "@/shared/lib/cn";
 interface MonthlyGridProps {
   /** One entry per UTC month that has a closed day; a month with none is absent. */
   monthly: readonly MonthReturn[];
+  /** Draws no heading: the caller's card names the grid (the dashboard's "Monthly performance", ex1). */
+  bare?: boolean;
 }
 
 /**
@@ -70,7 +72,7 @@ function yearReturn(row: ReadonlyMap<number, number>): number {
   return index - 1;
 }
 
-export function MonthlyGrid({ monthly }: MonthlyGridProps) {
+export function MonthlyGrid({ monthly, bare = false }: MonthlyGridProps) {
   const { t, i18n } = useTranslation();
   const locale = i18n.resolvedLanguage ?? "en";
   const titleId = useId();
@@ -79,22 +81,27 @@ export function MonthlyGrid({ monthly }: MonthlyGridProps) {
   const years = readMonths(monthly);
 
   // Calendar months are named in UTC: west of UTC, local midnight on the 1st is the month before.
-  const monthName = (style: "long" | "narrow") => {
+  const monthName = (style: "long" | "narrow" | "short") => {
     const format = new Intl.DateTimeFormat(locale, { month: style, timeZone: "UTC" });
     return (month: number) => format.format(new Date(Date.UTC(2000, month - 1, 1)));
   };
   const longName = monthName("long");
   const narrowName = monthName("narrow");
+  // The dashboard's card writes the prototype's three-letter names (ex1: Ene, Feb, ...); the strategy pages keep the initials.
+  const shortName = monthName("short");
 
-  const title = (
+  const title = bare ? null : (
     <h2 id={titleId} className="font-display text-base font-semibold text-ink">
       {t("overview.monthlyGrid.title")}
     </h2>
   );
+  // A bare grid sits in a card that already names it: its sections carry no label of their own, the table keeps one.
+  const sectionLabel = bare ? {} : { "aria-labelledby": titleId };
+  const tableLabel = bare ? { "aria-label": t("overview.card.monthly") } : { "aria-labelledby": titleId };
 
   if (years === null) {
     return (
-      <section aria-labelledby={titleId} className="flex flex-col gap-2.5">
+      <section {...sectionLabel} className="flex flex-col gap-2.5">
         {title}
         <p role="alert" className="text-sm text-loss">
           {t("overview.monthlyGrid.unreadable")}
@@ -105,7 +112,7 @@ export function MonthlyGrid({ monthly }: MonthlyGridProps) {
 
   if (years.size === 0) {
     return (
-      <section aria-labelledby={titleId} className="flex flex-col gap-2.5">
+      <section {...sectionLabel} className="flex flex-col gap-2.5">
         {title}
         <p className="text-sm text-ink-3">{t("overview.monthlyGrid.empty")}</p>
       </section>
@@ -118,12 +125,15 @@ export function MonthlyGrid({ monthly }: MonthlyGridProps) {
   const rows = showEarlier ? allRows : allRows.slice(0, VISIBLE_YEARS);
 
   return (
-    <section aria-labelledby={titleId} className="flex flex-col gap-2.5">
+    <section {...sectionLabel} className="flex flex-col gap-2.5">
       {title}
       <div id={tableRegionId} className="overflow-x-auto">
         <table
-          aria-labelledby={titleId}
-          className="w-full min-w-[42rem] table-fixed border-separate border-spacing-1 font-mono text-[11px] tabular-nums"
+          {...tableLabel}
+          className={cn(
+            "w-full min-w-[42rem] table-fixed border-separate border-spacing-1 font-mono tabular-nums",
+            bare ? "text-xs" : "text-[11px]",
+          )}
         >
           <thead>
             <tr>
@@ -133,9 +143,9 @@ export function MonthlyGrid({ monthly }: MonthlyGridProps) {
                   key={month}
                   scope="col"
                   aria-label={longName(month)}
-                  className="font-normal text-ink-3"
+                  className={cn("font-normal text-ink-3", bare && "font-sans capitalize")}
                 >
-                  {narrowName(month)}
+                  {bare ? shortName(month) : narrowName(month)}
                 </th>
               ))}
               <th scope="col" className="w-16 font-normal text-ink-3">
@@ -160,7 +170,7 @@ export function MonthlyGrid({ monthly }: MonthlyGridProps) {
                           key={month}
                           data-testid={`month-${year}-${month}`}
                           aria-label={`${label}: ${t("overview.monthlyGrid.noTrades")}`}
-                          className="h-8 rounded-[3px] border border-dashed border-rule"
+                          className={bare ? "h-[34px] rounded bg-rule-soft" : "h-8 rounded-[3px] border border-dashed border-rule"}
                         />
                       );
                     }
@@ -171,7 +181,8 @@ export function MonthlyGrid({ monthly }: MonthlyGridProps) {
                         data-testid={`month-${year}-${month}`}
                         aria-label={`${label}: ${percentText(value, locale)}`}
                         className={cn(
-                          "h-8 rounded-[3px] text-center text-ink",
+                          "text-center text-ink",
+                          bare ? "h-[34px] rounded" : "h-8 rounded-[3px]",
                           (value < 0 ? LOSS_BANDS : GAIN_BANDS)[band],
                           band >= FIRST_CONTRAST_BAND && "font-semibold",
                         )}
@@ -182,7 +193,11 @@ export function MonthlyGrid({ monthly }: MonthlyGridProps) {
                   })}
                   <td
                     data-testid={`year-${year}`}
-                    className={cn("text-center font-semibold", toneClass(total))}
+                    className={cn(
+                      "text-center",
+                      bare ? "h-[34px] rounded border border-rule font-medium" : "font-semibold",
+                      toneClass(total),
+                    )}
                   >
                     {percentText(total, locale)}
                   </td>

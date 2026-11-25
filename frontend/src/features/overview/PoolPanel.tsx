@@ -1,24 +1,25 @@
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
-import { LedgerLine } from "@/features/overview/LedgerLine";
+import { HeaderCard } from "@/features/overview/HeaderCard";
 import { MonthlyGrid } from "@/features/overview/MonthlyGrid";
 import { MonthlySummary } from "@/features/overview/MonthlySummary";
 import type { OpenCount } from "@/features/overview/MonthlySummary";
-import { PoolEyebrow } from "@/features/overview/PoolEyebrow";
-import { RangeSelector } from "@/features/overview/RangeSelector";
-import type { RangeName } from "@/features/overview/RangeSelector";
+import { RANGES } from "@/features/overview/RangeSelector";
 import { useRangeStore } from "@/features/overview/range-store";
 import { ReturnChart } from "@/features/overview/ReturnChart";
 import { PoolOpenPositions } from "@/features/positions/PoolOpenPositions";
 import { usePoolPerformance } from "@/shared/api/performance";
 import { ofPool, useOpenPositions } from "@/shared/api/positions";
 import type { OpenState } from "@/shared/api/positions";
-import type { Pool, PoolPerformance } from "@/shared/api/types";
-import { ReportSection } from "@/shared/ui/ReportSection";
+import type { Pool } from "@/shared/api/types";
+import { Card } from "@/shared/ui/Card";
+import { Segmented } from "@/shared/ui/Segmented";
 
 interface PoolPanelProps {
   pool: Pool;
+  /** The exchange has this one pool only: the header card says so instead of naming the venue. */
+  sole?: boolean;
 }
 
 /** `2026-09-30T10:00:00+00:00` as a short UTC date and time; the server's clock is UTC. */
@@ -39,65 +40,17 @@ function openCountOf(answer: OpenState, pool: Pool): OpenCount {
   return { total: mine.length, rehearsal: mine.filter((position) => position.origin === "rehearsal").length };
 }
 
-interface ReportTopProps {
-  pool: Pool;
-  /** The note behind the balance's (i), only while the snapshot is stale. */
-  balanceInfo: { label: string; text: string } | undefined;
-  report: PoolPerformance;
-  range: RangeName;
-  /** When the report was read (ms): the "now" the chart's range windows end on. */
-  asOf: number;
-  onRangeChange: (range: RangeName) => void;
-}
-
-/** The ledger line, then the chart with its range selector in the chart's header: both follow the same range. */
-function ReportTop({ pool, balanceInfo, report, range, asOf, onRangeChange }: ReportTopProps) {
-  const { t } = useTranslation();
-  const summary = report.ranges.find((entry) => entry.range === range);
-
-  return (
-    <div className="flex min-w-0 flex-col gap-4">
-      {summary === undefined ? (
-        <p role="alert" data-testid="ledger-line" className="text-sm text-loss">
-          {t("overview.ledger.unreadable")}
-        </p>
-      ) : (
-        <LedgerLine
-          currency={pool.settlement_currency}
-          available={pool.balance === null ? null : pool.balance.available}
-          range={range}
-          pnl={summary.pnl}
-          ret={summary.return}
-          maxDrawdown={report.max_drawdown}
-          availableInfo={balanceInfo}
-        />
-      )}
-      <ReportSection>
-        <ReturnChart
-          curve={report.curve}
-          origin={report.origin ?? null}
-          range={range}
-          asOf={asOf}
-          headerAction={<RangeSelector value={range} onChange={onRangeChange} />}
-        />
-      </ReportSection>
-    </div>
-  );
-}
-
 /**
- * One capital pool, in its own settlement currency and never merged with
- * another (rule 7). It fetches its own report once, and every range arrives
- * in that one body, so the selector only chooses which entry the ledger line
- * shows and which window of the curve the chart draws. The panel owns the
- * range, so the two always agree. A failing pool shows its own error and leaves its neighbours alone.
+ * One capital pool, in its own settlement currency and never merged with another (rule 7): the header card, then
+ * "Compounded return", "Monthly performance" and "Open positions", each a card of its own (ex1). It fetches its own
+ * report once, and every range arrives in that one body, so the selector only chooses which window of the curve the
+ * chart draws: the card's figures are all time. A failing pool shows its own error and leaves its neighbours alone.
  *
- * The available balance is the pools row's `balance.available`: the
- * performance body does not carry it.
+ * The available balance is the pools row's `balance.available`: the performance body does not carry it.
  *
  * Nothing sits between the chart and the month grid: the panel takes no slot for a caller's node.
  */
-export function PoolPanel({ pool }: PoolPanelProps) {
+export function PoolPanel({ pool, sole = false }: PoolPanelProps) {
   const { t, i18n } = useTranslation();
   const performance = usePoolPerformance(pool.exchange, pool.venue, pool.settlement_currency);
   const range = useRangeStore((state) => state.range);
@@ -109,29 +62,37 @@ export function PoolPanel({ pool }: PoolPanelProps) {
   const answer = useOpenPositions().data;
   const openCount = answer === undefined ? null : openCountOf(answer, pool);
 
-  let top: ReactNode;
+  let status: ReactNode = null;
   if (performance.status === "pending") {
-    top = (
+    status = (
       <p role="status" className="text-sm text-ink-3">
         {t("overview.pool.loading")}
       </p>
     );
   } else if (performance.status === "error") {
-    top = (
+    status = (
       <p role="alert" className="rounded-md border border-loss bg-panel p-4 text-sm text-ink-2">
         {t("overview.pool.error")}
       </p>
     );
   } else if (report === null) {
-    top = (
+    status = (
       <p role="status" className="text-sm text-ink-3">
         {t("overview.pool.noReport")}
       </p>
     );
-  } else {
-    top = (
-      <ReportTop
+  }
+
+  return (
+    <section
+      data-testid="pool-panel"
+      aria-label={`${pool.exchange} · ${pool.venue} · ${pool.settlement_currency}`}
+      className="flex w-full min-w-0 flex-col gap-4"
+    >
+      {/* A stale balance says so behind an (i) right of the balance's label, not on its own row. */}
+      <HeaderCard
         pool={pool}
+        sole={sole}
         balanceInfo={
           staleBalance === null
             ? undefined
@@ -143,29 +104,42 @@ export function PoolPanel({ pool }: PoolPanelProps) {
               }
         }
         report={report}
-        range={range}
+        status={status}
         asOf={performance.dataUpdatedAt}
-        onRangeChange={setRange}
+        openCount={openCount === null ? null : openCount.total}
       />
-    );
-  }
-
-  return (
-    <section
-      data-testid="pool-panel"
-      aria-label={`${pool.exchange} · ${pool.venue} · ${pool.settlement_currency}`}
-      className="flex w-full min-w-0 flex-col gap-4"
-    >
-      {/* A stale balance says so behind an (i) right of the balance, not on this row. */}
-      <PoolEyebrow exchange={pool.exchange} venue={pool.venue} currency={pool.settlement_currency} />
-      {top}
       {report !== null && (
-        <ReportSection>
-          <div className="flex flex-col gap-1.5">
-            <MonthlyGrid monthly={report.monthly} />
-            <MonthlySummary monthly={report.monthly} excluded={report.excluded} open={openCount} />
-          </div>
-        </ReportSection>
+        <>
+          <Card
+            title={t("overview.card.compound")}
+            action={
+              <Segmented
+                size="sm"
+                label={t("overview.range.label")}
+                options={RANGES.map((name) => ({ value: name, label: t(`overview.range.${name}`) }))}
+                value={range}
+                onChange={setRange}
+              />
+            }
+          >
+            <ReturnChart
+              bare
+              curve={report.curve}
+              origin={report.origin ?? null}
+              range={range}
+              asOf={performance.dataUpdatedAt}
+            />
+          </Card>
+          <Card
+            title={t("overview.card.monthly")}
+            action={<span className="text-[12.5px] text-ink-3">{t("overview.card.monthlyScale")}</span>}
+          >
+            <div className="flex flex-col gap-1.5">
+              <MonthlyGrid bare monthly={report.monthly} />
+              <MonthlySummary monthly={report.monthly} excluded={report.excluded} open={openCount} />
+            </div>
+          </Card>
+        </>
       )}
       {/* Outside the report condition: a pool whose report is missing or failed can still hold a position (design § K row 24). */}
       <PoolOpenPositions pool={pool} />

@@ -6,6 +6,7 @@ import { OperationFillsTable } from "@/features/strategies/OperationFillsTable";
 import { dateTimeText, figureText } from "@/shared/lib/figure-text";
 import type { StrategyTrade } from "@/shared/api/types";
 import { cn } from "@/shared/lib/cn";
+import { Masked, MASK, useHidden } from "@/shared/hidden/Masked";
 
 const DASH = "—";
 const KEY = "strategies.performance.trades";
@@ -90,6 +91,7 @@ export function TradeDetailDialog({ strategyId, trade, currency, locale, onClose
     onClose();
   };
 
+  const hidden = useHidden();
   const pnl = parseDecimal(trade.pnl);
   const ret = trade.return === null ? null : parseDecimal(trade.return);
   const capital = trade.capital_at_open === null ? null : parseDecimal(trade.capital_at_open);
@@ -143,20 +145,24 @@ export function TradeDetailDialog({ strategyId, trade, currency, locale, onClose
                 : t(`${KEY}.detail.size`, { base: trade.base_currency })
             }
           >
-            {figure(trade.size)}
+            {trade.size === null ? figure(trade.size) : <Masked>{figure(trade.size)}</Masked>}
           </Figure>
-          <Figure label={t(`${KEY}.detail.fees`, { currency })}>{figureText(trade.fees) ?? unreadable}</Figure>
+          <Figure label={t(`${KEY}.detail.fees`, { currency })}>
+            <Masked>{figureText(trade.fees) ?? unreadable}</Masked>
+          </Figure>
           {trade.other_fees.length > 0 && (
             <Figure label={t(`${KEY}.detail.otherFees`)}>
               {trade.other_fees.map((fee) => (
                 <span key={fee.currency} className="block">
-                  {t(`${KEY}.otherFee`, { amount: figureText(fee.amount) ?? unreadable, currency: fee.currency })}
+                  {t(`${KEY}.otherFee`, { amount: hidden ? MASK : (figureText(fee.amount) ?? unreadable), currency: fee.currency })}
                 </span>
               ))}
             </Figure>
           )}
           <Figure label={t(`${KEY}.detail.pnl`, { currency })}>
-            <span className={cn(ink(pnl))}>{pnl === null ? unreadable : amountText(pnl, currency, locale, true)}</span>
+            <span className={cn(ink(pnl))}>
+              {pnl === null ? unreadable : <Masked>{amountText(pnl, currency, locale, true)}</Masked>}
+            </span>
             {!trade.fees_complete && (
               <span title={t(`${KEY}.feesIncompleteHint`)} className="ml-2 font-sans text-[11px] text-ink-3">
                 {t(`${KEY}.feesIncomplete`)}
@@ -175,7 +181,7 @@ export function TradeDetailDialog({ strategyId, trade, currency, locale, onClose
             ) : capital === null ? (
               unreadable
             ) : (
-              amountText(capital, currency, locale)
+              <Masked>{amountText(capital, currency, locale)}</Masked>
             )}
           </Figure>
           <Figure label={t(`${KEY}.detail.operationId`)}>

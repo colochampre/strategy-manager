@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 
 import { clockText, cutAmountText } from "@/shared/lib/figure-text";
 import { cn } from "@/shared/lib/cn";
+import { MASK, useHidden } from "@/shared/hidden/Masked";
 
 /** A figure the server served for the value in the field. `staleAt` is the balance's read time when stale. */
 export interface KnownAmount {
@@ -38,7 +39,13 @@ const DASH = "—";
  */
 export function ShareAmount({ view, trailing, explanation }: ShareAmountProps) {
   const { t, i18n } = useTranslation();
-  const known = view.kind === "known" ? cutAmountText(view.amount, view.currency, i18n.language) : null;
+  const hidden = useHidden();
+  // The amounts ride inside a sentence, so they are masked as text: a readable amount is the stars, an unreadable one stays null.
+  const cut = (amount: string): string | null => {
+    const text = cutAmountText(amount, view.kind === "known" ? view.currency : "", i18n.language);
+    return text !== null && hidden ? MASK : text;
+  };
+  const known = view.kind === "known" ? cut(view.amount) : null;
   const figure = view.kind === "known" && known !== null;
 
   let line: string;
@@ -48,7 +55,7 @@ export function ShareAmount({ view, trailing, explanation }: ShareAmountProps) {
     const notional =
       view.notional === null || view.notional === undefined
         ? null
-        : cutAmountText(view.notional, view.currency, i18n.language);
+        : cut(view.notional);
     if (known === null) line = t("strategies.detail.share.amountError");
     else if (notional === null) line = t("strategies.detail.share.amount", { amount: known, currency: view.currency });
     else {
@@ -67,7 +74,7 @@ export function ShareAmount({ view, trailing, explanation }: ShareAmountProps) {
   const staleAt = view.kind === "known" && figure ? view.staleAt : null;
   const minimum =
     view.kind === "known" && figure && view.belowMinimum !== null
-      ? (cutAmountText(view.belowMinimum, view.currency, i18n.language) ?? view.belowMinimum)
+      ? (cut(view.belowMinimum) ?? view.belowMinimum)
       : null;
 
   return (

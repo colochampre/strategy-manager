@@ -59,15 +59,16 @@ describe("the Overview has no decision rail (spec: no rail, on any width; protot
       const panel = await screen.findByTestId("pool-panel");
       const grid = await within(panel).findByTestId("month-2026-9");
       const figure = within(panel).getByRole("img", { name: CHART_NAME }).closest("figure") as HTMLElement;
-      // The chart's framed section is the last thing of the top block; the month grid's own framed section follows it.
-      const chartSection = figure.closest('[data-testid="report-section"]') as HTMLElement;
-      const top = chartSection.parentElement as HTMLElement;
-      expect(top.nextElementSibling).toContainElement(grid);
-      expect(top.nextElementSibling).toHaveAttribute("data-testid", "report-section");
+      // RD.3: the chart's card is followed directly by the month grid's own card.
+      const chartCard = figure.closest("section") as HTMLElement;
+      expect(chartCard.nextElementSibling).toContainElement(grid);
+      expect(chartCard.nextElementSibling?.tagName).toBe("SECTION");
     },
   );
 
-  it("frames the chart, Month by month and Open positions, and not the ledger line (owner decision 67 Q4, Q7)", async () => {
+  // RD.3 replaces "frames the chart, Month by month and Open positions, and not the ledger line" (owner decision 67
+  // Q4, Q7): the dashboard's blocks are cards now, one each, under the header card.
+  it("draws the header card, then the chart, the month grid and the open positions, each in a card of its own (ex1)", async () => {
     setViewport("wide");
     stubApi(HEALTH, [], { kind: "ok", body: [pool("bybit", "linear", "USDT", BALANCE)] }, {
       "bybit/linear/USDT": { kind: "ok", body: activeReport("bybit", "linear", "USDT") },
@@ -75,13 +76,15 @@ describe("the Overview has no decision rail (spec: no rail, on any width; protot
     renderAt(<AppRoutes />, "/");
 
     const panel = await screen.findByTestId("pool-panel");
-    const grid = await within(panel).findByTestId("month-2026-9");
-    const framed = (node: HTMLElement) => node.closest('[data-testid="report-section"]');
-    expect(framed(within(panel).getByRole("img", { name: CHART_NAME }).closest("figure") as HTMLElement)).not.toBeNull();
-    expect(framed(grid)).not.toBeNull();
-    expect(framed(within(panel).getByRole("heading", { name: "Open positions" }))).not.toBeNull();
-    expect(framed(within(panel).getByTestId("ledger-line"))).toBeNull();
-    expect(within(panel).getAllByTestId("report-section")).toHaveLength(3);
+    await within(panel).findByTestId("month-2026-9");
+    const cards = Array.from(panel.children);
+    expect(cards.map((card) => card.getAttribute("data-testid") ?? card.querySelector("h2")?.textContent)).toEqual([
+      "header-card",
+      "Compounded return",
+      "Monthly performance",
+      "Open positions",
+    ]);
+    expect(within(panel).queryByTestId("report-section")).toBeNull();
   });
 });
 
@@ -221,8 +224,8 @@ describe("one panel per pool of the exchange", () => {
     const panels = await screen.findAllByTestId("pool-panel");
     expect(panels).toHaveLength(2);
     const [usdt, btc] = panels as [HTMLElement, HTMLElement];
-    expect(within(usdt).getByTestId("pool-eyebrow")).toHaveTextContent("Bybit · linear · USDT");
-    expect(within(btc).getByTestId("pool-eyebrow")).toHaveTextContent("Bybit · inverse · BTC");
+    expect(within(usdt).getByTestId("pool-eyebrow")).toHaveTextContent("Bybit, linear pool in USDT");
+    expect(within(btc).getByTestId("pool-eyebrow")).toHaveTextContent("Bybit, inverse pool in BTC");
 
     await waitFor(() => expect(within(usdt).getByTestId("ledger-lead")).toHaveTextContent("1,284.52"));
     await waitFor(() => expect(within(btc).getByTestId("ledger-lead")).toHaveTextContent("0.12500000"));
@@ -253,11 +256,11 @@ describe("one panel per pool of the exchange", () => {
 
     await waitFor(() => expect(screen.getAllByTestId("pool-panel")).toHaveLength(5));
     expect(screen.getAllByTestId("pool-eyebrow").map((node) => node.textContent)).toEqual([
-      "Bybit · usdt-m · USDT",
-      "Bybit · spot · USDT",
-      "Bybit · coin-m · BTC",
-      "Bybit · coin-m · ETH2",
-      "Bybit · coin-m · ETH",
+      "Bybit, usdt-m pool in USDT",
+      "Bybit, spot pool in USDT",
+      "Bybit, coin-m pool in BTC",
+      "Bybit, coin-m pool in ETH2",
+      "Bybit, coin-m pool in ETH",
     ]);
     // Ranking is not summing: no figure on the page is a total across pools.
     expect(document.body).not.toHaveTextContent("1,000.00");
@@ -271,7 +274,8 @@ describe("one panel per pool of the exchange", () => {
     fireEvent.click(screen.getAllByRole("button", { name: "Binance" })[0] as HTMLElement);
 
     await waitFor(() => expect(screen.getAllByTestId("pool-panel")).toHaveLength(1));
-    expect(screen.getByTestId("pool-eyebrow")).toHaveTextContent("Binance · usdt-m · USDT");
+    // The exchange's only pool: the card says it is single.
+    expect(screen.getByTestId("pool-eyebrow")).toHaveTextContent("Binance, single USDT pool");
     await waitFor(() => expect(screen.getByTestId("ledger-lead")).toHaveTextContent("777.00"));
   });
 
@@ -422,23 +426,25 @@ describe("the range selector", () => {
     body: [pool("bybit", "linear", "USDT", BALANCE), pool("bybit", "inverse", "BTC", BALANCE)],
   } as const;
 
-  it("only picks an entry of ranges[]: no second report request", async () => {
+  // RD.3 (S8): the card's figures are all time, so the range drives only the chart. This replaces the old test, in
+  // which the ledger line's PnL and return followed the range.
+  it("only moves the chart's window: no second report request, and the card's figures stay all time", async () => {
     const fetchMock = stubApi(HEALTH, [], { kind: "ok", body: [pool("bybit", "linear", "USDT", BALANCE)] }, {
       "bybit/linear/USDT": { kind: "ok", body: activeReport("bybit", "linear", "USDT") },
     });
     renderAt(<AppRoutes />, "/");
-    await waitFor(() => expect(screen.getByTestId("ledger-pnl")).toHaveTextContent("+41.20"));
-
-    fireEvent.click(screen.getByRole("button", { name: "7D" }));
-
-    await waitFor(() => expect(screen.getByTestId("ledger-pnl")).toHaveTextContent("+5.00"));
-    expect(screen.getByTestId("ledger-return")).toHaveTextContent("+1.0%");
-    fireEvent.click(screen.getByRole("button", { name: "All" }));
     await waitFor(() => expect(screen.getByTestId("ledger-pnl")).toHaveTextContent("+99.00"));
+    expect(screen.getByTestId("ledger-return")).toHaveTextContent("+7.0%");
+
+    fireEvent.click(screen.getByRole("radio", { name: "7D" }));
+
+    await waitFor(() => expect(screen.getByRole("radio", { name: "7D" })).toBeChecked());
+    expect(screen.getByTestId("ledger-pnl")).toHaveTextContent("+99.00");
+    expect(screen.getByTestId("ledger-return")).toHaveTextContent("+7.0%");
     expect(performanceCalls(fetchMock)).toHaveLength(1);
   });
 
-  it("is shared by every panel (owner decision 68 Q2): pressing 7D on one moves the other too, each on its own figures", async () => {
+  it("is shared by every panel (owner decision 68 Q2): pressing 7D on one moves the other too, each keeping its own figures", async () => {
     stubApi(HEALTH, [], TWO, {
       "bybit/linear/USDT": { kind: "ok", body: activeReport("bybit", "linear", "USDT") },
       "bybit/inverse/BTC": { kind: "ok", body: activeReport("bybit", "inverse", "BTC", "0.41200000") },
@@ -448,14 +454,14 @@ describe("the range selector", () => {
     await waitFor(() => expect(within(second).getByTestId("ledger-pnl")).toBeInTheDocument());
     await waitFor(() => expect(within(first).getByTestId("ledger-pnl")).toBeInTheDocument());
 
-    fireEvent.click(within(first).getByRole("button", { name: "7D" }));
+    fireEvent.click(within(first).getByRole("radio", { name: "7D" }));
 
-    await waitFor(() => expect(within(first).getByTestId("ledger-pnl")).toHaveTextContent("+5.00"));
-    expect(within(second).getByRole("button", { name: "7D" })).toHaveAttribute("aria-pressed", "true");
-    expect(within(second).getByRole("button", { name: "30D" })).toHaveAttribute("aria-pressed", "false");
-    // The second pool reads its own 7D entry, not its 30D one.
-    await waitFor(() => expect(within(second).getByTestId("ledger-pnl")).toHaveTextContent("+5.00"));
-    expect(within(second).getByTestId("ledger-pnl")).not.toHaveTextContent("+0.41200000");
+    await waitFor(() => expect(within(first).getByRole("radio", { name: "7D" })).toBeChecked());
+    expect(within(second).getByRole("radio", { name: "7D" })).toBeChecked();
+    expect(within(second).getByRole("radio", { name: "30D" })).not.toBeChecked();
+    // Each pool keeps its own all-time figures, whatever the range.
+    expect(within(first).getByTestId("ledger-pnl")).toHaveTextContent("+99.00USDT");
+    expect(within(second).getByTestId("ledger-pnl")).toHaveTextContent("+99.00000000BTC");
   });
 });
 
@@ -577,56 +583,41 @@ describe("the overview sizing (decisions 35 and 36)", () => {
     expect(svg.getAttribute("class") ?? "").not.toMatch(/h-auto|aspect-/);
   });
 
-  it("puts the range selector in the chart header, on the title's row", async () => {
+  // RD.3 replaces the three tests that pinned the selector in the chart's own header, wrapping with 44 px buttons, and
+  // driving the ledger line: the selector is the card header's segmented control and drives only the chart.
+  it("puts the range selector in the chart card's header, beside its title", async () => {
     const panel = await renderOne();
-    const group = within(panel).getByRole("group", { name: "Range" });
-    const header = within(panel).queryByTestId("chart-header");
-    expect(header).not.toBeNull();
-    expect(header).toContainElement(group);
-    expect(header).toContainElement(within(panel).getByRole("heading", { name: en.overview.returnChart.title }));
-    // Not under the ledger line any more: the chart follows it directly, with no row of its own between.
-    const ledger = within(panel).getByTestId("ledger-line");
-    expect(ledger).not.toContainElement(group);
-    expect(ledger.nextElementSibling).toBe(header?.closest('[data-testid="report-section"]'));
-    expect(header?.closest("figure")).toContainElement(within(panel).getByRole("img", { name: CHART_NAME }));
+    const group = within(panel).getByRole("radiogroup", { name: "Range" });
+    const card = within(panel).getByRole("heading", { name: "Compounded return" }).closest("section") as HTMLElement;
+    expect(card).toContainElement(group);
+    expect(group.parentElement).toBe(within(panel).getByRole("heading", { name: "Compounded return" }).parentElement);
+    expect(card).toContainElement(within(panel).getByRole("img", { name: CHART_NAME }));
+    expect(within(group).getAllByRole("radio")).toHaveLength(5);
+    expect(within(panel).queryByTestId("chart-header")).toBeNull();
   });
 
-  it("keeps the range selector whole: its header and its group wrap and never shrink", async () => {
+  it("drives the chart from the card's selector and leaves the card's figures alone", async () => {
     const panel = await renderOne();
-    const group = within(panel).getByRole("group", { name: "Range" });
-    expect(group).toHaveClass("flex-wrap", "shrink-0", "max-w-full");
-    expect(group.className).not.toMatch(/whitespace-nowrap|flex-nowrap|overflow-x-/);
-    const header = within(panel).queryByTestId("chart-header");
-    expect(header).toHaveClass("flex", "flex-wrap", "justify-between");
-    expect(header?.className ?? "").not.toMatch(/flex-nowrap|overflow-/);
-    expect(within(group).getAllByRole("button")).toHaveLength(5);
-    for (const button of within(group).getAllByRole("button")) {
-      expect(button).toHaveClass("min-h-11", "min-w-11");
-    }
+    fireEvent.click(within(panel).getByRole("radio", { name: "7D" }));
+    await waitFor(() => expect(within(panel).getByRole("radio", { name: "7D" })).toBeChecked());
+    expect(within(panel).getByTestId("ledger-pnl")).toHaveTextContent("+99.00");
   });
 
-  it("still drives both the ledger line and the chart from the header's selector", async () => {
-    const panel = await renderOne();
-    const header = within(panel).queryByTestId("chart-header");
-    expect(header).not.toBeNull();
-    fireEvent.click(within(header as HTMLElement).getByRole("button", { name: "7D" }));
-    await waitFor(() => expect(within(panel).getByTestId("ledger-pnl")).toHaveTextContent("+5.00"));
-    expect(within(header as HTMLElement).getByRole("button", { name: "7D" })).toHaveAttribute("aria-pressed", "true");
-  });
-
-  it("leaves the eyebrow alone on its row: a stale note waits behind the balance's (i) (L.10)", async () => {
+  it("keeps the stale note behind the balance's (i), under the balance (L.10)", async () => {
     const panel = await renderOne(true);
     expect(within(panel).queryByTestId("balance-stale")).toBeNull();
     fireEvent.click(within(within(panel).getByTestId("ledger-group-available")).getByRole("button", { name: "Balance out of date" }));
     const note = within(panel).getByTestId("balance-stale");
     expect(note.className).not.toContain("text-decision");
     expect(note).toHaveTextContent("Balance is out of date: last synced");
-    expect(within(panel).getByTestId("pool-eyebrow").parentElement).toBe(panel);
+    expect(within(panel).getByTestId("header-card")).toContainElement(note);
   });
 
-  it("keeps the ledger line to its own row: three groups, each unit joined to its figure (owner, 2026-11-17)", async () => {
+  // RD.3 replaces "keeps the ledger line to its own row: three groups": the row has four figures now.
+  it("keeps the figures to their own row: four, with the currency joined to its figure and the balance's unit beside it", async () => {
     const panel = await renderOne();
-    expect(within(panel).getByTestId("ledger-line").querySelectorAll("dd")).toHaveLength(3);
+    expect(within(panel).getByTestId("ledger-line").querySelectorAll("dd")).toHaveLength(4);
+    expect(within(panel).getByTestId("ledger-pnl")).toHaveTextContent(/^\+99\.00USDT$/);
     // No space between a figure and its unit, so the two never part at a line break.
     expect(within(panel).getByTestId("ledger-lead")).toHaveTextContent(/^1,284\.52USDT$/);
   });
@@ -677,18 +668,18 @@ describe("the chart follows the selected range", () => {
 
   const ONE = { kind: "ok", body: [pool("bybit", "linear", "USDT", BALANCE)] } as const;
 
-  it("starts on the same range as the ledger line: 30D", async () => {
+  it("starts on the 30D window", async () => {
     stubApi(HEALTH, [], ONE, { "bybit/linear/USDT": { kind: "ok", body: consistentReport("bybit", "linear", "USDT") } });
     renderAt(<AppRoutes />, "/");
     const panel = await screen.findByTestId("pool-panel");
     await within(panel).findByTestId("return-curve");
 
-    expect(within(panel).getByRole("button", { name: "30D" })).toHaveAttribute("aria-pressed", "true");
+    expect(within(panel).getByRole("radio", { name: "30D" })).toBeChecked();
     expect(chartDays(panel)).toBe(CONSISTENT_DAYS_30D);
   });
 
   it.each(Object.keys(RANGE_DAYS) as ConsistentRange[])(
-    "ends %s on the ledger line's return for the same range",
+    "ends %s on the return the report states for the same range",
     async (range) => {
       const report = consistentReport("bybit", "linear", "USDT");
       stubApi(HEALTH, [], ONE, { "bybit/linear/USDT": { kind: "ok", body: report } });
@@ -696,7 +687,7 @@ describe("the chart follows the selected range", () => {
       const panel = await screen.findByTestId("pool-panel");
       await within(panel).findByTestId("return-curve");
 
-      fireEvent.click(within(panel).getByRole("button", { name: range }));
+      fireEvent.click(within(panel).getByRole("radio", { name: range }));
 
       const expected = Number(report.ranges.find((entry) => entry.range === range)?.return);
       await waitFor(() => expect(finalReturn(panel)).toBeCloseTo(expected, 8));
@@ -711,8 +702,8 @@ describe("the chart follows the selected range", () => {
 
     const counts: number[] = [];
     for (const range of ["7D", "30D", "90D", "1Y", "All"]) {
-      fireEvent.click(within(panel).getByRole("button", { name: range }));
-      await waitFor(() => expect(within(panel).getByRole("button", { name: range })).toHaveAttribute("aria-pressed", "true"));
+      fireEvent.click(within(panel).getByRole("radio", { name: range }));
+      await waitFor(() => expect(within(panel).getByRole("radio", { name: range })).toBeChecked());
       counts.push(chartDays(panel));
     }
     expect(counts).toEqual([2, 8, 23, 92, 101]);
@@ -732,7 +723,7 @@ describe("the chart follows the selected range", () => {
     await within(first).findByTestId("return-curve");
     await within(second).findByTestId("return-curve");
 
-    fireEvent.click(within(first).getByRole("button", { name: "7D" }));
+    fireEvent.click(within(first).getByRole("radio", { name: "7D" }));
 
     await waitFor(() => expect(chartDays(first)).toBe(2));
     expect(chartDays(second)).toBe(2);
@@ -748,7 +739,7 @@ describe("the chart follows the selected range", () => {
     expect(await within(panel).findByText(en.overview.returnChart.emptyRange)).toBeInTheDocument();
     expect(within(panel).queryByTestId("return-curve")).toBeNull();
     expect(within(panel).queryByRole("alert")).toBeNull();
-    fireEvent.click(within(panel).getByRole("button", { name: "All" }));
+    fireEvent.click(within(panel).getByRole("radio", { name: "All" }));
     await waitFor(() => expect(within(panel).getByTestId("return-curve")).toBeInTheDocument());
     expect(within(panel).queryByText(en.overview.returnChart.emptyRange)).toBeNull();
   });

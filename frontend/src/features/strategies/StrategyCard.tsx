@@ -5,6 +5,7 @@ import { Link } from "react-router";
 
 import { amountText, percentText, toneClass } from "@/shared/lib/amount-text";
 import { cn } from "@/shared/lib/cn";
+import { Masked } from "@/shared/hidden/Masked";
 import { Tooltip } from "@/shared/ui/Tooltip";
 
 /** What a figure shows where there is nothing true to say yet. */
@@ -154,7 +155,7 @@ export function money(amount: number | null | undefined, currency: string, local
   if (amount === null) return NO_FIGURE;
   return (
     <>
-      {amountText(amount, currency, locale, signedAmount)}
+      <Masked>{amountText(amount, currency, locale, signedAmount)}</Masked>
       <Unit>{currency}</Unit>
     </>
   );

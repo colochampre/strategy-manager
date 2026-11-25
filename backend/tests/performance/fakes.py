@@ -3,6 +3,7 @@
 import asyncio
 from collections.abc import Collection, Mapping, Sequence
 from datetime import datetime
+from decimal import Decimal
 from uuid import UUID
 
 from strategy_manager.allocation.domain.pool_key import PoolKey
@@ -199,6 +200,24 @@ class FakeDisagreementSource:
         self.calls.append("disagreements")
         self.users.append(user_id)
         return self._rows
+
+
+class FakeMarkPrices:
+    """The mark read as a table keyed by ``(exchange, market)``. A key it holds
+    nothing for answers ``None`` (an exchange with no public source); an
+    exception held for a key is raised, as a read that failed would. Every ask is
+    recorded, so a test can count the reads and see the spelling they used."""
+
+    def __init__(self, table: Mapping[tuple[str, str], Decimal | Exception] | None = None) -> None:
+        self._table = dict(table or {})
+        self.asked: list[tuple[str, str]] = []
+
+    async def mark_price(self, exchange: str, market: str) -> Decimal | None:
+        self.asked.append((exchange, market))
+        answer = self._table.get((exchange, market))
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
 
 
 class HeldOpenStateSource:

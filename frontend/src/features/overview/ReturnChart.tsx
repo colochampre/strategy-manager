@@ -20,6 +20,7 @@ import {
 } from "@/shared/charts/scale";
 import type { IndexDay } from "@/shared/charts/scale";
 import { useElementWidth } from "@/shared/charts/useElementWidth";
+import { useHidden } from "@/shared/hidden/Masked";
 import { cn } from "@/shared/lib/cn";
 
 interface ReturnChartProps {
@@ -42,6 +43,8 @@ interface ReturnChartProps {
    * It is drawn only when the day falls inside the drawn window, from its start to today.
    */
   marker?: ChartMarker | null;
+  /** Draws no title, caption row or `headerAction`: the caller's card carries them (the dashboard's, ex1). */
+  bare?: boolean;
 }
 
 export interface ChartMarker {
@@ -64,7 +67,7 @@ const MARKER_LABEL_WIDTH = 120;
 const DEFAULT_WIDTH = 796;
 const MIN_WIDTH = 280;
 const VIEW_HEIGHT = 280;
-const LEFT = 44;
+const AXIS_LEFT = 44;
 /** The gap between the plot's right edge and the box's. */
 const RIGHT_MARGIN = 6;
 const TOP = 12;
@@ -145,12 +148,16 @@ export function ReturnChart({
   title,
   origin = null,
   marker = null,
+  bare = false,
 }: ReturnChartProps) {
   const { t, i18n } = useTranslation();
   const [measure, measuredWidth] = useElementWidth<HTMLDivElement>(DEFAULT_WIDTH);
   const gradientId = useId();
   const drawdownGradientId = useId();
   const [hovered, setHovered] = useState<number | null>(null);
+  const hidden = useHidden();
+  // The axes are a percentage and dates, never money (L16): they stay while the balances are hidden.
+  const left = AXIS_LEFT;
   const viewWidth = Math.max(MIN_WIDTH, measuredWidth);
   const right = viewWidth - RIGHT_MARGIN;
   const series = readCurve(curve);
@@ -160,7 +167,9 @@ export function ReturnChart({
 
   // The title with its caption beneath on the left, the action (the range selector) on the right:
   // the caption costs no row of its own because the 44 px selector is taller than the two lines.
-  const header = (
+  // A chart inside a card of its own (`bare`, the dashboard's) leaves the title and the range to the card's header,
+  // and writes the caption under the drawing.
+  const header = bare ? null : (
     <div data-testid="chart-header" className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
       <div className="flex min-w-0 flex-col">
         <h2 className="font-display text-base font-semibold text-ink">
@@ -171,6 +180,7 @@ export function ReturnChart({
       {headerAction}
     </div>
   );
+  const caption = bare ? <figcaption className="text-[12.5px] text-ink-3">{t("overview.returnChart.caption")}</figcaption> : null;
 
   if (days === null) {
     return (
@@ -197,7 +207,7 @@ export function ReturnChart({
   const firstDay = days[0]?.date ?? null;
   const start = from === null ? firstDay : firstDay !== null && firstDay < from ? firstDay : from;
   const domain = start === null ? [] : [start, today];
-  const x = timeScale(domain, LEFT, right);
+  const x = timeScale(domain, left, right);
   const curvePoints = days.map((day) => ({ x: x(day.date), y: toY(day.cumulative) }));
   // The gradient spans the curve's own height, from its farthest point above the waterline to its farthest below,
   // so it is strongest where the curve is and fades to nothing at 0%, however close to 0% the curve stays.
@@ -269,7 +279,7 @@ export function ReturnChart({
     const box = event.currentTarget.getBoundingClientRect();
     const unit = box.width > 0 ? viewWidth / box.width : 1;
     const pointerX = (event.clientX - box.left) * unit;
-    if (first === undefined || pointerX < LEFT || pointerX > right) {
+    if (first === undefined || pointerX < left || pointerX > right) {
       setHovered(null);
       return;
     }
@@ -345,7 +355,7 @@ export function ReturnChart({
                 {value !== 0 && (
                   <line
                     data-testid="gridline"
-                    x1={LEFT}
+                    x1={left}
                     x2={viewWidth}
                     y1={y}
                     y2={y}
@@ -360,7 +370,7 @@ export function ReturnChart({
           </g>
           <line
             data-testid="waterline"
-            x1={LEFT}
+            x1={left}
             x2={viewWidth}
             y1={waterY}
             y2={waterY}
@@ -369,7 +379,7 @@ export function ReturnChart({
           />
           {first === undefined ? (
             <text
-              x={(LEFT + right) / 2}
+              x={(left + right) / 2}
               y={waterY - 14}
               textAnchor="middle"
               className="fill-ink-3 font-mono text-[11px]"
@@ -428,6 +438,8 @@ export function ReturnChart({
                 strokeWidth={2}
                 className="fill-gain stroke-ground"
               />
+              {!hidden && (
+                <>
               <text
                 data-testid="hover-label"
                 x={hoveredPoint.x > right - HOVER_LABEL_WIDTH ? hoveredPoint.x - 6 : hoveredPoint.x + 6}
@@ -468,6 +480,8 @@ export function ReturnChart({
               >
                 {t("overview.returnChart.hoverDrawdown", { value: percentLabel(hoveredDay.drawdown) })}
               </text>
+                </>
+              )}
             </g>
           )}
           {markerShown && (
@@ -508,6 +522,7 @@ export function ReturnChart({
           </g>
         </svg>
       </div>
+      {caption}
     </figure>
   );
 }

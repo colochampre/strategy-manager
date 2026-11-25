@@ -19,9 +19,11 @@ never one per row.
 A row the facts cannot decorate stays, built from the reader's own element.
 """
 
+import asyncio
 import logging
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
+from decimal import Decimal
 from uuid import UUID
 
 from strategy_manager.execution.domain.market_symbol import market_key
@@ -30,6 +32,7 @@ from strategy_manager.performance.application.ports import (
     OpenPositionFactsSourcePort,
     OpenStateSourcePort,
     PositionFacts,
+    PositionMarkPort,
     SubmittedOrder,
 )
 from strategy_manager.performance.domain.open_position import (
@@ -48,6 +51,7 @@ from strategy_manager.performance.domain.open_position import (
     open_position_figures,
     order_origin,
     origin_of,
+    unrealized_pnl,
     venue_disagreement_for,
 )
 from strategy_manager.performance.domain.operation import operation_fees
@@ -67,10 +71,12 @@ class ReadOpenPositions:
         state: OpenStateSourcePort,
         facts: OpenPositionFactsSourcePort,
         disagreements: ConfirmedDisagreementSourcePort,
+        marks: PositionMarkPort | None = None,
     ) -> None:
         self._state = state
         self._facts = facts
         self._disagreements = disagreements
+        self._marks = marks
 
     async def read(self, user_id: UUID) -> OpenState:
         # Step 1, then step 2: in that order on purpose (section C).
@@ -98,6 +104,7 @@ class ReadOpenPositions:
         extra = tuple(
             _order_from_submitted(row) for row in submitted if row.attempt_id not in returned
         )
+        positions = await self._with_marks(positions)
         answer = OpenState(positions=positions, orders=orders + extra)
 
         # The faults of stored data are told in the log and nowhere else: these
@@ -105,6 +112,62 @@ class ReadOpenPositions:
         _log_position_faults(opened, answer.positions, facts, rows)
         _log_order_faults(answer.orders, submitted_by_attempt)
         return answer
+
+    async def _with_marks(self, positions: tuple[OpenPosition, ...]) -> tuple[OpenPosition, ...]:
+        """The venue's mark and the unrealized PnL of each position that has
+        figures and exactly one market (RD.3b). Each distinct ``(exchange,
+        market)`` is read once, all of them at the same time. A read that fails is
+        a WARNING naming the exchange and the market (both public) and a null for
+        that market alone: it never blanks another market and never fails the
+        answer. These two fields only DECORATE a row, like the facts."""
+        if self._marks is None:
+            return positions
+        keys = sorted(
+            {key for key in map(_mark_key, positions) if key is not None},
+        )
+        if not keys:
+            return positions
+        marks = self._marks
+        results = await asyncio.gather(
+            *(marks.mark_price(exchange, market) for exchange, market in keys),
+            return_exceptions=True,
+        )
+        prices: dict[tuple[str, str], Decimal] = {}
+        for (exchange, market), result in zip(keys, results, strict=True):
+            if isinstance(result, BaseException):
+                if not isinstance(result, Exception):
+                    raise result
+                logger.warning(
+                    "open positions: the mark price of %s on %s could not be read (%s); "
+                    "its positions are served with no mark and no unrealized PnL",
+                    market,
+                    exchange,
+                    type(result).__name__,
+                )
+            elif result is not None:
+                prices[(exchange, market)] = result
+        decorated: list[OpenPosition] = []
+        for position in positions:
+            key = _mark_key(position)
+            figures = position.figures
+            if key is None or figures is None or key not in prices:
+                decorated.append(position)
+                continue
+            mark = prices[key]
+            decorated.append(
+                replace(
+                    position, mark_price=mark, unrealized_pnl=unrealized_pnl(figures, mark)
+                )
+            )
+        return tuple(decorated)
+
+
+def _mark_key(position: OpenPosition) -> tuple[str, str] | None:
+    """Where a position's mark is read: its exchange and its one market, or
+    ``None`` when it has no figures to price or does not name exactly one market."""
+    if position.figures is None or len(position.markets) != 1:
+        return None
+    return position.pool.exchange, position.markets[0]
 
 
 def _log_position_faults(

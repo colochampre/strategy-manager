@@ -54,6 +54,10 @@ export interface OpenPosition {
   leverage: string | null;
   reservation_status: string | null;
   venue_disagreement: VenueDisagreement | null;
+  /** The venue's public mark price of the pair, null when it could not be read. Absent in older answers. */
+  mark_price?: string | null;
+  /** The position's unrealized PnL in its settlement currency, null when unknown. Absent in older answers. */
+  unrealized_pnl?: string | null;
 }
 
 export interface InFlightOrder {
@@ -161,6 +165,8 @@ function isPosition(value: unknown): value is OpenPosition {
     isTextOrNull(value.margin_granted) &&
     isTextOrNull(value.leverage) &&
     isTextOrNull(value.reservation_status) &&
+    (value.mark_price === undefined || isTextOrNull(value.mark_price)) &&
+    (value.unrealized_pnl === undefined || isTextOrNull(value.unrealized_pnl)) &&
     (value.venue_disagreement === null || isVenueDisagreement(value.venue_disagreement))
   );
 }

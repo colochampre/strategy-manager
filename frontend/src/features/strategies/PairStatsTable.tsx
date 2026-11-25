@@ -6,6 +6,7 @@ import { amountText, parseDecimal, percentText, toneClass } from "@/shared/lib/a
 import { rateText } from "@/shared/lib/figure-text";
 import type { PairStat } from "@/shared/api/types";
 import { cn } from "@/shared/lib/cn";
+import { Masked } from "@/shared/hidden/Masked";
 import { ColumnHead } from "@/shared/ui/ColumnHead";
 import { ReportSection } from "@/shared/ui/ReportSection";
 
@@ -124,7 +125,7 @@ export function PairStatsTable({ pairs, currency }: PairStatsTableProps) {
                 <td className="border-b border-rule-soft py-2.5 pr-3">{row.winRate}</td>
                 {currency !== undefined && row.pnl !== null && (
                   <td className={cn("border-b border-rule-soft py-2.5 pr-3", toneClass(row.pnl))}>
-                    {amountText(row.pnl, currency, locale, true)}
+                    <Masked>{amountText(row.pnl, currency, locale, true)}</Masked>
                   </td>
                 )}
                 <td className={cn("border-b border-rule-soft py-2.5", row.ret !== null && toneClass(row.ret))}>

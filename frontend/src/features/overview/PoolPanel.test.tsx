@@ -146,23 +146,23 @@ describe("the chart range is one for the whole panel (owner decision 68 Q2)", ()
   it("shows the range chosen on one pool on every other pool", async () => {
     await mountTwo();
     const [first, second] = screen.getAllByTestId("pool-panel");
-    expect(within(first as HTMLElement).getByRole("button", { name: "30D" })).toHaveAttribute("aria-pressed", "true");
+    expect(within(first as HTMLElement).getByRole("radio", { name: "30D" })).toBeChecked();
 
-    await act(async () => within(first as HTMLElement).getByRole("button", { name: "1Y" }).click());
+    await act(async () => within(first as HTMLElement).getByRole("radio", { name: "1Y" }).click());
 
-    expect(within(first as HTMLElement).getByRole("button", { name: "1Y" })).toHaveAttribute("aria-pressed", "true");
-    expect(within(second as HTMLElement).getByRole("button", { name: "1Y" })).toHaveAttribute("aria-pressed", "true");
-    expect(within(second as HTMLElement).getByRole("button", { name: "30D" })).toHaveAttribute("aria-pressed", "false");
+    expect(within(first as HTMLElement).getByRole("radio", { name: "1Y" })).toBeChecked();
+    expect(within(second as HTMLElement).getByRole("radio", { name: "1Y" })).toBeChecked();
+    expect(within(second as HTMLElement).getByRole("radio", { name: "30D" })).not.toBeChecked();
   });
 
   it("keeps the range after the panels are left and come back", async () => {
     const view = await mountTwo();
-    await act(async () => screen.getAllByRole("button", { name: "1Y" })[0]?.click());
+    await act(async () => screen.getAllByRole("radio", { name: "1Y" })[0]?.click());
     view.unmount();
 
     await mountTwo();
 
-    expect(screen.getAllByRole("button", { name: "1Y" }).map((button) => button.getAttribute("aria-pressed"))).toEqual(["true", "true"]);
+    expect(screen.getAllByRole("radio", { name: "1Y" }).map((radio) => radio.getAttribute("aria-checked"))).toEqual(["true", "true"]);
   });
 });
 
@@ -177,8 +177,8 @@ describe("a pool panel has no slot between the chart and the grid (cd.2.20; spec
 
     const panel = await screen.findByTestId("pool-panel");
     expect(within(panel).queryByTestId("between")).not.toBeInTheDocument();
-    const top = within(panel).getByTestId("ledger-line").parentElement as HTMLElement;
-    expect(top.nextElementSibling).toContainElement(within(panel).getByTestId("month-2026-9"));
+    const chartCard = within(panel).getByRole("heading", { name: "Compounded return" }).closest("section") as HTMLElement;
+    expect(chartCard.nextElementSibling).toContainElement(within(panel).getByTestId("month-2026-9"));
   });
 });
 

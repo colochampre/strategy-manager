@@ -121,7 +121,7 @@ function CloseNowFlow({ position, size, onDone }: { position: OpenPosition; size
  * whose size or side could not be read has none: it names nothing to confirm. It sends nothing itself, it only
  * opens the dialog.
  */
-export function CloseNowControl({ position }: { position: OpenPosition }) {
+export function CloseNowControl({ position, appearance = "icon" }: { position: OpenPosition; appearance?: "icon" | "text" }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   if (position.size === null || position.side === null) return null;
@@ -130,15 +130,26 @@ export function CloseNowControl({ position }: { position: OpenPosition }) {
 
   return (
     <>
-      <button
-        type="button"
-        aria-label={label}
-        title={label}
-        onClick={() => setOpen(true)}
-        className="ml-2 inline-flex size-8 items-center justify-center rounded-lg border border-rule align-middle text-ink-2 hover:bg-panel-2 hover:text-loss"
-      >
-        <OctagonX aria-hidden="true" className="size-4 shrink-0" />
-      </button>
+      {appearance === "text" ? (
+        // ex1's small outlined danger button: the same flow, drawn as words.
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className="inline-flex h-[30px] items-center rounded-lg border border-loss/55 px-[11px] font-sans text-[13px] font-medium text-loss hover:bg-loss/10"
+        >
+          {label}
+        </button>
+      ) : (
+        <button
+          type="button"
+          aria-label={label}
+          title={label}
+          onClick={() => setOpen(true)}
+          className="ml-2 inline-flex size-8 items-center justify-center rounded-lg border border-rule align-middle text-ink-2 hover:bg-panel-2 hover:text-loss"
+        >
+          <OctagonX aria-hidden="true" className="size-4 shrink-0" />
+        </button>
+      )}
       {open && <CloseNowFlow position={position} size={size} onDone={() => setOpen(false)} />}
     </>
   );

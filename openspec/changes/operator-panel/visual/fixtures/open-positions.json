@@ -25,6 +25,8 @@
       "margin_granted": "230.00",
       "leverage": "2.00000000",
       "reservation_status": "FILLED",
+      "mark_price": null,
+      "unrealized_pnl": null,
       "venue_disagreement": null
     },
     {
@@ -50,6 +52,8 @@
       "margin_granted": "129.00",
       "leverage": "3.00000000",
       "reservation_status": "FILLED",
+      "mark_price": null,
+      "unrealized_pnl": null,
       "venue_disagreement": null
     },
     {
@@ -75,6 +79,8 @@
       "margin_granted": "105.00",
       "leverage": "3.00000000",
       "reservation_status": "FILLED",
+      "mark_price": null,
+      "unrealized_pnl": null,
       "venue_disagreement": null
     },
     {
@@ -100,6 +106,8 @@
       "margin_granted": "60.00",
       "leverage": "1.00000000",
       "reservation_status": "FILLED",
+      "mark_price": null,
+      "unrealized_pnl": null,
       "venue_disagreement": null
     },
     {
@@ -125,6 +133,8 @@
       "margin_granted": "740.10",
       "leverage": "2.00000000",
       "reservation_status": "FILLED",
+      "mark_price": null,
+      "unrealized_pnl": null,
       "venue_disagreement": {
         "discrepancy_id": "00000000-0000-4000-8000-0000000000d1",
         "venue_net_base": "0",
@@ -156,6 +166,8 @@
       "margin_granted": "122.50",
       "leverage": "2.00000000",
       "reservation_status": "FILLED",
+      "mark_price": null,
+      "unrealized_pnl": null,
       "venue_disagreement": null
     },
     {
@@ -181,6 +193,8 @@
       "margin_granted": "78.60",
       "leverage": "2.00000000",
       "reservation_status": "FILLED",
+      "mark_price": null,
+      "unrealized_pnl": null,
       "venue_disagreement": null
     }
   ],

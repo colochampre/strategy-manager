@@ -221,6 +221,11 @@
       "agrees": "the venue agrees again"
     }
   },
+  "hidden": {
+    "label": "Hidden",
+    "hide": "Hide balances",
+    "show": "Show balances"
+  },
   "overview": {
     "title": "Overview",
     "scope": {
@@ -236,6 +241,20 @@
       "emptyRange": "No closed trades in this range",
       "unreadable": "The return curve could not be read.",
       "hoverDrawdown": "Drawdown {{value}}"
+    },
+    "header": {
+      "pool": "{{exchange}}, {{venue}} pool in {{currency}}",
+      "poolSole": "{{exchange}}, single {{currency}} pool",
+      "capital": "Capital in positions",
+      "spark": "Return, last {{days}} days",
+      "return": "Return",
+      "drawdown": "Max drawdown",
+      "open": "Open positions"
+    },
+    "card": {
+      "compound": "Compounded return",
+      "monthly": "Monthly performance",
+      "monthlyScale": "Fixed range of ±15%"
     },
     "ledger": {
       "available": "Available balance",
@@ -839,6 +858,12 @@
       "mixed": "Dry run and live",
       "unknown": "origin unknown"
     },
+    "sign": {
+      "name": "Attention needed, {{pair}}",
+      "origin": "Origin: {{origin}}",
+      "figuresMissing": "Figures not calculated",
+      "close": "Close"
+    },
     "sideUnreadable": "side not readable",
     "order": {
       "inFlight": "order in flight",
@@ -866,7 +891,18 @@
     },
     "table": {
       "title": "Open positions",
+      "count_one": "{{count}} position",
+      "count_other": "{{count}} positions",
       "empty": "No open position.",
+      "head": {
+        "symbol": "Symbol",
+        "side": "Side",
+        "markPrice": "Mark price",
+        "pnl": "PnL ({{currency}})",
+        "actions": "Actions"
+      },
+      "sideWord": { "LONG": "Long", "SHORT": "Short" },
+      "unavailable": "not available",
       "margin": "Margin granted {{currency}}",
       "leverage": "Leverage",
       "leverageValue": "{{value}}x",
