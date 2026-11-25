@@ -109,7 +109,6 @@ const LOSS_UTILITY = /\b(?:bg|text|border|ring|outline|fill|stroke|divide)-loss\
 const RED_IN_THE_UNIT = [
   "features/discrepancies/DiscrepancyItem.tsx",
   "features/discrepancies/ReadLine.tsx",
-  "features/positions/Mark.tsx",
   "features/positions/MarkLine.tsx",
   "shared/layout/NavBadge.tsx",
 ];

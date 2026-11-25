@@ -72,8 +72,8 @@ The owner's words (2026-11-24) are quoted as written.
   - `prefers-reduced-motion` turns every animation off.
 - **S14 Strategy header card.** "me gustaría que las vistas de las estrategias tengan una similar para mostrar su rendimiento, drawdown, etc en una tarjeta similar. [...] Nombre de la estrategia y nombre de autor como estan en el prototipo, pero Acerca de esta estrategia pasa a una tarjeta antes de la de Rendimiento, ocupando el lugar que en Panel de control ocupa Saldo disponible, y debajo en la misma tarjeta, la fila de valores que estan en la tarjeta Rendimiento, pasan a la de Acerca de... con los estilos que ahora tiene la primer tarjeta del Panel de control." (L16)
   - The prototype's strategy screens are edited first, for the owner's approval, then built.
-- **S15 Strategy lists as tables (proposal).** "Además de las tarjetas de encabezado, me gustaría ver adicionalmente, una propuesta de el listado de estrategias como una tabla, como las Posiciones abiertas del Panel de control, porque me gustó cómo quedó" (L20)
-  - A proposal for the owner to approve or reject. It covers My strategies, My subscriptions and Explore, drawn as the open positions table of `ex1` as built in RD.3.
+- **S15 Strategy lists as tables.** "Además de las tarjetas de encabezado, me gustaría ver adicionalmente, una propuesta de el listado de estrategias como una tabla, como las Posiciones abiertas del Panel de control, porque me gustó cómo quedó" (L20)
+  - It covers My strategies, My subscriptions and Explore, drawn as the open positions table of `ex1` as built in RD.3. Approved as `ex13` to `ex15` of the prototype, with the owner's adjustments of L21 to L23 (L24).
 
 ## Tasks
 
@@ -243,10 +243,21 @@ The owner's words (2026-11-24) are quoted as written.
   - **RD.7a, prototype, on branch `design/strategy-pages`.** Route: delegated to one Sonnet writer, for the parent's context backstop.
     - `ex11` and `ex12` are edited in place for S14 (git keeps the earlier version).
     - The tables of S15 are new screens after `ex12`, so the owner can compare them with the card lists of `ex8` to `ex10`.
+    - Delivered as PR #138 (merged); approved by the owner (L24).
+  - **RD.7b, S14: the header card on both strategy pages, built as `ex11` and `ex12`.** Route: delegated, one Sonnet writer, in parallel with RD.7c (Writer trigger (a): two independent units of behaviour with disjoint edit surfaces, each several files).
+  - **RD.7c, S15: My strategies, My subscriptions and Explore as tables, built as `ex13` to `ex15`.** Route: delegated, one Sonnet writer, in parallel with RD.7b.
+    - Shared files: `StrategyCard.tsx` belongs to RD.7c, which keeps every export RD.7b's files import; the locale files take each unit's keys in its own block.
+  - **Build notes (RD.7b and RD.7c).**
+    - RD.7b: a new `StrategyHeaderCard.tsx` holds the card. `RecordFigures.tsx` draws the figure row with the dashboard card's helpers (`percentText`, `amountText`), because `percent()` and `money()` draw their unit at 0.75em, unlike `ex11`/`ex12`. The (i) tips became `InfoTip`s. Left as it was: the Performance section keeps its heading above a chart card; the prototype draws the selector inside one Rendimiento card. S14 did not ask for it.
+    - RD.7c: `StrategyTable.tsx` and `StrategyTableCells.tsx` hold the tables. My strategies now always asks `GET /strategies?include_archived=true` and hides archived rows on the client, so the note under the table can count them. A paused subscription's amber dot reuses `ORIGIN_STYLE.rehearsal.dot`, the one amber `panel-tokens.test.ts` allows here. Not yet like the prototype, in files outside the unit: the search box is not a pill, the sort buttons are 36 px instead of 32, and "Tengo un código" is filled instead of outlined.
+    - The parent fixed two failures of the full suite: the new-strategy dialog test counted every `GET /strategies`, and a second list (without the archived) now refreshes too, so it counts the page's own request; an empty My strategies stacked its blocks 3 apart, against the page-spacing rule (4).
+    - The parent removed what the tables left without a caller: `StrategyRow.tsx`, the `StrategyCard` component with `FigureGroups` and `EnabledDot`, and the open-position marks of the cards (`OpenMarks.tsx`, `Mark.tsx` and their tests, `unit-rules.test.tsx`). Open positions show on the strategy's page and on the dashboard (L21).
+    - Gate: `npm test` 174 files, 4175 tests passed; `npm run lint` exit 0.
 
 - [ ] RD.4 PR 4: My trades (S5).
 - [ ] RD.5 PR 5: Notifications (S6).
 - [ ] RD.6 PR 6: info tooltips and motion (S13).
+- [ ] RD.8: the Users page (`/users`, admin) as a table, like the strategy lists and the open positions (L25). Prototype first, when the owner calls for it.
 
 ## Log
 
@@ -324,3 +335,5 @@ The owner's words (2026-11-24) are quoted as written.
 - L23 (2026-11-25, owner, after L22): "Una ultima prueba: alinear también a la izquierda PnL (USDT), PnL (%) y Caída máx. Sino quedan Caída max y Acierto muy juntos, y Acierto muy separado de Subs."
   - In `ex13`, `ex14` and `ex15`, PnL (USDT), PnL (%) and Caída máx. are aligned to the start, like Acierto. Subs. and AuM stay aligned to the end.
 - L24 (2026-11-25, owner, on RD.7a after L23): "Mucho mejor. Ahora si apruebo". The prototype's `ex11` to `ex15` are approved. S15 is no longer a proposal: the strategy lists are built as the tables of `ex13` to `ex15`, in RD.7 with the header card of S14.
+- L25 (2026-11-25, owner, during RD.7): "Todavía no actualizamos /users no? Porque después te voy a pedir que los usuarios también pasen a ser una tabla, como estrategias y posiciones abiertas. Para visualizar en el prototipo. Cuando toque"
+  - Checked: `/users` only received the shell of RD.2 (the admin group in the sidebar, the page header). The prototype has no Users screen, and its content keeps the old look. Recorded as RD.8.

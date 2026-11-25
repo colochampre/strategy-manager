@@ -832,9 +832,10 @@ describe("the new-strategy dialog", () => {
     const fetchMock = stubApi(HEALTH, [], POOLS, {}, api.route);
     renderAt(<AppRoutes />, "/strategies/authored");
     await screen.findByText(en.strategies.empty);
-    const listCallsBefore = fetchMock.mock.calls.filter(
-      ([url, init]) => /\/strategies(\?|$)/.test(String(url)) && init?.method === undefined,
-    ).length;
+    // The page's own list: it asks for the archived ones too, to count them (RD.7c).
+    const pageList = ([url, init]: [unknown, (RequestInit | undefined)?]) =>
+      /\/strategies\?include_archived=true$/.test(String(url)) && init?.method === undefined;
+    const listCallsBefore = fetchMock.mock.calls.filter(pageList).length;
     openDialog();
 
     fill("Delta");
@@ -843,7 +844,7 @@ describe("the new-strategy dialog", () => {
 
     await waitFor(() =>
       expect(
-        fetchMock.mock.calls.filter(([url, init]) => /\/strategies(\?|$)/.test(String(url)) && init?.method === undefined),
+        fetchMock.mock.calls.filter(pageList),
       ).toHaveLength(listCallsBefore + 1),
     );
     // The dialog stays, because it holds the secret that is shown once.

@@ -1,4 +1,4 @@
-import { act, render, screen, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { PairStatsTable } from "@/features/strategies/PairStatsTable";
@@ -10,7 +10,8 @@ import { TradesTable } from "@/features/strategies/TradesTable";
 import type { OperationFill, PairStat, StrategyTrade } from "@/shared/api/types";
 import { useHiddenStore } from "@/shared/hidden/hidden-store";
 import i18n from "@/shared/i18n";
-import { jsonResponse, lock, renderAt, stubApi, unlock } from "@/test/harness";
+import { AppRoutes } from "@/app/router";
+import { emptyPerformance, heldSubscription, jsonResponse, lock, pool, publicStrategy, renderAt, resetExchangeScope, stubApi, unlock } from "@/test/harness";
 
 /**
  * S1, L15: while the balances are hidden every page writes the user's own money as six stars: the PnL in currency, the
@@ -154,6 +155,83 @@ describe("the trade's dialog while the balances are hidden", () => {
     expect(cells[4]?.textContent).toContain("******");
     expect(cells[4]?.textContent).toContain("USDT");
     expect(cells[4]?.textContent).not.toMatch(/\d/);
+  });
+});
+
+describe("the strategy lists' tables while the balances are hidden (S1, S15)", () => {
+  const ID = "11111111-1111-4111-8111-111111111111";
+  const AUTHORED = {
+    id: ID,
+    name: "Alpha",
+    exchange: "bybit",
+    venue: "usdt-m",
+    settlement_currency: "USDT",
+    fill_mode: "SKIP",
+    subscription: null,
+    enabled: true,
+    archived_at: null,
+    allowed_pairs: ["SOLUSDT"],
+    uptime: { seconds: 86_400, first_enabled_at: "2026-09-18T10:00:00Z", baseline: false },
+    visibility: "PRIVATE",
+    share_token: null,
+    secret_last4: "x4F2",
+    description: null,
+    subscribers: 3,
+    live_subscribers: 2,
+    created_at: "2026-09-01T10:00:00Z",
+    capital: "1500",
+    stop_loss_pct: "10.00",
+  };
+  const report = {
+    ...emptyPerformance("bybit", "usdt-m", "USDT"),
+    strategy_id: ID,
+    trade_count: 6,
+    max_drawdown: "-0.0971",
+    by_pair: [{ pair: "SOLUSDT", trades: 6, wins: 4, win_rate: "0.6666666667", pnl: "67.2", return: "0.109" }],
+    ranges: ["7D", "30D", "90D", "1Y", "All"].map((range) => ({ range, pnl: "67.2", return: "0.109", trade_count: 6 })),
+  };
+
+  function serveLists() {
+    resetExchangeScope();
+    stubApi(HEALTH, [], { kind: "ok", body: [pool("bybit", "usdt-m")] }, {}, (url) => {
+      const path = new URL(url, "http://localhost").pathname;
+      if (path.endsWith("/api/public/strategies")) return Promise.resolve(jsonResponse([publicStrategy({ id: ID })]));
+      if (path.endsWith("/api/subscriptions/held")) return Promise.resolve(jsonResponse([heldSubscription()]));
+      if (path.endsWith(`/performance/strategies/${ID}`)) return Promise.resolve(jsonResponse(report));
+      if (path.endsWith("/api/strategies")) return Promise.resolve(jsonResponse([AUTHORED]));
+      return undefined;
+    });
+  }
+
+  it.each([
+    ["My strategies", "/strategies/authored", "strategy"],
+    ["My subscriptions", "/strategies", "subscription"],
+  ])("masks the PnL in money and the capital on %s, and keeps the percentages, the win rate and the counts", async (_list, path, prefix) => {
+    serveLists();
+    renderAt(<AppRoutes />, path);
+
+    const row = await screen.findByTestId(`${prefix}-row`);
+    await waitFor(() => expect(within(row).getByTestId(`${prefix}-return`)).toHaveTextContent("+10.9%"));
+    for (const key of ["pnl", "capital"]) {
+      const cell = within(row).getByTestId(`${prefix}-${key}`);
+      expect(cell.textContent, key).toBe("******");
+      expect(within(cell).getByRole("img", { name: "Hidden" })).toBeInTheDocument();
+    }
+    expect(within(row).getByTestId(`${prefix}-deepest`)).toHaveTextContent("-9.7%");
+    expect(within(row).getByTestId(`${prefix}-winrate`)).toHaveTextContent("66.7%");
+    expect(within(row).getByTestId(`${prefix}-subscribers`)).toHaveTextContent("2");
+    expect(row.textContent).not.toContain("67.20");
+    expect(row.textContent).not.toContain("1,500");
+  });
+
+  it("masks the capital on Explore and keeps the return, which is a percentage", async () => {
+    serveLists();
+    renderAt(<AppRoutes />, "/strategies/explore");
+
+    const row = await screen.findByTestId("public-strategy-row");
+    expect(within(row).getByTestId("public-capital").textContent).toBe("******");
+    expect(within(row).getByTestId("public-return")).toHaveTextContent("+12.5%");
+    expect(row.textContent).not.toContain("1,500");
   });
 });
 
