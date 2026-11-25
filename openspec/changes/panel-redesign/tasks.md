@@ -72,6 +72,8 @@ The owner's words (2026-11-24) are quoted as written.
   - `prefers-reduced-motion` turns every animation off.
 - **S14 Strategy header card.** "me gustaría que las vistas de las estrategias tengan una similar para mostrar su rendimiento, drawdown, etc en una tarjeta similar. [...] Nombre de la estrategia y nombre de autor como estan en el prototipo, pero Acerca de esta estrategia pasa a una tarjeta antes de la de Rendimiento, ocupando el lugar que en Panel de control ocupa Saldo disponible, y debajo en la misma tarjeta, la fila de valores que estan en la tarjeta Rendimiento, pasan a la de Acerca de... con los estilos que ahora tiene la primer tarjeta del Panel de control." (L16)
   - The prototype's strategy screens are edited first, for the owner's approval, then built.
+- **S15 Strategy lists as tables (proposal).** "Además de las tarjetas de encabezado, me gustaría ver adicionalmente, una propuesta de el listado de estrategias como una tabla, como las Posiciones abiertas del Panel de control, porque me gustó cómo quedó" (L20)
+  - A proposal for the owner to approve or reject. It covers My strategies, My subscriptions and Explore, drawn as the open positions table of `ex1` as built in RD.3.
 
 ## Tasks
 
@@ -237,7 +239,10 @@ The owner's words (2026-11-24) are quoted as written.
       - `positions: 401` without a session, as expected.
     - The script counted one "warning". It was the INFO line in which `strategy_manager.alerts.composition` says ERROR and above go to Telegram; the grep matched the word. There was no real warning or error.
     - **Not yet seen live:** the mark price and the unrealized PnL. The owner held no open position at deploy time, so they are checked on the next one.
-- [ ] RD.7: the strategy pages' header card (S14). First the prototype's strategy screens are edited for the owner's approval; then the pages are built.
+- [ ] RD.7: the strategy pages' header card (S14), and the lists as tables if approved (S15). First the prototype's strategy screens are edited for the owner's approval; then the pages are built.
+  - **RD.7a, prototype, on branch `design/strategy-pages`.** Route: delegated to one Sonnet writer, for the parent's context backstop.
+    - `ex11` and `ex12` are edited in place for S14 (git keeps the earlier version).
+    - The tables of S15 are new screens after `ex12`, so the owner can compare them with the card lists of `ex8` to `ex10`.
 
 - [ ] RD.4 PR 4: My trades (S5).
 - [ ] RD.5 PR 5: Notifications (S6).
@@ -304,3 +309,18 @@ The owner's words (2026-11-24) are quoted as written.
   - The tooltip inherited the cell's single line and monospaced face. `Tooltip` now resets both, so its text wraps inside its box, as it does everywhere else.
   - The missing-figures tooltip is short: "Cifras sin calcular · En vivo". The whole reason stays in the dialog.
 - L19 (2026-11-25, owner, on RD.3 after L18): "Perfecto! Se ve muy bien". RD.3 is approved as built. Its deploy pulls the backend change (`GET /positions/open` gains `mark_price` and `unrealized_pnl`) and restarts `strategy-api`, besides publishing the bundle.
+- L20 (2026-11-25, owner, choosing what follows RD.3): "Primero prototipo. Además de las tarjetas de encabezado, me gustaría ver adicionalmente, una propuesta de el listado de estrategias como una tabla, como las Posiciones abiertas del Panel de control, porque me gustó cómo quedó". RD.7's prototype comes before RD.4.
+- L21 (2026-11-25, owner, reviewing RD.7a): "Se ve bien. En la tabla de Mis estrategias ajustaría: valor del PnL (%) agregarle '%', por ejemplo: '+5,2%'. Lo mismo a caída máxima. Omitiría la columna de Abierta con las posiciones para ahorrar espacio, de todos modos se vería al ingresar a la estrategia. El botón de Activar y Desactivar podrían ir en distintos colores, y ocupar el mismo ancho. El botón de Mostrar archivadas podría unificarse con el texto al final de la tabla de 'Hay 1 estrategia archivada oculta. Mostrar archivadas'. Asi de paso queda más limpia la tarjeta de búsqueda. Se puede alinear el texto de la columna Acierto a la izquierda en vez de la derecha? Para ver si queda mejor. El resto que quede como está"
+  - `ex13` is adjusted as asked:
+    - "Desactivar" is drawn in loss and "Activar" in gain, both 96 px wide.
+    - "Mostrar archivadas" is now the link of the note at the foot of the table.
+  - The open questions of RD.7a (the "Desde" column, grey dots, row actions in `ex14` and `ex15`) stay as drawn ("El resto que quede como está").
+- L22 (2026-11-25, owner, after L21): "Los cambios quedaron bien en Mis estrategias, pero no se aplicaron en Mis suscripciones y Explorar. De paso agrego algo: Si una estrategia tuviera varios pares, por ejemplo 4 o más, la columna Pares quedaría muy grande. Si hay más de un par, indicar el número de pares y en un tooltip el detalle de qué pares son. Te parece bien?"
+  - The parent had applied L21 to `ex13` only. `ex14` and `ex15` now carry it too:
+    - "%" on PnL (%) and Caída máx.;
+    - Acierto aligned to the start;
+    - `ex14` without the Abierta column.
+  - With more than one pair, the Pares column says how many ("2 pares", underlined with dots) and lists them in its tooltip. With one pair, it shows the symbol.
+- L23 (2026-11-25, owner, after L22): "Una ultima prueba: alinear también a la izquierda PnL (USDT), PnL (%) y Caída máx. Sino quedan Caída max y Acierto muy juntos, y Acierto muy separado de Subs."
+  - In `ex13`, `ex14` and `ex15`, PnL (USDT), PnL (%) and Caída máx. are aligned to the start, like Acierto. Subs. and AuM stay aligned to the end.
+- L24 (2026-11-25, owner, on RD.7a after L23): "Mucho mejor. Ahora si apruebo". The prototype's `ex11` to `ex15` are approved. S15 is no longer a proposal: the strategy lists are built as the tables of `ex13` to `ex15`, in RD.7 with the header card of S14.
