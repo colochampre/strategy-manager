@@ -1754,5 +1754,62 @@ tr:last-child td{border-bottom:0}
 </div>
 </section>
 
+<!-- ============ ex16 ============ -->
+<section class="screen" id="ex16">
+<p class="cap">ex16 — PROPUESTA (RD.8, L25, L47): Usuarios como tabla, al estilo de Operaciones cerradas y Posiciones abiertas. Letra de las demás tablas: celdas de 13 px y encabezados de 12,5 px (la tabla <code>.tbl-w.t.l</code>). Paginada de a 20, en el navegador (el servidor ya da la lista entera); el total va arriba a la derecha y el pie dice la página de cuántas. Se ven 6 de las 20 filas de la página. Dónde fue cada cosa de la tarjeta, sin texto que alargue una fila: el punto junto al correo es el estado (gain = activa, loss = suspendida, con "Suspendida desde..." en su tooltip); Identidad muestra el nombre legal y su tooltip el CUIT y el país ("Sin alta" cuando falta, con la frase entera en el tooltip); el aviso de pool habilitado sin clave es un signo junto a los exchanges, con el texto en su tooltip; la nota del freno ("El freno está activo...") es el (i) de Modo, y solo aparece con el freno puesto. Suscripciones y Posiciones abiertas son "Subs." y "Posiciones". El botón dice "Suspender" en loss o "Reactivar" en gain, del mismo ancho, y pide confirmación como hoy; la fila propia dice "Usted". Donde la tabla no entra (teléfono o ventana angosta), cada usuario es una tarjeta, como las posiciones (L45).</p>
+<div class="frame">
+  <aside class="side">
+    <div class="side-top">
+      <div class="brand"><span class="mark"><i class="ic i-brand"></i></span><span class="brand-name">Strategy Manager</span></div>
+      <button class="icon-btn ghost" aria-label="Contraer la barra lateral"><i class="ic i-panel"></i></button>
+    </div>
+    <nav class="nav">
+      <a><i class="ic i-dash"></i><span>Panel de control</span></a>
+      <a><i class="ic i-bell"></i><span>Notificaciones</span></a>
+      <a><i class="ic i-ops"></i><span>Mis operaciones</span></a>
+      <div><a><i class="ic i-trend"></i><span>Estrategias</span><i class="ic i-down chev"></i></a></div>
+      <a><i class="ic i-link"></i><span>Vincular exchange</span></a>
+    </nav>
+    <div class="side-foot">
+      <div>
+        <a><i class="ic i-shield"></i><span>Administración</span><i class="ic i-up chev"></i></a>
+        <div class="sub"><a class="on">Usuarios</a><a>Discrepancias<span class="badge-n">2</span></a></div>
+      </div>
+      <a><i class="ic i-user"></i><span class="two"><b>Mi cuenta</b><small>María Gómez</small></span></a>
+      <a><i class="ic i-out"></i><span>Cerrar sesión</span></a>
+      <div class="build"><span class="lbl">build </span>cf95299<span class="lbl">ef7f7</span></div>
+    </div>
+  </aside>
+  <main class="main"><div class="wrap">
+    <div class="top end">
+      <div class="tools">
+        <span class="badge-live"><i></i>En vivo</span>
+        <button class="icon-btn" aria-label="Mi cuenta"><i class="ic i-user"></i></button>
+        <button class="icon-btn" aria-label="Notificaciones"><i class="ic i-bell"></i></button>
+        <button class="icon-btn" aria-label="Idioma: español"><span class="flag"></span></button>
+      </div>
+    </div>
+    <div class="crumb"><i class="ic i-home"></i><i class="ic i-right"></i>Administración<i class="ic i-right"></i><b>Usuarios</b></div>
+    <h1>Usuarios</h1>
+    <p class="sub-t">Las cuentas del panel. Visible solo para administradores.</p>
+
+    <div class="card">
+      <div class="card-h"><h2>Usuarios</h2><span class="chip-n">47 usuarios</span></div>
+      <div class="tbl-w t l x"><table>
+        <thead><tr><th>Usuario</th><th>Nombre</th><th>Identidad</th><th><span style="display:inline-flex;align-items:center;gap:5px">Modo<i class="ic i-info" style="width:14px;height:14px;color:var(--ink-3);cursor:help" title="El freno está activo: todos operan en simulación, sea cual sea el modo que eligieron."></i></span></th><th>Claves</th><th class="r">Subs.</th><th class="r">Posiciones</th><th>Último ingreso</th><th></th></tr></thead>
+        <tbody>
+          <tr><td><span class="nm"><i class="sd g" title="Activa"></i>maria.gomez@gmail.com</span></td><td>María G.</td><td><span class="tip" title="CUIT 27-30123456-4 · Argentina">María Gómez</span></td><td>En vivo</td><td>Binance, Bybit</td><td class="r num">2</td><td class="r num">1</td><td class="num">26 nov 2026 09:12</td><td class="r"><span class="mt">Usted</span></td></tr>
+          <tr><td><span class="nm"><i class="sd g" title="Activa"></i>martin.ibarra@outlook.com</span></td><td>Martín</td><td><span class="tip" title="CUIT 20-28765432-1 · Argentina">Martín Ibarra</span></td><td>En vivo</td><td>Binance</td><td class="r num">4</td><td class="r num">3</td><td class="num">26 nov 2026 08:47</td><td class="r"><button class="btn sm danger tg">Suspender</button></td></tr>
+          <tr><td><span class="nm"><i class="sd g" title="Activa"></i>camila.rossi@gmail.com</span></td><td>Cami</td><td><span class="tip" title="CUIT 27-35111222-9 · Argentina">Camila Rossi</span></td><td>Simulación</td><td>Bybit<i class="ic i-alert loss" style="width:14px;height:14px;vertical-align:-2px;margin-left:6px;cursor:help" title="Pool habilitado sin clave activa: Binance"></i></td><td class="r num">1</td><td class="r num">0</td><td class="num">25 nov 2026 22:03</td><td class="r"><button class="btn sm danger tg">Suspender</button></td></tr>
+          <tr><td><span class="nm"><i class="sd l" title="Suspendida desde 18 nov 2026 10:42"></i>tomas.quiroga@yahoo.com</span></td><td>Tomás Q.</td><td><span class="tip" title="CUIT 20-31987654-5 · Argentina">Tomás Quiroga</span></td><td>En vivo</td><td>Binance</td><td class="r num">0</td><td class="r num">1</td><td class="num">18 nov 2026 10:40</td><td class="r"><button class="btn sm line tg">Reactivar</button></td></tr>
+          <tr><td><span class="nm"><i class="sd g" title="Activa"></i>valentina.nunez@gmail.com</span></td><td>Valen</td><td><span class="tip" title="CUIT 27-33444555-2 · Argentina">Valentina Núñez</span></td><td>Simulación</td><td><span class="mt">Ninguna</span></td><td class="r num">3</td><td class="r num">0</td><td class="num">24 nov 2026 17:55</td><td class="r"><button class="btn sm danger tg">Suspender</button></td></tr>
+          <tr><td><span class="nm"><i class="sd g" title="Activa"></i>lucas.ferreyra@hotmail.com</span></td><td><span class="mt">Sin nombre</span></td><td><span class="mt tip" title="Todavía no completó el alta">Sin alta</span></td><td>Simulación</td><td><span class="mt">Ninguna</span></td><td class="r num">0</td><td class="r num">0</td><td class="num">23 nov 2026 11:20</td><td class="r"><button class="btn sm danger tg">Suspender</button></td></tr>
+        </tbody></table></div>
+      <div class="cl"><button class="btn sm" disabled style="opacity:.45">Anterior</button><span class="num">Página 1 de 3</span><button class="btn sm">Siguiente</button></div>
+    </div>
+  </div></main>
+</div>
+</section>
+
 </body>
 </html>
