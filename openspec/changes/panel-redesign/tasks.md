@@ -406,3 +406,6 @@ The owner's words (2026-11-24) are quoted as written.
   - Built: the entry price carries a tip, with a dotted underline, only when there is something to say: "Average price of 3 fills." and "650.4 STX left of 700 opened." The size sentence is left out while the balances are hidden.
   - Unchanged: the phone's card keeps every field, Opened, Size and Fees included. The Overview's table is not touched.
   - This supersedes the strategy table's headings in `openspec/changes/operator-panel/specs/operator-panel/spec.md` ("Opened (UTC), Pair, Side, Size, Entry, Fees, Margin granted and Leverage").
+- L39 (2026-11-26, owner): "Al igual que con el Panel, si no hubiera posiciones abiertas, la tarjeta se oculta? La explicacion de margen causa desbordamiento vertical, además no creo que sea necesario explicarlo"
+  - Built: the strategy page's open positions card is not drawn after a good read that leaves nothing to say: no position, no order in flight and nothing unmatched on its exchange. An order in flight or the unmatched sentence still draws it, under "No open position.", and so does a failed read.
+  - Built: the "Margin USDT" heading has no tip. The note's text (`positions.note.margin`) had no other use and was removed from both locales.

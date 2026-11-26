@@ -984,7 +984,6 @@
       "other": "The figures could not be derived from the fills."
     },
     "note": {
-      "margin": "Margin granted is what the share took from the pool when the position opened. It is not what the exchange holds now.",
       "rehearsal": "A dry-run position was filled by the simulated exchange, at 1x. It is not at the exchange and enters no total.",
       "mixed": "This position holds dry-run and live fills. Neither mode can close it safely: check it against the exchange by hand.",
       "reservation": "Its reservation reads {{status}}, not FILLED.",

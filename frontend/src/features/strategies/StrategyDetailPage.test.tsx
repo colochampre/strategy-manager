@@ -3,6 +3,7 @@ import { Link, Route, Routes } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { StrategyDetailPage } from "@/features/strategies/StrategyDetailPage";
+import type { OpenPosition } from "@/shared/api/positions";
 import type { EnablementEvent, PairStat, Strategy, StrategyTrade } from "@/shared/api/types";
 import { useHiddenStore } from "@/shared/hidden/hidden-store";
 import i18n from "@/shared/i18n";
@@ -13,6 +14,8 @@ import {
   emptyPerformance,
   jsonResponse,
   lock,
+  openPosition,
+  openState,
   pool,
   renderAt,
   resetExchangeScope,
@@ -73,6 +76,8 @@ interface Options {
   patch?: (body: unknown) => Response;
   /** Added to who is signed in: a `display_name`, for one. */
   me?: Record<string, unknown>;
+  /** The positions `GET /positions/open` answers; none by default, so the Open positions card is not drawn (L39). */
+  open?: OpenPosition[];
 }
 
 function renderPage(subject: Strategy = strategy(), options: Options = {}) {
@@ -109,6 +114,9 @@ function renderPage(subject: Strategy = strategy(), options: Options = {}) {
       if (method === "PATCH") return Promise.resolve(options.patch?.(JSON.parse(String(init?.body))) ?? jsonResponse(subject));
       return Promise.resolve(options.strategyAnswer?.() ?? jsonResponse(subject));
     },
+    {},
+    undefined,
+    options.open === undefined ? undefined : { kind: "ok", body: openState(options.open) },
   );
   renderAt(
     <Routes>
@@ -312,7 +320,7 @@ describe("StrategyDetailPage", () => {
   });
 
   it("frames the chart, Monthly performance, By pair, Open positions and Closed trades (owner decision 67 Q4, Q7)", async () => {
-    renderPage(strategy(), { byPair: TWO_PAIRS });
+    renderPage(strategy(), { byPair: TWO_PAIRS, open: [openPosition({ strategy_id: ID })] });
     await heading("ETH Breakout");
 
     // Each table is a card of its own, as the prototype draws it (L30), never inside a framed section.
@@ -531,7 +539,7 @@ describe("StrategyDetailPage", () => {
   });
 
   it("puts Open positions in the left column, beside the settings, under the header card and above Performance (L37)", async () => {
-    renderPage(strategy({ description: "Runs at 3x" }));
+    renderPage(strategy({ description: "Runs at 3x" }), { open: [openPosition({ strategy_id: ID })] });
     await heading("ETH Breakout");
 
     const positions = await screen.findByRole("region", { name: "Open positions" });

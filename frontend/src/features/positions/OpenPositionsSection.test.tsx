@@ -499,13 +499,16 @@ function openNotes(container: HTMLElement): string[] {
 }
 
 describe("the notes and the unmatched sentence (T10; spec 'Drawn Only When True')", () => {
-  it("draws no (i) for one live position, and the margin note is the Margin column's tip, not a paragraph", async () => {
+  it("draws no (i) for one live position, and no note about the margin anywhere: its heading has no tip (L39)", async () => {
     const { view } = await mountSection(answering([aave()]));
 
     expect(notesButton()).toBeNull();
     expect(notesOnScreen(view.container)).toEqual([]);
-    fireEvent.mouseEnter(within(theTable()).getByText("Margin USDT"));
-    expect(screen.getByRole("tooltip")).toHaveTextContent(NOTE.margin);
+    const heading = within(theTable()).getByRole("columnheader", { name: "Margin USDT" });
+    expect(heading.querySelector("[tabindex]")).toBeNull();
+    fireEvent.mouseEnter(within(heading).getByText("Margin USDT"));
+    expect(screen.queryByRole("tooltip")).toBeNull();
+    expect(document.body.textContent).not.toContain(NOTE.margin);
   });
 
   it("puts the dry-run note behind the (i) for a rehearsal position", async () => {
@@ -538,12 +541,13 @@ describe("the notes and the unmatched sentence (T10; spec 'Drawn Only When True'
     expect(heading.parentElement).toContainElement(notesButton());
   });
 
-  it("draws no (i) and no note when the strategy holds no position", async () => {
+  it("draws no card at all when the strategy holds no position and nothing is in flight or unmatched (L39)", async () => {
     const { view } = await mountSection(answering([]));
 
     expect(notesButton()).toBeNull();
     expect(notesOnScreen(view.container)).toEqual([]);
-    expect(screen.queryByText("No open position.")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Open positions" })).not.toBeInTheDocument();
+    expect(screen.queryByText("No open position.")).not.toBeInTheDocument();
   });
 
   it("says that one element could not be matched, in place of 'No open position.', when the strategy holds none", async () => {
@@ -577,12 +581,12 @@ describe("the notes and the unmatched sentence (T10; spec 'Drawn Only When True'
     expect(view.container.textContent).not.toContain("No open position.");
   });
 
-  it("does not count an unmatched element of ANOTHER exchange, and still says 'No open position.'", async () => {
+  it("does not count an unmatched element of ANOTHER exchange, so it draws no card (L39)", async () => {
     await mountSection(
       answering([unowned({ pool: { exchange: "binance", venue: "usdt-m", settlement_currency: "USDT" } })]),
     );
 
-    expect(screen.queryByText("No open position.")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Open positions" })).not.toBeInTheDocument();
     expect(document.body.textContent).not.toContain("could not be matched");
   });
 });
@@ -679,12 +683,6 @@ describe("in Spanish (T10 and T11; owner decision Q9, 2026-10-13)", () => {
       "Apalancamiento",
       "Acciones",
     ]);
-    // The sign opened above still has the focus, and its own tip: the margin's is the one in its heading.
-    const margin = within(table).getByText("Margen USDT");
-    fireEvent.mouseEnter(margin);
-    expect(within(margin.closest("th") as HTMLElement).getByRole("tooltip").textContent).toBe(
-      "El margen otorgado es lo que la participación tomó del pool al abrir la posición. No es lo que el exchange retiene ahora.",
-    );
     // The dry-run note and the note of both origins wait behind the (i) beside the heading.
     fireEvent.click(screen.getByRole("button", { name: "Sobre estas posiciones" }));
     const text = view.container.textContent ?? "";
@@ -722,9 +720,9 @@ describe("in Spanish (T10 and T11; owner decision Q9, 2026-10-13)", () => {
     expect(screen.queryByText(MATCHED_ONE_ES)).toBeInTheDocument();
   });
 
-  it("reads 'Sin posiciones abiertas.' for an empty section", async () => {
+  it("reads 'Sin posiciones abiertas.' above an order in flight when the strategy holds no position", async () => {
     await act(() => i18n.changeLanguage("es"));
-    await mountSection(answering([]));
+    await mountSection(answering([], [openOrder({ strategy_id: ALPHA, market: "AAVEUSDT" })]));
 
     expect(screen.queryByText("Sin posiciones abiertas.")).toBeInTheDocument();
   });
@@ -1026,10 +1024,11 @@ describe("the states and the orders (T10; spec 'An Order In Flight Is A Dashed L
     expect(screen.queryByText("No open position.")).not.toBeInTheDocument();
   });
 
-  it("reads 'No open position.' when the read succeeded and the strategy holds nothing", async () => {
+  it("draws nothing when the read succeeded and the strategy holds nothing, as the Overview (L39)", async () => {
     await mountSection(answering([]));
 
-    expect(screen.queryByText("No open position.")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Open positions" })).not.toBeInTheDocument();
+    expect(screen.queryByText("No open position.")).not.toBeInTheDocument();
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });

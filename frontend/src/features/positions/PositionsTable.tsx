@@ -12,7 +12,6 @@ import { Masked, Revealed, useHidden } from "@/shared/hidden/Masked";
 import { clockText, compactDateText, figureText, tableFigureText } from "@/shared/lib/figure-text";
 import { useIsWide } from "@/shared/layout/useIsWide";
 import { Absent } from "@/shared/ui/Absent";
-import { HintedHead } from "@/shared/ui/HintedHead";
 import { Instant } from "@/shared/ui/Instant";
 import { TABLE_BOX, TABLE_CELL, TABLE_HEAD } from "@/shared/ui/table-styles";
 import { Tooltip } from "@/shared/ui/Tooltip";
@@ -388,10 +387,8 @@ function DesktopTable({ positions, asOf, currency, labelledBy }: TableProps) {
     { content: t("strategies.performance.trades.pair") },
     { content: t("strategies.performance.trades.side") },
     { content: t("strategies.performance.trades.entry"), className: right },
-    {
-      content: <HintedHead label={t("positions.table.marginShort", { currency })} hint={t("positions.note.margin")} />,
-      className: right,
-    },
+    // No tip on the margin's heading: it explained more than the column needs, and its box ran past the table (L39).
+    { content: t("positions.table.marginShort", { currency }), className: right },
     { content: t("positions.table.leverage"), className: right },
     { content: <span className="sr-only">{t("positions.table.head.actions")}</span> },
   ];

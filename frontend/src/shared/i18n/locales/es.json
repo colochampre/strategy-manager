@@ -984,7 +984,6 @@
       "other": "Las cifras no se pudieron calcular a partir de las ejecuciones."
     },
     "note": {
-      "margin": "El margen otorgado es lo que la participación tomó del pool al abrir la posición. No es lo que el exchange retiene ahora.",
       "rehearsal": "Una posición de simulación fue ejecutada por el exchange simulado, a 1x. No está en el exchange real y no entra en ningún total.",
       "mixed": "Esta posición tiene ejecuciones de simulación y en vivo. Ningún modo puede cerrarla con seguridad: verifíquela a mano contra el exchange.",
       "reservation": "Su reserva figura como {{status}}, no FILLED.",
