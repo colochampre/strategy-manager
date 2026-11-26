@@ -10,10 +10,3 @@ export const TABLE_HEAD =
 
 /** `.tbl-w td`: 13 px cells padded 11 / 12 px, one line high. */
 export const TABLE_CELL = "whitespace-nowrap border-b border-rule-soft px-3 py-[11px] text-[13px]";
-
-/** `.tbl-w.s th`: the compact heading of a table with many columns (the closed trades), 11 px padded 9 / 8 px. */
-export const COMPACT_HEAD =
-  "whitespace-nowrap border-b border-rule bg-ground px-2 py-[9px] text-left text-[11px] font-medium text-ink-3";
-
-/** `.tbl-w.s td`: the compact cell, 12 px figures in the monospace face, padded 9 / 8 px. */
-export const COMPACT_CELL = "whitespace-nowrap border-b border-rule-soft px-2 py-[9px] font-mono text-xs tabular-nums";

@@ -364,11 +364,12 @@ describe("TradesTable", () => {
       "always",
       "md:table-cell",
       "md:table-cell",
-      "xl:table-cell",
+      // At 13 px, like the other tables (L32), Size and Pool at open wait for a wider screen; both are in the detail.
+      "min-[105rem]:table-cell",
       "xl:table-cell",
       "always",
       "always",
-      "xl:table-cell",
+      "min-[105rem]:table-cell",
       "always",
     ];
 
@@ -528,7 +529,8 @@ describe("TradesTable", () => {
       "9/29/2026 23:30",
       "9/30/2026 00:15",
       "STXUSDT",
-      "SHORT",
+      // The side in words, as the open positions write it (L32).
+      "Short",
       "0.4512",
       "0.4631",
       "1250",
@@ -628,7 +630,7 @@ describe("TradesTable", () => {
     expect(screen.getByRole("button", { name: "Anterior" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Siguiente" })).toBeDisabled();
     expect(screen.getByText("Página 1")).toBeInTheDocument();
-    expect(within(bodyRows()[0] as HTMLElement).getAllByRole("cell")[3]).toHaveTextContent("SHORT");
+    expect(within(bodyRows()[0] as HTMLElement).getAllByRole("cell")[3]?.textContent).toBe("Corto");
   });
 });
 
@@ -1117,7 +1119,7 @@ describe("TradesTable localization", () => {
     expect(spanish).toEqual(english);
   });
 
-  it("reads Spanish from i18n in the table, a rehearsal row's dialog and its fills table, with LONG and SHORT unchanged", async () => {
+  it("reads Spanish from i18n in the table, a rehearsal row's dialog and its fills table, the side in words in the table (L32)", async () => {
     await i18n.changeLanguage("es");
     const row = trade(1, { rehearsal: true, rehearsal_fill_price: "ALERT", direction: "SHORT", other_fees: [{ currency: "BNB", amount: "0.00012" }] });
     stubApi(HEALTH, [], undefined, {}, (url) => {
@@ -1170,7 +1172,9 @@ describe("TradesTable localization", () => {
         "Simulación · precio de la alerta",
         "Cerrar",
       ]));
-    expect(texts.filter((text) => text === "SHORT").length).toBeGreaterThan(0);
+    // The table writes the side in words, as the open positions do (L32); the dialog's title keeps LONG and SHORT.
+    expect(texts).toContain("Corto");
+    expect(screen.getByRole("dialog")).toHaveTextContent("SHORT");
     expect(texts).not.toContain("Sell");
     expect(texts).not.toContain("Buy");
   });
@@ -1322,7 +1326,7 @@ describe("TradesTable headings and the (i) beside the title", () => {
   const BUTTON = "About these trades";
   const FEES_HINT = "A fee paid in a third currency is not in this PnL.";
 
-  it("is a card of its own with the prototype's compact boxed table, its columns named in words (L30)", async () => {
+  it("is a card of its own with the boxed table of the open positions, its columns named in words (L30, L32)", async () => {
     serve([trade(1)], 5);
     renderTable();
     const table = await screen.findByRole("table", { name: "Closed trades" });
@@ -1348,9 +1352,10 @@ describe("TradesTable headings and the (i) beside the title", () => {
     ]);
     for (const header of headers) {
       expect(header.querySelector("svg")).toBeNull();
-      expect(header).toHaveClass("bg-ground", "text-[11px]");
+      // The same size as the open positions and By pair (L32).
+      expect(header).toHaveClass("bg-ground", "text-[12.5px]");
     }
-    for (const cell of within(bodyRows()[0] as HTMLElement).getAllByRole("cell")) expect(cell).toHaveClass("text-xs", "px-2");
+    for (const cell of within(bodyRows()[0] as HTMLElement).getAllByRole("cell")) expect(cell).toHaveClass("text-[13px]", "px-3");
     // The prototype's small button (`.btn.sm`), 30 px high.
     expect(screen.getByRole("button", { name: /^Details of/ })).toHaveClass("h-[30px]");
   });

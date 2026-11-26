@@ -14,7 +14,7 @@ import { Card } from "@/shared/ui/Card";
 import { HintedHead } from "@/shared/ui/HintedHead";
 import { InfoButton, InfoText, useInfoDisclosure } from "@/shared/ui/InfoDisclosure";
 import { Instant } from "@/shared/ui/Instant";
-import { COMPACT_CELL, COMPACT_HEAD, TABLE_BOX } from "@/shared/ui/table-styles";
+import { TABLE_BOX, TABLE_CELL, TABLE_HEAD } from "@/shared/ui/table-styles";
 
 interface TradesTableProps {
   strategyId: string;
@@ -32,8 +32,9 @@ interface TradeRowProps {
 
 const PAGER_BUTTON =
   "min-h-11 rounded-lg border border-rule px-3.5 text-sm text-ink hover:bg-panel-2 disabled:text-ink-3 disabled:opacity-50";
-// The prototype's compact boxed table (`.tbl-w.s`, L30): figures right-aligned in ink-2, words in the sans face.
-const CELL = cn(COMPACT_CELL, "text-right text-ink-2");
+// The boxed table of the open positions and By pair, at their 13 px (L30, L32): figures right-aligned in the
+// monospace face and ink-2, words in the sans face.
+const CELL = cn(TABLE_CELL, "text-right font-mono tabular-nums text-ink-2");
 const WORDS = "text-left font-sans";
 
 // The width tiers of design § F. Each is a Tailwind viewport variant on the th AND the td, and
@@ -41,6 +42,8 @@ const WORDS = "text-left font-sans";
 const FROM_MD = "hidden md:table-cell";
 const FROM_XL = "hidden xl:table-cell";
 const FROM_WIDE = "hidden min-[90rem]:table-cell";
+// Size and Pool at open, from 1680 px: at 13 px the twelve columns fit only from there (L32).
+const FROM_WIDER = "hidden min-[105rem]:table-cell";
 
 /**
  * The tag of a rehearsal row by its `rehearsal_fill_price`. `UNDETERMINED`, and a value this panel
@@ -64,7 +67,10 @@ function TradeRow({ trade, currency, locale, onOpen }: TradeRowProps) {
   const noValue = t("strategies.performance.trades.noValue");
   const notDerivable = t("strategies.performance.trades.notDerivable");
   const directionKey = `strategies.performance.trades.direction.${trade.direction}`;
-  const side = trade.direction === "LONG" || trade.direction === "SHORT" ? t(directionKey) : trade.direction;
+  const known = trade.direction === "LONG" || trade.direction === "SHORT";
+  const side = known ? t(directionKey) : trade.direction;
+  // The cell writes the side in words, as the open positions do (L32); the button's name keeps the dialog's spelling.
+  const sideWord = known ? t(`positions.table.sideWord.${trade.direction}`) : trade.direction;
   // A null entry, exit or size is "not derivable from the fills", never a zero; a string that is
   // not a number is unreadable, never drawn as typed.
   const figure = (value: string | null) =>
@@ -89,10 +95,10 @@ function TradeRow({ trade, currency, locale, onOpen }: TradeRowProps) {
           {trade.pair}
         </span>
       </td>
-      <td className={cn(CELL, WORDS)}>{side}</td>
+      <td className={cn(CELL, WORDS)}>{sideWord}</td>
       <td className={cn(CELL, FROM_MD)}>{figure(trade.entry_price)}</td>
       <td className={cn(CELL, FROM_MD)}>{figure(trade.exit_price)}</td>
-      <td className={cn(CELL, FROM_XL)}>{trade.size === null ? figure(trade.size) : <Masked>{figure(trade.size)}</Masked>}</td>
+      <td className={cn(CELL, FROM_WIDER)}>{trade.size === null ? figure(trade.size) : <Masked>{figure(trade.size)}</Masked>}</td>
       <td className={cn(CELL, FROM_XL)}>
         {fees === null ? unreadable : <Masked>{amountText(fees, currency, locale)}</Masked>}
         {trade.other_fees.map((fee) => (
@@ -116,7 +122,7 @@ function TradeRow({ trade, currency, locale, onOpen }: TradeRowProps) {
       <td className={cn(CELL, ret !== null && !trade.rehearsal && toneClass(ret))}>
         {trade.return === null ? <Absent reason={noValue} /> : ret === null ? unreadable : percentText(ret, locale)}
       </td>
-      <td className={cn(CELL, FROM_XL)}>
+      <td className={cn(CELL, FROM_WIDER)}>
         {trade.capital_at_open === null ? (
           <Absent reason={noValue} />
         ) : capital === null ? (
@@ -227,8 +233,8 @@ function TradesTableView({ strategyId, currency }: TradesTableProps) {
     if (rows.length === 0 && pageIndex === 0) {
       body = <p className="text-sm text-ink-3">{t("strategies.performance.trades.empty")}</p>;
     } else {
-      const header = cn(COMPACT_HEAD, "text-right");
-      const words = cn(COMPACT_HEAD, "text-left");
+      const header = cn(TABLE_HEAD, "text-right");
+      const words = cn(TABLE_HEAD, "text-left");
       // Each sentence is true of a row of the page on screen: `rows` is that one page, never the
       // pages visited before, so a sentence goes when the page that made it true is left.
       noteKeys = [
@@ -262,7 +268,7 @@ function TradesTableView({ strategyId, currency }: TradesTableProps) {
                   <th scope="col" className={cn(header, FROM_MD)}>
                     {t("strategies.performance.trades.exit")}
                   </th>
-                  <th scope="col" className={cn(header, FROM_XL)}>
+                  <th scope="col" className={cn(header, FROM_WIDER)}>
                     {t("strategies.performance.trades.size")}
                   </th>
                   <th scope="col" className={cn(header, FROM_XL)}>
@@ -274,7 +280,7 @@ function TradesTableView({ strategyId, currency }: TradesTableProps) {
                   <th scope="col" className={header}>
                     {t("strategies.performance.trades.return")}
                   </th>
-                  <th scope="col" className={cn(header, FROM_XL)}>
+                  <th scope="col" className={cn(header, FROM_WIDER)}>
                     {t("strategies.performance.trades.capital")}
                   </th>
                   {/* No title over the buttons, as the open positions draw none over Close now (L31). */}
