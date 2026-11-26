@@ -799,7 +799,7 @@
         "retry": "Reintentar",
         "empty": "Todavía no hay operaciones cerradas.",
         "pagination": "Páginas de operaciones cerradas",
-        "page": "Página {{page}}",
+        "page": "Página {{page}} de {{pages}}",
         "previous": "Anterior",
         "next": "Siguiente",
         "loadingMore": "Cargando…",

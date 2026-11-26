@@ -799,7 +799,7 @@
         "retry": "Try again",
         "empty": "No closed trades yet.",
         "pagination": "Pages of closed trades",
-        "page": "Page {{page}}",
+        "page": "Page {{page}} of {{pages}}",
         "previous": "Previous",
         "next": "Next",
         "loadingMore": "Loading…",

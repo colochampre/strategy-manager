@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 
 import { OriginDot } from "@/features/positions/PositionMark";
 import { TradeDetailDialog } from "@/features/strategies/TradeDetailDialog";
-import { useStrategyTrades } from "@/shared/api/performance";
+import { TRADES_PAGE_SIZE, useStrategyTrades } from "@/shared/api/performance";
 import type { StrategyTrade } from "@/shared/api/types";
 import { amountText, parseDecimal, percentText, toneClass } from "@/shared/lib/amount-text";
 import { cn } from "@/shared/lib/cn";
@@ -322,7 +322,11 @@ function TradesTableView({ strategyId, currency }: TradesTableProps) {
               {t("strategies.performance.trades.previous")}
             </button>
             <span className="font-mono text-xs text-ink-2">
-              {t("strategies.performance.trades.page", { page: pageIndex + 1 })}
+              {/* "Page 1 of 3", from the total the server serves (L48); never fewer pages than the one on screen. */}
+              {t("strategies.performance.trades.page", {
+                page: pageIndex + 1,
+                pages: Math.max(Math.ceil((total ?? 0) / TRADES_PAGE_SIZE), pageIndex + 1),
+              })}
             </span>
             <button
               type="button"
