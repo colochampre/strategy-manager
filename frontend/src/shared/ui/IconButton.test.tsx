@@ -74,7 +74,10 @@ describe("IconButton", () => {
   it("has a primary look for a Save", () => {
     render(<IconButton label="Save" icon={Copy} tone="primary" onClick={() => undefined} />);
 
-    expect(classesOf(screen.getByRole("button", { name: "Save" }))).toContain("bg-gain");
+    // The green outline every green button wears (L26), not a filled green.
+    const classes = classesOf(screen.getByRole("button", { name: "Save" }));
+    expect(classes).toEqual(expect.arrayContaining(["border-gain/45", "text-gain-bright", "bg-transparent"]));
+    expect(classes).not.toContain("bg-gain");
   });
 });
 

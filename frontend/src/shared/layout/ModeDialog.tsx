@@ -2,6 +2,7 @@ import { type KeyboardEvent, type SyntheticEvent, useId, useLayoutEffect, useRef
 import { useTranslation } from "react-i18next";
 
 import type { ChangeModeResult, Mode } from "@/shared/api/me";
+import { GAIN_OUTLINE } from "@/shared/ui/button-styles";
 
 export interface ModeDialogProps {
   /** The mode the user would move to. */
@@ -118,7 +119,7 @@ export function ModeDialog({ target, pending, result, onConfirm, onCancel }: Mod
             type="button"
             onClick={onConfirm}
             disabled={pending}
-            className={`${BUTTON} bg-gain font-medium text-ground hover:opacity-90`}
+            className={`${BUTTON} ${GAIN_OUTLINE}`}
           >
             {pending ? t("mode.pending") : t(`${texts}.confirm`)}
           </button>

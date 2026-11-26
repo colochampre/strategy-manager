@@ -260,7 +260,9 @@ describe("the form's shape (design § F)", () => {
     expect(button).toHaveAttribute("type", "submit");
     // Its words are written on it, as the page's important button (owner, 2026-11-17; was icon only, L.8).
     expect(button).toHaveTextContent("Check and save");
-    for (const name of ["min-h-11", "bg-gain", "text-ground", "font-medium"]) expect(button).toHaveClass(name);
+    // The green outline every green button wears (L26).
+    for (const name of ["min-h-11", "border-gain/45", "text-gain-bright", "font-medium"]) expect(button).toHaveClass(name);
+    expect(button).not.toHaveClass("bg-gain");
     expect(screen.queryByRole("button", { name: "Checking…" })).not.toBeInTheDocument();
     const close = found(screen.queryByRole("button", { name: "Close" }), "Close");
     expect(close).toHaveAttribute("type", "button");

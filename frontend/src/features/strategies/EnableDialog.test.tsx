@@ -62,6 +62,19 @@ afterEach(async () => {
   await i18n.changeLanguage("en");
 });
 
+// Opened from the actions cell of My strategies, whose nowrap and end alignment a dialog inherits from its DOM
+// ancestor: the question ran off its own box (L35).
+describe("EnableDialog inside a table cell", () => {
+  it("is wide enough for its text and wraps it, starting each line at the beginning, whatever the cell around it sets", () => {
+    renderToggle(strategy());
+
+    fireEvent.click(screen.getByRole("button", { name: i18n.t("strategies.detail.disable") }));
+
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).toHaveClass("w-[calc(100%-2rem)]", "max-w-lg", "whitespace-normal", "break-words", "text-left");
+  });
+});
+
 describe("EnableDialog, a disable refused for exposure", () => {
   it("says the strategy still has an open position and names what holds it, as archive does", async () => {
     stubFetch(

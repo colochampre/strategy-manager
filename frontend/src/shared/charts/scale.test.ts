@@ -4,6 +4,7 @@ import {
   dayTicks,
   drawdownPath,
   gridBand,
+  gridStep,
   linePath,
   monthTicks,
   sliceAndRebase,
@@ -287,28 +288,60 @@ describe("timeScale", () => {
 });
 
 describe("gridBand", () => {
+  it("cuts the magnitude into bands of the step it is given (L35)", () => {
+    expect(gridBand(0.01, 0.01)).toBe(1);
+    expect(gridBand(0.0101, 0.01)).toBe(2);
+    expect(gridBand(0.06, 0.01)).toBe(6);
+    expect(gridBand(0.09, 0.01)).toBe(6);
+  });
+
   it("test_grid_band_zero_boundary_2_5_percent_boundary_15_percent_and_beyond", () => {
-    expect(gridBand(0)).toBe(0);
-    expect(gridBand(0.0001)).toBe(1);
-    expect(gridBand(0.025)).toBe(1);
-    expect(gridBand(0.0251)).toBe(2);
-    expect(gridBand(0.05)).toBe(2);
-    expect(gridBand(0.075)).toBe(3);
-    expect(gridBand(0.125)).toBe(5);
-    expect(gridBand(0.1251)).toBe(6);
-    expect(gridBand(0.15)).toBe(6);
-    expect(gridBand(0.3)).toBe(6);
+    expect(gridBand(0, 0.025)).toBe(0);
+    expect(gridBand(0.0001, 0.025)).toBe(1);
+    expect(gridBand(0.025, 0.025)).toBe(1);
+    expect(gridBand(0.0251, 0.025)).toBe(2);
+    expect(gridBand(0.05, 0.025)).toBe(2);
+    expect(gridBand(0.075, 0.025)).toBe(3);
+    expect(gridBand(0.125, 0.025)).toBe(5);
+    expect(gridBand(0.1251, 0.025)).toBe(6);
+    expect(gridBand(0.15, 0.025)).toBe(6);
+    expect(gridBand(0.3, 0.025)).toBe(6);
   });
 
   it("is not thrown a band up by float noise on an exact boundary", () => {
     // 0.025 * 3 is 0.07500000000000001 in binary floating point.
     expect(0.025 * 3).toBeGreaterThan(0.075);
-    expect(gridBand(0.025 * 3)).toBe(3);
+    expect(gridBand(0.025 * 3, 0.025)).toBe(3);
   });
 
   it("reads the magnitude, so the sign is the caller's colour choice", () => {
-    expect(gridBand(-0.026)).toBe(2);
-    expect(gridBand(-0.4)).toBe(6);
+    expect(gridBand(-0.026, 0.025)).toBe(2);
+    expect(gridBand(-0.4, 0.025)).toBe(6);
+  });
+});
+
+describe("gridStep", () => {
+  // The scale follows the grid (L35): six bands reach the widest month, each a whole quarter point.
+  it("divides the widest month by six, up to the next quarter point", () => {
+    expect(gridStep([0.15, -0.02])).toBe(0.025);
+    expect(gridStep([0.2, -0.05])).toBe(0.035);
+    expect(gridStep([0.06])).toBe(0.01);
+  });
+
+  it("reads a loss as wide as a gain", () => {
+    expect(gridStep([0.01, -0.3])).toBe(0.05);
+  });
+
+  it("is not thrown a quarter point up by float noise", () => {
+    // 0.555 / 6 / 0.0025 is 37.00000000000001 in binary floating point: 37 quarter points, not 38.
+    expect(0.555 / 6 / 0.0025).toBeGreaterThan(37);
+    expect(gridStep([0.555])).toBe(0.0925);
+  });
+
+  it("keeps bands of half a point at least, so a quiet grid is not drawn as a loud one", () => {
+    expect(gridStep([0.012, -0.004])).toBe(0.005);
+    expect(gridStep([0])).toBe(0.005);
+    expect(gridStep([])).toBe(0.005);
   });
 });
 

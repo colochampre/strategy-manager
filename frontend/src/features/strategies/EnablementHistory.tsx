@@ -48,7 +48,7 @@ export function EnablementHistory({ strategyId }: EnablementHistoryProps) {
 
   return (
     <section className="flex flex-col gap-2">
-      <h2 className="font-display text-base font-semibold text-ink">{title}</h2>
+      <h2 className="font-display text-[15px] font-semibold text-ink">{title}</h2>
       {body}
     </section>
   );

@@ -5,6 +5,7 @@ import { useNavigate } from "react-router";
 
 import { entryRefusal } from "@/features/strategies/entry-refusal";
 import { useLookUpInviteCode } from "@/shared/api/public-strategies";
+import { GAIN_OUTLINE } from "@/shared/ui/button-styles";
 
 const KEY = "strategies.entry";
 /** The API reads no longer code (`CODE_MAX_LENGTH`). */
@@ -94,7 +95,7 @@ function CodeDialog({ onClose }: CodeDialogProps) {
           <button
             type="submit"
             disabled={typed === "" || lookup.isPending}
-            className="inline-flex min-h-11 items-center rounded-lg bg-gain px-3.5 text-sm font-medium text-ground hover:opacity-90 disabled:opacity-50"
+            className={`inline-flex min-h-11 items-center rounded-lg px-3.5 text-sm ${GAIN_OUTLINE} disabled:opacity-50`}
           >
             {t(`${KEY}.open`)}
           </button>
@@ -118,7 +119,8 @@ export function CodeEntry() {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="inline-flex min-h-11 items-center gap-1.5 rounded-lg bg-gain px-4 text-sm font-medium text-ground hover:opacity-90 disabled:opacity-50"
+        // The prototype's "Tengo un código" (L26): the green outline, as tall as the search beside it.
+        className={`inline-flex h-10 items-center gap-1.5 rounded-lg px-4 text-sm ${GAIN_OUTLINE} disabled:opacity-50`}
       >
         <KeyRound aria-hidden="true" className="size-4 shrink-0" />
         {t(`${KEY}.haveCode`)}

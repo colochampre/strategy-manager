@@ -2,7 +2,6 @@ import { screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AppRoutes } from "@/app/router";
-import i18n from "@/shared/i18n";
 import { amountText, percentText } from "@/shared/lib/amount-text";
 import {
   emptyPerformance,
@@ -19,9 +18,10 @@ import {
 } from "@/test/harness";
 
 /**
- * The card as the owner asked for it on 2026-11-17, after TradingView's strategy tester: the age moves to the market
- * line as a date range, days active and the bare closed-trade count go, and the figures are grouped under one label
- * each (Total PnL, Max drawdown, Profitable trades, AuM, and the seat's settings on My subscriptions only).
+ * The figures of each list as the approved tables draw them (S15, ex13 to ex15): the start date with its period in the
+ * tooltip, one column each for the PnL, its percentage, the deepest fall, the win rate with its count, the live
+ * subscribers and the capital, and the seat's settings on My subscriptions only. Days active and the bare count of
+ * closed trades are not drawn.
  */
 
 const ID = "11111111-1111-4111-8111-111111111111";
@@ -99,9 +99,9 @@ function serve() {
   );
 }
 
-const en = (key: string) => i18n.t(key);
-const pct = (ratio: number) => percentText(ratio, "en");
-const usdt = (amount: number, signed = false) => `${amountText(amount, "USDT", "en", signed)}USDT`;
+/** The percent the table writes: the number with its sign, then the percent sign right after it (L21). */
+const pct = (ratio: number) => `${percentText(ratio, "en", false)}%`;
+const usdt = (amount: number, signed = false) => amountText(amount, "USDT", "en", signed);
 
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ["Date"] });
@@ -117,101 +117,67 @@ afterEach(() => {
   lock();
 });
 
-/** The card's group under `label`: its label and its values. */
-function group(row: HTMLElement, testId: string, label: string) {
-  const found = within(row).getByTestId(testId);
-  expect(within(found).getByText(label)).toBeInTheDocument();
-  return found;
-}
-
-describe("a card on Explore", () => {
-  it("dates the strategy on its market line and groups the record under four labels, with no settings", async () => {
+describe("a row on Explore", () => {
+  it("dates the strategy from its creation and draws the record in its columns, with no settings", async () => {
     serve();
     renderAt(<AppRoutes />, "/strategies/explore");
     const row = await screen.findByTestId("public-strategy-row");
 
-    const market = within(row).getByTestId("public-market");
-    expect(market).toHaveTextContent("bybit · usdt-m · USDT");
-    expect(within(market).getByTestId("public-age")).toHaveTextContent("Oct 12, 2026 – Nov 17, 2026");
-    expect(within(market).getByRole("img", { name: en("strategies.card.age") })).toBeInTheDocument();
-
-    const pnl = group(row, "public-group-pnl", en("strategies.card.totalPnl"));
-    expect(within(pnl).getByTestId("public-return")).toHaveTextContent(pct(0.109));
+    expect(within(row).getByTestId("public-age")).toHaveTextContent("Oct 12, 2026");
+    expect(within(row).getByTestId("public-return")).toHaveTextContent(pct(0.109));
     // The public record carries no money: the author's PnL is theirs alone.
     expect(within(row).queryByTestId("public-pnl")).toBeNull();
+    expect(within(row).getByTestId("public-deepest")).toHaveTextContent(pct(-0.0971));
+    expect(within(row).getByTestId("public-winrate")).toHaveTextContent("66.7%");
+    expect(within(row).getByTestId("public-wins")).toHaveTextContent("4/6");
+    expect(within(row).getByTestId("public-subscribers")).toHaveTextContent(/^2$/);
+    expect(within(row).getByTestId("public-capital").textContent).toBe(usdt(1500));
 
-    const drawdown = group(row, "public-group-drawdown", en("strategies.card.maxDrawdown"));
-    expect(within(drawdown).getByTestId("public-deepest")).toHaveTextContent(pct(-0.0971));
-
-    const profitable = group(row, "public-group-profitable", "Win rate");
-    expect(within(profitable).getByTestId("public-winrate")).toHaveTextContent("66.7%");
-    expect(within(profitable).getByTestId("public-wins")).toHaveTextContent("4/6");
-
-    const aum = group(row, "public-group-aum", en("strategies.card.aum"));
-    expect(within(aum).getByTestId("public-subscribers")).toHaveTextContent(/^2$/);
-    expect(within(aum).getByRole("img", { name: en("strategies.card.subscribers") })).toBeInTheDocument();
-    expect(within(aum).getByTestId("public-capital")).toHaveTextContent(usdt(1500));
-
-    expect(within(row).queryByTestId("public-group-setup")).toBeNull();
+    expect(within(row).queryByTestId("public-share")).toBeNull();
     expect(within(row).queryByTestId("public-uptime")).toBeNull();
     expect(within(row).queryByTestId("public-trades")).toBeNull();
   });
 });
 
-describe("a card on My subscriptions", () => {
+describe("a row on My subscriptions", () => {
   it("speaks of the reader's own seat: their PnL, return, deepest fall and trades, then AuM and the seat's settings", async () => {
     serve();
     renderAt(<AppRoutes />, "/strategies");
     const row = await screen.findByTestId("subscription-row");
 
-    const market = within(row).getByTestId("subscription-market");
-    expect(market).toHaveTextContent("bybit · usdt-m · USDT");
-    expect(within(market).getByTestId("subscription-age")).toHaveTextContent("Oct 27, 2026 – Nov 17, 2026");
-    expect(within(market).getByRole("img", { name: en("strategies.card.subscribed") })).toBeInTheDocument();
+    expect(within(row).getByTestId("subscription-age")).toHaveTextContent("Oct 27, 2026");
 
-    const pnl = group(row, "subscription-group-pnl", en("strategies.card.totalPnl"));
-    await waitFor(() => expect(within(pnl).getByTestId("subscription-pnl")).toHaveTextContent(usdt(67.2, true)));
-    expect(within(pnl).getByTestId("subscription-return")).toHaveTextContent(pct(0.109));
+    await waitFor(() => expect(within(row).getByTestId("subscription-pnl").textContent).toBe(usdt(67.2, true)));
+    expect(within(row).getByTestId("subscription-return")).toHaveTextContent(pct(0.109));
+    expect(within(row).getByTestId("subscription-deepest")).toHaveTextContent(pct(-0.0971));
+    expect(within(row).getByTestId("subscription-winrate")).toHaveTextContent("66.7%");
+    expect(within(row).getByTestId("subscription-wins")).toHaveTextContent("4/6");
+    expect(within(row).getByTestId("subscription-subscribers")).toHaveTextContent(/^2$/);
+    expect(within(row).getByTestId("subscription-capital").textContent).toBe(usdt(1500));
 
-    const drawdown = group(row, "subscription-group-drawdown", en("strategies.card.maxDrawdown"));
-    expect(within(drawdown).getByTestId("subscription-deepest")).toHaveTextContent(pct(-0.0971));
-
-    const profitable = group(row, "subscription-group-profitable", "Win rate");
-    expect(within(profitable).getByTestId("subscription-winrate")).toHaveTextContent("66.7%");
-    expect(within(profitable).getByTestId("subscription-wins")).toHaveTextContent("4/6");
-
-    const aum = group(row, "subscription-group-aum", en("strategies.card.aum"));
-    expect(within(aum).getByTestId("subscription-subscribers")).toHaveTextContent(/^2$/);
-    expect(within(aum).getByTestId("subscription-capital")).toHaveTextContent(usdt(1500));
-
-    const setup = group(row, "subscription-group-setup", en("strategies.card.setup"));
-    expect(within(setup).getByTestId("subscription-share")).toHaveTextContent("30%");
-    expect(within(setup).getByTestId("subscription-leverage")).toHaveTextContent("x1");
+    expect(within(row).getByTestId("subscription-share")).toHaveTextContent("30%");
+    expect(within(row).getByTestId("subscription-leverage")).toHaveTextContent("x1");
 
     expect(within(row).queryByTestId("subscription-uptime")).toBeNull();
     expect(within(row).queryByTestId("subscription-trades")).toBeNull();
   });
 });
 
-describe("a card on My strategies", () => {
-  it("joins the author's PnL and return under Total PnL and draws no settings", async () => {
+describe("a row on My strategies", () => {
+  it("joins the author's PnL and return in their columns and draws no settings", async () => {
     serve();
     renderAt(<AppRoutes />, "/strategies/authored");
     const row = await screen.findByTestId("strategy-row");
 
-    expect(within(row).getByTestId("strategy-age")).toHaveTextContent("Sep 1, 2026 – Nov 17, 2026");
+    expect(within(row).getByTestId("strategy-age")).toHaveTextContent("Sep 01, 2026");
 
-    const pnl = group(row, "strategy-group-pnl", en("strategies.card.totalPnl"));
-    await waitFor(() => expect(within(pnl).getByTestId("strategy-pnl")).toHaveTextContent(usdt(67.2, true)));
-    expect(within(pnl).getByTestId("strategy-return")).toHaveTextContent(pct(0.109));
+    await waitFor(() => expect(within(row).getByTestId("strategy-pnl").textContent).toBe(usdt(67.2, true)));
+    expect(within(row).getByTestId("strategy-return")).toHaveTextContent(pct(0.109));
+    expect(within(row).getByTestId("strategy-wins")).toHaveTextContent("4/6");
+    expect(within(row).getByTestId("strategy-capital").textContent).toBe(usdt(1500));
 
-    const profitable = group(row, "strategy-group-profitable", "Win rate");
-    expect(within(profitable).getByTestId("strategy-wins")).toHaveTextContent("4/6");
-
-    const aum = group(row, "strategy-group-aum", en("strategies.card.aum"));
-    expect(within(aum).getByTestId("strategy-capital")).toHaveTextContent(usdt(1500));
-
-    expect(within(row).queryByTestId("strategy-group-setup")).toBeNull();
+    expect(within(row).queryByTestId("strategy-share")).toBeNull();
+    expect(within(row).queryByTestId("strategy-leverage")).toBeNull();
     expect(within(row).queryByTestId("strategy-uptime")).toBeNull();
   });
 });

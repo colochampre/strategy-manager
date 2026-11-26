@@ -3,19 +3,17 @@ import { useTranslation } from "react-i18next";
 
 import { parseDecimal, percentText, toneClass } from "@/shared/lib/amount-text";
 import type { MonthReturn } from "@/shared/api/types";
-import { gridBand } from "@/shared/charts/scale";
+import { gridBand, gridStep } from "@/shared/charts/scale";
 import { cn } from "@/shared/lib/cn";
 
 interface MonthlyGridProps {
   /** One entry per UTC month that has a closed day; a month with none is absent. */
   monthly: readonly MonthReturn[];
-  /** Draws no heading: the caller's card names the grid (the dashboard's "Monthly performance", ex1). */
-  bare?: boolean;
 }
 
 /**
- * Band 0 is exactly zero (the neutral base); bands 1 to 6 are 2.5 points each on
- * a fixed +-15% scale. Every class is written out whole so Tailwind can see it.
+ * Band 0 is exactly zero (the neutral base); bands 1 to 6 are `gridStep` each, a scale that follows the grid's widest
+ * month (L35). Every class is written out whole so Tailwind can see it.
  */
 const GAIN_BANDS = [
   "bg-rule-soft",
@@ -72,37 +70,29 @@ function yearReturn(row: ReadonlyMap<number, number>): number {
   return index - 1;
 }
 
-export function MonthlyGrid({ monthly, bare = false }: MonthlyGridProps) {
+/**
+ * The month grid as the dashboard draws it (ex1), on every page (L29). It draws no heading: `MonthlyCard` names it
+ * "Monthly performance", and the table carries that name too.
+ */
+export function MonthlyGrid({ monthly }: MonthlyGridProps) {
   const { t, i18n } = useTranslation();
   const locale = i18n.resolvedLanguage ?? "en";
-  const titleId = useId();
   const tableRegionId = useId();
   const [showEarlier, setShowEarlier] = useState(false);
   const years = readMonths(monthly);
 
   // Calendar months are named in UTC: west of UTC, local midnight on the 1st is the month before.
-  const monthName = (style: "long" | "narrow" | "short") => {
+  const monthName = (style: "long" | "short") => {
     const format = new Intl.DateTimeFormat(locale, { month: style, timeZone: "UTC" });
     return (month: number) => format.format(new Date(Date.UTC(2000, month - 1, 1)));
   };
   const longName = monthName("long");
-  const narrowName = monthName("narrow");
-  // The dashboard's card writes the prototype's three-letter names (ex1: Ene, Feb, ...); the strategy pages keep the initials.
+  // The prototype's three-letter names (ex1: Ene, Feb, ...).
   const shortName = monthName("short");
-
-  const title = bare ? null : (
-    <h2 id={titleId} className="font-display text-base font-semibold text-ink">
-      {t("overview.monthlyGrid.title")}
-    </h2>
-  );
-  // A bare grid sits in a card that already names it: its sections carry no label of their own, the table keeps one.
-  const sectionLabel = bare ? {} : { "aria-labelledby": titleId };
-  const tableLabel = bare ? { "aria-label": t("overview.card.monthly") } : { "aria-labelledby": titleId };
 
   if (years === null) {
     return (
-      <section {...sectionLabel} className="flex flex-col gap-2.5">
-        {title}
+      <section>
         <p role="alert" className="text-sm text-loss">
           {t("overview.monthlyGrid.unreadable")}
         </p>
@@ -112,8 +102,7 @@ export function MonthlyGrid({ monthly, bare = false }: MonthlyGridProps) {
 
   if (years.size === 0) {
     return (
-      <section {...sectionLabel} className="flex flex-col gap-2.5">
-        {title}
+      <section>
         <p className="text-sm text-ink-3">{t("overview.monthlyGrid.empty")}</p>
       </section>
     );
@@ -123,17 +112,18 @@ export function MonthlyGrid({ monthly, bare = false }: MonthlyGridProps) {
   const allRows = [...years.entries()].sort(([a], [b]) => b - a);
   const hasEarlier = allRows.length > VISIBLE_YEARS;
   const rows = showEarlier ? allRows : allRows.slice(0, VISIBLE_YEARS);
+  // Every year's months, the hidden ones too, so showing the earlier years recolours nothing.
+  const step = gridStep(allRows.flatMap(([, row]) => [...row.values()]));
 
   return (
-    <section {...sectionLabel} className="flex flex-col gap-2.5">
-      {title}
+    // No gap: the earlier years toggle sits right under the table (L29).
+    <section className="flex flex-col">
       <div id={tableRegionId} className="overflow-x-auto">
         <table
-          {...tableLabel}
-          className={cn(
-            "w-full min-w-[42rem] table-fixed border-separate border-spacing-1 font-mono tabular-nums",
-            bare ? "text-xs" : "text-[11px]",
-          )}
+          aria-label={t("overview.card.monthly")}
+          // The figures carry no percent sign (L28): a month is 5 characters, 36 px at 12 px, so the floor fits the grid
+          // a 1440 px window leaves inside a card beside a strategy's aside (L29).
+          className="w-full min-w-[38rem] table-fixed border-separate border-spacing-1 font-mono text-xs tabular-nums"
         >
           <thead>
             <tr>
@@ -143,9 +133,9 @@ export function MonthlyGrid({ monthly, bare = false }: MonthlyGridProps) {
                   key={month}
                   scope="col"
                   aria-label={longName(month)}
-                  className={cn("font-normal text-ink-3", bare && "font-sans capitalize")}
+                  className="font-sans font-normal text-ink-3 capitalize"
                 >
-                  {bare ? shortName(month) : narrowName(month)}
+                  {shortName(month)}
                 </th>
               ))}
               <th scope="col" className="w-16 font-normal text-ink-3">
@@ -170,36 +160,32 @@ export function MonthlyGrid({ monthly, bare = false }: MonthlyGridProps) {
                           key={month}
                           data-testid={`month-${year}-${month}`}
                           aria-label={`${label}: ${t("overview.monthlyGrid.noTrades")}`}
-                          className={bare ? "h-[34px] rounded bg-rule-soft" : "h-8 rounded-[3px] border border-dashed border-rule"}
+                          className="h-[34px] rounded bg-rule-soft"
                         />
                       );
                     }
-                    const band = gridBand(value);
+                    const band = gridBand(value, step);
                     return (
                       <td
                         key={month}
                         data-testid={`month-${year}-${month}`}
                         aria-label={`${label}: ${percentText(value, locale)}`}
                         className={cn(
-                          "text-center text-ink",
-                          bare ? "h-[34px] rounded" : "h-8 rounded-[3px]",
+                          "h-[34px] rounded text-center text-ink",
                           (value < 0 ? LOSS_BANDS : GAIN_BANDS)[band],
                           band >= FIRST_CONTRAST_BAND && "font-semibold",
                         )}
                       >
-                        {percentText(value, locale)}
+                        {percentText(value, locale, false)}
                       </td>
                     );
                   })}
                   <td
                     data-testid={`year-${year}`}
-                    className={cn(
-                      "text-center",
-                      bare ? "h-[34px] rounded border border-rule font-medium" : "font-semibold",
-                      toneClass(total),
-                    )}
+                    aria-label={`${t("overview.monthlyGrid.year")} ${year}: ${percentText(total, locale)}`}
+                    className={cn("h-[34px] rounded border border-rule text-center font-medium", toneClass(total))}
                   >
-                    {percentText(total, locale)}
+                    {percentText(total, locale, false)}
                   </td>
                 </tr>
               );

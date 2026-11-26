@@ -254,7 +254,11 @@
     "card": {
       "compound": "Compounded return",
       "monthly": "Monthly performance",
-      "monthlyScale": "Fixed range of ±15%"
+      "monthlyScale_one": "Each shade is {{step}} point of return, up to ±{{top}}. The scale adapts to this grid's largest month, so two grids are not coloured alike.",
+      "monthlyScale_other": "Each shade is {{step}} points of return, up to ±{{top}}. The scale adapts to this grid's largest month, so two grids are not coloured alike.",
+      "monthlyScaleInfo": "About the colour scale",
+      "median_one": "Median {{value}} · {{count}} month",
+      "median_other": "Median {{value}} · {{count}} months"
     },
     "ledger": {
       "available": "Available balance",
@@ -269,7 +273,6 @@
       "All": "All"
     },
     "monthlyGrid": {
-      "title": "Month by month",
       "year": "Year",
       "empty": "No closed months yet",
       "noTrades": "no closed trades",
@@ -305,6 +308,46 @@
   "strategies": {
     "title": "Strategies",
     "archivedToggle": "Show archived",
+    "table": {
+      "title": {
+        "authored": "Strategies",
+        "subscriptions": "Subscriptions",
+        "explore": "Public strategies"
+      },
+      "strategiesCount_one": "{{count}} strategy",
+      "strategiesCount_other": "{{count}} strategies",
+      "subscriptionsCount_one": "{{count}} subscription",
+      "subscriptionsCount_other": "{{count}} subscriptions",
+      "head": {
+        "strategy": "Strategy",
+        "pairs": "Pairs",
+        "pairsVenue": "Pairs ({{venue}})",
+        "author": "Author",
+        "exchange": "Exchange",
+        "since": "Since",
+        "pnlMoney": "PnL ({{currency}})",
+        "pnlMoneyPlain": "PnL",
+        "pnlPercent": "PnL (%)",
+        "drawdown": "Max drawdown",
+        "winRate": "Win rate",
+        "subscribers": "Subs.",
+        "aum": "AuM ({{currency}})",
+        "aumPlain": "AuM",
+        "seat": "Pool / Lev.",
+        "actions": "Actions"
+      },
+      "pairsCount_one": "{{count}} pair",
+      "pairsCount_other": "{{count}} pairs",
+      "enable": "Enable",
+      "disable": "Disable",
+      "enableLabel": "Enable {{name}}",
+      "disableLabel": "Disable {{name}}",
+      "archivedHidden_one": "{{count}} archived strategy is hidden.",
+      "archivedHidden_other": "{{count}} archived strategies are hidden.",
+      "archivedShown_one": "{{count}} archived strategy is shown.",
+      "archivedShown_other": "{{count}} archived strategies are shown.",
+      "hideArchived": "Hide archived"
+    },
     "search": {
       "label": "Search strategies by name",
       "placeholder": "Search by name",
@@ -424,6 +467,9 @@
       },
       "tooMany": "Too many wrong codes in the last hour. Try again later.",
       "lookupFailed": "The code could not be checked. Try again."
+    },
+    "header": {
+      "wins": "{{wins}}/{{closed}} trades"
     },
     "report": {
       "title": "Performance",
@@ -689,6 +735,8 @@
       },
       "trades": {
         "title": "Closed trades",
+        "count_one": "{{count}} trade",
+        "count_other": "{{count}} trades",
         "opened": "Opened (UTC)",
         "closed": "Closed (UTC)",
         "pair": "Pair",

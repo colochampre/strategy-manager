@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { ApiError } from "@/shared/api/client";
 import { useMe } from "@/shared/api/me";
 import { page } from "@/shared/auth/reauthenticate";
+import { GAIN_OUTLINE } from "@/shared/ui/button-styles";
 
 interface SignInGateProps {
   children: ReactNode;
@@ -66,7 +67,7 @@ function GateButton({ onClick, children }: { onClick: () => void; children: Reac
     <button
       type="button"
       onClick={onClick}
-      className="rounded-lg bg-gain px-3 py-2 text-sm font-medium text-ground hover:opacity-90"
+      className={`rounded-lg px-3 py-2 text-sm ${GAIN_OUTLINE}`}
     >
       {children}
     </button>

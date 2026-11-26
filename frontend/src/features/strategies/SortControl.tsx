@@ -20,7 +20,7 @@ export function SortControl({ sort, onChange }: SortControlProps) {
 
   return (
     <div role="group" aria-label={t("strategies.sort.label")} className="flex flex-wrap items-center gap-1.5">
-      <span aria-hidden="true" className="text-xs text-ink-3">
+      <span aria-hidden="true" className="mr-1 text-[12.5px] text-ink-3">
         {t("strategies.sort.label")}
       </span>
       {SORT_KEYS.map((key) => {
@@ -42,7 +42,8 @@ export function SortControl({ sort, onChange }: SortControlProps) {
             }
             onClick={() => onChange(key)}
             className={cn(
-              "inline-flex min-h-9 items-center gap-1 rounded-lg border px-2.5 text-xs",
+              // The prototype's key (L26): 32 px tall, 12.5 px type, 11 px each side.
+              "inline-flex h-8 items-center gap-1 rounded-lg border px-[11px] text-[12.5px]",
               active ? "border-gain text-gain" : "border-rule text-ink-2 hover:bg-panel-2",
             )}
           >

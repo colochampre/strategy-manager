@@ -62,10 +62,10 @@ describe("LeverageSlider, the field", () => {
     expect(field().getAttribute("size")).toBe("2");
   });
 
-  it("shows the x sign before the number, outside the value and hidden from assistive technology", () => {
+  it("shows the x sign at the end of the box, outside the value and hidden from assistive technology", () => {
     renderSlider();
 
-    const sign = field().previousElementSibling;
+    const sign = field().nextElementSibling;
     expect(sign).toHaveTextContent("x");
     expect(sign).toHaveAttribute("aria-hidden", "true");
     expect(field().value).toBe("5");
@@ -74,7 +74,7 @@ describe("LeverageSlider, the field", () => {
   it("the wrapper has the look of a field", () => {
     renderSlider();
 
-    for (const name of ["min-h-11", "border", "bg-ground", "border-rule"]) expect(wrapper()).toHaveClass(name);
+    for (const name of ["h-9.5", "rounded-lg", "border", "bg-ground", "border-rule"]) expect(wrapper()).toHaveClass(name);
   });
 
   it("a keystroke reaches onText exactly as typed and nothing else", () => {

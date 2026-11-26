@@ -1,4 +1,3 @@
-import { ArrowLeftRight, Coins, ListChecks, TrendingUp, Trophy } from "lucide-react";
 import { useId } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -7,8 +6,8 @@ import { rateText } from "@/shared/lib/figure-text";
 import type { PairStat } from "@/shared/api/types";
 import { cn } from "@/shared/lib/cn";
 import { Masked } from "@/shared/hidden/Masked";
-import { ColumnHead } from "@/shared/ui/ColumnHead";
-import { ReportSection } from "@/shared/ui/ReportSection";
+import { Card } from "@/shared/ui/Card";
+import { TABLE_BOX, TABLE_CELL, TABLE_HEAD } from "@/shared/ui/table-styles";
 
 const DASH = "—";
 
@@ -72,7 +71,7 @@ function readRows(pairs: readonly PairRow[], locale: string, withMoney: boolean)
 
 /**
  * "By pair": each pair's closed-trade count, realized PnL and return, in the
- * pool's own currency. The pair is the venue's spelling (`SOLUSDT`), as served.
+ * pool's own currency, in a card of its own with the prototype's boxed table (L30). The pair is the venue's spelling (`SOLUSDT`), as served.
  * It draws only when more than one pair has a closed trade; with one or none it is absent.
  * Figures are parsed only to be formatted; nothing is computed here.
  */
@@ -93,42 +92,43 @@ export function PairStatsTable({ pairs, currency }: PairStatsTableProps) {
       </p>
     );
   } else {
+    const figure = cn(TABLE_CELL, "text-right font-mono tabular-nums text-ink-2");
     body = (
-      <div className="overflow-x-auto">
-        <table aria-labelledby={headingId} className="w-full border-collapse font-mono text-[13px] tabular-nums">
+      <div className={TABLE_BOX}>
+        <table aria-labelledby={headingId} className="w-full border-collapse">
           <thead>
-            <tr className="text-right text-[10px] uppercase tracking-[0.09em] text-ink-3">
-              <th scope="col" className="border-b border-rule py-2 pr-3 text-left font-medium">
-                <ColumnHead icon={ArrowLeftRight} label={t("strategies.performance.byPair.pair")} align="start" />
+            <tr>
+              <th scope="col" className={TABLE_HEAD}>
+                {t("strategies.performance.byPair.pair")}
               </th>
-              <th scope="col" className="border-b border-rule py-2 pr-3 font-medium">
-                <ColumnHead icon={ListChecks} label={t("strategies.performance.byPair.trades")} />
+              <th scope="col" className={cn(TABLE_HEAD, "text-right")}>
+                {t("strategies.performance.byPair.trades")}
               </th>
-              <th scope="col" className="border-b border-rule py-2 pr-3 font-medium">
-                <ColumnHead icon={Trophy} label={t("strategies.performance.byPair.winRate")} />
+              <th scope="col" className={cn(TABLE_HEAD, "text-right")}>
+                {t("strategies.performance.byPair.winRate")}
               </th>
               {currency !== undefined && (
-                <th scope="col" className="border-b border-rule py-2 pr-3 font-medium">
-                  <ColumnHead icon={Coins} label={t("strategies.performance.byPair.pnl", { currency })} />
+                <th scope="col" className={cn(TABLE_HEAD, "text-right")}>
+                  {t("strategies.performance.byPair.pnl", { currency })}
                 </th>
               )}
-              <th scope="col" className="border-b border-rule py-2 font-medium">
-                <ColumnHead icon={TrendingUp} label={t("strategies.performance.byPair.return")} />
+              <th scope="col" className={cn(TABLE_HEAD, "text-right")}>
+                {t("strategies.performance.byPair.return")}
               </th>
             </tr>
           </thead>
-          <tbody className="text-right text-ink-2">
+          <tbody>
             {rows.map((row) => (
               <tr key={row.pair}>
-                <td className="border-b border-rule-soft py-2.5 pr-3 text-left text-ink">{row.pair}</td>
-                <td className="border-b border-rule-soft py-2.5 pr-3">{row.trades}</td>
-                <td className="border-b border-rule-soft py-2.5 pr-3">{row.winRate}</td>
+                <td className={cn(TABLE_CELL, "font-mono text-ink")}>{row.pair}</td>
+                <td className={figure}>{row.trades}</td>
+                <td className={figure}>{row.winRate}</td>
                 {currency !== undefined && row.pnl !== null && (
-                  <td className={cn("border-b border-rule-soft py-2.5 pr-3", toneClass(row.pnl))}>
+                  <td className={cn(figure, toneClass(row.pnl))}>
                     <Masked>{amountText(row.pnl, currency, locale, true)}</Masked>
                   </td>
                 )}
-                <td className={cn("border-b border-rule-soft py-2.5", row.ret !== null && toneClass(row.ret))}>
+                <td className={cn(figure, row.ret !== null && toneClass(row.ret))}>
                   {row.ret === null ? (
                     <>
                       <span aria-hidden="true">{DASH}</span>
@@ -147,13 +147,8 @@ export function PairStatsTable({ pairs, currency }: PairStatsTableProps) {
   }
 
   return (
-    <ReportSection>
-      <section aria-labelledby={headingId} className="flex flex-col gap-2">
-        <h2 id={headingId} className="font-display text-base font-semibold text-ink">
-          {t("strategies.performance.byPair.title")}
-        </h2>
-        {body}
-      </section>
-    </ReportSection>
+    <Card title={t("strategies.performance.byPair.title")} headingId={headingId} dense>
+      {body}
+    </Card>
   );
 }

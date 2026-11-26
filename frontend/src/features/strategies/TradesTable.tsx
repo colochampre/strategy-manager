@@ -1,20 +1,7 @@
-import {
-  ArrowLeftRight,
-  ArrowUpDown,
-  CalendarCheck,
-  CalendarPlus,
-  Coins,
-  FileText,
-  LogIn,
-  LogOut,
-  Receipt,
-  Ruler,
-  TrendingUp,
-  Wallet,
-} from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
+import { OriginDot } from "@/features/positions/PositionMark";
 import { TradeDetailDialog } from "@/features/strategies/TradeDetailDialog";
 import { useStrategyTrades } from "@/shared/api/performance";
 import type { StrategyTrade } from "@/shared/api/types";
@@ -23,10 +10,12 @@ import { cn } from "@/shared/lib/cn";
 import { Masked, MASK, useHidden } from "@/shared/hidden/Masked";
 import { dateTimeText, figureText, tableFigureText } from "@/shared/lib/figure-text";
 import { Absent } from "@/shared/ui/Absent";
-import { ColumnHead } from "@/shared/ui/ColumnHead";
+import { Card } from "@/shared/ui/Card";
+import { HintedHead } from "@/shared/ui/HintedHead";
+import { CountChip } from "@/shared/ui/CountChip";
 import { InfoButton, InfoText, useInfoDisclosure } from "@/shared/ui/InfoDisclosure";
 import { Instant } from "@/shared/ui/Instant";
-import { ReportSection } from "@/shared/ui/ReportSection";
+import { TABLE_BOX, TABLE_CELL, TABLE_HEAD } from "@/shared/ui/table-styles";
 
 interface TradesTableProps {
   strategyId: string;
@@ -44,13 +33,18 @@ interface TradeRowProps {
 
 const PAGER_BUTTON =
   "min-h-11 rounded-lg border border-rule px-3.5 text-sm text-ink hover:bg-panel-2 disabled:text-ink-3 disabled:opacity-50";
-const CELL = "border-b border-rule-soft py-2.5 pr-3";
+// The boxed table of the open positions and By pair, at their 13 px (L30, L32): figures right-aligned in the
+// monospace face and ink-2, words in the sans face.
+const CELL = cn(TABLE_CELL, "text-right font-mono tabular-nums text-ink-2");
+const WORDS = "text-left font-sans";
 
 // The width tiers of design § F. Each is a Tailwind viewport variant on the th AND the td, and
 // the same literal strings so the compiler sees them: a column a tier hides is in the detail view.
 const FROM_MD = "hidden md:table-cell";
 const FROM_XL = "hidden xl:table-cell";
 const FROM_WIDE = "hidden min-[90rem]:table-cell";
+// Size and Pool at open, from 1680 px: at 13 px the twelve columns fit only from there (L32).
+const FROM_WIDER = "hidden min-[105rem]:table-cell";
 
 /**
  * The tag of a rehearsal row by its `rehearsal_fill_price`. `UNDETERMINED`, and a value this panel
@@ -74,7 +68,10 @@ function TradeRow({ trade, currency, locale, onOpen }: TradeRowProps) {
   const noValue = t("strategies.performance.trades.noValue");
   const notDerivable = t("strategies.performance.trades.notDerivable");
   const directionKey = `strategies.performance.trades.direction.${trade.direction}`;
-  const side = trade.direction === "LONG" || trade.direction === "SHORT" ? t(directionKey) : trade.direction;
+  const known = trade.direction === "LONG" || trade.direction === "SHORT";
+  const side = known ? t(directionKey) : trade.direction;
+  // The cell writes the side in words, as the open positions do (L32); the button's name keeps the dialog's spelling.
+  const sideWord = known ? t(`positions.table.sideWord.${trade.direction}`) : trade.direction;
   // A null entry, exit or size is "not derivable from the fills", never a zero; a string that is
   // not a number is unreadable, never drawn as typed.
   const figure = (value: string | null) =>
@@ -82,22 +79,27 @@ function TradeRow({ trade, currency, locale, onOpen }: TradeRowProps) {
 
   return (
     <tr>
-      <td className={cn(CELL, "text-left", FROM_WIDE)}><Instant iso={trade.opened_at} locale={locale} /></td>
+      <td className={cn(CELL, "text-left", FROM_WIDE)}>
+        <Instant iso={trade.opened_at} locale={locale} />
+      </td>
       <td className={cn(CELL, "text-left")}>
         <Instant iso={trade.closed_at} locale={locale} />
       </td>
-      <td className={cn(CELL, "text-left text-ink")}>
-        {trade.pair}
-        {trade.rehearsal && (
-          <span className="block font-sans text-[11px] text-decision">
-            {t(rehearsalTagKey(trade.rehearsal_fill_price))}
-          </span>
-        )}
+      <td className={cn(CELL, WORDS, "text-ink")}>
+        {/* A dot beside the pair, as the open positions mark their origin (L31): a dry run's names how it was filled. */}
+        <span className="inline-flex items-center gap-1.5">
+          {trade.rehearsal ? (
+            <OriginDot origin="rehearsal" label={t(rehearsalTagKey(trade.rehearsal_fill_price))} />
+          ) : (
+            <OriginDot origin="live" />
+          )}
+          {trade.pair}
+        </span>
       </td>
-      <td className={cn(CELL, "text-left")}>{side}</td>
+      <td className={cn(CELL, WORDS)}>{sideWord}</td>
       <td className={cn(CELL, FROM_MD)}>{figure(trade.entry_price)}</td>
       <td className={cn(CELL, FROM_MD)}>{figure(trade.exit_price)}</td>
-      <td className={cn(CELL, FROM_XL)}>{trade.size === null ? figure(trade.size) : <Masked>{figure(trade.size)}</Masked>}</td>
+      <td className={cn(CELL, FROM_WIDER)}>{trade.size === null ? figure(trade.size) : <Masked>{figure(trade.size)}</Masked>}</td>
       <td className={cn(CELL, FROM_XL)}>
         {fees === null ? unreadable : <Masked>{amountText(fees, currency, locale)}</Masked>}
         {trade.other_fees.map((fee) => (
@@ -121,7 +123,7 @@ function TradeRow({ trade, currency, locale, onOpen }: TradeRowProps) {
       <td className={cn(CELL, ret !== null && !trade.rehearsal && toneClass(ret))}>
         {trade.return === null ? <Absent reason={noValue} /> : ret === null ? unreadable : percentText(ret, locale)}
       </td>
-      <td className={cn(CELL, FROM_XL)}>
+      <td className={cn(CELL, FROM_WIDER)}>
         {trade.capital_at_open === null ? (
           <Absent reason={noValue} />
         ) : capital === null ? (
@@ -130,7 +132,7 @@ function TradeRow({ trade, currency, locale, onOpen }: TradeRowProps) {
           <Masked>{amountText(capital, currency, locale)}</Masked>
         )}
       </td>
-      <td className="border-b border-rule-soft py-2.5">
+      <td className={cn(CELL, "text-right font-sans")}>
         <button
           type="button"
           onClick={(event) => onOpen(trade, event.currentTarget)}
@@ -139,7 +141,7 @@ function TradeRow({ trade, currency, locale, onOpen }: TradeRowProps) {
             side,
             closed: dateTimeText(trade.closed_at, locale),
           })}
-          className="min-h-11 rounded-lg border border-rule px-3 font-sans text-xs text-ink hover:bg-panel-2"
+          className="inline-flex h-[30px] items-center rounded-lg border border-rule-strong bg-panel-2 px-[11px] font-sans text-[13px] font-medium text-ink hover:bg-rule"
         >
           {t("strategies.performance.trades.details")}
         </button>
@@ -158,7 +160,8 @@ function TradeRow({ trade, currency, locale, onOpen }: TradeRowProps) {
  * failed next page leaves the current page on screen and says so; the same
  * button asks again.
  *
- * It shows what `GET /performance/strategies/{id}/trades` serves: twelve columns,
+ * It shows what `GET /performance/strategies/{id}/trades` serves, in a card of its own with the prototype's
+ * compact boxed table (L30): twelve columns,
  * of which the narrower viewports show the first tiers of design § F and leave
  * the rest to the detail view (decision 43).
  */
@@ -193,6 +196,8 @@ function TradesTableView({ strategyId, currency }: TradesTableProps) {
   let body;
   // The keys of the dry-run sentences true of the page on screen; none while there is no page to read.
   let noteKeys: string[] = [];
+  // Every operation the table pages through, from the page on screen; none until a page has been read.
+  let total: number | null = null;
   if (trades.data === undefined && trades.status === "error") {
     body = (
       <div className="flex flex-wrap items-center gap-3">
@@ -216,7 +221,9 @@ function TradesTableView({ strategyId, currency }: TradesTableProps) {
     );
   } else {
     const pages = trades.data.pages;
-    const rows = (pages[pageIndex] ?? pages[0])?.trades ?? [];
+    const shown = pages[pageIndex] ?? pages[0];
+    const rows = shown?.trades ?? [];
+    total = shown?.total ?? null;
     const loadedAhead = pageIndex + 1 < pages.length;
     const canGoNext = loadedAhead || trades.hasNextPage;
     const goNext = async () => {
@@ -231,7 +238,8 @@ function TradesTableView({ strategyId, currency }: TradesTableProps) {
     if (rows.length === 0 && pageIndex === 0) {
       body = <p className="text-sm text-ink-3">{t("strategies.performance.trades.empty")}</p>;
     } else {
-      const header = "border-b border-rule py-2 pr-3 font-medium";
+      const header = cn(TABLE_HEAD, "text-right");
+      const words = cn(TABLE_HEAD, "text-left");
       // Each sentence is true of a row of the page on screen: `rows` is that one page, never the
       // pages visited before, so a sentence goes when the page that made it true is left.
       noteKeys = [
@@ -243,49 +251,50 @@ function TradesTableView({ strategyId, currency }: TradesTableProps) {
       const pnlHint = rows.some((row) => !row.fees_complete) ? t("strategies.performance.trades.feesIncompleteHint") : undefined;
       body = (
         <>
-          <div className="overflow-x-auto">
-            <table aria-labelledby={headingId} className="w-full border-collapse font-mono text-[13px] tabular-nums">
+          <div className={TABLE_BOX}>
+            <table aria-labelledby={headingId} className="w-full border-collapse">
               <thead>
-                <tr className="text-right text-[10px] uppercase tracking-[0.09em] text-ink-3">
-                  <th scope="col" className={cn(header, "text-left", FROM_WIDE)}>
-                    <ColumnHead icon={CalendarPlus} label={t("strategies.performance.trades.opened")} align="start" />
+                <tr>
+                  <th scope="col" className={cn(words, FROM_WIDE)}>
+                    {t("strategies.performance.trades.opened")}
                   </th>
-                  <th scope="col" className={cn(header, "text-left")}>
-                    <ColumnHead icon={CalendarCheck} label={t("strategies.performance.trades.closed")} align="start" />
+                  <th scope="col" className={words}>
+                    {t("strategies.performance.trades.closed")}
                   </th>
-                  <th scope="col" className={cn(header, "text-left")}>
-                    <ColumnHead icon={ArrowLeftRight} label={t("strategies.performance.trades.pair")} align="start" />
+                  <th scope="col" className={words}>
+                    {t("strategies.performance.trades.pair")}
                   </th>
-                  <th scope="col" className={cn(header, "text-left")}>
-                    <ColumnHead icon={ArrowUpDown} label={t("strategies.performance.trades.side")} align="start" />
-                  </th>
-                  <th scope="col" className={cn(header, FROM_MD)}>
-                    <ColumnHead icon={LogIn} label={t("strategies.performance.trades.entry")} />
+                  <th scope="col" className={words}>
+                    {t("strategies.performance.trades.side")}
                   </th>
                   <th scope="col" className={cn(header, FROM_MD)}>
-                    <ColumnHead icon={LogOut} label={t("strategies.performance.trades.exit")} />
+                    {t("strategies.performance.trades.entry")}
+                  </th>
+                  <th scope="col" className={cn(header, FROM_MD)}>
+                    {t("strategies.performance.trades.exit")}
+                  </th>
+                  <th scope="col" className={cn(header, FROM_WIDER)}>
+                    {t("strategies.performance.trades.size")}
                   </th>
                   <th scope="col" className={cn(header, FROM_XL)}>
-                    <ColumnHead icon={Ruler} label={t("strategies.performance.trades.size")} />
-                  </th>
-                  <th scope="col" className={cn(header, FROM_XL)}>
-                    <ColumnHead icon={Receipt} label={t("strategies.performance.trades.fees", { currency })} />
+                    {t("strategies.performance.trades.fees", { currency })}
                   </th>
                   <th scope="col" className={header}>
-                    <ColumnHead icon={Coins} label={t("strategies.performance.trades.pnl", { currency })} hint={pnlHint} />
+                    <HintedHead label={t("strategies.performance.trades.pnl", { currency })} hint={pnlHint} />
                   </th>
                   <th scope="col" className={header}>
-                    <ColumnHead icon={TrendingUp} label={t("strategies.performance.trades.return")} />
+                    {t("strategies.performance.trades.return")}
                   </th>
-                  <th scope="col" className={cn(header, FROM_XL)}>
-                    <ColumnHead icon={Wallet} label={t("strategies.performance.trades.capital")} />
+                  <th scope="col" className={cn(header, FROM_WIDER)}>
+                    {t("strategies.performance.trades.capital")}
                   </th>
-                  <th scope="col" className="border-b border-rule py-2 font-medium">
-                    <ColumnHead icon={FileText} label={t("strategies.performance.trades.details")} />
+                  {/* No title over the buttons, as the open positions draw none over Close now (L31). */}
+                  <th scope="col" className={header}>
+                    <span className="sr-only">{t("strategies.performance.trades.details")}</span>
                   </th>
                 </tr>
               </thead>
-              <tbody className="text-right text-ink-2">
+              <tbody>
                 {rows.map((trade) => (
                   <TradeRow
                     key={trade.allocation_id}
@@ -303,7 +312,7 @@ function TradesTableView({ strategyId, currency }: TradesTableProps) {
               {t("strategies.performance.trades.nextFailed")}
             </p>
           )}
-          <nav aria-label={t("strategies.performance.trades.pagination")} className="flex flex-wrap items-center gap-3">
+          <nav aria-label={t("strategies.performance.trades.pagination")} className="mt-1.5 flex flex-wrap items-center gap-3">
             <button
               type="button"
               disabled={pageIndex === 0}
@@ -330,15 +339,26 @@ function TradesTableView({ strategyId, currency }: TradesTableProps) {
   }
 
   return (
-    <ReportSection>
-      <section aria-labelledby={headingId} className="flex flex-col gap-2">
-        {/* The dry-run sentences wait behind one (i) beside the title, drawn only when a row of the page makes one true. */}
-        <div className="flex items-center gap-1">
-          <h2 id={headingId} className="font-display text-base font-semibold text-ink">
-            {t("strategies.performance.trades.title")}
-          </h2>
-          {noteKeys.length > 0 && <InfoButton disclosure={info} label={t("strategies.performance.trades.notesInfo")} />}
-        </div>
+    <Card
+      title={t("strategies.performance.trades.title")}
+      headingId={headingId}
+      dense
+      // The dry-run sentences wait behind one (i) in the card's header, drawn only when a row of the page makes one
+      // true; beside it the count of operations, as the open positions count theirs (L32).
+      {...(noteKeys.length > 0 || total !== null
+        ? {
+            action: (
+              <div className="flex items-center gap-2">
+                {noteKeys.length > 0 && <InfoButton disclosure={info} label={t("strategies.performance.trades.notesInfo")} />}
+                {total !== null && (
+                  <CountChip testId="trades-count">{t("strategies.performance.trades.count", { count: total })}</CountChip>
+                )}
+              </div>
+            ),
+          }
+        : {})}
+    >
+      <div className="flex flex-col gap-2">
         {noteKeys.length > 0 && (
           <InfoText disclosure={info}>
             {noteKeys.map((key) => (
@@ -349,17 +369,17 @@ function TradesTableView({ strategyId, currency }: TradesTableProps) {
           </InfoText>
         )}
         {body}
-        {open !== null && (
-          <TradeDetailDialog
-            key={open.allocation_id}
-            strategyId={strategyId}
-            trade={open}
-            currency={currency}
-            locale={locale}
-            onClose={() => setOpen(null)}
-          />
-        )}
-      </section>
-    </ReportSection>
+      </div>
+      {open !== null && (
+        <TradeDetailDialog
+          key={open.allocation_id}
+          strategyId={strategyId}
+          trade={open}
+          currency={currency}
+          locale={locale}
+          onClose={() => setOpen(null)}
+        />
+      )}
+    </Card>
   );
 }

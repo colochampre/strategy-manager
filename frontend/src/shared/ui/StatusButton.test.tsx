@@ -191,7 +191,7 @@ describe("StatusButton", () => {
 
     it("takes the tone of the caller: primary for a save, danger for a delete", () => {
       const { rerender } = render(<StatusButton {...props} shown="Save" look="primary" />);
-      expect(classesOf(screen.getByRole("button"))).toContain("bg-gain");
+      expect(classesOf(screen.getByRole("button"))).toEqual(expect.arrayContaining(["border-gain/45", "text-gain-bright"]));
 
       rerender(<StatusButton {...props} shown="Save" look="danger" />);
       expect(classesOf(screen.getByRole("button"))).toContain("border-loss");

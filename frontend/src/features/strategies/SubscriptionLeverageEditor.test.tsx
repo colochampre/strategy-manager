@@ -292,7 +292,7 @@ describe("SubscriptionLeverageEditor", () => {
     const holding = (node: Element) => Array.from(row.children).find((child) => child.contains(node)) as HTMLElement;
     const classes = (element: Element) => element.className.split(/\s+/);
 
-    expect(classes(row)).toEqual(expect.arrayContaining(["flex", "items-start"]));
+    expect(classes(row)).toEqual(expect.arrayContaining(["flex", "items-center"]));
     expect(classes(row)).not.toContain("flex-col");
     expect(row.contains(track())).toBe(false);
     expect(row.children).toHaveLength(2);
@@ -317,7 +317,7 @@ describe("SubscriptionLeverageEditor Save icon (L.8)", () => {
     await ready();
 
     expect(saveButton()).toHaveTextContent("");
-    expect(saveButton().querySelector("svg")).toHaveClass("lucide-save");
+    expect(saveButton().querySelector("svg")).toHaveClass("lucide-check");
     fireEvent.mouseEnter(saveButton().parentElement as HTMLElement);
     expect(screen.getByRole("tooltip")).toHaveTextContent("Save");
   });

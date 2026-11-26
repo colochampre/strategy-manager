@@ -1,11 +1,11 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
-import { Route, Routes } from "react-router";
+import { Link, Route, Routes } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AppRoutes } from "@/app/router";
 import i18n from "@/shared/i18n";
 import en from "@/shared/i18n/locales/en.json";
-import { AppShell } from "@/shared/layout/AppShell";
+import { AppShell, useWideMain } from "@/shared/layout/AppShell";
 import { booking, confirmedBody, discrepancy, lock, pool, renderAt, stubApi, unlock } from "@/test/harness";
 import type { ConfirmedStub } from "@/test/harness";
 
@@ -18,6 +18,17 @@ function renderShell(path = "/") {
       </Route>
     </Routes>,
     path,
+  );
+}
+
+/** A page that has an aside, as the two strategy pages do: it asks for the wider column. */
+function AsidePage() {
+  useWideMain();
+  return (
+    <>
+      <p>aside page</p>
+      <Link to="/">leave</Link>
+    </>
   );
 }
 
@@ -165,6 +176,61 @@ describe("layout contract", () => {
     expect(column).toHaveClass("mx-auto", "w-full", "max-w-[1100px]");
     // It fills `main` (so the token gate still fills it) and is a flex column.
     expect(column).toHaveClass("flex", "flex-1", "flex-col");
+  });
+
+  it("lets a page with an aside widen the column, and puts the 1100 px cap back when it is left (L26)", async () => {
+    renderAt(
+      <Routes>
+        <Route element={<AppShell />}>
+          <Route index element={<p>page body</p>} />
+          <Route path="aside" element={<AsidePage />} />
+        </Route>
+      </Routes>,
+      "/aside",
+    );
+
+    const column = () => screen.getByRole("main").firstElementChild as HTMLElement;
+    await screen.findByText("aside page");
+    expect(column()).toHaveClass("mx-auto", "w-full", "max-w-[1400px]", "flex-1");
+    expect(column()).not.toHaveClass("max-w-[1100px]");
+
+    fireEvent.click(screen.getByRole("link", { name: "leave" }));
+    await screen.findByText("page body");
+    expect(column()).toHaveClass("max-w-[1100px]");
+    expect(column()).not.toHaveClass("max-w-[1400px]");
+  });
+
+  it.each(["/strategies/11111111-1111-4111-8111-111111111111", "/strategies/explore/11111111-1111-4111-8111-111111111111"])(
+    "gives the strategy page %s, which has an aside, the wider column from its first render (L26)",
+    async (path) => {
+      stubApi({ kind: "ok", body: { status: "ok", dry_run: true } });
+      renderAt(<AppRoutes />, path);
+
+      const column = screen.getByRole("main").firstElementChild as HTMLElement;
+      await waitFor(() => expect(column).toHaveClass("max-w-[1400px]"));
+      expect(column).not.toHaveClass("max-w-[1100px]");
+    },
+  );
+
+  it.each(["/", "/strategies/authored", "/strategies/explore", "/settings"])(
+    "keeps %s, which has no aside, at 1100 px (L26)",
+    async (path) => {
+      stubApi({ kind: "ok", body: { status: "ok", dry_run: true } });
+      renderAt(<AppRoutes />, path);
+
+      const column = screen.getByRole("main").firstElementChild as HTMLElement;
+      await screen.findByRole("heading", { level: 1 });
+      expect(column).toHaveClass("max-w-[1100px]");
+      expect(column).not.toHaveClass("max-w-[1400px]");
+    },
+  );
+
+  it("keeps the 1100 px cap on a page that has no aside", () => {
+    renderShell();
+
+    const column = screen.getByRole("main").firstElementChild as HTMLElement;
+    expect(column).toHaveClass("max-w-[1100px]");
+    expect(column).not.toHaveClass("max-w-[1400px]");
   });
 
   it("test_the_content_column_grows_with_its_content_so_the_bottom_padding_sits_below_the_last_row", () => {

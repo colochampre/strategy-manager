@@ -138,17 +138,90 @@ describe("the Strategies group of the sidebar, which replaces the tabs", () => {
   });
 });
 
-describe("a card of My subscriptions shows what Explore shows", () => {
-  it("names the strategy, its author on one line and its market on the next", async () => {
+/** The table of S15 (ex14): the same facts the card drew, as columns and a dot. */
+const subscriptionsTable = () => screen.findByRole("table", { name: i18n.t("strategies.table.title.subscriptions") });
+
+describe("My subscriptions as a table, with what Explore shows", () => {
+  it("is one table in a card with its title and count, the columns of the prototype and no column of open positions (S15)", async () => {
+    serve({ held: () => Promise.resolve(jsonResponse([heldSubscription()])) });
+    open();
+
+    const table = await subscriptionsTable();
+    expect(screen.getByTestId("subscriptions-count")).toHaveTextContent("1 subscription");
+    expect(within(table).getAllByRole("columnheader").map((head) => head.textContent)).toEqual([
+      "Strategy",
+      "Author",
+      "Exchange",
+      "Since",
+      "PnL (USDT)",
+      "PnL (%)",
+      "Max drawdown",
+      "Win rate",
+      "Subs.",
+      "AuM (USDT)",
+      "Pool / Lev.",
+    ]);
+    expect(within(table).getAllByRole("row")).toHaveLength(2);
+    expect(screen.getByTestId("subscription-row").tagName).toBe("TR");
+  });
+
+  it("writes its cells at 13 px under 12.5 px headings, as the strategy page's tables, keeping 8 px sides to fit (L34)", async () => {
+    serve({ held: () => Promise.resolve(jsonResponse([heldSubscription()])) });
+    open();
+
+    const table = await subscriptionsTable();
+    for (const head of within(table).getAllByRole("columnheader")) expect(head).toHaveClass("text-[12.5px]", "px-2");
+    for (const cell of within(screen.getByTestId("subscription-row")).getAllByRole("cell")) {
+      expect(cell).toHaveClass("text-[13px]", "py-[11px]", "px-2");
+    }
+  });
+
+  it("keeps the search and the sort above the table in one card, with no exchange buttons of its own", async () => {
+    serve({ held: () => Promise.resolve(jsonResponse([heldSubscription()])) });
+    open();
+    await subscriptionsTable();
+
+    const card = screen.getByTestId("list-toolbar").closest("section") as HTMLElement;
+    expect(within(card).getByRole("searchbox")).toBeInTheDocument();
+    expect(within(card).getByRole("group", { name: i18n.t("strategies.sort.label") })).toBeInTheDocument();
+    expect(within(card).queryByRole("table")).toBeNull();
+  });
+
+  it("starts the record columns at the start and ends Subs., AuM and Pool / Lev. at the end (L23)", async () => {
+    serve({ held: () => Promise.resolve(jsonResponse([heldSubscription()])) });
+    open();
+
+    const table = await subscriptionsTable();
+    const heads = within(table).getAllByRole("columnheader");
+    const cells = within(screen.getByTestId("subscription-row")).getAllByRole("cell");
+    for (const index of [4, 5, 6, 7]) {
+      expect(heads[index], `head ${index}`).toHaveClass("text-left");
+      expect(cells[index], `cell ${index}`).toHaveClass("text-left");
+    }
+    for (const index of [8, 9, 10]) {
+      expect(heads[index], `head ${index}`).toHaveClass("text-right");
+      expect(cells[index], `cell ${index}`).toHaveClass("text-right");
+    }
+  });
+
+  it("names the strategy as a link to the public page, its author in a column of their own", async () => {
     serve({ held: () => Promise.resolve(jsonResponse([heldSubscription()])) });
     open();
 
     const row = await screen.findByTestId("subscription-row");
+    expect(within(row).getAllByRole("link")).toHaveLength(1);
     expect(within(row).getByRole("link", { name: "Alpha" })).toHaveAttribute("href", `/strategies/explore/${STRATEGY_ID}`);
-    expect(within(row).getByTestId("subscription-origin")).toHaveTextContent(
-      new RegExp(`^${i18n.t("strategies.subscriptions.by", { name: "Ana" })}$`),
-    );
-    expect(within(row).getByTestId("subscription-market")).toHaveTextContent(/^bybit · usdt-m · USDT/);
+    expect(within(row).getByTestId("subscription-origin").textContent).toBe("Ana");
+  });
+
+  it("names the exchange, the market and the currency in its tooltip", async () => {
+    serve({ held: () => Promise.resolve(jsonResponse([heldSubscription()])) });
+    open();
+
+    const exchange = await screen.findByTestId("subscription-exchange");
+    expect(exchange.textContent).toBe("Bybit");
+    fireEvent.mouseEnter(exchange.parentElement as HTMLElement);
+    expect(within(screen.getByTestId("subscription-row")).getByRole("tooltip")).toHaveTextContent("Bybit · USDT-M · USDT");
   });
 
   it("draws the reader's own record in the strategy, and its live subscribers and capital from the public list (owner, 2026-11-17)", async () => {
@@ -158,22 +231,22 @@ describe("a card of My subscriptions shows what Explore shows", () => {
     const row = await screen.findByTestId("subscription-row");
     // The reader's report: +2 % over all time, never below its peak, no pair closed. The public record's +12.5 %, its
     // 5 % fall and its 60 % win rate are the strategy's, not the reader's, and are not drawn.
-    await waitFor(() => expect(within(row).getByTestId("subscription-return")).toHaveTextContent(/^\+2\.0\s?%$/));
-    expect(within(row).getByTestId("subscription-deepest")).toHaveTextContent(/^0\.0\s?%$/);
+    await waitFor(() => expect(within(row).getByTestId("subscription-return")).toHaveTextContent(/^\+2\.0%$/));
+    expect(within(row).getByTestId("subscription-deepest")).toHaveTextContent(/^0\.0%$/);
     expect(within(row).getByTestId("subscription-winrate")).toHaveTextContent(/^—$/);
     expect(within(row).getByTestId("subscription-subscribers")).toHaveTextContent(/^2$/);
-    expect(within(row).getByTestId("subscription-capital")).toHaveTextContent(/^1,500.00USDT$/);
+    expect(within(row).getByTestId("subscription-capital").textContent).toBe("1,500.00");
   });
 
-  it("draws the reader's own PnL in the strategy, all time, before their return under Total PnL", async () => {
+  it("draws the reader's own PnL in the strategy, all time, in the pool's currency, with the percentage beside it", async () => {
     serve({ held: () => Promise.resolve(jsonResponse([heldSubscription()])) });
     open();
 
     const row = await screen.findByTestId("subscription-row");
-    await waitFor(() => expect(within(row).getByTestId("subscription-pnl")).toHaveTextContent(/^\+41\.25USDT$/));
-    const group = within(row).getByTestId("subscription-group-pnl");
-    const values = Array.from((group.querySelector("dd") as HTMLElement).children).map((value) => value.getAttribute("data-testid"));
-    expect(values).toEqual(["subscription-pnl", "subscription-return"]);
+    await waitFor(() => expect(within(row).getByTestId("subscription-pnl").textContent).toBe("+41.25"));
+    const cells = within(row).getAllByRole("cell");
+    expect(cells[4]).toContainElement(within(row).getByTestId("subscription-pnl"));
+    expect(cells[5]).toContainElement(within(row).getByTestId("subscription-return"));
   });
 
   it("draws a dash for a PnL with no report of the reader's (L.11)", async () => {
@@ -215,75 +288,19 @@ describe("a card of My subscriptions shows what Explore shows", () => {
     }
   });
 
-  it("says whether the strategy runs, from the seat itself, and no longer counts the days active", async () => {
-    serve({
-      held: () =>
-        Promise.resolve(
-          jsonResponse([
-            heldSubscription({
-              strategy_enabled: false,
-              strategy_uptime: { seconds: 3 * 86_400, first_enabled_at: "2026-09-29T00:00:00Z", baseline: true },
-            }),
-          ]),
-        ),
-      publics: () => Promise.resolve(jsonResponse([])),
-    });
-    open();
-
-    const row = await screen.findByTestId("subscription-row");
-    expect(within(row).getByTestId("subscription-enabled")).toHaveAccessibleName(i18n.t("strategies.detail.disabled"));
-    expect(within(row).queryByTestId("subscription-uptime")).not.toBeInTheDocument();
-  });
-
-  it("says a seat is paused when its author is suspended, in both locales", async () => {
-    serve({ held: () => Promise.resolve(jsonResponse([heldSubscription({ author_suspended: true })])) });
-    open();
-
-    const row = await screen.findByTestId("subscription-row");
-    expect(row).toHaveTextContent("Paused: its author's account is suspended. It opens nothing new; your open positions still close.");
-  });
-
-  it("says the same in Spanish", async () => {
-    await i18n.changeLanguage("es");
-    serve({ held: () => Promise.resolve(jsonResponse([heldSubscription({ author_suspended: true })])) });
-    open();
-
-    const row = await screen.findByTestId("subscription-row");
-    expect(row).toHaveTextContent("En pausa: la cuenta de su autor está suspendida.");
-  });
-
-  it("says nothing of a pause while the author is not suspended", async () => {
-    serve({ held: () => Promise.resolve(jsonResponse([heldSubscription()])) });
-    open();
-
-    const row = await screen.findByTestId("subscription-row");
-    expect(row).not.toHaveTextContent("Paused");
-  });
-
-  it("opens the strategy from anywhere on the card, through the one link", async () => {
-    serve({ held: () => Promise.resolve(jsonResponse([heldSubscription()])) });
-    open();
-
-    const row = await screen.findByTestId("subscription-row");
-    expect(row).toHaveClass("relative");
-    expect(within(row).getAllByRole("link")).toHaveLength(1);
-    expect(within(row).getByRole("link", { name: "Alpha" })).toHaveClass("after:absolute", "after:inset-0");
-  });
-
-  it("dates the seat from the day the reader subscribed, not from the strategy's creation", async () => {
+  it("dates the seat from the day the reader subscribed, not from the strategy's creation, the whole period in the tooltip", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-11-06T12:00:00Z"));
     serve({ held: () => Promise.resolve(jsonResponse([heldSubscription({ created_at: "2026-10-27T10:00:00Z" })])) });
     open();
 
-    const age = await screen.findByTestId("subscription-age");
-    expect(age).toHaveTextContent(/^Oct 27, 2026 – Nov 6, 2026$/);
-    const market = screen.getByTestId("subscription-market");
-    expect(market).toContainElement(age);
-    expect(within(market).getByRole("img", { name: "Time subscribed" })).toBeInTheDocument();
+    const since = await screen.findByTestId("subscription-age");
+    expect(since).toHaveTextContent(/^Oct 27, 2026$/);
+    fireEvent.mouseEnter(since.parentElement as HTMLElement);
+    expect(within(screen.getByTestId("subscription-row")).getByRole("tooltip")).toHaveTextContent("Oct 27, 2026 – Nov 6, 2026");
   });
 
-  it("adds the share of the pool and the leverage under Settings, each beside its icon, the share in plain form", async () => {
+  it("adds the share of the pool and the leverage in the last column, the share in plain form", async () => {
     serve({
       held: () => Promise.resolve(jsonResponse([heldSubscription({ allocation_percent: "30.000000", leverage: 4 })])),
     });
@@ -291,20 +308,12 @@ describe("a card of My subscriptions shows what Explore shows", () => {
 
     const share = await screen.findByTestId("subscription-share");
     expect(share).toHaveTextContent(/^30%$/);
-    expect(
-      within(share.parentElement as HTMLElement).getByRole("img", { name: "Share" }),
-    ).toBeInTheDocument();
     const leverage = screen.getByTestId("subscription-leverage");
     expect(leverage).toHaveTextContent(/^x4$/);
-    expect(
-      within(leverage.parentElement as HTMLElement).getByRole("img", { name: "Leverage" }),
-    ).toBeInTheDocument();
-    // They come last, in their own group after the four every card draws.
-    const groups = Array.from(((await screen.findByTestId("subscription-row")).querySelector("dl") as HTMLElement).children);
-    const setup = groups.at(-1) as HTMLElement;
-    expect(setup).toHaveAttribute("data-testid", "subscription-group-setup");
-    expect(setup).toContainElement(share);
-    expect(setup).toContainElement(leverage);
+    const last = within(screen.getByTestId("subscription-row")).getAllByRole("cell").at(-1) as HTMLElement;
+    expect(last).toContainElement(share);
+    expect(last).toContainElement(leverage);
+    expect(last).toHaveTextContent(/^30% · x4$/);
   });
 
   it("offers no Leave, nor any other button: the seat is managed on the strategy's page", async () => {
@@ -326,7 +335,7 @@ describe("a card of My subscriptions shows what Explore shows", () => {
     expect(await screen.findByTestId("subscription-share")).toBeInTheDocument();
     expect(screen.getByTestId("subscription-age")).toBeInTheDocument();
     await waitFor(() => expect(screen.getByTestId("subscription-subscribers")).toHaveTextContent(/^—$/));
-    await waitFor(() => expect(screen.getByTestId("subscription-pnl")).toHaveTextContent(/^\+41\.25USDT$/));
+    await waitFor(() => expect(screen.getByTestId("subscription-pnl").textContent).toBe("+41.25"));
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
@@ -351,7 +360,7 @@ describe("a card of My subscriptions shows what Explore shows", () => {
     );
   });
 
-  it("sends an author to their own page", async () => {
+  it("sends an author to their own page, and says the strategy is theirs", async () => {
     serve({ held: () => Promise.resolve(jsonResponse([heldSubscription({ authored: true, leverage: 2 })])) });
     open();
 
@@ -361,12 +370,108 @@ describe("a card of My subscriptions shows what Explore shows", () => {
     expect(within(row).getByTestId("subscription-leverage")).toHaveTextContent(/^x2$/);
   });
 
-  it("tells a leaving subscription apart", async () => {
-    serve({ held: () => Promise.resolve(jsonResponse([heldSubscription({ status: "LEAVING" })])) });
+  it("keeps each figure in the seat's own currency, so a list that mixes them writes the unit in the cell (rule 7)", async () => {
+    serve({
+      held: () =>
+        Promise.resolve(
+          jsonResponse([
+            heldSubscription(),
+            heldSubscription({
+              id: "h-coin",
+              strategy_id: "55555555-5555-4555-8555-555555555555",
+              strategy_name: "Coin",
+              settlement_currency: "BTC",
+            }),
+          ]),
+        ),
+      publics: () => Promise.resolve(jsonResponse([])),
+    });
+    open();
+
+    const table = await subscriptionsTable();
+    const heads = within(table).getAllByRole("columnheader").map((head) => head.textContent);
+    expect(heads).toContain("PnL");
+    expect(heads).toContain("AuM");
+    await waitFor(() => expect(screen.getAllByTestId("subscription-pnl")[0]).toHaveTextContent(/USDT$/));
+  });
+});
+
+describe("the dot beside a seat's name says its state, the full notice in its tooltip (S15)", () => {
+  const dotOf = async () => within(await screen.findByTestId("subscription-row")).getByTestId("subscription-enabled");
+
+  it("is gain for a strategy that runs", async () => {
+    serve({ held: () => Promise.resolve(jsonResponse([heldSubscription()])) });
+    open();
+
+    const dot = await dotOf();
+    expect(dot).toHaveAccessibleName(i18n.t("strategies.detail.enabled"));
+    expect(dot).toHaveClass("bg-gain");
+  });
+
+  it("is grey for a strategy that is off, from the seat itself, and no longer counts the days active", async () => {
+    serve({
+      held: () =>
+        Promise.resolve(
+          jsonResponse([
+            heldSubscription({
+              strategy_enabled: false,
+              strategy_uptime: { seconds: 3 * 86_400, first_enabled_at: "2026-09-29T00:00:00Z", baseline: true },
+            }),
+          ]),
+        ),
+      publics: () => Promise.resolve(jsonResponse([])),
+    });
+    open();
+
+    const dot = await dotOf();
+    expect(dot).toHaveAccessibleName(i18n.t("strategies.detail.disabled"));
+    expect(dot).toHaveClass("bg-ink-3");
+    expect(within(screen.getByTestId("subscription-row")).queryByTestId("subscription-uptime")).not.toBeInTheDocument();
+  });
+
+  it("is amber when the author is suspended, and the tooltip says the seat is paused", async () => {
+    serve({ held: () => Promise.resolve(jsonResponse([heldSubscription({ author_suspended: true })])) });
+    open();
+
+    const dot = await dotOf();
+    expect(dot).toHaveClass("bg-decision");
+    expect(dot).toHaveAccessibleName(
+      "Paused: its author's account is suspended. It opens nothing new; your open positions still close.",
+    );
+    fireEvent.mouseEnter(dot.parentElement as HTMLElement);
+    expect(within(screen.getByTestId("subscription-row")).getByRole("tooltip")).toHaveTextContent(
+      "Paused: its author's account is suspended. It opens nothing new; your open positions still close.",
+    );
+  });
+
+  it("says the same in Spanish", async () => {
+    await i18n.changeLanguage("es");
+    serve({ held: () => Promise.resolve(jsonResponse([heldSubscription({ author_suspended: true })])) });
+    open();
+
+    const dot = await dotOf();
+    expect(dot).toHaveAccessibleName(i18n.t("strategies.subscriptions.paused"));
+    expect(i18n.t("strategies.subscriptions.paused")).toContain("En pausa: la cuenta de su autor está suspendida.");
+  });
+
+  it("says nothing of a pause while the author is not suspended", async () => {
+    serve({ held: () => Promise.resolve(jsonResponse([heldSubscription()])) });
     open();
 
     const row = await screen.findByTestId("subscription-row");
-    expect(within(row).getByText(i18n.t("strategies.subscriptions.leaving"))).toBeInTheDocument();
+    expect(row).not.toHaveTextContent("Paused");
+    expect(within(row).getByTestId("subscription-enabled")).not.toHaveClass("bg-decision");
+  });
+
+  it("is grey for a leaving subscription, and the tooltip says it is leaving, before any pause", async () => {
+    serve({
+      held: () => Promise.resolve(jsonResponse([heldSubscription({ status: "LEAVING", author_suspended: true })])),
+    });
+    open();
+
+    const dot = await dotOf();
+    expect(dot).toHaveClass("bg-ink-3");
+    expect(dot).toHaveAccessibleName(i18n.t("strategies.subscriptions.leaving"));
   });
 
   it("says nothing of leaving on a subscription that is not leaving", async () => {
@@ -374,12 +479,12 @@ describe("a card of My subscriptions shows what Explore shows", () => {
     open();
 
     await screen.findByTestId("subscription-row");
-    expect(screen.queryByText(i18n.t("strategies.subscriptions.leaving"))).not.toBeInTheDocument();
+    expect(screen.queryByRole("img", { name: i18n.t("strategies.subscriptions.leaving") })).not.toBeInTheDocument();
   });
 });
 
-describe("the reader's own open positions on a card (L.4)", () => {
-  it("shows the positions and orders the reader's seat holds, as My strategies shows the author's", async () => {
+describe("the open positions are not on the list (RD.7c, L21)", () => {
+  it("draws none of the reader's positions and orders in the row, whatever the seat holds", async () => {
     serve({
       held: () => Promise.resolve(jsonResponse([heldSubscription()])),
       open: openState(
@@ -390,33 +495,9 @@ describe("the reader's own open positions on a card (L.4)", () => {
     open();
 
     const row = await screen.findByTestId("subscription-row");
-    const marks = await within(row).findByRole("list", { name: i18n.t("positions.marks.name", { name: "Alpha" }) });
-    expect(within(marks).getAllByRole("listitem").map((item) => item.textContent)).toEqual([
-      "AAVEUSDT · LONG · Live",
-      expect.stringContaining("SOLUSDT"),
-    ]);
-    expect(marks.parentElement).toHaveClass("relative", "z-10");
-  });
-
-  it("shows none of a position that belongs to another strategy", async () => {
-    serve({
-      held: () => Promise.resolve(jsonResponse([heldSubscription()])),
-      open: openState([openPosition({ strategy_id: "99999999-9999-4999-8999-999999999999", markets: ["AAVEUSDT"] })]),
-    });
-    open();
-
-    const row = await screen.findByTestId("subscription-row");
-    await waitFor(() => expect(within(row).queryByText(i18n.t("positions.state.loading"))).not.toBeInTheDocument());
+    await waitFor(() => expect(within(row).getByTestId("subscription-subscribers")).toHaveTextContent(/^2$/));
     expect(within(row).queryByRole("list")).not.toBeInTheDocument();
-  });
-
-  it("shows no chip for a strategy that holds nothing of the reader's", async () => {
-    serve({ held: () => Promise.resolve(jsonResponse([heldSubscription()])), open: openState() });
-    open();
-
-    const row = await screen.findByTestId("subscription-row");
-    await waitFor(() => expect(within(row).queryByText(i18n.t("positions.state.loading"))).not.toBeInTheDocument());
-    expect(within(row).queryByRole("list")).not.toBeInTheDocument();
+    expect(row.textContent).not.toContain("AAVEUSDT");
   });
 });
 

@@ -4,7 +4,6 @@ import { Link, useParams, useSearchParams } from "react-router";
 
 import { entryRefusal } from "@/features/strategies/entry-refusal";
 import { EnabledBadge } from "@/features/strategies/StrategyCard";
-import { PublicDescription } from "@/features/strategies/StrategyDescription";
 import { STRATEGY_TITLE, StrategyCrumbs, StrategyPageHeader } from "@/features/strategies/StrategyPageHeader";
 import { StrategyReportViews } from "@/features/strategies/StrategyReportViews";
 import { SubscribePanel } from "@/features/strategies/SubscribePanel";
@@ -12,6 +11,7 @@ import { ApiError } from "@/shared/api/client";
 import { type Entry, EntryProvider } from "@/shared/api/entry";
 import { usePublicStrategy } from "@/shared/api/public-strategies";
 import type { PublicStrategy } from "@/shared/api/types";
+import { useWideMain } from "@/shared/layout/AppShell";
 
 function BackToExplore() {
   const { t } = useTranslation();
@@ -35,7 +35,7 @@ function PublicRecord({ strategy }: { strategy: PublicStrategy }) {
   return (
     <StrategyCrumbs value={crumbs}>
       <div className="grid gap-9 lg:grid-cols-[minmax(0,1fr)_25rem]">
-        {/* Blocks 4 apart, as on every view; the header, the description and Performance as the own page draws them. */}
+        {/* Blocks 4 apart, as on every view; the header, then the header card (the description and the figures) and Performance, as the own page draws them. */}
         <div className="flex min-w-0 flex-col gap-4">
           <StrategyPageHeader
             prefix="public"
@@ -46,7 +46,6 @@ function PublicRecord({ strategy }: { strategy: PublicStrategy }) {
             market={`${strategy.exchange} · ${strategy.venue} · ${strategy.settlement_currency}`}
             since={strategy.created_at}
           />
-          <PublicDescription text={strategy.description} />
           <StrategyReportViews strategy={strategy} />
         </div>
         <SubscribePanel strategy={strategy} />
@@ -65,6 +64,8 @@ function PublicRecord({ strategy }: { strategy: PublicStrategy }) {
  * its old data, and drawing that data would offer a Subscribe the API refuses.
  */
 export function PublicStrategyPage() {
+  // The page has an aside, so its main may grow wider (L26).
+  useWideMain();
   const [search] = useSearchParams();
   const entry = useMemo(() => entryOf(search), [search]);
   return (

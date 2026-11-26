@@ -71,6 +71,16 @@ describe("the confirmation comes first", () => {
     expect(calls).toEqual([]);
   });
 
+  it("wraps its text and starts each line at the beginning, whatever the right-aligned nowrap cell around it sets (L35)", async () => {
+    stubFetch();
+    mount();
+
+    fireEvent.click(screen.getByRole("button", { name: "Close now" }));
+    await settle();
+
+    expect(screen.getByRole("dialog")).toHaveClass("w-[calc(100%-2rem)]", "max-w-lg", "whitespace-normal", "break-words", "text-left");
+  });
+
   it("sends nothing when cancelled, and the dialog goes", async () => {
     const calls = stubFetch();
     mount();

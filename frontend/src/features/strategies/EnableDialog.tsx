@@ -6,6 +6,7 @@ import { OpenPositionReasonList, openPositionReasons } from "@/features/strategi
 import { ApiError } from "@/shared/api/client";
 import { useSetStrategyEnabled } from "@/shared/api/strategies";
 import type { Strategy } from "@/shared/api/types";
+import { GAIN_OUTLINE } from "@/shared/ui/button-styles";
 
 interface EnableDialogProps {
   name: string;
@@ -61,7 +62,7 @@ function EnableDialog({ name, enabling, pending, error, onConfirm, onCancel }: E
       aria-labelledby={titleId}
       onKeyDown={handleKeyDown}
       onCancel={handleCancelEvent}
-      className="fixed inset-0 m-auto w-full max-w-lg rounded-lg border border-rule bg-panel p-0 text-ink backdrop:bg-ground/80"
+      className="fixed inset-0 m-auto w-[calc(100%-2rem)] max-w-lg rounded-lg whitespace-normal break-words text-left border border-rule bg-panel p-0 text-ink backdrop:bg-ground/80"
     >
       <div className="flex flex-col gap-4 p-6">
         <h2 id={titleId} className="text-sm font-semibold text-ink">
@@ -95,7 +96,7 @@ function EnableDialog({ name, enabling, pending, error, onConfirm, onCancel }: E
             type="button"
             onClick={onConfirm}
             disabled={pending}
-            className="inline-flex min-h-11 items-center gap-1.5 rounded-lg bg-gain px-3 text-sm font-medium text-ground hover:opacity-90 disabled:opacity-50"
+            className={`inline-flex min-h-11 items-center gap-1.5 rounded-lg px-3 text-sm ${GAIN_OUTLINE} disabled:opacity-50`}
           >
             <Icon aria-hidden="true" className="size-4 shrink-0" />
             {pending

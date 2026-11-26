@@ -445,7 +445,7 @@ export function strategyRoute(id: string, name: string, overrides: Record<string
   };
   return (url) => {
     if (url.includes(`/performance/strategies/${id}/trades`)) {
-      return Promise.resolve(jsonResponse({ trades: [], next_cursor: null }));
+      return Promise.resolve(jsonResponse({ trades: [], next_cursor: null, total: 0 }));
     }
     if (url.endsWith(`/performance/strategies/${id}`)) {
       return Promise.resolve(

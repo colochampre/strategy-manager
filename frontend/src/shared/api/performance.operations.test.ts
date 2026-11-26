@@ -43,7 +43,7 @@ function trade(overrides: Partial<StrategyTrade> = {}): StrategyTrade {
 }
 
 function page(row: unknown) {
-  return { trades: [row], next_cursor: null };
+  return { trades: [row], next_cursor: null, total: 1 };
 }
 
 const CURSOR = {
@@ -137,7 +137,7 @@ describe("a page of the trades list under decision 43", () => {
   });
 
   it("sends include_rehearsal=true on the first page and on every later page, with the limit and the cursor", async () => {
-    const fetchMock = respond(200, { trades: [], next_cursor: null });
+    const fetchMock = respond(200, { trades: [], next_cursor: null, total: 0 });
 
     await fetchStrategyTrades(ID, null);
     await fetchStrategyTrades(ID, CURSOR);

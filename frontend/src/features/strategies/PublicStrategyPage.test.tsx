@@ -2,6 +2,7 @@ import { act, fireEvent, screen, waitFor, within } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AppRoutes } from "@/app/router";
+import { useHiddenStore } from "@/shared/hidden/hidden-store";
 import i18n from "@/shared/i18n";
 import { DANGER_CONTROL } from "@/shared/ui/danger-control";
 import {
@@ -32,9 +33,11 @@ interface Serve {
   leave?: () => Promise<Response>;
   preview?: Record<string, unknown> | ((url: string) => Record<string, unknown>);
   record?: () => Promise<Response>;
+  /** The reader's own report. */
+  performance?: () => Promise<Response>;
 }
 
-function serve({ strategy, held, pools, me, subscribe, leave, preview, record }: Serve = {}) {
+function serve({ strategy, held, pools, me, subscribe, leave, preview, record, performance }: Serve = {}) {
   return stubApi({ kind: "ok", body: {} }, [], pools ?? { kind: "ok", body: [pool("bybit")] }, {}, (url, init) => {
     if (url.endsWith(`/api/public/strategies/${ID}`)) {
       return strategy?.() ?? Promise.resolve(jsonResponse(publicStrategy({ id: ID })));
@@ -43,6 +46,7 @@ function serve({ strategy, held, pools, me, subscribe, leave, preview, record }:
       return record?.() ?? Promise.resolve(jsonResponse(publicRecord()));
     }
     if (url.includes(`/api/performance/strategies/${ID}`)) {
+      if (performance !== undefined) return performance();
       return Promise.resolve(jsonResponse({ ...emptyPerformance("bybit", "usdt-m", "USDT"), strategy_id: ID, by_pair: [] }));
     }
     if (url.endsWith("/api/subscriptions/held")) return held?.() ?? Promise.resolve(jsonResponse([]));
@@ -159,7 +163,8 @@ describe("the public page", () => {
       expect(grid.className).toContain("lg:grid-cols-[minmax(0,1fr)_25rem]");
       expect(column).not.toBe(aside);
       expect(column).toContainElement(screen.getByRole("heading", { level: 1, name: "Alpha" }));
-      expect(column).toContainElement(await screen.findByRole("heading", { name: "Performance" }));
+      // The card is redrawn once the reads settle, so the title is looked up again until the column holds it.
+      await waitFor(() => expect(column).toContainElement(screen.getByRole("heading", { name: "Performance" })));
       expect(aside).not.toContainElement(screen.getByTestId("public-return"));
       // Stacked on a phone, the aside comes last, as on an own strategy.
       expect(column.compareDocumentPosition(aside) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -241,13 +246,12 @@ describe("the public page", () => {
     expect(section.querySelector("p")).toHaveClass("whitespace-pre-line", "break-words");
   });
 
-  it("draws the figures under Performance grouped as the cards: Total PnL, Max drawdown, Profitable trades, AuM (owner, 2026-11-17)", async () => {
+  it("draws the figures in the header card, in the cards' order: Total PnL, Max drawdown, Win rate, AuM (owner, 2026-11-17; S14)", async () => {
     serve();
     open();
 
     const line = await screen.findByTestId("record-line");
-    const performance = screen.getByRole("region", { name: i18n.t("strategies.report.title") });
-    expect(performance).toContainElement(line);
+    expect(screen.getByTestId("strategy-header-card")).toContainElement(line);
     const groups = [...line.children].map((group) => group.getAttribute("data-testid"));
     expect(groups).toEqual(["public-group-pnl", "public-group-drawdown", "public-group-profitable", "public-group-aum"]);
     // The return and the fall follow the chart's range, read from the record (30D by default), the sign joined.
@@ -256,16 +260,98 @@ describe("the public page", () => {
     // No PnL in a record, which holds no money; the rate and the wins out of the closed trades: 60 % of 3.
     expect(within(line).queryByTestId("public-pnl")).not.toBeInTheDocument();
     expect(within(line).getByTestId("public-winrate")).toHaveTextContent(/^60%$/);
-    expect(within(line).getByTestId("public-wins")).toHaveTextContent(/^2\/3$/);
+    expect(within(line).getByTestId("public-wins")).toHaveTextContent(/^2\/3 trades$/);
     expect(within(line).getByTestId("public-subscribers")).toHaveTextContent(/^2$/);
-    expect(within(line).getByTestId("public-capital")).toHaveTextContent(/^1,500\.00USDT$/);
+    expect(within(line).getByTestId("public-capital")).toHaveTextContent(/^1,500\.00$/);
     // The age and the days active are not figures any more: the dates are on the market line.
     expect(screen.queryByTestId("public-uptime")).not.toBeInTheDocument();
     expect(screen.queryByTestId("public-trades")).not.toBeInTheDocument();
     // The return and the capital each keep one (i), on that row.
-    expect(within(line).getAllByRole("button", { name: i18n.t("strategies.public.returnInfo") })).toHaveLength(1);
-    expect(within(line).getAllByRole("button", { name: i18n.t("strategies.public.capitalInfo") })).toHaveLength(1);
+    expect(within(line).getAllByRole("img", { name: i18n.t("strategies.public.returnInfo") })).toHaveLength(1);
+    expect(within(line).getAllByRole("img", { name: i18n.t("strategies.public.capitalInfo") })).toHaveLength(1);
     expect(screen.getAllByTestId("public-return")).toHaveLength(1);
+  });
+
+  it("holds the description and the figure row in one card before Performance, which keeps only the selector and the chart (S14)", async () => {
+    serve({ strategy: () => Promise.resolve(jsonResponse(publicStrategy({ id: ID, description: "Trend follower." }))) });
+    open();
+
+    const card = await screen.findByTestId("strategy-header-card");
+    const line = await within(card).findByTestId("record-line");
+    expect(within(card).getByTestId("public-description")).toHaveTextContent("Trend follower.");
+    expect(
+      within(card).getByTestId("public-description").compareDocumentPosition(line) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    await screen.findByTestId("return-curve");
+    const performance = screen.getByRole("region", { name: i18n.t("strategies.report.title") });
+    expect(card.compareDocumentPosition(performance) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(performance).not.toContainElement(line);
+    expect(within(performance).getByRole("button", { name: "30D" })).toBeInTheDocument();
+    // The title is the chart card's own, and it replaces the old chart title, which is gone (L26).
+    expect(within(performance).getByRole("heading", { level: 2, name: "Performance" })).toBeInTheDocument();
+    expect(within(performance).queryByText(i18n.t("strategies.report.recordChartTitle"))).toBeNull();
+    expect(screen.getAllByRole("heading", { level: 2, name: "Performance" })).toHaveLength(1);
+  });
+
+  it("leads the record's PnL with its return, wins out of trades and AuM with its currency and its subscribers (ex11)", async () => {
+    serve();
+    open();
+
+    const line = await screen.findByTestId("record-line");
+    await waitFor(() => expect(within(line).getByTestId("public-return")).toHaveTextContent("+5.1%"));
+    const pnl = within(line).getByTestId("public-group-pnl");
+    expect(Array.from((pnl.querySelector("dd") as HTMLElement).children).map((node) => node.getAttribute("data-testid"))).toEqual([
+      "public-return",
+    ]);
+    expect(within(line).getByTestId("public-wins")).toHaveTextContent(/^2\/3 trades$/);
+    expect(within(line).getByTestId("public-group-aum").querySelector("dd")).toHaveTextContent(/^1,500\.00USDT · 2$/);
+  });
+
+  it("explains the return and the capital in floating tips on the card's (i)s, not in a text that takes room", async () => {
+    serve();
+    open();
+    const line = await screen.findByTestId("record-line");
+
+    const returnInfo = within(line).getByRole("img", { name: i18n.t("strategies.public.returnInfo") });
+    const capitalInfo = within(line).getByRole("img", { name: i18n.t("strategies.public.capitalInfo") });
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+    fireEvent.mouseEnter(returnInfo.parentElement as HTMLElement);
+    expect(screen.getByRole("tooltip")).toHaveTextContent(i18n.t("strategies.public.returnHint"));
+    fireEvent.mouseLeave(returnInfo.parentElement as HTMLElement);
+    fireEvent.mouseEnter(capitalInfo.parentElement as HTMLElement);
+    expect(screen.getByRole("tooltip")).toHaveTextContent(i18n.t("strategies.public.capitalHint"));
+  });
+
+  it("stars the reader's PnL and the capital while the balances are hidden, and leaves the percentages and the counts", async () => {
+    useHiddenStore.setState({ hidden: true });
+    try {
+      serve({
+        held: () => Promise.resolve(jsonResponse([heldSubscription({ strategy_id: ID })])),
+        performance: () =>
+          Promise.resolve(
+            jsonResponse({
+              ...emptyPerformance("bybit", "usdt-m", "USDT"),
+              strategy_id: ID,
+              trade_count: 2,
+              max_drawdown: "-0.0100000000",
+              ranges: ["7D", "30D", "90D", "1Y", "All"].map((range) => ({ range, pnl: "41.25", return: "0.0200000000", trade_count: 2 })),
+              by_pair: [{ pair: "XRPUSDT", trades: 2, wins: 2, win_rate: "1", pnl: "41.25", return: "0.0200000000" }],
+            }),
+          ),
+      });
+      open();
+
+      expect(await screen.findByRole("button", { name: "My results" })).toHaveAttribute("aria-pressed", "true");
+      const line = await screen.findByTestId("record-line");
+      await waitFor(() => expect(within(line).getByTestId("public-return")).toHaveTextContent("+2.0%"));
+      expect(within(line).getByTestId("public-pnl")).toHaveTextContent(/^\*{6}USDT$/);
+      expect(within(line).getByTestId("public-capital")).toHaveTextContent(/^\*{6}$/);
+      expect(line).not.toHaveTextContent("1,500");
+      expect(within(line).getByTestId("public-subscribers")).toHaveTextContent(/^2$/);
+      expect(within(line).getByTestId("public-return")).not.toHaveTextContent("*");
+    } finally {
+      useHiddenStore.setState({ hidden: false });
+    }
   });
 
   it("draws the reader's own PnL, return, fall and wins under My results", async () => {
@@ -330,25 +416,8 @@ describe("the public page", () => {
 
     const section = await screen.findByTestId("public-description");
     expect(within(section).queryByRole("button", { name: i18n.t("strategies.description.more") })).not.toBeInTheDocument();
-    // Its heading's row is as tall as the own page's, where a pencil stands in it.
-    expect(within(section).getByRole("heading", { level: 2 }).parentElement).toHaveClass("min-h-11");
-  });
-
-  it("explains the return and the capital on request, closed by default", async () => {
-    serve();
-    open();
-    await screen.findByRole("heading", { level: 1, name: "Alpha" });
-
-    // The return's explanation lives on the record line, once the record has been read.
-    await screen.findByTestId("record-line");
-
-    expect(screen.queryByText(i18n.t("strategies.public.returnHint"))).not.toBeInTheDocument();
-    expect(screen.queryByText(i18n.t("strategies.public.capitalHint"))).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: i18n.t("strategies.public.returnInfo") }));
-    expect(screen.getByText(i18n.t("strategies.public.returnHint"))).toBeInTheDocument();
-    expect(screen.queryByText(i18n.t("strategies.public.capitalHint"))).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: i18n.t("strategies.public.capitalInfo") }));
-    expect(screen.getByText(i18n.t("strategies.public.capitalHint"))).toBeInTheDocument();
+    // Its heading's row is as tall as the own page's, where a pencil stands in it (the dashboard card's 30 px).
+    expect(within(section).getByRole("heading", { level: 2 }).parentElement).toHaveClass("min-h-[30px]");
   });
 
   it("explains the return once: one (i), on the one row of figures; no second figure card (L.10)", async () => {
@@ -356,12 +425,15 @@ describe("the public page", () => {
     open();
     const line = await screen.findByTestId("record-line");
 
-    const infos = screen.getAllByRole("button", { name: i18n.t("strategies.public.returnInfo") });
+    const infos = screen.getAllByRole("img", { name: i18n.t("strategies.public.returnInfo") });
     expect(infos).toHaveLength(1);
     expect(line).toContainElement(infos[0] as HTMLElement);
     expect(screen.getAllByRole("definition").every((value) => line.contains(value))).toBe(true);
-    fireEvent.click(infos[0] as HTMLElement);
+    // Closed by default: the text is on neither (i) until the pointer is on one of them.
+    expect(screen.queryByText(i18n.t("strategies.public.returnHint"))).not.toBeInTheDocument();
+    fireEvent.mouseEnter((infos[0] as HTMLElement).parentElement as HTMLElement);
     expect(screen.getAllByText(i18n.t("strategies.public.returnHint"))).toHaveLength(1);
+    expect(screen.queryByText(i18n.t("strategies.public.capitalHint"))).not.toBeInTheDocument();
   });
 
   it("says whether the strategy runs, beside its name, as the cards do", async () => {
@@ -370,10 +442,10 @@ describe("the public page", () => {
 
     const pill = await screen.findByTestId("public-enabled");
     expect(pill).toHaveTextContent("Enabled");
-    expect(pill).toHaveClass("border-gain", "text-gain");
-    // The same mark as the author's own page draws beside its name (L.12).
-    expect(pill).toHaveClass("rounded", "border", "px-2", "py-1", "font-mono", "uppercase");
-    expect(pill).not.toHaveClass("rounded-full");
+    // The same pill as the author's own page draws beside its name, as ex11 and ex12 draw it (L26).
+    expect(pill).toHaveClass("inline-flex", "h-6", "rounded-xl", "border-gain/45", "bg-gain/12", "text-gain-bright");
+    expect(pill).not.toHaveClass("uppercase", "font-mono");
+    expect(pill.querySelector("[data-dot]")).toHaveClass("bg-gain");
     const title = screen.getByRole("heading", { level: 1, name: "Alpha" }).parentElement as HTMLElement;
     expect(title).toContainElement(pill);
     // The name and its mark share one centred line (L.11).
@@ -389,8 +461,8 @@ describe("the public page", () => {
 
     const pill = await screen.findByTestId("public-enabled");
     expect(pill).toHaveTextContent("Disabled");
-    expect(pill).toHaveClass("text-ink-3");
-    expect(pill).not.toHaveClass("text-gain");
+    expect(pill).toHaveClass("text-ink-2");
+    expect(pill).not.toHaveClass("text-gain-bright");
   });
 
   it("reads a 404 as off the list, in plain words and not as a fault", async () => {

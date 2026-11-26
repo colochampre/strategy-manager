@@ -4,13 +4,13 @@ import { useTranslation } from "react-i18next";
 
 import { CopyAction } from "@/features/strategies/CopyAction";
 import type { CopyResult } from "@/features/strategies/CopyAction";
+import { FieldIconButton } from "@/features/strategies/ShareSlider";
 import { ApiError } from "@/shared/api/client";
 import { useInviteCodes, useIssueInviteCode, useRevokeInviteCode } from "@/shared/api/strategies";
 import type { InviteCode, IssuedInviteCode, Strategy } from "@/shared/api/types";
 import { copyText } from "@/shared/lib/clipboard";
 import { dateTimeText } from "@/shared/lib/figure-text";
 import { InfoButton, InfoText, useInfoDisclosure } from "@/shared/ui/InfoDisclosure";
-import { IconButton } from "@/shared/ui/IconButton";
 
 interface StrategySharingProps {
   strategy: Strategy;
@@ -84,7 +84,7 @@ function ShareLink({ strategyId, token }: { strategyId: string; token: string })
           value={url}
           aria-labelledby={headingId}
           onFocus={(event) => event.target.select()}
-          className="min-h-11 min-w-0 grow rounded-md border border-rule bg-ground px-3 font-mono text-xs text-ink-2"
+          className="h-9.5 min-w-0 grow rounded-lg border border-rule bg-ground px-3 font-mono text-xs text-ink-2"
         />
         <CopyIcon label={t(`${KEY}.copyLink`)} result={result} onCopy={() => void copy(url)} />
       </div>
@@ -96,7 +96,7 @@ function ShareLink({ strategyId, token }: { strategyId: string; token: string })
 function CopyIcon({ label, result, onCopy }: { label: string; result: CopyResult; onCopy: () => void }) {
   const { t } = useTranslation();
   const name = result === "copied" ? t("strategies.webhook.copied") : label;
-  return <IconButton label={name} icon={result === "copied" ? Check : Copy} onClick={onCopy} />;
+  return <FieldIconButton label={name} icon={result === "copied" ? Check : Copy} onClick={onCopy} />;
 }
 
 /** The text of a refused or failed creation: the status and the code decide, never the server's wording. */

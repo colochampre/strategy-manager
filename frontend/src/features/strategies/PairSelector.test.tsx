@@ -438,9 +438,12 @@ describe("PairSelector layout (L.7)", () => {
   it("puts the search field and the action on one row, the field taking the width that is left", () => {
     selector({ action: <button type="button">Go</button> });
 
-    const row = search().parentElement as HTMLElement;
+    // The search box (the field and, on the strategy page, its icon) takes the width that is left.
+    const box = search().parentElement as HTMLElement;
+    const row = box.parentElement as HTMLElement;
     expect(row).toContainElement(screen.getByRole("button", { name: "Go" }));
-    expect(search()).toHaveClass("min-w-0", "flex-1");
+    expect(box).toHaveClass("min-w-0", "flex-1");
+    expect(search()).toHaveClass("min-w-0", "w-full");
   });
 
   it("shows no information button when none is given", () => {

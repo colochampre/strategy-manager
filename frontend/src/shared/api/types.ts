@@ -443,10 +443,14 @@ export interface TradeCursor {
   before_allocation_id: string;
 }
 
-/** One page of the trades list; a null `next_cursor` is the last page. */
+/**
+ * One page of the trades list; a null `next_cursor` is the last page. `total` counts every operation the
+ * list pages through, dry runs included, the same on every page (L32).
+ */
 export interface StrategyTradesPage {
   trades: StrategyTrade[];
   next_cursor: TradeCursor | null;
+  total: number;
 }
 
 /**

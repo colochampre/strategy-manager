@@ -70,6 +70,7 @@ function serve(all: readonly StrategyTrade[], size: number, first?: () => Promis
         more && last !== undefined
           ? { before_closed_at: last.closed_at, before_allocation_id: last.allocation_id }
           : null,
+      total: all.length,
     };
     return Promise.resolve(jsonResponse(page));
   });
@@ -92,9 +93,8 @@ const bodyRows = () => {
 const next = () => screen.getByRole("button", { name: i18n.t("strategies.performance.trades.next") });
 const previous = () => screen.getByRole("button", { name: i18n.t("strategies.performance.trades.previous") });
 const pageLabel = (page: number) => i18n.t("strategies.performance.trades.page", { page });
-/** The columns' names in order; each is the accessible name of the icon that stands for it. */
-const headerNames = () =>
-  screen.getAllByRole("columnheader").map((header) => within(header).getByRole("img").getAttribute("aria-label"));
+/** The columns' names in order, written in words. */
+const headerNames = () => screen.getAllByRole("columnheader").map((header) => header.textContent);
 const pnls = () => bodyRows().map((row) => within(row).getAllByRole("cell")[8]?.textContent);
 
 beforeEach(unlock);
@@ -291,7 +291,7 @@ describe("TradesTable", () => {
     serve(all, 5, () =>
       failing
         ? Promise.resolve(jsonResponse({ detail: "boom" }, 500))
-        : Promise.resolve(jsonResponse({ trades: all, next_cursor: null })),
+        : Promise.resolve(jsonResponse({ trades: all, next_cursor: null, total: 1 })),
     );
     renderTable();
 
@@ -306,7 +306,7 @@ describe("TradesTable", () => {
   });
 
   it("reads a body that is not a page of trades as a failure, and draws no row", async () => {
-    serve([], 5, () => Promise.resolve(jsonResponse({ trades: [{ ...trade(1), pnl: 4.2 }], next_cursor: null })));
+    serve([], 5, () => Promise.resolve(jsonResponse({ trades: [{ ...trade(1), pnl: 4.2 }], next_cursor: null, total: 1 })));
     renderTable();
 
     expect(await screen.findByRole("alert")).toHaveTextContent(i18n.t("strategies.performance.trades.error"));
@@ -365,11 +365,12 @@ describe("TradesTable", () => {
       "always",
       "md:table-cell",
       "md:table-cell",
-      "xl:table-cell",
+      // At 13 px, like the other tables (L32), Size and Pool at open wait for a wider screen; both are in the detail.
+      "min-[105rem]:table-cell",
       "xl:table-cell",
       "always",
       "always",
-      "xl:table-cell",
+      "min-[105rem]:table-cell",
       "always",
     ];
 
@@ -529,7 +530,8 @@ describe("TradesTable", () => {
       "9/29/2026 23:30",
       "9/30/2026 00:15",
       "STXUSDT",
-      "SHORT",
+      // The side in words, as the open positions write it (L32).
+      "Short",
       "0.4512",
       "0.4631",
       "1250",
@@ -629,51 +631,48 @@ describe("TradesTable", () => {
     expect(screen.getByRole("button", { name: "Anterior" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Siguiente" })).toBeDisabled();
     expect(screen.getByText("Página 1")).toBeInTheDocument();
-    expect(within(bodyRows()[0] as HTMLElement).getAllByRole("cell")[3]).toHaveTextContent("SHORT");
+    expect(within(bodyRows()[0] as HTMLElement).getAllByRole("cell")[3]?.textContent).toBe("Corto");
   });
 });
 
-// The rehearsal mark (decision 43): a dry-run operation keeps its stored numbers, beside a text
-// tag under the pair that says how it was filled, in the amber token of the dry-run badge.
+// The rehearsal mark (decision 43): a dry-run operation keeps its stored numbers. How it was filled is a dot
+// beside the pair in the dry-run badge's amber, named by its tag and told in a tooltip, as the open positions
+// mark their origin (L31); a real operation has the live dot.
 describe("TradesTable rehearsal rows", () => {
   const rehearsal = (n: number, fillPrice: string, overrides: Partial<StrategyTrade> = {}) =>
     trade(n, { rehearsal: true, rehearsal_fill_price: fillPrice, ...overrides });
   const pairCell = (row: HTMLElement) => within(row).getAllByRole("cell")[2] as HTMLElement;
+  const markOf = (row: HTMLElement) => within(pairCell(row)).getByRole("img");
 
-  it("shows each rehearsal_fill_price value's own tag on its own line under the pair", async () => {
+  it("marks each rehearsal_fill_price value with a dot named by its own tag, beside the pair (L31)", async () => {
     serve([rehearsal(1, "FIXED_ONE"), rehearsal(2, "ALERT"), rehearsal(3, "UNDETERMINED")], 5);
     renderTable();
 
     await screen.findByRole("table");
 
-    const [fixed, alert, undetermined] = bodyRows() as [HTMLElement, HTMLElement, HTMLElement];
-    const fixedTag = within(pairCell(fixed)).queryByText("Dry run · fixed price");
-    const alertTag = within(pairCell(alert)).queryByText("Dry run · alert price");
-    const plainTag = within(pairCell(undetermined)).queryByText("Dry run");
-    expect(fixedTag).toBeInTheDocument();
-    expect(alertTag).toBeInTheDocument();
-    expect(plainTag).toBeInTheDocument();
-    // Each tag is a block of its own inside the Pair cell, below the pair, and no row carries another's.
-    for (const tag of [fixedTag, alertTag, plainTag]) {
-      expect(tag?.classList.contains("block")).toBe(true);
-      expect(tag?.parentElement).toBe(tag === fixedTag ? pairCell(fixed) : tag === alertTag ? pairCell(alert) : pairCell(undetermined));
-    }
-    expect(within(fixed).queryByText("Dry run · alert price")).toBeNull();
-    expect(within(alert).queryByText("Dry run · fixed price")).toBeNull();
-    expect(within(undetermined).queryByText(/·/)).toBeNull();
+    const rows = bodyRows() as [HTMLElement, HTMLElement, HTMLElement];
+    expect(rows.map((row) => markOf(row).getAttribute("aria-label"))).toEqual([
+      "Dry run · fixed price",
+      "Dry run · alert price",
+      "Dry run",
+    ]);
+    // The tag is no longer written under the pair: the cell reads the pair alone, on one line.
+    expect(rows.map((row) => pairCell(row).textContent)).toEqual(["SOLUSDT", "SOLUSDT", "SOLUSDT"]);
+    for (const row of rows) expect(markOf(row).querySelector("[data-dot]")).toHaveClass("bg-decision", "rounded-full");
   });
 
-  it("writes the tags in Spanish", async () => {
+  it("names the dots in Spanish", async () => {
     await i18n.changeLanguage("es");
     serve([rehearsal(1, "FIXED_ONE"), rehearsal(2, "ALERT"), rehearsal(3, "UNDETERMINED")], 5);
     renderTable();
 
     await screen.findByRole("table");
 
-    const [fixed, alert, undetermined] = bodyRows() as [HTMLElement, HTMLElement, HTMLElement];
-    expect(within(pairCell(fixed)).queryByText("Simulación · precio fijo")).toBeInTheDocument();
-    expect(within(pairCell(alert)).queryByText("Simulación · precio de la alerta")).toBeInTheDocument();
-    expect(within(pairCell(undetermined)).queryByText("Simulación")).toBeInTheDocument();
+    expect((bodyRows() as HTMLElement[]).map((row) => markOf(row).getAttribute("aria-label"))).toEqual([
+      "Simulación · precio fijo",
+      "Simulación · precio de la alerta",
+      "Simulación",
+    ]);
   });
 
   it("reads a value the panel does not know as the plain tag", async () => {
@@ -683,18 +682,31 @@ describe("TradesTable rehearsal rows", () => {
     await screen.findByRole("table");
 
     const row = bodyRows()[0] as HTMLElement;
-    expect(within(pairCell(row)).queryByText("Dry run")).toBeInTheDocument();
-    expect(within(row).queryByText(/·/)).toBeNull();
+    expect(markOf(row)).toHaveAttribute("aria-label", "Dry run");
     expect(within(row).queryByText("SLIPPED")).toBeNull();
   });
 
-  it("leaves a real row unmarked", async () => {
+  it("gives a real row the live dot and no dry-run tag (L31)", async () => {
     serve([trade(1)], 5);
     renderTable();
 
     await screen.findByRole("table");
 
-    expect(within(bodyRows()[0] as HTMLElement).queryByText(/Dry run/)).toBeNull();
+    const row = bodyRows()[0] as HTMLElement;
+    expect(markOf(row)).toHaveAttribute("aria-label", "Live");
+    expect(markOf(row).querySelector("[data-dot]")).toHaveClass("bg-gain");
+    expect(within(row).queryByText(/Dry run/)).toBeNull();
+  });
+
+  it("tells the tag in a tooltip on hover, so the mark does not rest on colour alone (L31)", async () => {
+    serve([rehearsal(1, "ALERT")], 5);
+    renderTable();
+
+    await screen.findByRole("table");
+
+    expect(screen.queryByRole("tooltip")).toBeNull();
+    fireEvent.mouseEnter(markOf(bodyRows()[0] as HTMLElement).parentElement as HTMLElement);
+    expect(screen.getByRole("tooltip")).toHaveTextContent(/^Dry run · alert price$/);
   });
 
   // Fees are written like the PnL beside them (owner decision 46): a fee of 0 reads 0.00 in a USDT pool.
@@ -744,18 +756,6 @@ describe("TradesTable rehearsal rows", () => {
       ["gain", "gain"],
       ["loss", "loss"],
     ]);
-  });
-
-  it("writes the tag as text in the amber token of the dry-run badge, so it does not rest on colour alone", async () => {
-    serve([rehearsal(1, "FIXED_ONE")], 5);
-    renderTable();
-
-    await screen.findByRole("table");
-
-    const tag = within(pairCell(bodyRows()[0] as HTMLElement)).queryByText("Dry run · fixed price");
-    expect(tag).toBeInTheDocument();
-    expect(tag?.classList.contains("text-decision")).toBe(true);
-    expect((tag?.textContent ?? "").length).toBeGreaterThan(0);
   });
 });
 
@@ -880,7 +880,7 @@ describe("TradesTable under decision 43", () => {
 
   it("refuses a page whose row lacks fees, whole, with the error state and Try again and no row", async () => {
     serve([], 5, () =>
-      Promise.resolve(jsonResponse({ trades: [trade(1), withoutField(trade(2), "fees")], next_cursor: null })),
+      Promise.resolve(jsonResponse({ trades: [trade(1), withoutField(trade(2), "fees")], next_cursor: null, total: 1 })),
     );
     renderTable();
 
@@ -889,7 +889,7 @@ describe("TradesTable under decision 43", () => {
   });
 
   it("shows the error state and no invented figure for the nine-field rows of an older API", async () => {
-    serve([], 5, () => Promise.resolve(jsonResponse({ trades: [oldNineFields(1)], next_cursor: null })));
+    serve([], 5, () => Promise.resolve(jsonResponse({ trades: [oldNineFields(1)], next_cursor: null, total: 1 })));
     renderTable();
 
     await refused();
@@ -901,7 +901,7 @@ describe("TradesTable under decision 43", () => {
     let upgraded = false;
     serve([], 5, () =>
       Promise.resolve(
-        jsonResponse({ trades: upgraded ? [trade(1)] : [oldNineFields(1)], next_cursor: null }),
+        jsonResponse({ trades: upgraded ? [trade(1)] : [oldNineFields(1)], next_cursor: null, total: 1 }),
       ),
     );
     renderTable();
@@ -918,7 +918,7 @@ describe("TradesTable under decision 43", () => {
   it("refuses the page of a rehearsal row whose rehearsal_fill_price is null", async () => {
     serve([], 5, () =>
       Promise.resolve(
-        jsonResponse({ trades: [trade(1, { rehearsal: true, rehearsal_fill_price: null })], next_cursor: null }),
+        jsonResponse({ trades: [trade(1, { rehearsal: true, rehearsal_fill_price: null })], next_cursor: null, total: 1 }),
       ),
     );
     renderTable();
@@ -956,7 +956,7 @@ describe("TradesTable opening an operation", () => {
         return fills(asked[1] as string);
       }
       if (/\/performance\/strategies\/[^/]+\/trades$/.test(parsed.pathname)) {
-        return Promise.resolve(jsonResponse({ trades: [...rows], next_cursor: null }));
+        return Promise.resolve(jsonResponse({ trades: [...rows], next_cursor: null, total: 1 }));
       }
       return undefined;
     });
@@ -1067,14 +1067,12 @@ describe("TradesTable opening an operation", () => {
     renderTable();
     await screen.findByRole("table");
 
-    // The column icons take a stop each (their tips open on focus) before the first Details control.
-    const headerStops = screen.getAllByRole("columnheader").length;
-    for (let stop = 0; stop < headerStops; stop += 1) pressTab();
-    const first = pressTab();
-    const second = pressTab();
+    // The headings are words and take no stop; each row's dot does (its tip opens on focus, L31), then its Details.
+    const stops = [pressTab(), pressTab(), pressTab(), pressTab()];
 
-    expect(first).toBe(detailsButtons()[0]);
-    expect(second).toBe(detailsButtons()[1]);
+    expect(stops[0]).toContainElement(within(bodyRows()[0] as HTMLElement).getByRole("img", { name: "Live" }));
+    expect(stops[1]).toBe(detailsButtons()[0]);
+    expect(stops[3]).toBe(detailsButtons()[1]);
     press();
     expect(inDialog("SOLUSDT · LONG")).toBeInTheDocument();
   });
@@ -1122,7 +1120,7 @@ describe("TradesTable localization", () => {
     expect(spanish).toEqual(english);
   });
 
-  it("reads Spanish from i18n in the table, a rehearsal row's dialog and its fills table, with LONG and SHORT unchanged", async () => {
+  it("reads Spanish from i18n in the table, a rehearsal row's dialog and its fills table, the side in words in the table (L32)", async () => {
     await i18n.changeLanguage("es");
     const row = trade(1, { rehearsal: true, rehearsal_fill_price: "ALERT", direction: "SHORT", other_fees: [{ currency: "BNB", amount: "0.00012" }] });
     stubApi(HEALTH, [], undefined, {}, (url) => {
@@ -1145,7 +1143,7 @@ describe("TradesTable localization", () => {
           }),
         );
       }
-      if (/\/trades$/.test(path)) return Promise.resolve(jsonResponse({ trades: [row], next_cursor: null }));
+      if (/\/trades$/.test(path)) return Promise.resolve(jsonResponse({ trades: [row], next_cursor: null, total: 1 }));
       return undefined;
     });
     renderTable();
@@ -1175,7 +1173,9 @@ describe("TradesTable localization", () => {
         "Simulación · precio de la alerta",
         "Cerrar",
       ]));
-    expect(texts.filter((text) => text === "SHORT").length).toBeGreaterThan(0);
+    // The table writes the side in words, as the open positions do (L32); the dialog's title keeps LONG and SHORT.
+    expect(texts).toContain("Corto");
+    expect(screen.getByRole("dialog")).toHaveTextContent("SHORT");
     expect(texts).not.toContain("Sell");
     expect(texts).not.toContain("Buy");
   });
@@ -1183,19 +1183,21 @@ describe("TradesTable localization", () => {
 
 // The incomplete-fees sentence (task 9p.5.27) is the PnL column's tip now (owner ask, 2026-11-09): told
 // when a row of the page on screen makes it true, never for a page visited before. The tip starts with
-// the column's name; the dry-run sentences are pinned by "TradesTable sentences below the table".
+// the column's note under its name in words (L30); the dry-run sentences are pinned by "TradesTable sentences
+// below the table". With no row making it true, the column has no tip at all.
 describe("TradesTable incomplete-fees tip", () => {
-  const TIP_EN = "PnL USDT. A fee paid in a third currency is not in this PnL.";
-  const TIP_ES = "PnL USDT. Una comisión pagada en una tercera moneda no está en este PnL.";
+  const TIP_EN = "A fee paid in a third currency is not in this PnL.";
+  const TIP_ES = "Una comisión pagada en una tercera moneda no está en este PnL.";
   const pnlTip = () => {
-    fireEvent.mouseEnter(within(screen.getByRole("table")).getByRole("img", { name: "PnL USDT" }));
-    const tip = screen.getByRole("tooltip").textContent;
-    fireEvent.mouseLeave(within(screen.getByRole("table")).getByRole("img", { name: "PnL USDT" }));
+    const name = within(screen.getByRole("table")).getByText("PnL USDT");
+    fireEvent.mouseEnter(name);
+    const tip = screen.queryByRole("tooltip")?.textContent ?? null;
+    fireEvent.mouseLeave(name);
     return tip;
   };
 
   it.each([
-    ["no row with incomplete fees", [trade(1), trade(2)], "PnL USDT"],
+    ["no row with incomplete fees", [trade(1), trade(2)], null],
     ["a row with incomplete fees", [trade(1), trade(2, { fees_complete: false })], TIP_EN],
   ])("tells it only when a row of the page makes it true: %s", async (_name, rows, expected) => {
     serve(rows, 5);
@@ -1215,7 +1217,7 @@ describe("TradesTable incomplete-fees tip", () => {
     fireEvent.click(next());
     await screen.findByText(pageLabel(2));
 
-    expect(pnlTip()).toBe("PnL USDT");
+    expect(pnlTip()).toBeNull();
 
     fireEvent.click(previous());
 
@@ -1245,14 +1247,14 @@ describe("TradesTable incomplete-fees tip", () => {
 });
 
 // Opened and Closed are compact (task 9p.5.29, owner decision 46): the numeric date in the panel's
-// language on the first line and the 24-hour time below in ink-3, both in UTC.
+// language and the 24-hour time in ink-3, both in UTC, on one line as the prototype's table writes them (L30).
 describe("TradesTable compact instants", () => {
   const lines = (cell: HTMLElement | undefined) => Array.from(cell?.children ?? []).map((line) => line.textContent);
 
   it.each([
     ["en", ["10/5/2026", "01:30"], ["10/6/2026", "23:45"]],
     ["es", ["5/10/2026", "01:30"], ["6/10/2026", "23:45"]],
-  ])("writes the date and the time of Opened and Closed on two lines in %s, in UTC", async (language, opened, closed) => {
+  ])("writes the date and the time of Opened and Closed in %s, in UTC", async (language, opened, closed) => {
     await i18n.changeLanguage(language);
     serve([trade(1, { opened_at: "2026-10-05T01:30:00Z", closed_at: "2026-10-06T23:45:00.000001Z" })], 5);
     renderTable();
@@ -1264,7 +1266,7 @@ describe("TradesTable compact instants", () => {
     expect(lines(cells[1])).toEqual(closed);
   });
 
-  it("draws the time on its own line below the date, in ink-3", async () => {
+  it("draws the time beside the date on the same line, in ink-3 (L30)", async () => {
     serve([trade(1, { opened_at: "2026-10-05T01:30:00Z" })], 5);
     renderTable();
 
@@ -1273,8 +1275,9 @@ describe("TradesTable compact instants", () => {
     const cell = within(bodyRows()[0] as HTMLElement).getAllByRole("cell")[0] as HTMLElement;
     const time = within(cell).queryByText("01:30");
     expect(time).toBeInTheDocument();
-    expect(time?.classList.contains("block")).toBe(true);
+    expect(time?.classList.contains("block")).toBe(false);
     expect(time?.classList.contains("text-ink-3")).toBe(true);
+    expect(cell).toHaveClass("whitespace-nowrap");
     expect(within(cell).queryByText("10/5/2026")?.classList.contains("text-ink-3")).toBe(false);
   });
 });
@@ -1318,19 +1321,23 @@ describe("TradesTable shorter figures", () => {
   });
 });
 
-// The columns are icons and the notes wait behind one (i) beside the title (owner ask, 2026-11-09).
-describe("TradesTable icons and the (i) beside the title", () => {
+// The columns are named in words in the prototype's compact boxed table (L30), and the notes wait behind one (i)
+// beside the title (owner ask, 2026-11-09).
+describe("TradesTable headings and the (i) beside the title", () => {
   const BUTTON = "About these trades";
   const FEES_HINT = "A fee paid in a third currency is not in this PnL.";
 
-  it("draws each column's name as an icon whose accessible name is the name", async () => {
+  it("is a card of its own with the boxed table of the open positions, its columns named in words (L30, L32)", async () => {
     serve([trade(1)], 5);
     renderTable();
-    await screen.findByRole("table");
+    const table = await screen.findByRole("table", { name: "Closed trades" });
 
+    const card = screen.getByRole("region", { name: "Closed trades" });
+    expect(card).toContainElement(table);
+    expect(card.closest('[data-testid="report-section"]')).toBeNull();
+    expect(table.parentElement).toHaveClass("rounded-lg", "border", "border-rule");
     const headers = screen.getAllByRole("columnheader");
-    expect(headers.map((header) => header.textContent)).toEqual(Array(12).fill(""));
-    expect(headers.map((header) => within(header).getByRole("img").getAttribute("aria-label"))).toEqual([
+    expect(headers.map((header) => header.textContent)).toEqual([
       "Opened (UTC)",
       "Closed (UTC)",
       "Pair",
@@ -1344,6 +1351,28 @@ describe("TradesTable icons and the (i) beside the title", () => {
       "Pool at open",
       "Details",
     ]);
+    for (const header of headers) {
+      expect(header.querySelector("svg")).toBeNull();
+      // The same size as the open positions and By pair (L32).
+      expect(header).toHaveClass("bg-ground", "text-[12.5px]");
+    }
+    for (const cell of within(bodyRows()[0] as HTMLElement).getAllByRole("cell")) expect(cell).toHaveClass("text-[13px]", "px-3");
+    // The prototype's small button (`.btn.sm`), 30 px high.
+    expect(screen.getByRole("button", { name: /^Details of/ })).toHaveClass("h-[30px]");
+  });
+
+  it("draws no title over the Details column, as the open positions draw none over Close now, and right-aligns it (L31)", async () => {
+    serve([trade(1)], 5);
+    renderTable();
+    await screen.findByRole("table");
+
+    const head = screen.getAllByRole("columnheader").at(-1) as HTMLElement;
+    expect(within(head).getByText("Details")).toHaveClass("sr-only");
+    expect(head).toHaveClass("text-right");
+    const cell = within(bodyRows()[0] as HTMLElement).getAllByRole("cell").at(-1) as HTMLElement;
+    expect(cell).toContainElement(screen.getByRole("button", { name: /^Details of/ }));
+    expect(cell).toHaveClass("text-right");
+    expect(cell).not.toHaveClass("text-left");
   });
 
   it("keeps the dry-run sentences closed behind the (i) beside the title, in their order, until it is clicked", async () => {
@@ -1381,16 +1410,63 @@ describe("TradesTable icons and the (i) beside the title", () => {
 
     expect(screen.queryByText(`* ${FEES_HINT}`)).toBeNull();
     expect(screen.queryByRole("button", { name: BUTTON })).toBeNull();
-    fireEvent.mouseEnter(within(screen.getByRole("table")).getByRole("img", { name: "PnL USDT" }));
-    expect(screen.getByRole("tooltip").textContent).toBe(`PnL USDT. ${FEES_HINT}`);
+    fireEvent.mouseEnter(within(screen.getByRole("table")).getByText("PnL USDT"));
+    expect(screen.getByRole("tooltip").textContent).toBe(FEES_HINT);
   });
 
-  it("gives the PnL column no note in its tip when every row has complete fees", async () => {
+  it("gives the PnL column no tip when every row has complete fees", async () => {
     serve([trade(1), trade(2)], 5);
     renderTable();
     await screen.findByRole("table");
 
-    fireEvent.mouseEnter(within(screen.getByRole("table")).getByRole("img", { name: "PnL USDT" }));
-    expect(screen.getByRole("tooltip").textContent).toBe("PnL USDT");
+    fireEvent.mouseEnter(within(screen.getByRole("table")).getByText("PnL USDT"));
+    expect(screen.queryByRole("tooltip")).toBeNull();
+  });
+});
+
+// The count of operations at the card's top right, as the open positions count theirs (L32): every closed
+// operation the table pages through, dry runs included, not the rows of the page on screen.
+describe("TradesTable count of operations", () => {
+  it("counts every operation the table lists, the same on every page", async () => {
+    serve([trade(1), trade(2), trade(3), trade(4), trade(5), trade(6), trade(7)], 5);
+    renderTable();
+
+    await screen.findByRole("table");
+    expect(screen.getByTestId("trades-count").textContent).toBe("7 trades");
+
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    await vi.waitFor(() => expect(bodyRows()).toHaveLength(2));
+    expect(screen.getByTestId("trades-count").textContent).toBe("7 trades");
+  });
+
+  it("is in the card's header, beside its title", async () => {
+    serve([trade(1)], 5);
+    renderTable();
+
+    await screen.findByRole("table");
+    const card = screen.getByRole("heading", { name: "Closed trades" }).closest("section") as HTMLElement;
+    const header = screen.getByRole("heading", { name: "Closed trades" }).parentElement as HTMLElement;
+    expect(within(card).getByTestId("trades-count")).toBeInTheDocument();
+    expect(within(header.parentElement as HTMLElement).getByTestId("trades-count")).toBeInTheDocument();
+  });
+
+  it.each([
+    [1, "1 operación"],
+    [3, "3 operaciones"],
+  ])("writes %i in Spanish as %s", async (count, text) => {
+    await i18n.changeLanguage("es");
+    serve(Array.from({ length: count }, (_, index) => trade(index + 1)), 5);
+    renderTable();
+
+    await screen.findByRole("table");
+    expect(screen.getByTestId("trades-count").textContent).toBe(text);
+  });
+
+  it("is not drawn before a page has been read", () => {
+    serve([], 5, () => new Promise<Response>(() => {}));
+    renderTable();
+
+    expect(screen.getByRole("status")).toBeInTheDocument();
+    expect(screen.queryByTestId("trades-count")).toBeNull();
   });
 });

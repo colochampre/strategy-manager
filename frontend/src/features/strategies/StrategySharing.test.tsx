@@ -349,13 +349,13 @@ describe("sharing, in Spanish", () => {
 });
 
 describe("the copy icon is the shared icon button (L.8)", () => {
-  it("is a 44 px icon with its tip, and a check named Copied once pressed", async () => {
+  it("is a 36 px icon with its tip, and a check named Copied once pressed", async () => {
     setup({ visibility: "LINK", share_token: TOKEN });
     await screen.findByRole("textbox", { name: "Link to this strategy" });
 
     const button = screen.getByRole("button", { name: "Copy link" });
     expect(button).toHaveTextContent("");
-    expect(button).toHaveClass("size-11");
+    expect(button).toHaveClass("size-9");
     fireEvent.mouseEnter(button.parentElement as HTMLElement);
     expect(screen.getByRole("tooltip")).toHaveTextContent("Copy link");
   });

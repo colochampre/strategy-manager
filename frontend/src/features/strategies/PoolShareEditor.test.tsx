@@ -2090,13 +2090,14 @@ function childHolding(row: HTMLElement, node: Element): HTMLElement {
 // I.4 (owner, 2026-11-06): "Prefiero que el boton de Save ocupe el espacio necesario para mostrarse bien, y el
 // resto el input". Save sits beside the percent field, not beside the amount line.
 describe("PoolShareEditor, Save sits on the row of the field (I.4)", () => {
-  it("Save and the field share one horizontal row, aligned to the top, that does not wrap", async () => {
+  // The prototype (`ex12`, RD.7e) centres the box and its 36 px button on one line; they started at the top before.
+  it("Save and the field share one horizontal row, centred, that does not wrap", async () => {
     setup(strategy(), { preview: served() });
     await expectText(amountLine("300.00"));
 
     const row = sharedRow(saveButton(), field());
 
-    expect(classesOf(row)).toEqual(expect.arrayContaining(["flex", "items-start"]));
+    expect(classesOf(row)).toEqual(expect.arrayContaining(["flex", "items-center"]));
     expect(classesOf(row)).not.toContain("flex-col");
     expect(classesOf(row)).not.toContain("flex-wrap");
     // The row is the field and the button block, not the whole control: neither the track nor the amount.
@@ -2116,7 +2117,7 @@ describe("PoolShareEditor, Save sits on the row of the field (I.4)", () => {
     expect(classesOf(fieldBlock)).not.toContain("w-full");
   });
 
-  it("the button block is Save and then its status, is as wide as its own text and starts at the top", async () => {
+  it("the button block is Save and then its status, is as wide as its own text and sits on the row's centre line", async () => {
     setup(strategy(), { preview: served() });
     const row = sharedRow(saveButton(), field());
 
@@ -2124,11 +2125,11 @@ describe("PoolShareEditor, Save sits on the row of the field (I.4)", () => {
     const status = actions.querySelector<HTMLElement>('[role="status"]');
 
     expect(actions).not.toBe(childHolding(row, field()));
-    expect(classesOf(actions)).toEqual(expect.arrayContaining(["flex", "items-start", "shrink-0"]));
+    expect(classesOf(actions)).toEqual(expect.arrayContaining(["flex", "items-center", "shrink-0"]));
     expect(classesOf(actions)).not.toContain("flex-1");
     expect(status).not.toBeNull();
     expect(precedes(saveButton(), status as HTMLElement)).toBe(true);
-    expect(classesOf(saveButton())).toContain("size-11");
+    expect(classesOf(saveButton())).toContain("size-9");
   });
 
   it("in the document: the field, then Save, then its status, then the track and the amount", async () => {
@@ -2210,12 +2211,12 @@ describe.each([
 
   const button = (name: string) => screen.getByRole("button", { name });
 
-  it("draws only an aria-hidden Save icon, the name unchanged", () => {
+  it("draws only an aria-hidden check icon, the name unchanged", () => {
     setup(strategy());
 
     const host = button(T.save);
     expect(host).toHaveTextContent("");
-    expect(host.querySelector("svg")).toHaveClass("lucide-save");
+    expect(host.querySelector("svg")).toHaveClass("lucide-check");
     expect(host.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
     expect(host).toHaveAccessibleName(T.save);
   });
@@ -2265,6 +2266,6 @@ describe.each([
     type("41");
 
     expect(button(T.save)).toBeEnabled();
-    expect(button(T.save).querySelector("svg")).toHaveClass("lucide-save");
+    expect(button(T.save).querySelector("svg")).toHaveClass("lucide-check");
   });
 });

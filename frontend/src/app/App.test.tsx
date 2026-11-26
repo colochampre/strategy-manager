@@ -56,7 +56,8 @@ describe("App", () => {
 
     // Signed out: the sign-in gate renders inside the shell.
     const button = await screen.findByRole("button", { name: "Sign in again" });
-    expect(button).toHaveClass("bg-gain");
+    // The green outline every green button wears (L27).
+    expect(button).toHaveClass("border-gain/45", "text-gain-bright");
     expect(button.parentElement).toHaveClass("border-rule", "bg-panel");
     // Signed out, the badge names no mode.
     expect(await screen.findByText("Mode unknown")).toHaveClass("text-ink-3");

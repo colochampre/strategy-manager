@@ -19,13 +19,13 @@ export function EnableToggle({ strategy }: EnableToggleProps) {
   const Icon = strategy.enabled ? PowerOff : Power;
 
   return (
-    // Half of the row beside Archive (equal width).
-    <div className="min-w-0 flex-1">
+    // 1.6 shares of the row beside Archive's one, as the prototype draws it: at half the row "Disable strategy" breaks.
+    <div className="min-w-0 flex-1 grow-[1.6]">
       <button
         type="button"
         disabled={strategy.archived_at !== null || question.busy}
         onClick={question.ask}
-        className="inline-flex min-h-11 w-full items-center justify-center gap-1.5 rounded-lg border border-rule px-3 text-sm text-ink hover:bg-panel-2 disabled:opacity-50"
+        className="inline-flex min-h-11 w-full items-center justify-center gap-1.5 rounded-lg border border-rule-strong bg-panel-2 px-3 text-sm font-medium text-ink hover:bg-ground disabled:opacity-50"
       >
         <Icon aria-hidden="true" className="size-4 shrink-0" />
         {strategy.enabled ? t("strategies.detail.disable") : t("strategies.detail.enable")}

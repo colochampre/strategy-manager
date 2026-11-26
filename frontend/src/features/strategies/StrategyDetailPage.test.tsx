@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { StrategyDetailPage } from "@/features/strategies/StrategyDetailPage";
 import type { EnablementEvent, PairStat, Strategy, StrategyTrade } from "@/shared/api/types";
+import { useHiddenStore } from "@/shared/hidden/hidden-store";
 import i18n from "@/shared/i18n";
 import en from "@/shared/i18n/locales/en.json";
 import es from "@/shared/i18n/locales/es.json";
@@ -89,7 +90,7 @@ function renderPage(subject: Strategy = strategy(), options: Options = {}) {
         );
       }
       if (url.includes(`/performance/strategies/${ID}/trades`)) {
-        return Promise.resolve(jsonResponse({ trades: options.trades ?? [], next_cursor: null }));
+        return Promise.resolve(jsonResponse({ trades: options.trades ?? [], next_cursor: null, total: (options.trades ?? []).length }));
       }
       if (url.endsWith(`/performance/strategies/${ID}`)) {
         return Promise.resolve(
@@ -294,9 +295,9 @@ describe("StrategyDetailPage", () => {
     await heading("ETH Breakout");
 
     const titles = [
-      await screen.findByRole("heading", { name: "Contribution to the pool, compounded" }),
       await screen.findByRole("heading", { name: en.strategies.performance.byPair.title }),
-    ];
+      screen.getByRole("heading", { name: en.strategies.report.title }),
+    ].reverse();
     const grid = screen.getByRole("complementary", { name: en.strategies.detail.settings }).parentElement as HTMLElement;
     const column = grid.firstElementChild as HTMLElement;
     for (const title of titles) expect(column).toContainElement(title);
@@ -310,32 +311,34 @@ describe("StrategyDetailPage", () => {
     expect(screen.getByRole("button", { name: en.strategies.webhook.open })).toHaveAttribute("aria-expanded", "false");
   });
 
-  it("frames the chart, Month by month, By pair, Open positions and Closed trades (owner decision 67 Q4, Q7)", async () => {
+  it("frames the chart, Monthly performance, By pair, Open positions and Closed trades (owner decision 67 Q4, Q7)", async () => {
     renderPage(strategy(), { byPair: TWO_PAIRS });
     await heading("ETH Breakout");
 
-    const framed = (node: HTMLElement) => node.closest('[data-testid="report-section"]');
+    // Each table is a card of its own, as the prototype draws it (L30), never inside a framed section.
     for (const name of [
       en.strategies.performance.byPair.title,
       en.strategies.performance.trades.title,
       "Open positions",
     ]) {
-      expect(framed(await screen.findByRole("heading", { name }))).not.toBeNull();
+      const card = await screen.findByRole("region", { name });
+      expect(card.closest('[data-testid="report-section"]')).toBeNull();
     }
     // The chart is the one image inside a figure; the ledger's icons are images too.
     const chart = (await screen.findAllByRole("img", { name: /./ })).find((image) => image.closest("figure") !== null);
-    expect(framed(chart?.closest("figure") as HTMLElement)).not.toBeNull();
-    expect(screen.getAllByTestId("report-section").length).toBeGreaterThanOrEqual(5);
+    // The chart sits in the Performance card, which is the frame the other report boxes have (L26).
+    expect(screen.getByRole("region", { name: en.strategies.report.title })).toContainElement(chart?.closest("figure") as HTMLElement);
+    // The months sit in the dashboard's own card (L29).
+    const monthly = await screen.findByRole("region", { name: "Monthly performance" });
+    expect(monthly.closest('[data-testid="report-section"]')).toBeNull();
   });
 
   it("puts the closed trades table in a full-width section under the two-column grid and above the delete control", async () => {
     renderPage(strategy());
     await heading("ETH Breakout");
 
-    const tradesTitle = await screen.findByRole("heading", { name: en.strategies.performance.trades.title });
-    // The framed section wraps the <section>: the wrapper is what sits under the grid.
-    const section = tradesTitle.closest('[data-testid="report-section"]') as HTMLElement;
-    expect(section).not.toBeNull();
+    // The card is what sits under the grid (L30).
+    const section = await screen.findByRole("region", { name: en.strategies.performance.trades.title });
     const aside = screen.getByRole("complementary", { name: en.strategies.detail.settings });
     const grid = aside.parentElement as HTMLElement;
     const column = grid.firstElementChild as HTMLElement;
@@ -375,7 +378,8 @@ describe("StrategyDetailPage", () => {
 
     const table = await screen.findByRole("table", { name: en.strategies.performance.trades.title });
 
-    expect(within(table).queryByText(en.strategies.performance.trades.rehearsal)).toBeInTheDocument();
+    // The dry run is a dot beside the pair, named by its tag (L31).
+    expect(within(table).queryByRole("img", { name: en.strategies.performance.trades.rehearsal })).toBeInTheDocument();
     // The sentence waits behind the (i) beside the title until it is clicked.
     expect(screen.queryByText(en.strategies.performance.trades.rehearsalNote)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: en.strategies.performance.trades.notesInfo }));
@@ -799,7 +803,7 @@ describe("the own page reads like another author's (owner, 2026-11-17)", () => {
     expect(within(header).queryByTestId("strategy-capital")).not.toBeInTheDocument();
     const aum = screen.getByTestId("strategy-group-aum");
     expect(within(aum).getByTestId("strategy-subscribers")).toHaveTextContent(/^2$/);
-    expect(within(aum).getByTestId("strategy-capital")).toHaveTextContent(/^300\.00USDT$/);
+    expect(within(aum).getByTestId("strategy-capital")).toHaveTextContent(/^300\.00$/);
   });
 
   it("says the strategy is the reader's own while they have chosen no author name", async () => {
@@ -809,36 +813,130 @@ describe("the own page reads like another author's (owner, 2026-11-17)", () => {
     expect(screen.getByTestId("strategy-origin")).toHaveTextContent(en.strategies.subscriptions.yours);
   });
 
-  it("draws its figures under Performance, grouped as the cards, in place of the Overview's ledger line", async () => {
-    renderPage(strategy(), {
-      reportAnswer: () =>
-        jsonResponse({
-          ...emptyPerformance("bybit", "usdt-m", "USDT"),
-          strategy_id: ID,
-          trade_count: 3,
-          by_pair: TWO_PAIRS,
-        }),
-    });
+  it("keeps the Performance heading, the range selector and the chart, and draws no ledger line", async () => {
+    renderPage(strategy(), { reportAnswer: () => jsonResponse(TRADED_REPORT) });
     await heading("ETH Breakout");
 
+    await screen.findByTestId("return-curve");
     const performance = screen.getByRole("region", { name: en.strategies.report.title });
     expect(within(performance).getByRole("heading", { level: 2, name: en.strategies.report.title })).toBeInTheDocument();
-    const pnl = await within(performance).findByTestId("strategy-group-pnl");
-    expect(within(pnl).getByTestId("strategy-pnl")).toBeInTheDocument();
-    expect(within(pnl).getByTestId("strategy-return")).toBeInTheDocument();
-    expect(within(performance).getByTestId("strategy-group-drawdown")).toBeInTheDocument();
-    // 2 of 3 trades won across the two pairs.
-    await waitFor(() => expect(within(performance).getByTestId("strategy-wins")).toHaveTextContent(/^2\/3$/));
-    expect(within(performance).getByTestId("strategy-group-aum")).toBeInTheDocument();
-    expect(within(performance).queryByTestId("strategy-group-setup")).not.toBeInTheDocument();
+    expect(within(performance).getByRole("button", { name: "30D" })).toBeInTheDocument();
+    expect(within(performance).getByTestId("return-curve")).toBeInTheDocument();
+    // The title is the card's own: nothing above the card repeats it (L26).
+    expect(screen.getAllByRole("heading", { level: 2, name: en.strategies.report.title })).toHaveLength(1);
     expect(screen.queryByTestId("ledger-line")).not.toBeInTheDocument();
+  });
+});
+
+/** A report with three closed trades (2 won across the two pairs), 41.25 USDT of PnL, 2 % of return, a 1 % fall. */
+const TRADED_REPORT = {
+  ...emptyPerformance("bybit", "usdt-m", "USDT"),
+  strategy_id: ID,
+  trade_count: 3,
+  total_pnl: "41.25",
+  curve: [{ date: new Date(Date.now() - 5 * 86_400_000).toISOString().slice(0, 10), daily_return: "0.02", index: "0.02", drawdown: "0" }],
+  max_drawdown: "-0.0100000000",
+  ranges: ["7D", "30D", "90D", "1Y", "All"].map((range) => ({ range, pnl: "41.25", return: "0.0200000000", trade_count: 3 })),
+  by_pair: TWO_PAIRS,
+};
+
+describe("the header card (S14, RD.7b)", () => {
+  const card = () => screen.findByTestId("strategy-header-card");
+
+  it("holds About this strategy and the figure row, and comes before Performance", async () => {
+    renderPage(strategy({ description: "Mean reversion on ETH." }), { reportAnswer: () => jsonResponse(TRADED_REPORT) });
+    await heading("ETH Breakout");
+
+    const header = await card();
+    expect(within(header).getByRole("heading", { level: 2, name: en.strategies.description.publicHeading })).toBeInTheDocument();
+    expect(within(header).getByTestId("strategy-description")).toHaveTextContent("Mean reversion on ETH.");
+    const line = within(header).getByTestId("figure-line");
+    const groups = [...line.children].map((group) => group.getAttribute("data-testid"));
+    expect(groups).toEqual(["strategy-group-pnl", "strategy-group-drawdown", "strategy-group-profitable", "strategy-group-aum"]);
+    // The description comes first inside the card, the figures under it.
+    expect(
+      within(header).getByTestId("strategy-description").compareDocumentPosition(line) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+
+    const performance = screen.getByRole("region", { name: en.strategies.report.title });
+    expect(header.compareDocumentPosition(performance) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(performance).queryByTestId("figure-line")).not.toBeInTheDocument();
+    expect(within(performance).queryByTestId("strategy-group-pnl")).not.toBeInTheDocument();
+    expect(screen.getAllByTestId("figure-line")).toHaveLength(1);
+  });
+
+  it("draws the PnL in the pool's currency with the return under it, the fall, the wins out of the trades and the AuM", async () => {
+    renderPage(strategy({ live_subscribers: 2, capital: "300" }), { reportAnswer: () => jsonResponse(TRADED_REPORT) });
+    await heading("ETH Breakout");
+
+    const header = await card();
+    await waitFor(() => expect(within(header).getByTestId("strategy-pnl")).toHaveTextContent(/^\+41\.25USDT$/));
+    const pnl = within(header).getByTestId("strategy-group-pnl");
+    const values = Array.from((pnl.querySelector("dd") as HTMLElement).children).map((value) => value.getAttribute("data-testid"));
+    expect(values).toEqual(["strategy-pnl", "strategy-return"]);
+    expect(within(pnl).getByTestId("strategy-return")).toHaveTextContent(/^\+2\.0%$/);
+    expect(within(header).getByTestId("strategy-deepest")).toHaveTextContent(/^-1\.0%$/);
+    expect(within(header).getByTestId("strategy-deepest")).toHaveClass("text-loss");
+    expect(within(header).getByTestId("strategy-winrate")).toHaveTextContent(/^66\.7%$/);
+    expect(within(header).getByTestId("strategy-wins")).toHaveTextContent(/^2\/3 trades$/);
+    const aum = within(header).getByTestId("strategy-group-aum");
+    expect(within(aum).getByTestId("strategy-capital")).toHaveTextContent(/^300\.00$/);
+    expect(aum.querySelector("dd")).toHaveTextContent(/^300\.00USDT · 2$/);
+    expect(within(aum).getByTestId("strategy-subscribers")).toHaveTextContent(/^2$/);
+    // The capital keeps its (i); the return's belongs to a public record, not to the author's own report.
+    expect(within(aum).getByRole("img", { name: en.strategies.public.capitalInfo })).toBeInTheDocument();
+    expect(within(header).queryByRole("img", { name: en.strategies.public.returnInfo })).not.toBeInTheDocument();
+  });
+
+  it("stars the money while the balances are hidden and leaves the percentages and the counts", async () => {
+    useHiddenStore.setState({ hidden: true });
+    try {
+      renderPage(strategy({ live_subscribers: 2, capital: "300" }), { reportAnswer: () => jsonResponse(TRADED_REPORT) });
+      await heading("ETH Breakout");
+
+      const header = await card();
+      await waitFor(() => expect(within(header).getByTestId("strategy-return")).toHaveTextContent("+2.0%"));
+      expect(within(header).getByTestId("strategy-pnl")).toHaveTextContent(/^\*{6}USDT$/);
+      expect(within(header).getByTestId("strategy-capital")).toHaveTextContent(/^\*{6}$/);
+      expect(header).not.toHaveTextContent("41.25");
+      expect(header).not.toHaveTextContent("300.00");
+      expect(within(header).getByTestId("strategy-deepest")).toHaveTextContent("-1.0%");
+      expect(within(header).getByTestId("strategy-wins")).toHaveTextContent("2/3 trades");
+      expect(within(header).getByTestId("strategy-subscribers")).toHaveTextContent(/^2$/);
+    } finally {
+      useHiddenStore.setState({ hidden: false });
+    }
+  });
+
+  it("still follows the range selector and still edits the description from its pencil", async () => {
+    const answer = {
+      ...TRADED_REPORT,
+      ranges: ["7D", "30D", "90D", "1Y", "All"].map((range) => ({
+        range,
+        pnl: range === "7D" ? "5.00" : "41.25",
+        return: range === "7D" ? "0.0050000000" : "0.0200000000",
+        trade_count: 3,
+      })),
+    };
+    renderPage(strategy({ description: "Mean reversion on ETH." }), { reportAnswer: () => jsonResponse(answer) });
+    await heading("ETH Breakout");
+
+    const header = await card();
+    await waitFor(() => expect(within(header).getByTestId("strategy-pnl")).toHaveTextContent("+41.25"));
+    fireEvent.click(screen.getByRole("button", { name: "7D" }));
+    expect(within(header).getByTestId("strategy-pnl")).toHaveTextContent(/^\+5\.00USDT$/);
+    expect(within(header).getByTestId("strategy-group-pnl").querySelector("dt span")).toHaveTextContent("Total PnL · 7D");
+    fireEvent.click(screen.getByRole("button", { name: "30D" }));
+
+    fireEvent.click(within(header).getByRole("button", { name: en.strategies.description.edit }));
+    expect(within(header).getByRole("textbox", { name: en.strategies.description.label })).toBeInTheDocument();
   });
 });
 
 describe("StrategyDetailPage settings column (L.7)", () => {
   const settingsColumn = () => screen.getByRole("complementary", { name: en.strategies.detail.settings });
 
-  it("puts Disable and Archive in one row at equal width, Enable history below the row", async () => {
+  it("puts Disable and Archive in one row, both growing to fill it, Enable history below the row", async () => {
     renderPage(strategy({ enabled: false }), {
       events: [{ enabled: true, occurred_at: "2026-08-12T10:00:00+00:00", origin: "OBSERVED" }],
     });

@@ -1,10 +1,9 @@
 import { useId, useState } from "react";
-import { Save } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { PairSelector } from "@/features/strategies/PairSelector";
 import type { PairSelectorStatus } from "@/features/strategies/PairSelector";
-import { StatusButton } from "@/shared/ui/StatusButton";
+import { FieldSaveButton } from "@/features/strategies/ShareSlider";
 import { ApiError } from "@/shared/api/client";
 import { useAvailablePairs } from "@/shared/api/pairs";
 import { useReplaceAllowedPairs } from "@/shared/api/strategies";
@@ -122,20 +121,14 @@ export function AllowedPairsEditor({ strategy }: AllowedPairsEditorProps) {
         look="section"
         // Save sits on the search field's row, which takes the width that is left.
         action={
-          <div className="flex shrink-0 items-start">
-            <StatusButton
-              texts={[saveText, savingText, savedText]}
-              shown={save.isPending ? savingText : saved ? savedText : saveText}
-              message={saved ? savedText : null}
-              onClick={handleSave}
-              // A button that reads "Saved" has nothing to save: the list on screen is the stored one.
-              disabled={archived || !changed || empty || save.isPending}
-              icon={Save}
-              iconOnly
-              busy={save.isPending}
-              look="primary"
-            />
-          </div>
+          <FieldSaveButton
+            label={save.isPending ? savingText : saved ? savedText : saveText}
+            message={saved ? savedText : null}
+            onClick={handleSave}
+            // A button that reads "Saved" has nothing to save: the list on screen is the stored one.
+            disabled={archived || !changed || empty || save.isPending}
+            busy={save.isPending}
+          />
         }
         disabled={archived}
       />

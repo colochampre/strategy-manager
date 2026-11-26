@@ -29,14 +29,15 @@ export function VisibilityControl({ strategy }: VisibilityControlProps) {
   const change = useSetStrategyVisibility(strategy.id);
 
   return (
-    <div className="flex flex-col gap-2">
+    // At least 132 px wide, as the prototype draws the box beside the title.
+    <div className="flex min-w-33 flex-col gap-2">
       <VisibilityField
         value={strategy.visibility}
         onChange={(visibility) => {
           if (strategy.archived_at === null) change.mutate(visibility);
         }}
         disabled={strategy.archived_at !== null || change.isPending}
-        selectClass="min-h-11 rounded-md border border-rule bg-ground px-3 text-sm text-ink disabled:opacity-50"
+        selectClass="h-9.5 w-full rounded-lg border border-rule bg-ground px-3 text-sm text-ink disabled:opacity-50"
         compact
       />
       {change.status === "error" && (

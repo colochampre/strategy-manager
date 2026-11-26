@@ -8,8 +8,9 @@ import { ofExchange, ofStrategy, unmatched, useOpenPositions } from "@/shared/ap
 import type { OpenPosition } from "@/shared/api/positions";
 import type { Strategy } from "@/shared/api/types";
 import { timeOfAnswerText } from "@/shared/lib/figure-text";
+import { Card } from "@/shared/ui/Card";
+import { CountChip } from "@/shared/ui/CountChip";
 import { InfoButton, InfoText, useInfoDisclosure } from "@/shared/ui/InfoDisclosure";
-import { ReportSection } from "@/shared/ui/ReportSection";
 
 interface OpenPositionsSectionProps {
   strategy: Strategy;
@@ -27,7 +28,8 @@ function noteKeys(positions: OpenPosition[]): string[] {
 }
 
 /**
- * The strategy's open positions, above its closed trades. It selects the strategy's own elements by id over
+ * The strategy's open positions, above its closed trades, in a card of its own drawn as the Overview's (L30): the
+ * count beside the title, and the (i) of the notes before it. It selects the strategy's own elements by id over
  * the WHOLE answer (a strategy's page shows its positions wherever the ledger put them) and does not wait for
  * the exchange scope. It counts what its own exchange holds that no strategy owns: while that is not empty the
  * section never says "No open position.", because one of those elements may be this strategy's own. A failed
@@ -40,20 +42,13 @@ export function OpenPositionsSection({ strategy }: OpenPositionsSectionProps) {
   const locale = i18n.resolvedLanguage ?? "en";
   const info = useInfoDisclosure();
 
-  const title = (
-    <h2 id={headingId} className="font-display text-base font-semibold text-ink">
-      {t("positions.table.title")}
-    </h2>
-  );
+  const title = t("positions.table.title");
 
   if (open.data === undefined) {
     return (
-      <ReportSection>
-        <section aria-labelledby={headingId} className="flex flex-col gap-4">
-          {title}
-          <OpenReadState status={open.status} errorUpdateCount={open.errorUpdateCount} />
-        </section>
-      </ReportSection>
+      <Card title={title} headingId={headingId}>
+        <OpenReadState status={open.status} errorUpdateCount={open.errorUpdateCount} />
+      </Card>
     );
   }
 
@@ -66,15 +61,6 @@ export function OpenPositionsSection({ strategy }: OpenPositionsSectionProps) {
   );
   const lastRead = timeOfAnswerText(answer.as_of, answer.as_of, locale, true) ?? answer.as_of;
   const notes = noteKeys(mine.positions);
-  const heading =
-    notes.length === 0 ? (
-      title
-    ) : (
-      <div className="flex items-center gap-1">
-        {title}
-        <InfoButton disclosure={info} label={t("positions.note.info")} />
-      </div>
-    );
   const orders = mine.orders.length > 0 && (
     <ul className="flex flex-col gap-1.5">
       {mine.orders.map((order) => (
@@ -86,9 +72,18 @@ export function OpenPositionsSection({ strategy }: OpenPositionsSectionProps) {
   );
 
   return (
-    <ReportSection>
-      <section aria-labelledby={headingId} className="flex flex-col gap-4">
-        {heading}
+    <Card
+      title={title}
+      headingId={headingId}
+      dense
+      action={
+        <div className="flex items-center gap-2">
+          {notes.length > 0 && <InfoButton disclosure={info} label={t("positions.note.info")} />}
+          <CountChip testId="positions-count">{t("positions.table.count", { count: mine.positions.length })}</CountChip>
+        </div>
+      }
+    >
+      <div className="flex flex-col gap-4">
         {notes.length > 0 && (
           <InfoText disclosure={info}>
             {notes.map((key) => (
@@ -98,7 +93,8 @@ export function OpenPositionsSection({ strategy }: OpenPositionsSectionProps) {
             ))}
           </InfoText>
         )}
-        <div aria-live="polite" className="flex flex-col gap-1">
+        {/* Empty most of the time: it takes back the gap it would otherwise leave above the table (ex1). */}
+        <div aria-live="polite" className="flex flex-col gap-1 empty:-mb-4">
           {open.status === "error" && <p className="text-sm text-loss">{t("positions.state.stale", { time: lastRead })}</p>}
         </div>
         {mine.positions.length === 0 ? (
@@ -119,7 +115,7 @@ export function OpenPositionsSection({ strategy }: OpenPositionsSectionProps) {
             {sentence}
           </>
         )}
-      </section>
-    </ReportSection>
+      </div>
+    </Card>
   );
 }

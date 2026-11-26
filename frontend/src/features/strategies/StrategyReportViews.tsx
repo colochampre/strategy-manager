@@ -3,7 +3,9 @@ import { useTranslation } from "react-i18next";
 
 import { PublicRecordReport } from "@/features/strategies/PublicRecordReport";
 import { RecordFigures } from "@/features/strategies/RecordFigures";
-import { StrategyPerformance } from "@/features/strategies/StrategyPerformance";
+import { PublicDescription } from "@/features/strategies/StrategyDescription";
+import { StrategyHeaderCard } from "@/features/strategies/StrategyHeaderCard";
+import { PerformanceCard, StrategyPerformance } from "@/features/strategies/StrategyPerformance";
 import { useOwnSeat } from "@/features/strategies/SubscribePanel";
 import { useStrategyPerformance } from "@/shared/api/performance";
 import { useMe } from "@/shared/api/me";
@@ -21,9 +23,11 @@ function MyResults({ strategyId }: { strategyId: string }) {
   const performance = useStrategyPerformance(strategyId);
   if (performance.data !== undefined && performance.data !== null && performance.data.trade_count === 0) {
     return (
-      <p role="status" className="text-sm text-ink-3">
-        {t("strategies.report.mineEmpty")}
-      </p>
+      <PerformanceCard>
+        <p role="status" className="text-sm text-ink-3">
+          {t("strategies.report.mineEmpty")}
+        </p>
+      </PerformanceCard>
     );
   }
   // Its PnL, return and drawdown are in the figure row above, so the report draws no second line of them.
@@ -31,7 +35,8 @@ function MyResults({ strategyId }: { strategyId: string }) {
 }
 
 /**
- * The public page's one report (curve, month by month, by pair) in two views, never drawn together: "Strategy
+ * The public page's header card (the description and the figures, S14) and its one report (curve, month by month, by
+ * pair) in two views, never drawn together: "Strategy
  * record" for anyone, and "My results" only for a reader who holds a seat, the view they open on. Without a seat
  * there is no selector, only the record.
  */
@@ -48,40 +53,47 @@ export function StrategyReportViews({ strategy }: { strategy: PublicStrategy }) 
   const settled = !me.isPending && !held.isPending;
 
   return (
-    <section aria-label={t("strategies.report.title")} className="flex min-w-0 flex-col gap-4">
-      <h2 className="font-display text-base font-semibold text-ink">{t("strategies.report.title")}</h2>
-      {/* The strategy's figures first, the ones its card shows; under My results the return and the drawdown are
-          the reader's own, with their PnL. Until the view is known they wait, so they never switch under the eye. */}
-      <RecordFigures strategy={strategy} view={settled ? view : null} />
-      {!settled && (
-        <p role="status" className="text-sm text-ink-3">
-          {t("strategies.report.recordLoading")}
-        </p>
-      )}
-      {settled && seat !== undefined && (
-        <div role="group" aria-label={t("strategies.report.views")} className="flex flex-wrap gap-2">
-          {VIEWS.map((name) => (
-            <button
-              key={name}
-              type="button"
-              aria-pressed={name === view}
-              onClick={() => setChosen(name)}
-              className={cn(
-                "min-h-11 rounded-lg border border-rule px-3.5 text-sm focus-visible:outline-2 focus-visible:outline-gain",
-                name === view ? "bg-panel-2 text-ink" : "bg-transparent text-ink-2",
-              )}
-            >
-              {t(name === "mine" ? "strategies.report.mine" : "strategies.report.record")}
-            </button>
+    <>
+      {/* The header card: the description, and under it the strategy's figures, the ones its card shows; under My
+          results the return and the drawdown are the reader's own, with their PnL. Until the view is known they wait,
+          so they never switch under the eye. */}
+      <StrategyHeaderCard about={<PublicDescription text={strategy.description} />}>
+        <RecordFigures strategy={strategy} view={settled ? view : null} />
+      </StrategyHeaderCard>
+      {/* The Performance card carries its own title (L26), so no heading sits above the views. */}
+      <div className="flex min-w-0 flex-col gap-4">
+        {!settled && (
+          <PerformanceCard>
+            <p role="status" className="text-sm text-ink-3">
+              {t("strategies.report.recordLoading")}
+            </p>
+          </PerformanceCard>
+        )}
+        {settled && seat !== undefined && (
+          <div role="group" aria-label={t("strategies.report.views")} className="flex flex-wrap gap-2">
+            {VIEWS.map((name) => (
+              <button
+                key={name}
+                type="button"
+                aria-pressed={name === view}
+                onClick={() => setChosen(name)}
+                className={cn(
+                  "min-h-11 rounded-lg border border-rule px-3.5 text-sm focus-visible:outline-2 focus-visible:outline-gain",
+                  name === view ? "bg-panel-2 text-ink" : "bg-transparent text-ink-2",
+                )}
+              >
+                {t(name === "mine" ? "strategies.report.mine" : "strategies.report.record")}
+              </button>
+            ))}
+          </div>
+        )}
+        {settled &&
+          (view === "mine" ? (
+            <MyResults strategyId={strategy.id} />
+          ) : (
+            <PublicRecordReport strategyId={strategy.id} joined={seat?.created_at?.slice(0, 10) ?? null} />
           ))}
-        </div>
-      )}
-      {settled &&
-        (view === "mine" ? (
-          <MyResults strategyId={strategy.id} />
-        ) : (
-          <PublicRecordReport strategyId={strategy.id} joined={seat?.created_at?.slice(0, 10) ?? null} />
-        ))}
-    </section>
+      </div>
+    </>
   );
 }

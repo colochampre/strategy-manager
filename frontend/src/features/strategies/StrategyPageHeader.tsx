@@ -60,22 +60,27 @@ export function StrategyPageHeader({
       <div className="flex min-h-11 flex-wrap items-center gap-x-3 gap-y-1">
         {title}
         {status}
+      </div>
+      {/* The author and the market line on the left, the page's action at their foot on the right (`.hd-row`, ex12). */}
+      <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-2">
+        <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+          <p data-testid={`${prefix}-origin`} className="text-[13px] text-ink-2">
+            {byline}
+          </p>
+          <p data-testid={`${prefix}-market`} className="flex flex-wrap items-center gap-x-1.5 font-mono text-[11px] text-ink-3">
+            <span className="uppercase tracking-[0.14em]">{market}</span>
+            {dates !== null && (
+              <>
+                <span aria-hidden="true">·</span>
+                <NamedValue icon={Calendar} label={t("strategies.card.age")} testId={`${prefix}-age`}>
+                  {dates}
+                </NamedValue>
+              </>
+            )}
+          </p>
+        </div>
         {action}
       </div>
-      <p data-testid={`${prefix}-origin`} className="text-xs text-ink-2">
-        {byline}
-      </p>
-      <p data-testid={`${prefix}-market`} className="flex flex-wrap items-center gap-x-1.5 font-mono text-[11px] text-ink-3">
-        <span className="uppercase tracking-[0.14em]">{market}</span>
-        {dates !== null && (
-          <>
-            <span aria-hidden="true">·</span>
-            <NamedValue icon={Calendar} label={t("strategies.card.age")} testId={`${prefix}-age`}>
-              {dates}
-            </NamedValue>
-          </>
-        )}
-      </p>
       {children}
     </header>
   );

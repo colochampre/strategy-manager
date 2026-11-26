@@ -645,6 +645,7 @@ async def test_get_strategy_trades_item_shape_and_direction(
         str(long_id),
     ]
     assert body["next_cursor"] is None
+    assert body["total"] == 3
     short = items[str(short_id)]
     assert short == {
         "allocation_id": str(short_id),
@@ -812,7 +813,7 @@ async def test_empty_ledger_returns_zeros_and_empty_arrays_never_an_error(
     strategy_body = _json(strategy)
     _assert_empty_report(strategy_body)
     assert strategy_body["by_pair"] == []
-    assert _json(trades) == {"trades": [], "next_cursor": None}
+    assert _json(trades) == {"trades": [], "next_cursor": None, "total": 0}
 
 
 async def test_a_ledger_holding_only_rehearsal_fills_is_empty_and_says_how_many_it_left_out(

@@ -2,8 +2,8 @@ import { useId, useRef, type MouseEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
 import { FIELD_NAME_CLASS, type FieldNameLook } from "@/features/strategies/field-name";
+import { FIELD_INPUT_CLASS, FIELD_UNIT_CLASS, fieldBoxClass } from "@/features/strategies/ShareSlider";
 import { maxLeverage, readStopLevel } from "@/features/strategies/stop-level";
-import { cn } from "@/shared/lib/cn";
 import { InfoButton, InfoText, useInfoDisclosure } from "@/shared/ui/InfoDisclosure";
 
 interface StopLevelFieldProps {
@@ -59,16 +59,8 @@ export function StopLevelField({
         <p className="text-xs text-ink-3">{t("strategies.stopLevel.hint")}</p>
       </InfoText>
       {/* One row: the field takes the width that is left, the action beside it keeps its own. */}
-      <div className="flex items-start gap-x-3">
-        <div
-          onMouseDown={focusField}
-          className={cn(
-            "flex min-h-11 min-w-0 flex-1 items-center rounded-md border bg-ground px-3 font-mono text-sm text-ink",
-            "focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-gain",
-            reading.valid ? "border-rule" : "border-loss",
-            disabled ? "cursor-not-allowed opacity-50" : "cursor-text",
-          )}
-        >
+      <div className="flex items-center gap-2">
+        <div onMouseDown={focusField} className={fieldBoxClass(!reading.valid, disabled)}>
           <input
             ref={inputRef}
             id={ids.field}
@@ -82,9 +74,9 @@ export function StopLevelField({
             aria-invalid={!reading.valid}
             aria-describedby={reading.valid ? undefined : ids.problem}
             onChange={(event) => onChange(event.target.value)}
-            className="field-sizing-content min-w-[1ch] border-0 bg-transparent pr-0.5 font-mono text-sm text-ink outline-none disabled:cursor-not-allowed"
+            className={FIELD_INPUT_CLASS}
           />
-          <span aria-hidden="true" className="text-ink">
+          <span aria-hidden="true" className={FIELD_UNIT_CLASS}>
             {t("strategies.stopLevel.unit")}
           </span>
         </div>

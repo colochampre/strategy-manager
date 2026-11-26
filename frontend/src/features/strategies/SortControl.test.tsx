@@ -69,4 +69,14 @@ describe("the sort control", () => {
     fireEvent.click(within(group).getByRole("button", { name: "Return, descending" }));
     expect(onChange).toHaveBeenCalledExactlyOnceWith("return");
   });
+
+  it("draws its keys at the prototype's size: 32 px tall, 12.5 px type, 11 px of side padding (L26)", () => {
+    const { group } = draw();
+
+    for (const button of within(group).getAllByRole("button")) {
+      expect(button).toHaveClass("h-8", "px-[11px]", "text-[12.5px]");
+      expect(button).not.toHaveClass("min-h-9", "text-xs");
+    }
+    expect(within(group).getByText("Sort by")).toHaveClass("text-[12.5px]", "mr-1");
+  });
 });

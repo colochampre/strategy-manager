@@ -1,8 +1,9 @@
+import { Search } from "lucide-react";
 import { useId, useState } from "react";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
-import { FIELD_NAME_CLASS, type FieldNameLook } from "@/features/strategies/field-name";
+import type { FieldNameLook } from "@/features/strategies/field-name";
 import { InfoButton, InfoText, useInfoDisclosure } from "@/shared/ui/InfoDisclosure";
 
 export type PairSelectorStatus = "idle" | "loading" | "error" | "ready";
@@ -94,6 +95,36 @@ export function PairSelector({
     onChange(selected.has(pair) ? value.filter((chosen) => chosen !== pair) : [...value, pair]);
   };
 
+  // The strategy page draws the field as `ex12` does: the chips on a row of their own under the name, a 38 px
+  // search box with its icon at the end, and the action beside it. A dialog keeps its denser look.
+  const page = look === "section";
+  const chips =
+    value.length > 0 ? (
+      <ul aria-label={t("strategies.pairs.selected")} className={page ? "flex flex-wrap gap-1.5" : "flex flex-wrap gap-1"}>
+        {value.map((pair) => (
+          <li
+            key={pair}
+            className={
+              page
+                ? "inline-flex h-6.5 items-center gap-1.5 rounded-full border border-rule bg-ground pl-2.5 pr-1.5 text-xs text-ink-2"
+                : "inline-flex items-center gap-1 rounded-full border border-rule bg-panel-2 py-0.5 pl-3 pr-1 text-xs text-ink"
+            }
+          >
+            <span className={page ? "font-mono font-medium text-ink" : "font-mono"}>{pair}</span>
+            {ready && !listed.has(pair) && <span className="text-ink-3">{t("strategies.pairs.notListed")}</span>}
+            <button
+              type="button"
+              aria-label={t("strategies.pairs.remove", { symbol: pair })}
+              onClick={() => onChange(value.filter((chosen) => chosen !== pair))}
+              className={page ? "rounded-full px-1 text-ink-3 hover:text-ink" : "rounded-full px-2 text-ink-3 hover:text-ink"}
+            >
+              <span aria-hidden="true">×</span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    ) : null;
+
   return (
     <fieldset
       id={id}
@@ -102,59 +133,47 @@ export function PairSelector({
       aria-describedby={describedBy ?? (info === undefined ? undefined : disclosure.textId)}
       className="flex min-w-0 flex-col gap-1.5"
     >
-      {/* One wrapping row: the name, its information button and the chips of the added pairs, to take less height. */}
+      {/* The name and its information button; in a dialog the chips of the added pairs share this wrapping row, to
+          take less height. */}
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-        {/* In a dialog the name keeps its line height from the chips beside it. */}
-        <span id={nameId} className={look === "section" ? FIELD_NAME_CLASS.section : "text-xs font-semibold text-ink-2"}>
+        <span id={nameId} className="text-xs font-semibold text-ink-2">
           {label}
         </span>
         {info !== undefined && <InfoButton disclosure={disclosure} label={info.label} />}
-        {value.length > 0 && (
-          <ul aria-label={t("strategies.pairs.selected")} className="flex flex-wrap gap-1">
-            {value.map((pair) => (
-              <li
-                key={pair}
-                className="inline-flex items-center gap-1 rounded-full border border-rule bg-panel-2 py-0.5 pl-3 pr-1 text-xs text-ink"
-              >
-                <span className="font-mono">{pair}</span>
-                {ready && !listed.has(pair) && <span className="text-ink-3">{t("strategies.pairs.notListed")}</span>}
-                <button
-                  type="button"
-                  aria-label={t("strategies.pairs.remove", { symbol: pair })}
-                  onClick={() => onChange(value.filter((chosen) => chosen !== pair))}
-                  className="rounded-full px-2 text-ink-3 hover:text-ink"
-                >
-                  <span aria-hidden="true">×</span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
+        {!page && chips}
       </div>
       <InfoText disclosure={disclosure}>
         {info !== undefined && <p className="text-xs text-ink-3">{info.text}</p>}
       </InfoText>
+      {page && chips}
 
       {/* One row: the search field takes the width that is left, the action keeps its own beside it. */}
-      <div className="flex items-start gap-2">
+      <div className={page ? "flex items-center gap-2" : "flex items-start gap-2"}>
         <label htmlFor={searchId} className="sr-only">
           {t("strategies.pairs.search")}
         </label>
-        <input
-          id={searchId}
-          type="search"
-          value={typed}
-          onChange={(event) => setTyped(event.target.value)}
-          // Enter in a search field would submit an enclosing form (the new-strategy dialog).
-          onKeyDown={(event) => {
-            if (event.key === "Enter") event.preventDefault();
-          }}
-          disabled={!ready}
-          placeholder={t("strategies.pairs.searchPlaceholder")}
-          autoComplete="off"
-          spellCheck={false}
-          className="min-h-11 min-w-0 flex-1 rounded-md border border-rule bg-ground px-3 py-2 font-mono text-sm text-ink disabled:opacity-50"
-        />
+        <div className="relative min-w-0 flex-1">
+          <input
+            id={searchId}
+            type="search"
+            value={typed}
+            onChange={(event) => setTyped(event.target.value)}
+            // Enter in a search field would submit an enclosing form (the new-strategy dialog).
+            onKeyDown={(event) => {
+              if (event.key === "Enter") event.preventDefault();
+            }}
+            disabled={!ready}
+            placeholder={t("strategies.pairs.searchPlaceholder")}
+            autoComplete="off"
+            spellCheck={false}
+            className={
+              page
+                ? "h-9.5 w-full min-w-0 rounded-lg border border-rule bg-ground pl-3 pr-9 font-mono text-sm text-ink disabled:opacity-50"
+                : "min-h-11 w-full min-w-0 rounded-md border border-rule bg-ground px-3 py-2 font-mono text-sm text-ink disabled:opacity-50"
+            }
+          />
+          {page && <Search aria-hidden="true" className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-ink-3" />}
+        </div>
         {action}
       </div>
 
