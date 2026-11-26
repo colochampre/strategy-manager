@@ -90,7 +90,7 @@ function renderPage(subject: Strategy = strategy(), options: Options = {}) {
         );
       }
       if (url.includes(`/performance/strategies/${ID}/trades`)) {
-        return Promise.resolve(jsonResponse({ trades: options.trades ?? [], next_cursor: null }));
+        return Promise.resolve(jsonResponse({ trades: options.trades ?? [], next_cursor: null, total: (options.trades ?? []).length }));
       }
       if (url.endsWith(`/performance/strategies/${ID}`)) {
         return Promise.resolve(

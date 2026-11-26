@@ -60,7 +60,7 @@ function strategy(overrides: Partial<Strategy> = {}): Strategy {
 
 function renderOwn(subject: Strategy = strategy()) {
   stubApi({ kind: "ok", body: { status: "ok", dry_run: true } }, [], { kind: "ok", body: [pool("bybit", "usdt-m")] }, {}, (url) => {
-    if (url.includes(`/performance/strategies/${ID}/trades`)) return Promise.resolve(jsonResponse({ trades: [], next_cursor: null }));
+    if (url.includes(`/performance/strategies/${ID}/trades`)) return Promise.resolve(jsonResponse({ trades: [], next_cursor: null, total: 0 }));
     if (url.endsWith(`/performance/strategies/${ID}`)) {
       return Promise.resolve(
         jsonResponse({ ...emptyPerformance("bybit", "usdt-m", "USDT"), strategy_id: ID, by_pair: [] }),

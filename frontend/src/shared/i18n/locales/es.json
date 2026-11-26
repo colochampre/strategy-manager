@@ -731,6 +731,8 @@
       },
       "trades": {
         "title": "Operaciones cerradas",
+        "count_one": "{{count}} operación",
+        "count_other": "{{count}} operaciones",
         "opened": "Apertura (UTC)",
         "closed": "Cierre (UTC)",
         "pair": "Par",

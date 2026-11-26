@@ -12,6 +12,7 @@ import { dateTimeText, figureText, tableFigureText } from "@/shared/lib/figure-t
 import { Absent } from "@/shared/ui/Absent";
 import { Card } from "@/shared/ui/Card";
 import { HintedHead } from "@/shared/ui/HintedHead";
+import { CountChip } from "@/shared/ui/CountChip";
 import { InfoButton, InfoText, useInfoDisclosure } from "@/shared/ui/InfoDisclosure";
 import { Instant } from "@/shared/ui/Instant";
 import { TABLE_BOX, TABLE_CELL, TABLE_HEAD } from "@/shared/ui/table-styles";
@@ -195,6 +196,8 @@ function TradesTableView({ strategyId, currency }: TradesTableProps) {
   let body;
   // The keys of the dry-run sentences true of the page on screen; none while there is no page to read.
   let noteKeys: string[] = [];
+  // Every operation the table pages through, from the page on screen; none until a page has been read.
+  let total: number | null = null;
   if (trades.data === undefined && trades.status === "error") {
     body = (
       <div className="flex flex-wrap items-center gap-3">
@@ -218,7 +221,9 @@ function TradesTableView({ strategyId, currency }: TradesTableProps) {
     );
   } else {
     const pages = trades.data.pages;
-    const rows = (pages[pageIndex] ?? pages[0])?.trades ?? [];
+    const shown = pages[pageIndex] ?? pages[0];
+    const rows = shown?.trades ?? [];
+    total = shown?.total ?? null;
     const loadedAhead = pageIndex + 1 < pages.length;
     const canGoNext = loadedAhead || trades.hasNextPage;
     const goNext = async () => {
@@ -338,8 +343,20 @@ function TradesTableView({ strategyId, currency }: TradesTableProps) {
       title={t("strategies.performance.trades.title")}
       headingId={headingId}
       dense
-      // The dry-run sentences wait behind one (i) in the card's header, drawn only when a row of the page makes one true.
-      {...(noteKeys.length > 0 ? { action: <InfoButton disclosure={info} label={t("strategies.performance.trades.notesInfo")} /> } : {})}
+      // The dry-run sentences wait behind one (i) in the card's header, drawn only when a row of the page makes one
+      // true; beside it the count of operations, as the open positions count theirs (L32).
+      {...(noteKeys.length > 0 || total !== null
+        ? {
+            action: (
+              <div className="flex items-center gap-2">
+                {noteKeys.length > 0 && <InfoButton disclosure={info} label={t("strategies.performance.trades.notesInfo")} />}
+                {total !== null && (
+                  <CountChip testId="trades-count">{t("strategies.performance.trades.count", { count: total })}</CountChip>
+                )}
+              </div>
+            ),
+          }
+        : {})}
     >
       <div className="flex flex-col gap-2">
         {noteKeys.length > 0 && (

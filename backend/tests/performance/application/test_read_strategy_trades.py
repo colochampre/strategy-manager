@@ -187,6 +187,18 @@ async def test_walking_every_page_yields_each_trade_exactly_once_newest_first() 
     assert [len(p.trades) for p in pages] == [3, 3, 1]
 
 
+async def test_every_page_carries_the_total_of_the_operations_listed_not_of_the_page() -> None:
+    """The panel writes "1-20 of 117 trades" (L32): the total counts every
+    operation the request lists, on every page alike, whatever the cursor."""
+    groups: list[FillGroup] = []
+    for n in range(1, 8):
+        groups += _closed(_id(n), T0 + timedelta(minutes=n))
+
+    pages = await _walk(ReadStrategyTrades(FakeFillsSource(groups), FakePricingSource()), limit=3)
+
+    assert [p.total for p in pages] == [7, 7, 7]
+
+
 async def test_an_exactly_full_last_page_has_no_next_cursor() -> None:
     groups = _closed(_id(1), T0) + _closed(_id(2), T0 + timedelta(seconds=1))
 
@@ -295,8 +307,8 @@ async def test_no_trades_returns_an_empty_page_not_an_error() -> None:
         FakePricingSource(),
     ).read(OWNER_ID, S1, POOL)
 
-    assert empty == TradesPage((), None)
-    assert rehearsal_only == TradesPage((), None)
+    assert empty == TradesPage((), None, 0)
+    assert rehearsal_only == TradesPage((), None, 0)
 
 
 @pytest.mark.parametrize("limit", [0, -1, MAX_PAGE_SIZE + 1])
@@ -443,6 +455,20 @@ async def test_the_default_request_serves_no_rehearsal_row() -> None:
     assert _ids(default) == [_id(1)]
     assert _flags(default) == [False]
     assert default == explicit_off
+
+
+async def test_the_total_counts_the_rehearsal_operations_only_when_they_are_listed() -> None:
+    source = FakeFillsSource(
+        _closed(_id(1), T0),
+        rehearsal_groups=_rehearsal_closed(_id(2), T0 + timedelta(minutes=1)),
+    )
+    reader = ReadStrategyTrades(source, FakePricingSource(default=ALERT_FACTS))
+
+    live_only = await reader.read(OWNER_ID, S1, POOL)
+    with_rehearsal = await reader.read(OWNER_ID, S1, POOL, include_rehearsal=True)
+
+    assert live_only.total == 1
+    assert with_rehearsal.total == 2
 
 
 async def test_a_mixed_allocation_is_listed_once_from_its_real_fills_and_one_warning_names_it(

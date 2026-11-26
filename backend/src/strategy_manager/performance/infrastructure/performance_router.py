@@ -351,10 +351,12 @@ class CursorBody(BaseModel):
 
 
 class TradesBody(BaseModel):
-    """``next_cursor`` is null on the last page."""
+    """``next_cursor`` is null on the last page. ``total`` counts every
+    operation the request lists, on all its pages (L32)."""
 
     trades: list[TradeBody]
     next_cursor: CursorBody | None
+    total: int
 
     @classmethod
     def of(cls, page: TradesPage) -> "TradesBody":
@@ -368,6 +370,7 @@ class TradesBody(BaseModel):
                     before_closed_at=cursor.closed_at, before_allocation_id=cursor.allocation_id
                 )
             ),
+            total=page.total,
         )
 
 

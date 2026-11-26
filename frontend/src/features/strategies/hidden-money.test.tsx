@@ -239,7 +239,7 @@ describe("the closed trades table while the balances are hidden", () => {
   it("masks the size, the fees, the PnL and the capital of a row, and keeps the prices and the return", async () => {
     stubApi(HEALTH, [], undefined, {}, (url) => {
       if (!/\/performance\/strategies\/[^/]+\/trades$/.test(new URL(url, "http://localhost").pathname)) return undefined;
-      return Promise.resolve(jsonResponse({ trades: [trade()], next_cursor: null }));
+      return Promise.resolve(jsonResponse({ trades: [trade()], next_cursor: null, total: 1 }));
     });
     renderAt(<TradesTable strategyId={STRATEGY} currency="USDT" />);
 

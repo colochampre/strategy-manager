@@ -157,7 +157,8 @@ function isTradesPage(value: unknown): value is StrategyTradesPage {
     isRecord(value) &&
     Array.isArray(value.trades) &&
     value.trades.every(isTrade) &&
-    (value.next_cursor === null || isCursor(value.next_cursor))
+    (value.next_cursor === null || isCursor(value.next_cursor)) &&
+    typeof value.total === "number"
   );
 }
 

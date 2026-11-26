@@ -88,7 +88,7 @@ describe("fetchStrategyPerformance by_pair", () => {
 
 describe("fetchStrategyTrades", () => {
   it("asks for the first page with the limit and include_rehearsal and no cursor", async () => {
-    const fetchMock = respond(200, { trades: [trade()], next_cursor: null });
+    const fetchMock = respond(200, { trades: [trade()], next_cursor: null, total: 1 });
 
     const page = await fetchStrategyTrades(ID, null);
 
@@ -100,10 +100,11 @@ describe("fetchStrategyTrades", () => {
     expect(url.searchParams.has("before_allocation_id")).toBe(false);
     expect(page.trades).toEqual([trade()]);
     expect(page.next_cursor).toBeNull();
+    expect(page.total).toBe(1);
   });
 
   it("sends the cursor back exactly as served: both values, the instant untouched", async () => {
-    const fetchMock = respond(200, { trades: [], next_cursor: null });
+    const fetchMock = respond(200, { trades: [], next_cursor: null, total: 1 });
 
     await fetchStrategyTrades(ID, CURSOR);
 
@@ -114,7 +115,7 @@ describe("fetchStrategyTrades", () => {
   });
 
   it("returns the cursor the server answered for the next page", async () => {
-    respond(200, { trades: [trade()], next_cursor: CURSOR });
+    respond(200, { trades: [trade()], next_cursor: CURSOR, total: 1 });
 
     const page = await fetchStrategyTrades(ID, null);
 
@@ -129,14 +130,17 @@ describe("fetchStrategyTrades", () => {
 
   it.each([
     ["is not an object", []],
-    ["has no trades list", { next_cursor: null }],
-    ["has no next_cursor key", { trades: [] }],
-    ["has a half cursor", { trades: [], next_cursor: { before_closed_at: "2026-09-30T12:00:00Z" } }],
-    ["has a trade whose pnl is a number", { trades: [{ ...trade(), pnl: 4.2 }], next_cursor: null }],
-    ["has a trade whose fees_complete is a string", { trades: [{ ...trade(), fees_complete: "false" }], next_cursor: null }],
-    ["has a trade with no closed_at", { trades: [{ ...trade(), closed_at: undefined }], next_cursor: null }],
-    ["has a trade whose capital_at_open is a number", { trades: [{ ...trade(), capital_at_open: 1000 }], next_cursor: null }],
-    ["has a trade whose return is missing", { trades: [{ ...trade(), return: undefined }], next_cursor: null }],
+    ["has no trades list", { next_cursor: null, total: 1 }],
+    ["has no next_cursor key", { trades: [], total: 0 }],
+    // The count of operations (L32): a page without it, or with it as a string, is not a trades page.
+    ["has no total", { trades: [], next_cursor: null }],
+    ["has a total that is a string", { trades: [], next_cursor: null, total: "3" }],
+    ["has a half cursor", { trades: [], next_cursor: { before_closed_at: "2026-09-30T12:00:00Z" }, total: 0 }],
+    ["has a trade whose pnl is a number", { trades: [{ ...trade(), pnl: 4.2 }], next_cursor: null, total: 1 }],
+    ["has a trade whose fees_complete is a string", { trades: [{ ...trade(), fees_complete: "false" }], next_cursor: null, total: 1 }],
+    ["has a trade with no closed_at", { trades: [{ ...trade(), closed_at: undefined }], next_cursor: null, total: 1 }],
+    ["has a trade whose capital_at_open is a number", { trades: [{ ...trade(), capital_at_open: 1000 }], next_cursor: null, total: 1 }],
+    ["has a trade whose return is missing", { trades: [{ ...trade(), return: undefined }], next_cursor: null, total: 1 }],
   ])("rejects a body that %s", async (_name, body) => {
     respond(200, body);
 
@@ -144,7 +148,7 @@ describe("fetchStrategyTrades", () => {
   });
 
   it("keeps a trade without capital at open, its return null", async () => {
-    respond(200, { trades: [trade({ capital_at_open: null, return: null })], next_cursor: null });
+    respond(200, { trades: [trade({ capital_at_open: null, return: null })], next_cursor: null, total: 1 });
 
     const page = await fetchStrategyTrades(ID, null);
 

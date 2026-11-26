@@ -731,6 +731,8 @@
       },
       "trades": {
         "title": "Closed trades",
+        "count_one": "{{count}} trade",
+        "count_other": "{{count}} trades",
         "opened": "Opened (UTC)",
         "closed": "Closed (UTC)",
         "pair": "Pair",

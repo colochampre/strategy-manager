@@ -70,6 +70,7 @@ function serve(all: readonly StrategyTrade[], size: number, first?: () => Promis
         more && last !== undefined
           ? { before_closed_at: last.closed_at, before_allocation_id: last.allocation_id }
           : null,
+      total: all.length,
     };
     return Promise.resolve(jsonResponse(page));
   });
@@ -290,7 +291,7 @@ describe("TradesTable", () => {
     serve(all, 5, () =>
       failing
         ? Promise.resolve(jsonResponse({ detail: "boom" }, 500))
-        : Promise.resolve(jsonResponse({ trades: all, next_cursor: null })),
+        : Promise.resolve(jsonResponse({ trades: all, next_cursor: null, total: 1 })),
     );
     renderTable();
 
@@ -305,7 +306,7 @@ describe("TradesTable", () => {
   });
 
   it("reads a body that is not a page of trades as a failure, and draws no row", async () => {
-    serve([], 5, () => Promise.resolve(jsonResponse({ trades: [{ ...trade(1), pnl: 4.2 }], next_cursor: null })));
+    serve([], 5, () => Promise.resolve(jsonResponse({ trades: [{ ...trade(1), pnl: 4.2 }], next_cursor: null, total: 1 })));
     renderTable();
 
     expect(await screen.findByRole("alert")).toHaveTextContent(i18n.t("strategies.performance.trades.error"));
@@ -879,7 +880,7 @@ describe("TradesTable under decision 43", () => {
 
   it("refuses a page whose row lacks fees, whole, with the error state and Try again and no row", async () => {
     serve([], 5, () =>
-      Promise.resolve(jsonResponse({ trades: [trade(1), withoutField(trade(2), "fees")], next_cursor: null })),
+      Promise.resolve(jsonResponse({ trades: [trade(1), withoutField(trade(2), "fees")], next_cursor: null, total: 1 })),
     );
     renderTable();
 
@@ -888,7 +889,7 @@ describe("TradesTable under decision 43", () => {
   });
 
   it("shows the error state and no invented figure for the nine-field rows of an older API", async () => {
-    serve([], 5, () => Promise.resolve(jsonResponse({ trades: [oldNineFields(1)], next_cursor: null })));
+    serve([], 5, () => Promise.resolve(jsonResponse({ trades: [oldNineFields(1)], next_cursor: null, total: 1 })));
     renderTable();
 
     await refused();
@@ -900,7 +901,7 @@ describe("TradesTable under decision 43", () => {
     let upgraded = false;
     serve([], 5, () =>
       Promise.resolve(
-        jsonResponse({ trades: upgraded ? [trade(1)] : [oldNineFields(1)], next_cursor: null }),
+        jsonResponse({ trades: upgraded ? [trade(1)] : [oldNineFields(1)], next_cursor: null, total: 1 }),
       ),
     );
     renderTable();
@@ -917,7 +918,7 @@ describe("TradesTable under decision 43", () => {
   it("refuses the page of a rehearsal row whose rehearsal_fill_price is null", async () => {
     serve([], 5, () =>
       Promise.resolve(
-        jsonResponse({ trades: [trade(1, { rehearsal: true, rehearsal_fill_price: null })], next_cursor: null }),
+        jsonResponse({ trades: [trade(1, { rehearsal: true, rehearsal_fill_price: null })], next_cursor: null, total: 1 }),
       ),
     );
     renderTable();
@@ -955,7 +956,7 @@ describe("TradesTable opening an operation", () => {
         return fills(asked[1] as string);
       }
       if (/\/performance\/strategies\/[^/]+\/trades$/.test(parsed.pathname)) {
-        return Promise.resolve(jsonResponse({ trades: [...rows], next_cursor: null }));
+        return Promise.resolve(jsonResponse({ trades: [...rows], next_cursor: null, total: 1 }));
       }
       return undefined;
     });
@@ -1142,7 +1143,7 @@ describe("TradesTable localization", () => {
           }),
         );
       }
-      if (/\/trades$/.test(path)) return Promise.resolve(jsonResponse({ trades: [row], next_cursor: null }));
+      if (/\/trades$/.test(path)) return Promise.resolve(jsonResponse({ trades: [row], next_cursor: null, total: 1 }));
       return undefined;
     });
     renderTable();
@@ -1420,5 +1421,52 @@ describe("TradesTable headings and the (i) beside the title", () => {
 
     fireEvent.mouseEnter(within(screen.getByRole("table")).getByText("PnL USDT"));
     expect(screen.queryByRole("tooltip")).toBeNull();
+  });
+});
+
+// The count of operations at the card's top right, as the open positions count theirs (L32): every closed
+// operation the table pages through, dry runs included, not the rows of the page on screen.
+describe("TradesTable count of operations", () => {
+  it("counts every operation the table lists, the same on every page", async () => {
+    serve([trade(1), trade(2), trade(3), trade(4), trade(5), trade(6), trade(7)], 5);
+    renderTable();
+
+    await screen.findByRole("table");
+    expect(screen.getByTestId("trades-count").textContent).toBe("7 trades");
+
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    await vi.waitFor(() => expect(bodyRows()).toHaveLength(2));
+    expect(screen.getByTestId("trades-count").textContent).toBe("7 trades");
+  });
+
+  it("is in the card's header, beside its title", async () => {
+    serve([trade(1)], 5);
+    renderTable();
+
+    await screen.findByRole("table");
+    const card = screen.getByRole("heading", { name: "Closed trades" }).closest("section") as HTMLElement;
+    const header = screen.getByRole("heading", { name: "Closed trades" }).parentElement as HTMLElement;
+    expect(within(card).getByTestId("trades-count")).toBeInTheDocument();
+    expect(within(header.parentElement as HTMLElement).getByTestId("trades-count")).toBeInTheDocument();
+  });
+
+  it.each([
+    [1, "1 operación"],
+    [3, "3 operaciones"],
+  ])("writes %i in Spanish as %s", async (count, text) => {
+    await i18n.changeLanguage("es");
+    serve(Array.from({ length: count }, (_, index) => trade(index + 1)), 5);
+    renderTable();
+
+    await screen.findByRole("table");
+    expect(screen.getByTestId("trades-count").textContent).toBe(text);
+  });
+
+  it("is not drawn before a page has been read", () => {
+    serve([], 5, () => new Promise<Response>(() => {}));
+    renderTable();
+
+    expect(screen.getByRole("status")).toBeInTheDocument();
+    expect(screen.queryByTestId("trades-count")).toBeNull();
   });
 });

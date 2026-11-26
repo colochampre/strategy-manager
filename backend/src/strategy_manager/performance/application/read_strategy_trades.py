@@ -138,10 +138,13 @@ class TradeItem:
 
 @dataclass(frozen=True, slots=True)
 class TradesPage:
-    """``next_cursor`` is ``None`` on the last page."""
+    """``next_cursor`` is ``None`` on the last page. ``total`` counts every
+    operation the request lists, on all its pages, whatever the cursor: the
+    panel writes "1-20 of 117 trades" with it (L32)."""
 
     trades: tuple[TradeItem, ...]
     next_cursor: TradeCursor | None
+    total: int
 
 
 def _key(trade: ClosedTrade) -> tuple[datetime, int]:
@@ -234,6 +237,8 @@ class ReadStrategyTrades:
             )
 
         ordered = sorted(operations, key=lambda op: _key(op[0]), reverse=True)
+        # Counted before the cursor cuts the list: every page carries the same total.
+        total = len(ordered)
         if before is not None:
             after = (before.closed_at, before.allocation_id.int)
             ordered = [op for op in ordered if _key(op[0]) < after]
@@ -269,6 +274,7 @@ class ReadStrategyTrades:
                 for trade, rehearsal in page
             ),
             next_cursor=next_cursor,
+            total=total,
         )
 
     async def _classify(
