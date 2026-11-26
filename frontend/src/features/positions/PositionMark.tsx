@@ -20,10 +20,14 @@ export function reasonText(code: string, t: Translate): string {
 /** The slot both marks fill, so that a symbol starts at the same place whether its row has a dot or a sign. */
 const SLOT = "-ml-1 inline-flex size-4.5 shrink-0 items-center justify-center";
 
-export function OriginDot({ origin }: { origin: Origin }) {
+/**
+ * The origin as a round dot in its token, named by its word and told in a tooltip. `label` names it more
+ * precisely where the row knows more (a closed trade's dry-run tag says how it was filled, L31).
+ */
+export function OriginDot({ origin, label }: { origin: Origin; label?: string }) {
   const { t } = useTranslation();
   const look = ORIGIN_STYLE[origin];
-  const word = t(look.textKey);
+  const word = label ?? t(look.textKey);
   return (
     // The tip repeats the name, so it does not also describe the trigger: a screen reader would read it twice.
     <Tooltip text={word} describes={false} className="-ml-1 inline-flex">

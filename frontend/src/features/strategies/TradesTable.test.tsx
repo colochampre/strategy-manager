@@ -632,47 +632,44 @@ describe("TradesTable", () => {
   });
 });
 
-// The rehearsal mark (decision 43): a dry-run operation keeps its stored numbers, beside a text
-// tag under the pair that says how it was filled, in the amber token of the dry-run badge.
+// The rehearsal mark (decision 43): a dry-run operation keeps its stored numbers. How it was filled is a dot
+// beside the pair in the dry-run badge's amber, named by its tag and told in a tooltip, as the open positions
+// mark their origin (L31); a real operation has the live dot.
 describe("TradesTable rehearsal rows", () => {
   const rehearsal = (n: number, fillPrice: string, overrides: Partial<StrategyTrade> = {}) =>
     trade(n, { rehearsal: true, rehearsal_fill_price: fillPrice, ...overrides });
   const pairCell = (row: HTMLElement) => within(row).getAllByRole("cell")[2] as HTMLElement;
+  const markOf = (row: HTMLElement) => within(pairCell(row)).getByRole("img");
 
-  it("shows each rehearsal_fill_price value's own tag on its own line under the pair", async () => {
+  it("marks each rehearsal_fill_price value with a dot named by its own tag, beside the pair (L31)", async () => {
     serve([rehearsal(1, "FIXED_ONE"), rehearsal(2, "ALERT"), rehearsal(3, "UNDETERMINED")], 5);
     renderTable();
 
     await screen.findByRole("table");
 
-    const [fixed, alert, undetermined] = bodyRows() as [HTMLElement, HTMLElement, HTMLElement];
-    const fixedTag = within(pairCell(fixed)).queryByText("Dry run · fixed price");
-    const alertTag = within(pairCell(alert)).queryByText("Dry run · alert price");
-    const plainTag = within(pairCell(undetermined)).queryByText("Dry run");
-    expect(fixedTag).toBeInTheDocument();
-    expect(alertTag).toBeInTheDocument();
-    expect(plainTag).toBeInTheDocument();
-    // Each tag is a block of its own inside the Pair cell, below the pair, and no row carries another's.
-    for (const tag of [fixedTag, alertTag, plainTag]) {
-      expect(tag?.classList.contains("block")).toBe(true);
-      expect(tag?.parentElement).toBe(tag === fixedTag ? pairCell(fixed) : tag === alertTag ? pairCell(alert) : pairCell(undetermined));
-    }
-    expect(within(fixed).queryByText("Dry run · alert price")).toBeNull();
-    expect(within(alert).queryByText("Dry run · fixed price")).toBeNull();
-    expect(within(undetermined).queryByText(/·/)).toBeNull();
+    const rows = bodyRows() as [HTMLElement, HTMLElement, HTMLElement];
+    expect(rows.map((row) => markOf(row).getAttribute("aria-label"))).toEqual([
+      "Dry run · fixed price",
+      "Dry run · alert price",
+      "Dry run",
+    ]);
+    // The tag is no longer written under the pair: the cell reads the pair alone, on one line.
+    expect(rows.map((row) => pairCell(row).textContent)).toEqual(["SOLUSDT", "SOLUSDT", "SOLUSDT"]);
+    for (const row of rows) expect(markOf(row).querySelector("[data-dot]")).toHaveClass("bg-decision", "rounded-full");
   });
 
-  it("writes the tags in Spanish", async () => {
+  it("names the dots in Spanish", async () => {
     await i18n.changeLanguage("es");
     serve([rehearsal(1, "FIXED_ONE"), rehearsal(2, "ALERT"), rehearsal(3, "UNDETERMINED")], 5);
     renderTable();
 
     await screen.findByRole("table");
 
-    const [fixed, alert, undetermined] = bodyRows() as [HTMLElement, HTMLElement, HTMLElement];
-    expect(within(pairCell(fixed)).queryByText("Simulación · precio fijo")).toBeInTheDocument();
-    expect(within(pairCell(alert)).queryByText("Simulación · precio de la alerta")).toBeInTheDocument();
-    expect(within(pairCell(undetermined)).queryByText("Simulación")).toBeInTheDocument();
+    expect((bodyRows() as HTMLElement[]).map((row) => markOf(row).getAttribute("aria-label"))).toEqual([
+      "Simulación · precio fijo",
+      "Simulación · precio de la alerta",
+      "Simulación",
+    ]);
   });
 
   it("reads a value the panel does not know as the plain tag", async () => {
@@ -682,18 +679,31 @@ describe("TradesTable rehearsal rows", () => {
     await screen.findByRole("table");
 
     const row = bodyRows()[0] as HTMLElement;
-    expect(within(pairCell(row)).queryByText("Dry run")).toBeInTheDocument();
-    expect(within(row).queryByText(/·/)).toBeNull();
+    expect(markOf(row)).toHaveAttribute("aria-label", "Dry run");
     expect(within(row).queryByText("SLIPPED")).toBeNull();
   });
 
-  it("leaves a real row unmarked", async () => {
+  it("gives a real row the live dot and no dry-run tag (L31)", async () => {
     serve([trade(1)], 5);
     renderTable();
 
     await screen.findByRole("table");
 
-    expect(within(bodyRows()[0] as HTMLElement).queryByText(/Dry run/)).toBeNull();
+    const row = bodyRows()[0] as HTMLElement;
+    expect(markOf(row)).toHaveAttribute("aria-label", "Live");
+    expect(markOf(row).querySelector("[data-dot]")).toHaveClass("bg-gain");
+    expect(within(row).queryByText(/Dry run/)).toBeNull();
+  });
+
+  it("tells the tag in a tooltip on hover, so the mark does not rest on colour alone (L31)", async () => {
+    serve([rehearsal(1, "ALERT")], 5);
+    renderTable();
+
+    await screen.findByRole("table");
+
+    expect(screen.queryByRole("tooltip")).toBeNull();
+    fireEvent.mouseEnter(markOf(bodyRows()[0] as HTMLElement).parentElement as HTMLElement);
+    expect(screen.getByRole("tooltip")).toHaveTextContent(/^Dry run · alert price$/);
   });
 
   // Fees are written like the PnL beside them (owner decision 46): a fee of 0 reads 0.00 in a USDT pool.
@@ -743,18 +753,6 @@ describe("TradesTable rehearsal rows", () => {
       ["gain", "gain"],
       ["loss", "loss"],
     ]);
-  });
-
-  it("writes the tag as text in the amber token of the dry-run badge, so it does not rest on colour alone", async () => {
-    serve([rehearsal(1, "FIXED_ONE")], 5);
-    renderTable();
-
-    await screen.findByRole("table");
-
-    const tag = within(pairCell(bodyRows()[0] as HTMLElement)).queryByText("Dry run · fixed price");
-    expect(tag).toBeInTheDocument();
-    expect(tag?.classList.contains("text-decision")).toBe(true);
-    expect((tag?.textContent ?? "").length).toBeGreaterThan(0);
   });
 });
 
@@ -1066,14 +1064,12 @@ describe("TradesTable opening an operation", () => {
     renderTable();
     await screen.findByRole("table");
 
-    // The column icons take a stop each (their tips open on focus) before the first Details control.
-    const headerStops = screen.getAllByRole("columnheader").length;
-    for (let stop = 0; stop < headerStops; stop += 1) pressTab();
-    const first = pressTab();
-    const second = pressTab();
+    // The headings are words and take no stop; each row's dot does (its tip opens on focus, L31), then its Details.
+    const stops = [pressTab(), pressTab(), pressTab(), pressTab()];
 
-    expect(first).toBe(detailsButtons()[0]);
-    expect(second).toBe(detailsButtons()[1]);
+    expect(stops[0]).toContainElement(within(bodyRows()[0] as HTMLElement).getByRole("img", { name: "Live" }));
+    expect(stops[1]).toBe(detailsButtons()[0]);
+    expect(stops[3]).toBe(detailsButtons()[1]);
     press();
     expect(inDialog("SOLUSDT · LONG")).toBeInTheDocument();
   });
@@ -1357,6 +1353,20 @@ describe("TradesTable headings and the (i) beside the title", () => {
     for (const cell of within(bodyRows()[0] as HTMLElement).getAllByRole("cell")) expect(cell).toHaveClass("text-xs", "px-2");
     // The prototype's small button (`.btn.sm`), 30 px high.
     expect(screen.getByRole("button", { name: /^Details of/ })).toHaveClass("h-[30px]");
+  });
+
+  it("draws no title over the Details column, as the open positions draw none over Close now, and right-aligns it (L31)", async () => {
+    serve([trade(1)], 5);
+    renderTable();
+    await screen.findByRole("table");
+
+    const head = screen.getAllByRole("columnheader").at(-1) as HTMLElement;
+    expect(within(head).getByText("Details")).toHaveClass("sr-only");
+    expect(head).toHaveClass("text-right");
+    const cell = within(bodyRows()[0] as HTMLElement).getAllByRole("cell").at(-1) as HTMLElement;
+    expect(cell).toContainElement(screen.getByRole("button", { name: /^Details of/ }));
+    expect(cell).toHaveClass("text-right");
+    expect(cell).not.toHaveClass("text-left");
   });
 
   it("keeps the dry-run sentences closed behind the (i) beside the title, in their order, until it is clicked", async () => {

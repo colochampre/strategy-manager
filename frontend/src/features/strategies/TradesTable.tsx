@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
+import { OriginDot } from "@/features/positions/PositionMark";
 import { TradeDetailDialog } from "@/features/strategies/TradeDetailDialog";
 import { useStrategyTrades } from "@/shared/api/performance";
 import type { StrategyTrade } from "@/shared/api/types";
@@ -78,12 +79,15 @@ function TradeRow({ trade, currency, locale, onOpen }: TradeRowProps) {
         <Instant iso={trade.closed_at} locale={locale} />
       </td>
       <td className={cn(CELL, WORDS, "text-ink")}>
-        {trade.pair}
-        {trade.rehearsal && (
-          <span className="block font-sans text-[11px] text-decision">
-            {t(rehearsalTagKey(trade.rehearsal_fill_price))}
-          </span>
-        )}
+        {/* A dot beside the pair, as the open positions mark their origin (L31): a dry run's names how it was filled. */}
+        <span className="inline-flex items-center gap-1.5">
+          {trade.rehearsal ? (
+            <OriginDot origin="rehearsal" label={t(rehearsalTagKey(trade.rehearsal_fill_price))} />
+          ) : (
+            <OriginDot origin="live" />
+          )}
+          {trade.pair}
+        </span>
       </td>
       <td className={cn(CELL, WORDS)}>{side}</td>
       <td className={cn(CELL, FROM_MD)}>{figure(trade.entry_price)}</td>
@@ -121,7 +125,7 @@ function TradeRow({ trade, currency, locale, onOpen }: TradeRowProps) {
           <Masked>{amountText(capital, currency, locale)}</Masked>
         )}
       </td>
-      <td className={cn(CELL, WORDS)}>
+      <td className={cn(CELL, "text-right font-sans")}>
         <button
           type="button"
           onClick={(event) => onOpen(trade, event.currentTarget)}
@@ -273,8 +277,9 @@ function TradesTableView({ strategyId, currency }: TradesTableProps) {
                   <th scope="col" className={cn(header, FROM_XL)}>
                     {t("strategies.performance.trades.capital")}
                   </th>
-                  <th scope="col" className={words}>
-                    {t("strategies.performance.trades.details")}
+                  {/* No title over the buttons, as the open positions draw none over Close now (L31). */}
+                  <th scope="col" className={header}>
+                    <span className="sr-only">{t("strategies.performance.trades.details")}</span>
                   </th>
                 </tr>
               </thead>

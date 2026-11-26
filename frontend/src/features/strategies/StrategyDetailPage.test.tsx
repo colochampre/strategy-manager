@@ -378,7 +378,8 @@ describe("StrategyDetailPage", () => {
 
     const table = await screen.findByRole("table", { name: en.strategies.performance.trades.title });
 
-    expect(within(table).queryByText(en.strategies.performance.trades.rehearsal)).toBeInTheDocument();
+    // The dry run is a dot beside the pair, named by its tag (L31).
+    expect(within(table).queryByRole("img", { name: en.strategies.performance.trades.rehearsal })).toBeInTheDocument();
     // The sentence waits behind the (i) beside the title until it is clicked.
     expect(screen.queryByText(en.strategies.performance.trades.rehearsalNote)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: en.strategies.performance.trades.notesInfo }));

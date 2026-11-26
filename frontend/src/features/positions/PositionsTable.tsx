@@ -4,9 +4,7 @@ import { useTranslation } from "react-i18next";
 import { Link } from "react-router";
 
 import { CloseNowControl } from "@/features/positions/CloseNowControl";
-import { VenueLine } from "@/features/positions/MarkLine";
-import { OriginTag } from "@/features/positions/OriginTag";
-import { OriginDot, PositionMark, reasonText } from "@/features/positions/PositionMark";
+import { PositionMark } from "@/features/positions/PositionMark";
 import type { OpenPosition } from "@/shared/api/positions";
 import { amountText, parseDecimal, toneClass } from "@/shared/lib/amount-text";
 import { cn } from "@/shared/lib/cn";
@@ -69,12 +67,7 @@ function cellsOf(position: OpenPosition, locale: string, t: Translate, inlineOpe
     ) : (
       <Instant iso={position.opened_at} locale={locale} />
     ),
-    <>
-      {position.markets.join(" / ")}
-      <span className="block font-sans text-[11px] leading-4">
-        <OriginTag origin={position.origin} />
-      </span>
-    </>,
+    position.markets.join(" / "),
     position.side === null ? <Absent reason={unreadable} /> : t(`strategies.performance.trades.direction.${position.side}`),
     nullable(position.size, () => (
       <>
@@ -220,20 +213,12 @@ interface SubRow {
 }
 
 /**
- * What goes under a position's row, in this order: the venue line, the reason its figures are missing, and the
- * reservation's note when its status is not FILLED. A position the venue disagrees on is a red line, and an
- * unresolved or unreserved one says so: none of them reads as a clean row (design § K rows 2, 4, 14, 22).
- * The pool variant draws the first two in its warning sign instead (L17), so only the reservation's note is
- * left under its row.
+ * What goes under a position's row: the reservation's note when its status is not FILLED (design § K row 22).
+ * A position the venue disagrees on, or whose figures are missing, has the warning sign beside its symbol in
+ * both variants (L17, L31), and the sign's dialog says what a row used to say.
  */
-export function subRowsOf(position: OpenPosition, asOf: string, t: Translate, variant: PositionsTableProps["variant"] = "strategy"): SubRow[] {
+function subRowsOf(position: OpenPosition, t: Translate): SubRow[] {
   const rows: SubRow[] = [];
-  if (variant === "strategy" && position.venue_disagreement !== null) {
-    rows.push({ key: "venue", content: <VenueLine position={position} asOf={asOf} /> });
-  }
-  if (variant === "strategy" && position.figures_missing !== null) {
-    rows.push({ key: "reason", content: <p className={SUB_TEXT}>{reasonText(position.figures_missing, t)}</p> });
-  }
   if (position.reservation_status !== null && position.reservation_status !== "FILLED") {
     rows.push({
       key: "reservation",
@@ -255,7 +240,7 @@ interface Cell {
  * the origin as a dot beside the pair, the side in words, the figures right-aligned, and the close button in a
  * column of its own. The figures are `cellsOf`'s, so the card and the table write each one the same way.
  */
-function strategyCellsOf(position: OpenPosition, locale: string, t: Translate): Cell[] {
+function strategyCellsOf(position: OpenPosition, locale: string, t: Translate, asOf: string): Cell[] {
   const cells = cellsOf(position, locale, t);
   const unreadable = reasonOf(position, t, "other");
   return [
@@ -263,7 +248,7 @@ function strategyCellsOf(position: OpenPosition, locale: string, t: Translate): 
     {
       content: (
         <span className="inline-flex items-center gap-1.5">
-          <OriginDot origin={position.origin} />
+          <PositionMark position={position} asOf={asOf} />
           {position.markets.join(" / ")}
         </span>
       ),
@@ -285,7 +270,6 @@ function strategyCellsOf(position: OpenPosition, locale: string, t: Translate): 
 interface BoxedTableProps {
   heads: Cell[];
   positions: OpenPosition[];
-  asOf: string;
   labelledBy: string;
   variant: PositionsTableProps["variant"];
   cellsFor: (position: OpenPosition) => Cell[];
@@ -295,7 +279,7 @@ interface BoxedTableProps {
  * The prototype's boxed table, both variants' (L16, L30): a tinted heading row of words, never icons, one line per
  * position, and what goes under a position's row as a row of one cell across the table.
  */
-function BoxedTable({ heads, positions, asOf, labelledBy, variant, cellsFor }: BoxedTableProps) {
+function BoxedTable({ heads, positions, labelledBy, variant, cellsFor }: BoxedTableProps) {
   const { t } = useTranslation();
   return (
     <div className={TABLE_BOX}>
@@ -319,7 +303,7 @@ function BoxedTable({ heads, positions, asOf, labelledBy, variant, cellsFor }: B
                   </td>
                 ))}
               </tr>
-              {subRowsOf(position, asOf, t, variant).map((sub) => (
+              {subRowsOf(position, t).map((sub) => (
                 <tr key={sub.key}>
                   <td colSpan={variant === "pool" ? POOL_COLUMNS : COLUMNS} className={cn(SUB_CELL, "px-3")}>
                     {sub.content}
@@ -355,7 +339,6 @@ function PoolTable({ positions, asOf, currency, labelledBy }: TableProps) {
     <BoxedTable
       heads={heads}
       positions={positions}
-      asOf={asOf}
       labelledBy={labelledBy}
       variant="pool"
       cellsFor={(position) => poolCellsOf(position, locale, t, asOf)}
@@ -389,10 +372,9 @@ function DesktopTable({ positions, asOf, currency, labelledBy }: TableProps) {
     <BoxedTable
       heads={heads}
       positions={positions}
-      asOf={asOf}
       labelledBy={labelledBy}
       variant="strategy"
-      cellsFor={(position) => strategyCellsOf(position, locale, t)}
+      cellsFor={(position) => strategyCellsOf(position, locale, t, asOf)}
     />
   );
 }
@@ -443,13 +425,12 @@ function PositionCard({
     >
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 font-sans text-[11px] leading-4">
         <span className="inline-flex items-center gap-1.5 font-display text-base font-semibold text-ink">
-          {pool && <PositionMark position={position} asOf={asOf} />}
+          <PositionMark position={position} asOf={asOf} />
           <span>
             {pair}
             <span className="ml-1.5 font-mono text-xs font-normal text-ink-2">{cells[2]}</span>
           </span>
         </span>
-        {!pool && <OriginTag origin={position.origin} />}
       </div>
       {pool && (
         <div className="text-sm">
@@ -464,7 +445,7 @@ function PositionCard({
           </div>
         ))}
       </dl>
-      {subRowsOf(position, asOf, t, variant).map((sub) => (
+      {subRowsOf(position, t).map((sub) => (
         <div key={sub.key}>{sub.content}</div>
       ))}
     </article>

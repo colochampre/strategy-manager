@@ -338,10 +338,6 @@ const BEING_BOOKED: ConfirmedStub = {
   kind: "ok",
   body: confirmedBody({ being_booked: [confirmedItem({ reason: null })] }),
 };
-const NEEDS_OWNER: ConfirmedStub = {
-  kind: "ok",
-  body: confirmedBody({ needs_owner: [confirmedItem({ reason: "NOT_BOOKED" })] }),
-};
 
 /** AAVEUSDT, which the venue disagrees on: it holds 0.82 in the ledger and 0 at the exchange. */
 function disagreeing(overrides: Partial<OpenPosition> = {}): OpenPosition {
@@ -375,149 +371,71 @@ function subRowsOf(table: HTMLElement, index = 0): HTMLElement[] {
   return next === -1 ? after : after.slice(0, next);
 }
 
-/** The first sub-row of the first position, asserted to exist before it is returned. */
-function firstSubRow(table: HTMLElement, index = 0): HTMLElement {
-  const subs = subRowsOf(table, index);
-  expect(subs.length).toBeGreaterThan(0);
-  return subs[0] as HTMLElement;
+const SIGN = "Attention needed, AAVEUSDT";
+const VENUE_DIALOG = "Venue disagrees, AAVEUSDT";
+
+/** The warning sign beside the pair of the table's one position, asserted to exist before it is returned. */
+function signOfOnlyRow(): HTMLElement {
+  const sign = within(onlyRow()[COLUMN.pair] as HTMLElement).queryByRole("button", { name: SIGN });
+  expect(sign).toBeInTheDocument();
+  return sign as HTMLElement;
 }
 
-const LINK = "See the discrepancy";
-const WORDS = "being booked automatically";
+// The position's warnings are drawn as the Overview draws them (L31): a sign in place of the origin's dot,
+// whose dialog says what the rows under the position used to say. Only the reservation's note keeps a row.
+describe("the warning sign and the reservation's row, as the Overview's (L17, L31)", () => {
+  it("puts a warning sign in loss in place of the dot for a position the venue disagrees with, and draws no row under it", async () => {
+    await mountWithConfirmed(disagreeing(), BEING_BOOKED);
 
-describe("the sub-rows (T10, T19 and T18, the line's half)", () => {
-  it("is a real row of one cell across the nine columns, directly under its position's row", async () => {
-    await mountSection(answering([aave({ figures_missing: "UNRESOLVED_SYMBOL", side: null, size: null, entry_price: null })]));
-
-    const table = theTable();
-    const rows = within(table).getAllByRole("row");
-    const own = positionRows(table)[0] as HTMLElement;
-    const sub = rows[rows.indexOf(own) + 1] as HTMLElement;
-    expect(sub).toBeDefined();
-    expect(sub.tagName).toBe("TR");
-    expect(sub.parentElement).toBe(own.parentElement);
-    expect(sub.querySelectorAll("td")).toHaveLength(1);
-    expect((sub.querySelector("td") as HTMLTableCellElement).colSpan).toBe(9);
-    expect(sub.className).not.toMatch(/\bflex\b/);
-  });
-
-  it("gives the reason the figures are missing, in the sans type, small, in the secondary ink", async () => {
-    await mountSection(answering([aave({ figures_missing: "UNRESOLVED_SYMBOL", side: null, size: null, entry_price: null })]));
-
-    const sub = firstSubRow(theTable());
-    expect(sub).toHaveTextContent(
-      "The pair's base currency cannot be told from the pool's currency, so the side and the size are not derived.",
-    );
-    const reason = within(sub as HTMLElement).getByText(/base currency cannot be told/);
-    expect(reason).toHaveClass("font-sans", "text-xs", "text-ink-2");
-  });
-
-  it.each([
-    ["SEVERAL_MARKETS", "The fills of this position name more than one pair."],
-    ["FLIPPED", "The fills sold more than was bought, or bought more than was sold. The entry price is not derived."],
-    ["INCONSISTENT", "The figures could not be derived from the fills."],
-    ["NO_FACTS", "The figures could not be derived from the fills."],
-    ["SOMETHING_NEW", "The figures could not be derived from the fills."],
-  ])("gives %s its own text, and any other reason the generic one", async (code, text) => {
-    await mountSection(answering([aave({ figures_missing: code })]));
-
-    const subs = subRowsOf(theTable());
-    expect(subs).toHaveLength(1);
-    expect(subs[0]).toHaveTextContent(text);
-  });
-
-  it("draws no sub-row for a position whose figures are all there", async () => {
-    await mountSection(answering([aave()]));
-
+    const sign = signOfOnlyRow();
+    const pair = onlyRow()[COLUMN.pair] as HTMLElement;
+    expect(sign.querySelector("svg")).toHaveClass("text-loss");
+    expect(pair.querySelector("[data-dot]")).toBeNull();
+    expect(pair.textContent).toBe("AAVEUSDT");
     expect(subRowsOf(theTable())).toEqual([]);
   });
 
-  it("draws the reservation's note when its status is not FILLED, and none when it is FILLED", async () => {
+  it("opens the whole disagreement line and the link to the discrepancy in the sign's dialog", async () => {
+    await mountWithConfirmed(disagreeing(), BEING_BOOKED);
+
+    fireEvent.click(signOfOnlyRow());
+
+    const dialog = screen.getByRole("dialog", { name: VENUE_DIALOG });
+    expect(dialog).toHaveTextContent(
+      "AAVEUSDT · venue disagrees · exchange 0 AAVE, ledger 0.82 AAVE · last compared 21:39:12 UTC · being booked automatically · See the discrepancy",
+    );
+    expect(within(dialog).getByRole("link", { name: "See the discrepancy, AAVEUSDT" })).toHaveAttribute(
+      "href",
+      `/discrepancies#discrepancy-${DISCREPANCY}`,
+    );
+  });
+
+  it("says the reason the figures are missing in the sign's dialog, and draws no row for it", async () => {
+    await mountSection(answering([aave({ figures_missing: "UNRESOLVED_SYMBOL", side: null, size: null, entry_price: null })]));
+
+    fireEvent.click(signOfOnlyRow());
+
+    expect(subRowsOf(theTable())).toEqual([]);
+    expect(screen.getByRole("dialog", { name: SIGN })).toHaveTextContent(
+      "The pair's base currency cannot be told from the pool's currency, so the side and the size are not derived.",
+    );
+  });
+
+  it("keeps the reservation's note as a real row of one cell across the nine columns, under its row, only when not FILLED", async () => {
     await mountSection(
       answering([aave({ reservation_status: "EXPIRED" }), aave({ markets: ["LINKUSDT"], reservation_status: "FILLED" })]),
     );
 
     const table = theTable();
-    const first = firstSubRow(table, 0);
-    expect(first).toHaveTextContent("Its reservation reads EXPIRED, not FILLED.");
+    const subs = subRowsOf(table, 0);
+    expect(subs).toHaveLength(1);
+    const sub = subs[0] as HTMLElement;
+    expect(sub.tagName).toBe("TR");
+    expect(sub.querySelectorAll("td")).toHaveLength(1);
+    expect((sub.querySelector("td") as HTMLTableCellElement).colSpan).toBe(9);
+    expect(sub.className).not.toMatch(/\bflex\b/);
+    expect(sub).toHaveTextContent("Its reservation reads EXPIRED, not FILLED.");
     expect(subRowsOf(table, 1)).toEqual([]);
-  });
-
-  it("puts the venue line first, then the reason, then the reservation's note", async () => {
-    await mountWithConfirmed(
-      disagreeing({ figures_missing: "UNRESOLVED_SYMBOL", side: null, size: null, entry_price: null, reservation_status: "EXPIRED" }),
-      BEING_BOOKED,
-    );
-
-    const subs = subRowsOf(theTable());
-    expect(subs).toHaveLength(3);
-    expect(within(subs[0] as HTMLElement).getByRole("group", { name: "Venue disagrees, AAVEUSDT" })).toBeInTheDocument();
-    expect(subs[1]).toHaveTextContent("The pair's base currency cannot be told");
-    expect(subs[2]).toHaveTextContent("Its reservation reads EXPIRED, not FILLED.");
-    for (const sub of subs) expect((sub.querySelector("td") as HTMLTableCellElement).colSpan).toBe(9);
-  });
-
-  it("draws the venue line, solid red, across the table's width under its row", async () => {
-    await mountWithConfirmed(disagreeing(), BEING_BOOKED);
-
-    const sub = firstSubRow(theTable());
-    const line = within(sub as HTMLElement).getByRole("group", { name: "Venue disagrees, AAVEUSDT" });
-    expect(line).toHaveClass("border-loss", "w-full");
-    expect(line).not.toHaveClass("border-dashed");
-    expect(line.textContent).toBe(
-      "AAVEUSDT · venue disagrees · exchange 0 AAVE, ledger 0.82 AAVE · last compared 21:39:12 UTC · being booked automatically · See the discrepancy",
-    );
-  });
-
-  it("draws the link to the item on the discrepancies page when the id is in being_booked", async () => {
-    await mountWithConfirmed(disagreeing(), BEING_BOOKED);
-
-    const link = await screen.findByRole("link", { name: `${LINK}, AAVEUSDT` });
-    expect(link).toHaveAttribute("href", `/discrepancies#discrepancy-${DISCREPANCY}`);
-    expect(firstSubRow(theTable())).toHaveTextContent(WORDS);
-  });
-
-  it("says the words of the reason, and keeps the line red, when the id is in needs_owner", async () => {
-    await mountWithConfirmed(disagreeing(), NEEDS_OWNER);
-
-    const link = await screen.findByRole("link", { name: `${LINK}, AAVEUSDT` });
-    expect(link).toHaveAttribute("href", `/discrepancies#discrepancy-${DISCREPANCY}`);
-    const sub = firstSubRow(theTable());
-    expect(sub).toHaveTextContent("could not be booked automatically");
-    expect(sub).not.toHaveTextContent(WORDS);
-    expect(within(sub as HTMLElement).getByRole("group", { name: "Venue disagrees, AAVEUSDT" })).toHaveClass("border-loss");
-  });
-
-  it.each([
-    ["the discrepancies are loading", { kind: "pending" } as ConfirmedStub],
-    ["their read failed", { kind: "status", status: 500, body: { detail: "down" } } as ConfirmedStub],
-    ["the id is in neither list", { kind: "ok", body: confirmedBody() } as ConfirmedStub],
-  ])("draws neither the link nor the words while %s", async (_label, answer) => {
-    await mountWithConfirmed(disagreeing(), answer);
-
-    const sub = firstSubRow(theTable());
-    expect(sub.textContent).toBe(
-      "AAVEUSDT · venue disagrees · exchange 0 AAVE, ledger 0.82 AAVE · last compared 21:39:12 UTC",
-    );
-    expect(within(sub as HTMLElement).queryByRole("link")).not.toBeInTheDocument();
-  });
-
-  it("writes 'last compared' with its date when the instant is of the day before the answer's", async () => {
-    await mountWithConfirmed(
-      disagreeing({
-        venue_disagreement: {
-          discrepancy_id: DISCREPANCY,
-          venue_net_base: "0",
-          ledger_net_base: "0.82",
-          allocation_count: 1,
-          last_observed_at: "2026-10-11T21:12:00Z",
-        },
-      }),
-      BEING_BOOKED,
-    );
-
-    const sub = firstSubRow(theTable());
-    expect(sub).toHaveTextContent("last compared 10/11/2026 21:12:00 UTC");
   });
 });
 
@@ -716,6 +634,8 @@ describe("in Spanish (T10 and T11; owner decision Q9, 2026-10-13)", () => {
     );
     const view = renderAt(<OpenPositionsSection strategy={strategy()} />);
     await settle();
+    // The venue's line and the reason are in the sign's dialog (L31): opened, everything the section says is on screen.
+    fireEvent.click(screen.getByRole("button", { name: "Requiere atención, AAVEUSDT" }));
     await screen.findByRole("link", { name: "Ver la discrepancia, AAVEUSDT" });
     return view;
   }
@@ -743,8 +663,10 @@ describe("in Spanish (T10 and T11; owner decision Q9, 2026-10-13)", () => {
       "Apalancamiento",
       "Acciones",
     ]);
-    fireEvent.mouseEnter(within(table).getByText("Margen otorgado USDT"));
-    expect(screen.getByRole("tooltip").textContent).toBe(
+    // The sign opened above still has the focus, and its own tip: the margin's is the one in its heading.
+    const margin = within(table).getByText("Margen otorgado USDT");
+    fireEvent.mouseEnter(margin);
+    expect(within(margin.closest("th") as HTMLElement).getByRole("tooltip").textContent).toBe(
       "El margen otorgado es lo que la participación tomó del pool al abrir la posición. No es lo que el exchange retiene ahora.",
     );
     // The dry-run note and the note of both origins wait behind the (i) beside the heading.
@@ -881,15 +803,16 @@ describe("on a phone the positions are cards (T10; N2: the prototype's example 2
     expect(screen.queryByRole("article", { name: "AAVEUSDT LONG" })).toBeInTheDocument();
   });
 
-  it("puts the pair and the side in the head, with the origin's word at its right", async () => {
+  it("puts the pair and the side in the head, with the origin's dot before the pair, as the Overview's card (L31)", async () => {
     setViewport("narrow");
     await mountSection(answering(THREE));
 
     const [live, , dry] = cards(3) as [HTMLElement, HTMLElement, HTMLElement];
     const head = live.firstElementChild as HTMLElement;
-    expect([...head.children].map((part) => part.textContent)).toEqual(["AAVEUSDTLONG", "Live"]);
-    expect(head.lastElementChild).toHaveClass("text-gain");
-    expect((dry.firstElementChild as HTMLElement).lastElementChild).toHaveTextContent("Dry run");
+    expect(head.textContent).toBe("AAVEUSDTLONG");
+    expect(within(head).getByRole("img", { name: "Live" }).querySelector("[data-dot]")).toHaveClass("bg-gain");
+    expect(within(dry.firstElementChild as HTMLElement).getByRole("img", { name: "Dry run" })).toBeInTheDocument();
+    expect(within(live).queryByText("Live")).toBeNull();
   });
 
   it("carries the same six labels and values in two columns", async () => {
@@ -928,7 +851,7 @@ describe("on a phone the positions are cards (T10; N2: the prototype's example 2
     expect(valuesOf(cards(1)[0] as HTMLElement).Leverage).toBe("—not recorded");
   });
 
-  it("makes the sub-rows the card's last elements, in the order of the table's: venue line, reason, reservation", async () => {
+  it("puts the sign in the card's head and only the reservation's note under the values, as the Overview's card (L31)", async () => {
     setViewport("narrow");
     await mountWithConfirmed(
       disagreeing({ figures_missing: "UNRESOLVED_SYMBOL", side: null, size: null, entry_price: null, reservation_status: "EXPIRED" }),
@@ -937,12 +860,11 @@ describe("on a phone the positions are cards (T10; N2: the prototype's example 2
 
     const [card] = cards(1) as [HTMLElement];
     const parts = [...card.children];
-    expect(parts).toHaveLength(5);
-    expect(parts[0]).toHaveTextContent("AAVEUSDT");
+    expect(parts).toHaveLength(3);
+    expect(within(parts[0] as HTMLElement).getByRole("button", { name: SIGN })).toBeInTheDocument();
     expect(parts[1]?.tagName).toBe("DL");
-    expect(within(parts[2] as HTMLElement).getByRole("group", { name: "Venue disagrees, AAVEUSDT" })).toBeInTheDocument();
-    expect(parts[3]).toHaveTextContent("The pair's base currency cannot be told");
-    expect(parts[4]).toHaveTextContent("Its reservation reads EXPIRED, not FILLED.");
+    expect(parts[2]).toHaveTextContent("Its reservation reads EXPIRED, not FILLED.");
+    expect(within(card).queryByRole("group", { name: VENUE_DIALOG })).toBeNull();
   });
 
   it("draws the orders and the unmatched sentence under the cards, and the notes behind the (i) above them", async () => {

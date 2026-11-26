@@ -62,13 +62,13 @@ function sourceFiles(dir: string): string[] {
  * whose flag differs from its operation's, and the tag in the title of the detail dialog.
  * Decision 65 adds the origin "Dry run" of an open position, written in the words and the amber
  * of the mode badge, in `features/positions/origin.ts`, the one positions file that names the class.
+ * The closed trades' dry-run tag became that origin's dot (L31), so `TradesTable.tsx` names it no more.
  */
 const AMBER_ALLOWED = [
   "features/positions/origin.ts",
   "features/settings/ExchangeKeyCard.tsx",
   "features/strategies/OperationFillsTable.tsx",
   "features/strategies/TradeDetailDialog.tsx",
-  "features/strategies/TradesTable.tsx",
   "shared/credentials/KeyMark.tsx",
   "shared/layout/ModeBadge.tsx",
 ];
@@ -85,13 +85,13 @@ describe("the amber decision colour", () => {
   });
 
   it("lost the decision rail and gained nothing (spec 'The Amber Allow-List Gains Nothing')", () => {
-    // Exactly the seven files below: the rail's file is not among them, and no new one is.
+    // Exactly the six files below: the rail's file is not among them, and no new one is. The closed trades
+    // table left the list when its dry-run tag became the origin's dot (L31).
     expect(AMBER_ALLOWED).toEqual([
       "features/positions/origin.ts",
       "features/settings/ExchangeKeyCard.tsx",
       "features/strategies/OperationFillsTable.tsx",
       "features/strategies/TradeDetailDialog.tsx",
-      "features/strategies/TradesTable.tsx",
       "shared/credentials/KeyMark.tsx",
       "shared/layout/ModeBadge.tsx",
     ]);
