@@ -298,6 +298,7 @@ The owner's words (2026-11-24) are quoted as written.
       - `bundle: 6fc422d8508a` and `panel: 200 text/html`;
       - `api: active` and `worker: active`.
     - Both commands ran from this session with `!` and the `SSH_ASKPASS` prefix.
+    - The owner read the panel in production: "Revisado. Se ve bien".
 
 - [ ] RD.4 PR 4: My trades (S5).
 - [ ] RD.5 PR 5: Notifications (S6).
