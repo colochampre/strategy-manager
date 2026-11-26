@@ -315,32 +315,30 @@ describe("StrategyDetailPage", () => {
     renderPage(strategy(), { byPair: TWO_PAIRS });
     await heading("ETH Breakout");
 
-    const framed = (node: HTMLElement) => node.closest('[data-testid="report-section"]');
+    // Each table is a card of its own, as the prototype draws it (L30), never inside a framed section.
     for (const name of [
       en.strategies.performance.byPair.title,
       en.strategies.performance.trades.title,
       "Open positions",
     ]) {
-      expect(framed(await screen.findByRole("heading", { name }))).not.toBeNull();
+      const card = await screen.findByRole("region", { name });
+      expect(card.closest('[data-testid="report-section"]')).toBeNull();
     }
     // The chart is the one image inside a figure; the ledger's icons are images too.
     const chart = (await screen.findAllByRole("img", { name: /./ })).find((image) => image.closest("figure") !== null);
     // The chart sits in the Performance card, which is the frame the other report boxes have (L26).
     expect(screen.getByRole("region", { name: en.strategies.report.title })).toContainElement(chart?.closest("figure") as HTMLElement);
-    // The months sit in the dashboard's own card (L29), the other three in their frames.
+    // The months sit in the dashboard's own card (L29).
     const monthly = await screen.findByRole("region", { name: "Monthly performance" });
     expect(monthly.closest('[data-testid="report-section"]')).toBeNull();
-    expect(screen.getAllByTestId("report-section").length).toBeGreaterThanOrEqual(3);
   });
 
   it("puts the closed trades table in a full-width section under the two-column grid and above the delete control", async () => {
     renderPage(strategy());
     await heading("ETH Breakout");
 
-    const tradesTitle = await screen.findByRole("heading", { name: en.strategies.performance.trades.title });
-    // The framed section wraps the <section>: the wrapper is what sits under the grid.
-    const section = tradesTitle.closest('[data-testid="report-section"]') as HTMLElement;
-    expect(section).not.toBeNull();
+    // The card is what sits under the grid (L30).
+    const section = await screen.findByRole("region", { name: en.strategies.performance.trades.title });
     const aside = screen.getByRole("complementary", { name: en.strategies.detail.settings });
     const grid = aside.parentElement as HTMLElement;
     const column = grid.firstElementChild as HTMLElement;

@@ -20,7 +20,7 @@ export function reasonText(code: string, t: Translate): string {
 /** The slot both marks fill, so that a symbol starts at the same place whether its row has a dot or a sign. */
 const SLOT = "-ml-1 inline-flex size-4.5 shrink-0 items-center justify-center";
 
-function OriginDot({ origin }: { origin: Origin }) {
+export function OriginDot({ origin }: { origin: Origin }) {
   const { t } = useTranslation();
   const look = ORIGIN_STYLE[origin];
   const word = t(look.textKey);

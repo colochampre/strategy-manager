@@ -28,9 +28,9 @@ function stat(overrides: Partial<PairStat> = {}): PairStat {
   };
 }
 
-/** The columns' names in order; each is the accessible name of the icon that stands for it. */
+/** The columns' names in order, written in words. */
 function headerNames(): (string | null)[] {
-  return screen.getAllByRole("columnheader").map((header) => within(header).getByRole("img").getAttribute("aria-label"));
+  return screen.getAllByRole("columnheader").map((header) => header.textContent);
 }
 
 function rowOf(pair: string): HTMLElement {
@@ -67,19 +67,20 @@ describe("PairStatsTable", () => {
     expect(headerNames()).toEqual(["Pair", "Trades", "Win rate", "PnL USDT", "Return"]);
   });
 
-  it("draws each column's name as an icon, with the name as its accessible name", () => {
+  it("is a card of its own with the prototype's boxed table: a tinted heading row of words, never icons (L30)", () => {
     render(<PairStatsTable currency="USDT" pairs={[stat()]} />);
 
+    const card = screen.getByRole("region", { name: "By pair" });
+    expect(within(card).getByRole("heading", { level: 2, name: "By pair" })).toBeInTheDocument();
+    expect(card.closest('[data-testid="report-section"]')).toBeNull();
+    const table = within(card).getByRole("table", { name: "By pair" });
+    expect(table.parentElement).toHaveClass("rounded-lg", "border", "border-rule");
     const headers = screen.getAllByRole("columnheader");
-    expect(headers.map((header) => header.textContent)).toEqual(["", "", "", "", ""]);
-    expect(headers.map((header) => within(header).getByRole("img").getAttribute("aria-label"))).toEqual([
-      "Pair",
-      "Trades",
-      "Win rate",
-      "PnL USDT",
-      "Return",
-    ]);
-    for (const header of headers) expect(header.querySelector("svg")).not.toBeNull();
+    for (const header of headers) {
+      expect(header.querySelector("svg")).toBeNull();
+      expect(header).toHaveClass("bg-ground", "text-[12.5px]");
+    }
+    for (const cell of within(rowOf("SOLUSDT")).getAllByRole("cell")) expect(cell).toHaveClass("text-[13px]", "px-3");
   });
 
   it("writes a coin-margined pool's PnL in its own currency with eight decimals", () => {
@@ -230,9 +231,8 @@ describe("PairStatsTable win rate column", () => {
 
   it("the heading is Win rate in English and % acierto in Spanish", async () => {
     const { unmount } = render(<PairStatsTable currency="USDT" pairs={[stat()]} />);
-    const winRate = screen.getByRole("columnheader", { name: "Win rate" });
-    // A trophy, the owner's choice (L.11).
-    expect(winRate.querySelector("svg.lucide-trophy")).not.toBeNull();
+    // In words, as the prototype writes it: the trophy of L.11 went with the icon headings (L30).
+    expect(screen.getByRole("columnheader", { name: "Win rate" })).toHaveTextContent(/^Win rate$/);
     unmount();
 
     await i18n.changeLanguage("es");

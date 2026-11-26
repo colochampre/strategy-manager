@@ -92,9 +92,8 @@ const bodyRows = () => {
 const next = () => screen.getByRole("button", { name: i18n.t("strategies.performance.trades.next") });
 const previous = () => screen.getByRole("button", { name: i18n.t("strategies.performance.trades.previous") });
 const pageLabel = (page: number) => i18n.t("strategies.performance.trades.page", { page });
-/** The columns' names in order; each is the accessible name of the icon that stands for it. */
-const headerNames = () =>
-  screen.getAllByRole("columnheader").map((header) => within(header).getByRole("img").getAttribute("aria-label"));
+/** The columns' names in order, written in words. */
+const headerNames = () => screen.getAllByRole("columnheader").map((header) => header.textContent);
 const pnls = () => bodyRows().map((row) => within(row).getAllByRole("cell")[8]?.textContent);
 
 beforeEach(unlock);
@@ -1183,19 +1182,21 @@ describe("TradesTable localization", () => {
 
 // The incomplete-fees sentence (task 9p.5.27) is the PnL column's tip now (owner ask, 2026-11-09): told
 // when a row of the page on screen makes it true, never for a page visited before. The tip starts with
-// the column's name; the dry-run sentences are pinned by "TradesTable sentences below the table".
+// the column's note under its name in words (L30); the dry-run sentences are pinned by "TradesTable sentences
+// below the table". With no row making it true, the column has no tip at all.
 describe("TradesTable incomplete-fees tip", () => {
-  const TIP_EN = "PnL USDT. A fee paid in a third currency is not in this PnL.";
-  const TIP_ES = "PnL USDT. Una comisión pagada en una tercera moneda no está en este PnL.";
+  const TIP_EN = "A fee paid in a third currency is not in this PnL.";
+  const TIP_ES = "Una comisión pagada en una tercera moneda no está en este PnL.";
   const pnlTip = () => {
-    fireEvent.mouseEnter(within(screen.getByRole("table")).getByRole("img", { name: "PnL USDT" }));
-    const tip = screen.getByRole("tooltip").textContent;
-    fireEvent.mouseLeave(within(screen.getByRole("table")).getByRole("img", { name: "PnL USDT" }));
+    const name = within(screen.getByRole("table")).getByText("PnL USDT");
+    fireEvent.mouseEnter(name);
+    const tip = screen.queryByRole("tooltip")?.textContent ?? null;
+    fireEvent.mouseLeave(name);
     return tip;
   };
 
   it.each([
-    ["no row with incomplete fees", [trade(1), trade(2)], "PnL USDT"],
+    ["no row with incomplete fees", [trade(1), trade(2)], null],
     ["a row with incomplete fees", [trade(1), trade(2, { fees_complete: false })], TIP_EN],
   ])("tells it only when a row of the page makes it true: %s", async (_name, rows, expected) => {
     serve(rows, 5);
@@ -1215,7 +1216,7 @@ describe("TradesTable incomplete-fees tip", () => {
     fireEvent.click(next());
     await screen.findByText(pageLabel(2));
 
-    expect(pnlTip()).toBe("PnL USDT");
+    expect(pnlTip()).toBeNull();
 
     fireEvent.click(previous());
 
@@ -1245,14 +1246,14 @@ describe("TradesTable incomplete-fees tip", () => {
 });
 
 // Opened and Closed are compact (task 9p.5.29, owner decision 46): the numeric date in the panel's
-// language on the first line and the 24-hour time below in ink-3, both in UTC.
+// language and the 24-hour time in ink-3, both in UTC, on one line as the prototype's table writes them (L30).
 describe("TradesTable compact instants", () => {
   const lines = (cell: HTMLElement | undefined) => Array.from(cell?.children ?? []).map((line) => line.textContent);
 
   it.each([
     ["en", ["10/5/2026", "01:30"], ["10/6/2026", "23:45"]],
     ["es", ["5/10/2026", "01:30"], ["6/10/2026", "23:45"]],
-  ])("writes the date and the time of Opened and Closed on two lines in %s, in UTC", async (language, opened, closed) => {
+  ])("writes the date and the time of Opened and Closed in %s, in UTC", async (language, opened, closed) => {
     await i18n.changeLanguage(language);
     serve([trade(1, { opened_at: "2026-10-05T01:30:00Z", closed_at: "2026-10-06T23:45:00.000001Z" })], 5);
     renderTable();
@@ -1264,7 +1265,7 @@ describe("TradesTable compact instants", () => {
     expect(lines(cells[1])).toEqual(closed);
   });
 
-  it("draws the time on its own line below the date, in ink-3", async () => {
+  it("draws the time beside the date on the same line, in ink-3 (L30)", async () => {
     serve([trade(1, { opened_at: "2026-10-05T01:30:00Z" })], 5);
     renderTable();
 
@@ -1273,8 +1274,9 @@ describe("TradesTable compact instants", () => {
     const cell = within(bodyRows()[0] as HTMLElement).getAllByRole("cell")[0] as HTMLElement;
     const time = within(cell).queryByText("01:30");
     expect(time).toBeInTheDocument();
-    expect(time?.classList.contains("block")).toBe(true);
+    expect(time?.classList.contains("block")).toBe(false);
     expect(time?.classList.contains("text-ink-3")).toBe(true);
+    expect(cell).toHaveClass("whitespace-nowrap");
     expect(within(cell).queryByText("10/5/2026")?.classList.contains("text-ink-3")).toBe(false);
   });
 });
@@ -1318,19 +1320,23 @@ describe("TradesTable shorter figures", () => {
   });
 });
 
-// The columns are icons and the notes wait behind one (i) beside the title (owner ask, 2026-11-09).
-describe("TradesTable icons and the (i) beside the title", () => {
+// The columns are named in words in the prototype's compact boxed table (L30), and the notes wait behind one (i)
+// beside the title (owner ask, 2026-11-09).
+describe("TradesTable headings and the (i) beside the title", () => {
   const BUTTON = "About these trades";
   const FEES_HINT = "A fee paid in a third currency is not in this PnL.";
 
-  it("draws each column's name as an icon whose accessible name is the name", async () => {
+  it("is a card of its own with the prototype's compact boxed table, its columns named in words (L30)", async () => {
     serve([trade(1)], 5);
     renderTable();
-    await screen.findByRole("table");
+    const table = await screen.findByRole("table", { name: "Closed trades" });
 
+    const card = screen.getByRole("region", { name: "Closed trades" });
+    expect(card).toContainElement(table);
+    expect(card.closest('[data-testid="report-section"]')).toBeNull();
+    expect(table.parentElement).toHaveClass("rounded-lg", "border", "border-rule");
     const headers = screen.getAllByRole("columnheader");
-    expect(headers.map((header) => header.textContent)).toEqual(Array(12).fill(""));
-    expect(headers.map((header) => within(header).getByRole("img").getAttribute("aria-label"))).toEqual([
+    expect(headers.map((header) => header.textContent)).toEqual([
       "Opened (UTC)",
       "Closed (UTC)",
       "Pair",
@@ -1344,6 +1350,13 @@ describe("TradesTable icons and the (i) beside the title", () => {
       "Pool at open",
       "Details",
     ]);
+    for (const header of headers) {
+      expect(header.querySelector("svg")).toBeNull();
+      expect(header).toHaveClass("bg-ground", "text-[11px]");
+    }
+    for (const cell of within(bodyRows()[0] as HTMLElement).getAllByRole("cell")) expect(cell).toHaveClass("text-xs", "px-2");
+    // The prototype's small button (`.btn.sm`), 30 px high.
+    expect(screen.getByRole("button", { name: /^Details of/ })).toHaveClass("h-[30px]");
   });
 
   it("keeps the dry-run sentences closed behind the (i) beside the title, in their order, until it is clicked", async () => {
@@ -1381,16 +1394,16 @@ describe("TradesTable icons and the (i) beside the title", () => {
 
     expect(screen.queryByText(`* ${FEES_HINT}`)).toBeNull();
     expect(screen.queryByRole("button", { name: BUTTON })).toBeNull();
-    fireEvent.mouseEnter(within(screen.getByRole("table")).getByRole("img", { name: "PnL USDT" }));
-    expect(screen.getByRole("tooltip").textContent).toBe(`PnL USDT. ${FEES_HINT}`);
+    fireEvent.mouseEnter(within(screen.getByRole("table")).getByText("PnL USDT"));
+    expect(screen.getByRole("tooltip").textContent).toBe(FEES_HINT);
   });
 
-  it("gives the PnL column no note in its tip when every row has complete fees", async () => {
+  it("gives the PnL column no tip when every row has complete fees", async () => {
     serve([trade(1), trade(2)], 5);
     renderTable();
     await screen.findByRole("table");
 
-    fireEvent.mouseEnter(within(screen.getByRole("table")).getByRole("img", { name: "PnL USDT" }));
-    expect(screen.getByRole("tooltip").textContent).toBe("PnL USDT");
+    fireEvent.mouseEnter(within(screen.getByRole("table")).getByText("PnL USDT"));
+    expect(screen.queryByRole("tooltip")).toBeNull();
   });
 });

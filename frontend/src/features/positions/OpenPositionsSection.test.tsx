@@ -4,6 +4,7 @@ import { Route, Routes } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { OpenPositionsSection } from "@/features/positions/OpenPositionsSection";
+import { ORIGIN_STYLE } from "@/features/positions/origin";
 import { StrategyDetailPage } from "@/features/strategies/StrategyDetailPage";
 import { OPEN_POSITIONS_KEY } from "@/shared/api/positions";
 import type { ConfirmedDiscrepancy } from "@/shared/api/discrepancies";
@@ -91,18 +92,24 @@ function theTable(): HTMLElement {
   return screen.getByRole("table");
 }
 
-/** The rows of the table that are positions (eight cells), not sub-rows (one cell across the eight). */
+/** The rows of the table that are positions (nine cells), not sub-rows (one cell across the nine). */
 function positionRows(table: HTMLElement): HTMLElement[] {
   return within(table)
     .getAllByRole("row")
-    .filter((row) => row.querySelectorAll("td").length === 8);
+    .filter((row) => row.querySelectorAll("td").length === 9);
 }
 
 function cellsOf(row: HTMLElement): HTMLElement[] {
   return [...row.querySelectorAll<HTMLElement>("td")];
 }
 
-const COLUMN = { opened: 0, pair: 1, side: 2, size: 3, entry: 4, fees: 5, margin: 6, leverage: 7 } as const;
+/** The cells of a row asserted to exist. */
+function onlyRowOf(row: HTMLElement | undefined): HTMLElement[] {
+  expect(row).toBeDefined();
+  return cellsOf(row as HTMLElement);
+}
+
+const COLUMN = { opened: 0, pair: 1, side: 2, size: 3, entry: 4, fees: 5, margin: 6, leverage: 7, close: 8 } as const;
 
 /** The one position row of a table that holds one, and its cells. */
 function onlyRow(): HTMLElement[] {
@@ -161,7 +168,7 @@ describe("the cells of a position (T10; spec 'Times And Figures Of Open Position
     const table = theTable();
     const headings = within(table)
       .getAllByRole("columnheader")
-      .map((heading) => within(heading).getByRole("img").getAttribute("aria-label"));
+      .map((heading) => heading.textContent);
     expect(headings).toEqual([
       "Opened (UTC)",
       "Pair",
@@ -171,14 +178,16 @@ describe("the cells of a position (T10; spec 'Times And Figures Of Open Position
       "Fees USDT",
       "Margin granted USDT",
       "Leverage",
+      "Actions",
     ]);
 
     const cells = onlyRow();
-    const date = cells[COLUMN.opened]?.querySelectorAll(".block");
+    const date = cells[COLUMN.opened]?.querySelectorAll("span");
     expect([...(date ?? [])].map((part) => part.textContent)).toEqual(["10/11/2026", "14:05"]);
     expect(date?.[1]).toHaveClass("text-ink-3");
-    expect(cells[COLUMN.pair]?.textContent).toBe("AAVEUSDTLive");
-    expect(cells[COLUMN.side]?.textContent).toBe("LONG");
+    expect(cells[COLUMN.pair]?.textContent).toBe("AAVEUSDT");
+    expect(within(cells[COLUMN.pair] as HTMLElement).getByRole("img", { name: "Live" })).toBeInTheDocument();
+    expect(cells[COLUMN.side]?.textContent).toBe("Long");
     expect(cells[COLUMN.size]?.textContent).toBe("0.82 AAVE");
     expect(cells[COLUMN.entry]?.textContent).toBe("184.3");
     expect(cells[COLUMN.fees]?.textContent).toBe("0.17");
@@ -186,22 +195,36 @@ describe("the cells of a position (T10; spec 'Times And Figures Of Open Position
     expect(cells[COLUMN.leverage]?.textContent).toBe("2x");
   });
 
-  it("writes the origin's word under the pair, in the sans type, in the origin's token", async () => {
+  it("marks the origin with the Overview's dot beside the pair, named by the origin's word, in its token (L30)", async () => {
     await mountSection(
       answering([aave({ origin: "rehearsal" }), aave({ origin: "live", markets: ["LINKUSDT"] }), aave({ origin: "mixed", markets: ["STXUSDT"] })]),
     );
 
     const rows = positionRows(theTable());
-    const words = rows.map((row) => {
-      const word = cellsOf(row)[COLUMN.pair]?.querySelector(".block") as HTMLElement;
-      return [word.textContent, word.className, word.firstElementChild?.className];
+    const marks = rows.map((row) => {
+      const mark = within(cellsOf(row)[COLUMN.pair] as HTMLElement).getByRole("img");
+      return [mark.getAttribute("aria-label"), mark.querySelector("[data-dot]")?.className];
     });
-    expect(words).toEqual([
-      ["Dry run", expect.stringContaining("font-sans"), expect.stringContaining("text-decision")],
-      ["Live", expect.stringContaining("font-sans"), expect.stringContaining("text-gain")],
-      ["Dry run and live", expect.stringContaining("font-sans"), expect.stringContaining("text-loss")],
+    expect(marks).toEqual([
+      ["Dry run", expect.stringContaining(ORIGIN_STYLE.rehearsal.dot)],
+      ["Live", expect.stringContaining(ORIGIN_STYLE.live.dot)],
+      ["Dry run and live", expect.stringContaining(ORIGIN_STYLE.mixed.dot)],
     ]);
-    for (const row of rows) expect(cellsOf(row)[COLUMN.pair]?.querySelector(".block")).toHaveClass("text-[11px]");
+  });
+
+  it("is a card of its own with the Overview's boxed table: tinted headings in words, 13 px cells, the count beside the title (L30)", async () => {
+    await mountSection(answering([aave(), aave({ markets: ["LINKUSDT"] })]));
+
+    const card = screen.getByRole("region", { name: "Open positions" });
+    expect(card.closest('[data-testid="report-section"]')).toBeNull();
+    expect(within(card).getByText("2 positions")).toBeInTheDocument();
+    const table = theTable();
+    expect(table.parentElement).toHaveClass("rounded-lg", "border", "border-rule");
+    for (const header of within(table).getAllByRole("columnheader")) {
+      expect(header.querySelector("svg")).toBeNull();
+      expect(header).toHaveClass("bg-ground", "text-[12.5px]");
+    }
+    for (const cell of onlyRowOf(positionRows(table)[0])) expect(cell).toHaveClass("text-[13px]", "whitespace-nowrap");
   });
 
   it("writes the base currency as a unit, in the sans type and the faint ink", async () => {
@@ -276,7 +299,7 @@ describe("the cells of a position (T10; spec 'Times And Figures Of Open Position
 
     const text = (view.container.textContent ?? "").toLowerCase();
     for (const word of ["notional", "unrealised", "unrealized", "pnl", "current price", "mark price"]) expect(text).not.toContain(word);
-    expect(within(theTable()).getAllByRole("columnheader")).toHaveLength(8);
+    expect(within(theTable()).getAllByRole("columnheader")).toHaveLength(9);
   });
 
   it("selects the strategy's positions over the WHOLE answer, wherever the ledger put them", async () => {
@@ -286,14 +309,20 @@ describe("the cells of a position (T10; spec 'Times And Figures Of Open Position
     await mountSection(answering([aave({ markets: ["HEREUSDT"] }), elsewhere, another, nobody]));
 
     const pairs = positionRows(theTable()).map((row) => cellsOf(row)[COLUMN.pair]?.textContent);
-    expect(pairs).toEqual(["HEREUSDTLive", "ELSEUSDTLive"]);
+    expect(pairs).toEqual(["HEREUSDT", "ELSEUSDT"]);
   });
 
-  it("lists dry-run and live positions together, each with its origin's word", async () => {
+  it("lists dry-run and live positions together, each with its origin's mark", async () => {
     await mountSection(answering([aave({ origin: "rehearsal", markets: ["SFPUSDT"] }), aave({ origin: "live", markets: ["AAVEUSDT"] })]));
 
-    const pairs = positionRows(theTable()).map((row) => cellsOf(row)[COLUMN.pair]?.textContent);
-    expect(pairs).toEqual(["SFPUSDTDry run", "AAVEUSDTLive"]);
+    const pairs = positionRows(theTable()).map((row) => {
+      const pair = cellsOf(row)[COLUMN.pair] as HTMLElement;
+      return [pair.textContent, within(pair).getByRole("img").getAttribute("aria-label")];
+    });
+    expect(pairs).toEqual([
+      ["SFPUSDT", "Dry run"],
+      ["AAVEUSDT", "Live"],
+    ]);
   });
 });
 
@@ -342,7 +371,7 @@ function subRowsOf(table: HTMLElement, index = 0): HTMLElement[] {
   const rows = within(table).getAllByRole("row");
   const own = positionRows(table)[index] as HTMLElement;
   const after = rows.slice(rows.indexOf(own) + 1);
-  const next = after.findIndex((row) => row.querySelectorAll("td").length === 8);
+  const next = after.findIndex((row) => row.querySelectorAll("td").length === 9);
   return next === -1 ? after : after.slice(0, next);
 }
 
@@ -357,7 +386,7 @@ const LINK = "See the discrepancy";
 const WORDS = "being booked automatically";
 
 describe("the sub-rows (T10, T19 and T18, the line's half)", () => {
-  it("is a real row of one cell across the eight columns, directly under its position's row", async () => {
+  it("is a real row of one cell across the nine columns, directly under its position's row", async () => {
     await mountSection(answering([aave({ figures_missing: "UNRESOLVED_SYMBOL", side: null, size: null, entry_price: null })]));
 
     const table = theTable();
@@ -368,7 +397,7 @@ describe("the sub-rows (T10, T19 and T18, the line's half)", () => {
     expect(sub.tagName).toBe("TR");
     expect(sub.parentElement).toBe(own.parentElement);
     expect(sub.querySelectorAll("td")).toHaveLength(1);
-    expect((sub.querySelector("td") as HTMLTableCellElement).colSpan).toBe(8);
+    expect((sub.querySelector("td") as HTMLTableCellElement).colSpan).toBe(9);
     expect(sub.className).not.toMatch(/\bflex\b/);
   });
 
@@ -425,7 +454,7 @@ describe("the sub-rows (T10, T19 and T18, the line's half)", () => {
     expect(within(subs[0] as HTMLElement).getByRole("group", { name: "Venue disagrees, AAVEUSDT" })).toBeInTheDocument();
     expect(subs[1]).toHaveTextContent("The pair's base currency cannot be told");
     expect(subs[2]).toHaveTextContent("Its reservation reads EXPIRED, not FILLED.");
-    for (const sub of subs) expect((sub.querySelector("td") as HTMLTableCellElement).colSpan).toBe(8);
+    for (const sub of subs) expect((sub.querySelector("td") as HTMLTableCellElement).colSpan).toBe(9);
   });
 
   it("draws the venue line, solid red, across the table's width under its row", async () => {
@@ -538,9 +567,8 @@ describe("the notes and the unmatched sentence (T10; spec 'Drawn Only When True'
 
     expect(notesButton()).toBeNull();
     expect(notesOnScreen(view.container)).toEqual([]);
-    const margin = within(theTable()).getByRole("img", { name: "Margin granted USDT" });
-    fireEvent.mouseEnter(margin);
-    expect(screen.getByRole("tooltip")).toHaveTextContent(`Margin granted USDT. ${NOTE.margin}`);
+    fireEvent.mouseEnter(within(theTable()).getByText("Margin granted USDT"));
+    expect(screen.getByRole("tooltip")).toHaveTextContent(NOTE.margin);
   });
 
   it("puts the dry-run note behind the (i) for a rehearsal position", async () => {
@@ -702,9 +730,9 @@ describe("in Spanish (T10 and T11; owner decision Q9, 2026-10-13)", () => {
   it("writes the fixed Spanish of section I, letter for letter", async () => {
     const view = await spanishSection();
 
-    // The columns are icons: their names are the icons' accessible names, and the margin's note is its tip.
+    // The columns are named in words (L30), and the margin's note is its tip.
     const table = theTable();
-    expect(within(table).getAllByRole("columnheader").map((head) => within(head).getByRole("img").getAttribute("aria-label"))).toEqual([
+    expect(within(table).getAllByRole("columnheader").map((head) => head.textContent)).toEqual([
       "Apertura (UTC)",
       "Par",
       "Sentido",
@@ -713,10 +741,11 @@ describe("in Spanish (T10 and T11; owner decision Q9, 2026-10-13)", () => {
       "Comisiones USDT",
       "Margen otorgado USDT",
       "Apalancamiento",
+      "Acciones",
     ]);
-    fireEvent.mouseEnter(within(table).getByRole("img", { name: "Margen otorgado USDT" }));
+    fireEvent.mouseEnter(within(table).getByText("Margen otorgado USDT"));
     expect(screen.getByRole("tooltip").textContent).toBe(
-      "Margen otorgado USDT. El margen otorgado es lo que la participación tomó del pool al abrir la posición. No es lo que el exchange retiene ahora.",
+      "El margen otorgado es lo que la participación tomó del pool al abrir la posición. No es lo que el exchange retiene ahora.",
     );
     // The dry-run note and the note of both origins wait behind the (i) beside the heading.
     fireEvent.click(screen.getByRole("button", { name: "Sobre estas posiciones" }));
@@ -774,7 +803,7 @@ describe("in Spanish (T10 and T11; owner decision Q9, 2026-10-13)", () => {
     expect(cells[COLUMN.fees]?.textContent).toBe("0,17");
     expect(cells[COLUMN.margin]?.textContent).toBe("121,80");
     expect(cells[COLUMN.leverage]?.textContent).toBe("2x");
-    expect(cells[COLUMN.opened]?.textContent).toBe("11/10/202614:05");
+    expect(cells[COLUMN.opened]?.textContent).toBe("11/10/2026 14:05");
   });
 
   it("writes the same figures in a card", async () => {
@@ -948,10 +977,9 @@ describe("its place on the detail page (T10)", () => {
     expect(settings.compareDocumentPosition(open) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(open.compareDocumentPosition(closed) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     const section = open.closest("section") as HTMLElement;
-    // The framed section wraps it, and that wrapper is the full-width block.
-    const framed = section.closest('[data-testid="report-section"]') as HTMLElement;
-    expect(framed).not.toBeNull();
-    expect(framed.parentElement).toBe(settings.parentElement?.parentElement);
+    // The card is the full-width block itself, with no framed section around it (L30).
+    expect(section.closest('[data-testid="report-section"]')).toBeNull();
+    expect(section.parentElement).toBe(settings.parentElement?.parentElement);
     expect(await within(section).findByRole("table", { name: "Open positions" })).toBeInTheDocument();
   });
 });
