@@ -432,3 +432,5 @@ The owner's words (2026-11-24) are quoted as written.
   - Built: the open positions card's count and (i) wrap to the card's right edge when the title leaves them no room.
   - Measured at 1470, 1212, 1100 and 1024 px. Still wider than their box at 1100 and 1212, and scrolling inside it as tables do: the monthly table, By pair and Closed trades.
   - The hook first stored the width on every mount, one more render even in jsdom, and two full runs out of four failed a `PoolOpenPositions` dialog test whose `settle()` waits a fixed three timer turns. It now stores nothing unless the table spills or the size changes; three full runs after that passed.
+- L46 (2026-11-26, owner): "Me quedo con las tarjetas. Quedan bien" — the answer to: on the Overview, keep the cards where the table does not fit, or the sideways-scrolling table as before?
+  - Decided: the Overview keeps the cards where its box cannot hold the table, as the strategy page does. Nothing to build.
