@@ -5,7 +5,7 @@ import { MonthlySummary } from "@/features/overview/MonthlySummary";
 import type { OpenCount } from "@/features/overview/MonthlySummary";
 import type { Excluded, MonthReturn } from "@/shared/api/types";
 import { gridStep } from "@/shared/charts/scale";
-import { parseDecimal, percentText } from "@/shared/lib/amount-text";
+import { joinedPercent, parseDecimal, percentText } from "@/shared/lib/amount-text";
 import { Card } from "@/shared/ui/Card";
 import { InfoButton, InfoText, useInfoDisclosure } from "@/shared/ui/InfoDisclosure";
 
@@ -72,7 +72,7 @@ export function MonthlyCard({ monthly, excluded, open }: MonthlyCardProps) {
               {t("overview.card.monthlyScale", {
                 count: Number((step * 100).toFixed(2)),
                 step: points.format(step * 100),
-                top: reach.format(step * 6),
+                top: joinedPercent(reach, step * 6),
               })}
             </p>
           </InfoText>

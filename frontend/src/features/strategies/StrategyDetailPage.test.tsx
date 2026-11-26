@@ -796,7 +796,8 @@ describe("StrategyDetailPage", () => {
     expect(screen.getByTestId("strategy-age")).toHaveTextContent(/^12 ago 2026 – /);
     expect(screen.getByTestId("strategy-origin")).toHaveTextContent(es.strategies.subscriptions.yours);
     // Short enough to stay on one line beside the other titles at 1390 px (owner, 2026-11-17).
-    expect(screen.getByTestId("strategy-group-profitable")).toHaveTextContent(/^Tasa de acierto/);
+    expect(screen.getByTestId("strategy-group-profitable")).toHaveTextContent(/^Operaciones rentables/);
+    expect(screen.getByTestId("strategy-group-return")).toHaveTextContent(/^Rendimiento/);
 
     const keys = (node: unknown, prefix = ""): string[] =>
       typeof node === "object" && node !== null
@@ -895,7 +896,13 @@ describe("the header card (S14, RD.7b)", () => {
     expect(within(header).getByTestId("strategy-description")).toHaveTextContent("Mean reversion on ETH.");
     const line = within(header).getByTestId("figure-line");
     const groups = [...line.children].map((group) => group.getAttribute("data-testid"));
-    expect(groups).toEqual(["strategy-group-pnl", "strategy-group-drawdown", "strategy-group-profitable", "strategy-group-aum"]);
+    expect(groups).toEqual([
+      "strategy-group-pnl",
+      "strategy-group-return",
+      "strategy-group-drawdown",
+      "strategy-group-profitable",
+      "strategy-group-aum",
+    ]);
     // The description comes first inside the card, the figures under it.
     expect(
       within(header).getByTestId("strategy-description").compareDocumentPosition(line) & Node.DOCUMENT_POSITION_FOLLOWING,
@@ -908,7 +915,7 @@ describe("the header card (S14, RD.7b)", () => {
     expect(screen.getAllByTestId("figure-line")).toHaveLength(1);
   });
 
-  it("draws the PnL in the pool's currency with the return under it, the fall, the wins out of the trades and the AuM", async () => {
+  it("draws the PnL and the return apart, as the Panel does, then the fall, the profitable trades and the AuM (L42)", async () => {
     renderPage(strategy({ live_subscribers: 2, capital: "300" }), { reportAnswer: () => jsonResponse(TRADED_REPORT) });
     await heading("ETH Breakout");
 
@@ -916,15 +923,23 @@ describe("the header card (S14, RD.7b)", () => {
     await waitFor(() => expect(within(header).getByTestId("strategy-pnl")).toHaveTextContent(/^\+41\.25USDT$/));
     const pnl = within(header).getByTestId("strategy-group-pnl");
     const values = Array.from((pnl.querySelector("dd") as HTMLElement).children).map((value) => value.getAttribute("data-testid"));
-    expect(values).toEqual(["strategy-pnl", "strategy-return"]);
-    expect(within(pnl).getByTestId("strategy-return")).toHaveTextContent(/^\+2\.0%$/);
+    expect(values).toEqual(["strategy-pnl"]);
+    const ret = within(header).getByTestId("strategy-group-return");
+    expect(ret.querySelector("dt")).toHaveTextContent(/^Return$/);
+    expect(within(ret).getByTestId("strategy-return")).toHaveTextContent(/^\+2\.0%$/);
     expect(within(header).getByTestId("strategy-deepest")).toHaveTextContent(/^-1\.0%$/);
     expect(within(header).getByTestId("strategy-deepest")).toHaveClass("text-loss");
+    // The rate and the wins on one line, the wins with no word after them (L42).
+    const profitable = within(header).getByTestId("strategy-group-profitable");
+    expect(profitable.querySelector("dt")).toHaveTextContent(/^Profitable trades$/);
     expect(within(header).getByTestId("strategy-winrate")).toHaveTextContent(/^66\.7%$/);
-    expect(within(header).getByTestId("strategy-wins")).toHaveTextContent(/^2\/3 trades$/);
+    expect(within(header).getByTestId("strategy-wins")).toHaveTextContent(/^2\/3$/);
+    expect(profitable.querySelector("dd .block")).toBeNull();
     const aum = within(header).getByTestId("strategy-group-aum");
     expect(within(aum).getByTestId("strategy-capital")).toHaveTextContent(/^300\.00$/);
     expect(aum.querySelector("dd")).toHaveTextContent(/^300\.00USDT · 2$/);
+    // The capital, its currency and the subscribers on one line (L42).
+    expect(aum.querySelector("dd .block")).toBeNull();
     expect(within(aum).getByTestId("strategy-subscribers")).toHaveTextContent(/^2$/);
     // The capital keeps its (i); the return's belongs to a public record, not to the author's own report.
     expect(within(aum).getByRole("img", { name: en.strategies.public.capitalInfo })).toBeInTheDocument();
@@ -944,7 +959,7 @@ describe("the header card (S14, RD.7b)", () => {
       expect(header).not.toHaveTextContent("41.25");
       expect(header).not.toHaveTextContent("300.00");
       expect(within(header).getByTestId("strategy-deepest")).toHaveTextContent("-1.0%");
-      expect(within(header).getByTestId("strategy-wins")).toHaveTextContent("2/3 trades");
+      expect(within(header).getByTestId("strategy-wins")).toHaveTextContent(/^2\/3$/);
       expect(within(header).getByTestId("strategy-subscribers")).toHaveTextContent(/^2$/);
     } finally {
       useHiddenStore.setState({ hidden: false });
@@ -968,7 +983,8 @@ describe("the header card (S14, RD.7b)", () => {
     await waitFor(() => expect(within(header).getByTestId("strategy-pnl")).toHaveTextContent("+41.25"));
     fireEvent.click(screen.getByRole("button", { name: "7D" }));
     expect(within(header).getByTestId("strategy-pnl")).toHaveTextContent(/^\+5\.00USDT$/);
-    expect(within(header).getByTestId("strategy-group-pnl").querySelector("dt span")).toHaveTextContent("Total PnL · 7D");
+    // The range selector names the range; the label does not repeat it, so five figures fit one row (L42).
+    expect(within(header).getByTestId("strategy-group-pnl").querySelector("dt span")?.textContent).toBe("Total PnL");
     fireEvent.click(screen.getByRole("button", { name: "30D" }));
 
     fireEvent.click(within(header).getByRole("button", { name: en.strategies.description.edit }));

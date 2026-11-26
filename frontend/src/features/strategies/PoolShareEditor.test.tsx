@@ -1910,8 +1910,8 @@ const SHARE_TEXTS = {
     en: "Each pair also has a minimum order at the exchange, which depends on its price and on the account's leverage. The panel does not check it. A signal whose order would be too small is refused and nothing is opened.",
     es: "Cada par tiene además una orden mínima en el exchange, que depende de su precio y del apalancamiento de la cuenta. El panel no la comprueba. Una señal cuya orden fuera demasiado pequeña se rechaza y no se abre nada.",
   },
-  valueText: { en: "30% of the pool", es: "30 % del pool" },
-  stop: { en: "Set the share to 50%", es: "Fijar el porcentaje en 50 %" },
+  valueText: { en: "30% of the pool", es: "30% del pool" },
+  stop: { en: "Set the share to 50%", es: "Fijar el porcentaje en 50%" },
   notNumber: { en: "Enter a number, for example 25 or 33.5.", es: "Escriba un número, por ejemplo 25 o 33,5." },
   outOfRange: {
     en: "The share must be above 0 and at most 100.",

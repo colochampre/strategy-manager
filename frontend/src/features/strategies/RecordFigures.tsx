@@ -7,11 +7,11 @@ import type { RangeName } from "@/features/overview/RangeSelector";
 import { publicFigures } from "@/features/strategies/card-figures";
 import { NamedValue } from "@/features/strategies/StrategyCard";
 import type { CardFigures, CardPnl } from "@/features/strategies/StrategyCard";
-import { SecondLine, StatsRow, StatTile, StatUnit } from "@/features/strategies/StrategyHeaderCard";
+import { StatsRow, StatTile, StatUnit } from "@/features/strategies/StrategyHeaderCard";
 import { useStrategyPerformance } from "@/shared/api/performance";
 import { usePublicRecord } from "@/shared/api/public-record";
 import type { PublicStrategy, Strategy, StrategyPerformance } from "@/shared/api/types";
-import { amountText, parseDecimal, percentText, toneClass } from "@/shared/lib/amount-text";
+import { amountText, joinedPercent, parseDecimal, percentText, toneClass } from "@/shared/lib/amount-text";
 import { Masked } from "@/shared/hidden/Masked";
 import { InfoTip } from "@/shared/ui/Tooltip";
 
@@ -68,88 +68,96 @@ function leadPercent(ratio: number | null | undefined, locale: string): { value:
 function leadRate(value: number | null | undefined, locale: string): string {
   if (value === undefined) return LOADING;
   if (value === null) return NO_FIGURE;
-  return new Intl.NumberFormat(locale, { style: "percent", maximumFractionDigits: 1 }).format(value);
+  return joinedPercent(new Intl.NumberFormat(locale, { style: "percent", maximumFractionDigits: 1 }), value);
+}
+
+/** A quiet value beside a lead figure, on its line: 12 px, the faint ink, as a unit is drawn. */
+function Beside({ testId, children }: { testId?: string; children: ReactNode }) {
+  return (
+    <span data-testid={testId} className="ml-1.5 whitespace-nowrap font-sans text-xs font-normal text-ink-3">
+      {children}
+    </span>
+  );
 }
 
 /**
- * The figures as the dashboard's header card draws its row (ex11, ex12): Total PnL named by the chart's range, Max
- * drawdown, Win rate with its trades, and AuM with its currency and its live subscribers. Where there is a PnL it
- * leads and the return sits under it; where there is none (a record holds no money) the return leads. The money is
+ * The figures as the dashboard's header card draws its row (ex11, ex12): Total PnL and
+ * the Return apart from it, as the Panel draws them (L42), Max drawdown, Profitable trades with the wins beside the
+ * rate, and AuM with its currency and its live subscribers on the same line. Where there is no PnL (a record holds
+ * no money) the return is the first figure. No label names the range: the chart's selector does. The money is
  * masked while the balances are hidden; the percentages and the counts are not (S1).
  */
 function Row({ prefix, testId, figures, pnl, recordReturn, currency }: RowProps) {
   const { t, i18n } = useTranslation();
   const locale = i18n.resolvedLanguage ?? "en";
-  const range = useRangeStore((state) => state.range);
   const ret = leadPercent(figures.ret, locale);
   const deepest = leadPercent(figures.deepest, locale);
   const subscribers = figures.subscribers;
   const capital = figures.capital;
+  // No range in the labels: the chart's selector names it, and five labels share the row (L42).
+  const count = pnl === undefined ? 4 : 5;
+  const first = pnl === undefined ? 0 : 1;
 
   return (
-    <StatsRow testId={testId}>
+    <StatsRow testId={testId} count={count}>
+      {pnl !== undefined && (
+        <StatTile
+          testId={`${prefix}-group-pnl`}
+          position={0}
+          count={count}
+          label={t("strategies.card.totalPnl")}
+        >
+          <span
+            data-testid={`${prefix}-pnl`}
+            className={pnl.value === undefined || pnl.value === null ? undefined : toneClass(pnl.value)}
+          >
+            {leadMoney(pnl.value, pnl.currency, locale, true)}
+          </span>
+        </StatTile>
+      )}
       <StatTile
-        testId={`${prefix}-group-pnl`}
-        position={0}
-        // The range as its button names it ("30D"): the long form wrapped beside an (i) and pushed the chart down.
-        label={
-          range === "All"
-            ? t("strategies.card.totalPnl")
-            : t("strategies.card.totalPnlRange", { range: t(`overview.range.${range}`) })
-        }
+        testId={`${prefix}-group-return`}
+        position={first}
+        count={count}
+        label={t("strategies.card.return")}
         info={
           recordReturn ? (
             <LabelTip label={t("strategies.public.returnInfo")} text={t("strategies.public.returnHint")} />
           ) : undefined
         }
       >
-        {pnl === undefined ? (
-          <span data-testid={`${prefix}-return`} className={ret.tone}>
-            {ret.value}
-          </span>
-        ) : (
-          <>
-            <span
-              data-testid={`${prefix}-pnl`}
-              className={pnl.value === undefined || pnl.value === null ? undefined : toneClass(pnl.value)}
-            >
-              {leadMoney(pnl.value, pnl.currency, locale, true)}
-            </span>
-            <SecondLine testId={`${prefix}-return`} className={ret.tone}>
-              {ret.value}
-            </SecondLine>
-          </>
-        )}
+        <span data-testid={`${prefix}-return`} className={ret.tone}>
+          {ret.value}
+        </span>
       </StatTile>
-      <StatTile testId={`${prefix}-group-drawdown`} position={1} label={t("strategies.card.maxDrawdown")}>
+      <StatTile testId={`${prefix}-group-drawdown`} position={first + 1} count={count} label={t("strategies.card.maxDrawdown")}>
         <span data-testid={`${prefix}-deepest`} className={deepest.tone}>
           {deepest.value}
         </span>
       </StatTile>
-      <StatTile testId={`${prefix}-group-profitable`} position={2} label={t("strategies.card.winRate")}>
+      <StatTile testId={`${prefix}-group-profitable`} position={first + 2} count={count} label={t("strategies.card.profitable")}>
         <span data-testid={`${prefix}-winrate`}>{leadRate(figures.winRate, locale)}</span>
         {figures.profitable !== undefined && figures.profitable !== null && (
-          <SecondLine testId={`${prefix}-wins`}>
-            {t("strategies.header.wins", { wins: figures.profitable.wins, closed: figures.profitable.closed })}
-          </SecondLine>
+          <Beside testId={`${prefix}-wins`}>{`${figures.profitable.wins}/${figures.profitable.closed}`}</Beside>
         )}
       </StatTile>
       <StatTile
         testId={`${prefix}-group-aum`}
-        position={3}
+        position={first + 3}
+        count={count}
         label={t("strategies.card.aum")}
         info={<LabelTip label={t("strategies.public.capitalInfo")} text={t("strategies.public.capitalHint")} />}
       >
         <span data-testid={`${prefix}-capital`}>
           {capital === undefined ? LOADING : capital === null ? NO_FIGURE : <Masked>{amountText(capital.amount, currency, locale)}</Masked>}
         </span>
-        <SecondLine>
+        <Beside>
           {currency}
           {" · "}
           <NamedValue icon={Users} label={t("strategies.card.subscribers")} testId={`${prefix}-subscribers`}>
             {subscribers === undefined ? LOADING : subscribers === null ? NO_FIGURE : String(subscribers)}
           </NamedValue>
-        </SecondLine>
+        </Beside>
       </StatTile>
     </StatsRow>
   );

@@ -424,7 +424,8 @@
       "totalPnl": "Total PnL",
       "totalPnlRange": "Total PnL · {{range}}",
       "maxDrawdown": "Max drawdown",
-      "winRate": "Win rate",
+      "return": "Return",
+      "profitable": "Profitable trades",
       "aum": "AuM",
       "aumHint": "Assets under management: live subscribers and capital",
       "setup": "Settings"
@@ -467,9 +468,6 @@
       },
       "tooMany": "Too many wrong codes in the last hour. Try again later.",
       "lookupFailed": "The code could not be checked. Try again."
-    },
-    "header": {
-      "wins": "{{wins}}/{{closed}} trades"
     },
     "report": {
       "title": "Performance",

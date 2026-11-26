@@ -78,7 +78,7 @@ describe("MonthlySummary", () => {
     await act(() => i18n.changeLanguage("es"));
     render(<MonthlySummary monthly={MONTHS} excluded={excluded(1, 2)} />);
     expect(text()).toBe(
-      "2 de 4 meses positivos · mejor +5,4 % · peor -1,9 % · 1 operación abierta fuera de la curva · 2 operaciones sin capital al abrir",
+      "2 de 4 meses positivos · mejor +5,4% · peor -1,9% · 1 operación abierta fuera de la curva · 2 operaciones sin capital al abrir",
     );
   });
 
@@ -151,7 +151,7 @@ describe("MonthlySummary", () => {
     ])("reads in Spanish for %s", async (_label, open, expected) => {
       await act(() => i18n.changeLanguage("es"));
       render(<MonthlySummary monthly={MONTHS} excluded={excluded()} open={open} />);
-      expect(text()).toBe(`2 de 4 meses positivos · mejor +5,4 % · peor -1,9 % · ${expected}`);
+      expect(text()).toBe(`2 de 4 meses positivos · mejor +5,4% · peor -1,9% · ${expected}`);
     });
 
     it("keeps today's sentence in Spanish for the second caller", async () => {

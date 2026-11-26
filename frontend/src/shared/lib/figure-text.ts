@@ -1,4 +1,4 @@
-import { amountDecimals, amountText } from "@/shared/lib/amount-text";
+import { amountDecimals, amountText, joinedPercent } from "@/shared/lib/amount-text";
 
 const SIGNIFICANT_DIGITS = 8;
 /** The table's figures keep five decimals, and at least this many significant digits when five would leave fewer. */
@@ -91,11 +91,14 @@ export function rateText(ratio: string, locale: string): string | null {
   const match = RATE_TEXT.exec(ratio);
   if (match === null) return null;
   const tenths = Number(`${match[1] ?? ""}${(match[2] ?? "").padEnd(RATE_DIGITS, "0").slice(0, RATE_DIGITS)}`);
-  return new Intl.NumberFormat(locale, {
-    style: "percent",
-    minimumFractionDigits: 1,
-    maximumFractionDigits: 1,
-  }).format(tenths / 1000);
+  return joinedPercent(
+    new Intl.NumberFormat(locale, {
+      style: "percent",
+      minimumFractionDigits: 1,
+      maximumFractionDigits: 1,
+    }),
+    tenths / 1000,
+  );
 }
 
 const AMOUNT_TEXT = /^(\d+)(?:\.(\d+))?$/;

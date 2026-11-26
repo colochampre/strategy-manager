@@ -39,18 +39,35 @@ export function amountText(amount: number, currency: string, locale: string, sig
 }
 
 /**
- * A ratio as a signed percentage with one decimal (0.031 is `+3.1%`). Without
+ * A percentage `Intl` formatted, joined to its sign in every language: Spanish writes "80,8 %" with a no-break
+ * space, and the app writes "80,8%" everywhere (L43). Only the space beside the sign is dropped.
+ */
+export function joinedPercent(format: Intl.NumberFormat, ratio: number): string {
+  return format
+    .formatToParts(ratio)
+    .filter((part, index, parts) => {
+      if (part.type !== "literal") return true;
+      return parts[index - 1]?.type !== "percentSign" && parts[index + 1]?.type !== "percentSign";
+    })
+    .map((part) => part.value)
+    .join("");
+}
+
+/**
+ * A ratio as a signed percentage with one decimal (0.031 is `+3.1%`), the sign joined (L43). Without
  * the symbol the number alone is returned, for a cell too narrow to hold it.
  */
 export function percentText(ratio: number, locale: string, symbol = true): string {
-  const parts = new Intl.NumberFormat(locale, {
+  const format = new Intl.NumberFormat(locale, {
     style: "percent",
     minimumFractionDigits: 1,
     maximumFractionDigits: 1,
     signDisplay: "exceptZero",
-  }).formatToParts(ratio);
-  return parts
-    .filter((part) => symbol || (part.type !== "percentSign" && part.type !== "literal"))
+  });
+  if (symbol) return joinedPercent(format, ratio);
+  return format
+    .formatToParts(ratio)
+    .filter((part) => part.type !== "percentSign" && part.type !== "literal")
     .map((part) => part.value)
     .join("");
 }

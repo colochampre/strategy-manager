@@ -236,7 +236,7 @@
     "returnChart": {
       "title": "Rendimiento de las estrategias, compuesto",
       "caption": "Días UTC · depósitos y retiros excluidos",
-      "ariaLabel": "Rendimiento compuesto por encima de la línea del 0 %, caída desde el máximo anterior por debajo",
+      "ariaLabel": "Rendimiento compuesto por encima de la línea del 0%, caída desde el máximo anterior por debajo",
       "empty": "Todavía no hay operaciones cerradas",
       "emptyRange": "Sin operaciones cerradas en este rango",
       "unreadable": "No se pudo leer la curva de rendimiento.",
@@ -424,7 +424,8 @@
       "totalPnl": "PnL total",
       "totalPnlRange": "PnL total · {{range}}",
       "maxDrawdown": "Caída máxima",
-      "winRate": "Tasa de acierto",
+      "return": "Rendimiento",
+      "profitable": "Operaciones rentables",
       "aum": "AuM",
       "aumHint": "Activos bajo gestión: suscriptores en vivo y capital",
       "setup": "Configuración"
@@ -467,9 +468,6 @@
       },
       "tooMany": "Demasiados códigos incorrectos en la última hora. Inténtelo más tarde.",
       "lookupFailed": "No se pudo comprobar el código. Inténtelo de nuevo."
-    },
-    "header": {
-      "wins": "{{wins}}/{{closed}} operaciones"
     },
     "report": {
       "title": "Rendimiento",
@@ -693,8 +691,8 @@
         "amountInfo": "Acerca de este importe y de lo que no se comprueba",
         "amountHint": "Es una estimación: este porcentaje del saldo total del pool, leído a las {{time}} UTC. El saldo se vuelve a leer cuando se abre una operación, y el pool concede menos cuando hay menos disponible. Es margen; la posición es este importe por el apalancamiento de la cuenta.",
         "pairMinimumNote": "Cada par tiene además una orden mínima en el exchange, que depende de su precio y del apalancamiento de la cuenta. El panel no la comprueba. Una señal cuya orden fuera demasiado pequeña se rechaza y no se abre nada.",
-        "valueText": "{{value}} % del pool",
-        "stop": "Fijar el porcentaje en {{value}} %",
+        "valueText": "{{value}}% del pool",
+        "stop": "Fijar el porcentaje en {{value}}%",
         "notNumber": "Escriba un número, por ejemplo 25 o 33,5.",
         "startHint": "Escriba qué parte de su pool puede usar esta estrategia. Empieza en 0 para que nunca opere con un porcentaje que usted no eligió.",
         "outOfRange": "El porcentaje debe ser mayor que 0 y como máximo 100.",

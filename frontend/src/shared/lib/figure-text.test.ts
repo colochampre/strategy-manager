@@ -267,8 +267,8 @@ describe("rateText", () => {
   );
 
   it("writes the rate the way the PnL % column does in Spanish", () => {
-    // Spanish writes a decimal comma and a no-break space before the sign (U+00A0), as `percentText` does.
-    expect(rateText("0.5833333333", "es")).toBe("58,3 %");
-    expect(rateText("1.0000000000", "es")).toBe("100,0 %");
+    // Spanish writes a decimal comma, and no space before the sign: the app writes every percentage joined (L43).
+    expect(rateText("0.5833333333", "es")).toBe("58,3%");
+    expect(rateText("1.0000000000", "es")).toBe("100,0%");
   });
 });

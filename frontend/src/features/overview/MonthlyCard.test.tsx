@@ -62,7 +62,7 @@ describe("MonthlyCard median and colour scale", () => {
   it("is written in Spanish", async () => {
     await act(() => i18n.changeLanguage("es"));
     render(<MonthlyCard monthly={months("0.0100000000", "-0.0300000000")} excluded={NOTHING_EXCLUDED} />);
-    expect(screen.getByTestId("monthly-median").textContent).toBe("Mediana -1,0 % · 2 meses");
+    expect(screen.getByTestId("monthly-median").textContent).toBe("Mediana -1,0% · 2 meses");
   });
 
   it("tells the grid's scale behind the (i): the step of a shade and how far the six reach", () => {

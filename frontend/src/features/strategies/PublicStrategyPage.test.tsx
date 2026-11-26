@@ -256,14 +256,15 @@ describe("the public page", () => {
     const line = await screen.findByTestId("record-line");
     expect(screen.getByTestId("strategy-header-card")).toContainElement(line);
     const groups = [...line.children].map((group) => group.getAttribute("data-testid"));
-    expect(groups).toEqual(["public-group-pnl", "public-group-drawdown", "public-group-profitable", "public-group-aum"]);
+    // A record holds no money: its return is a figure of its own, named as the Panel names it (L42).
+    expect(groups).toEqual(["public-group-return", "public-group-drawdown", "public-group-profitable", "public-group-aum"]);
     // The return and the fall follow the chart's range, read from the record (30D by default), the sign joined.
     await waitFor(() => expect(within(line).getByTestId("public-return")).toHaveTextContent(/^\+5\.1%$/));
     expect(within(line).getByTestId("public-deepest")).toHaveTextContent(/^-2\.0%$/);
     // No PnL in a record, which holds no money; the rate and the wins out of the closed trades: 60 % of 3.
     expect(within(line).queryByTestId("public-pnl")).not.toBeInTheDocument();
     expect(within(line).getByTestId("public-winrate")).toHaveTextContent(/^60%$/);
-    expect(within(line).getByTestId("public-wins")).toHaveTextContent(/^2\/3 trades$/);
+    expect(within(line).getByTestId("public-wins")).toHaveTextContent(/^2\/3$/);
     expect(within(line).getByTestId("public-subscribers")).toHaveTextContent(/^2$/);
     expect(within(line).getByTestId("public-capital")).toHaveTextContent(/^1,500\.00$/);
     // The age and the days active are not figures any more: the dates are on the market line.
@@ -302,12 +303,16 @@ describe("the public page", () => {
 
     const line = await screen.findByTestId("record-line");
     await waitFor(() => expect(within(line).getByTestId("public-return")).toHaveTextContent("+5.1%"));
-    const pnl = within(line).getByTestId("public-group-pnl");
-    expect(Array.from((pnl.querySelector("dd") as HTMLElement).children).map((node) => node.getAttribute("data-testid"))).toEqual([
+    const ret = within(line).getByTestId("public-group-return");
+    expect(ret.querySelector("dt span")?.textContent).toBe("Return");
+    expect(Array.from((ret.querySelector("dd") as HTMLElement).children).map((node) => node.getAttribute("data-testid"))).toEqual([
       "public-return",
     ]);
-    expect(within(line).getByTestId("public-wins")).toHaveTextContent(/^2\/3 trades$/);
+    expect(within(line).queryByTestId("public-group-pnl")).not.toBeInTheDocument();
+    expect(within(line).getByTestId("public-wins")).toHaveTextContent(/^2\/3$/);
+    expect(within(line).getByTestId("public-group-profitable").querySelector("dd .block")).toBeNull();
     expect(within(line).getByTestId("public-group-aum").querySelector("dd")).toHaveTextContent(/^1,500\.00USDT · 2$/);
+    expect(within(line).getByTestId("public-group-aum").querySelector("dd .block")).toBeNull();
   });
 
   it("explains the return and the capital in floating tips on the card's (i)s, not in a text that takes room", async () => {
@@ -365,6 +370,15 @@ describe("the public page", () => {
     const line = await screen.findByTestId("record-line");
     const pnl = within(line).getByTestId("public-group-pnl");
     await waitFor(() => expect(within(pnl).getByTestId("public-pnl")).not.toHaveTextContent("…"));
+    // The reader's PnL and their return apart, as the Panel draws them (L42).
+    expect([...line.children].map((group) => group.getAttribute("data-testid"))).toEqual([
+      "public-group-pnl",
+      "public-group-return",
+      "public-group-drawdown",
+      "public-group-profitable",
+      "public-group-aum",
+    ]);
+    expect(within(pnl).queryByTestId("public-return")).not.toBeInTheDocument();
     // The reader's report has no pair closed: no rate of theirs, and not the record's 60 %.
     expect(within(line).getByTestId("public-winrate")).toHaveTextContent(/^—$/);
   });
