@@ -287,6 +287,19 @@ The owner's words (2026-11-24) are quoted as written.
       - Git Bash's own `ssh` cannot prompt for the key's passphrase there, so the VPS refused it. Windows' `scp.exe` launched from Git Bash hung instead.
       - What worked: `SSH_ASKPASS=/mingw64/bin/git-askpass.exe SSH_ASKPASS_REQUIRE=force` before `scp` and `ssh`. The passphrase is asked for in a window each time and stored nowhere.
 
+  - L36 to L46 refined the Overview and a strategy's page after PR #139; each is logged under its L entry.
+  - *Delivered 2026-11-26 as PR #141*, eight commits. The owner merged it with a merge commit, `6fc422d8508a`.
+    - **Deploy, run by the owner**, by `deploy_6fc422d8508a.sh`. Frontend only: no backend file changed since `d3bc653435e3`, so no restart and no migration.
+      - The checkout was fast-forwarded as `strategy`, to keep it level with what is served.
+      - The panel part (pps.6): the bundle was built from a clean worktree of `origin/main` at `6fc422d8508a`. It holds 29 entries, SHA-256 `ea208ce9…1b0f8afd`.
+    - The VPS answered:
+      - the archive's checksum `OK`, and `readable`;
+      - `checkout: 6fc422d8508a` and `backend files changed since d3bc653435e3: 0`;
+      - `bundle: 6fc422d8508a` and `panel: 200 text/html`;
+      - `api: active` and `worker: active`.
+    - Both commands ran from this session with `!` and the `SSH_ASKPASS` prefix.
+    - The owner read the panel in production: "Revisado. Se ve bien".
+
 - [ ] RD.4 PR 4: My trades (S5).
 - [ ] RD.5 PR 5: Notifications (S6).
 - [ ] RD.6 PR 6: info tooltips and motion (S13).
