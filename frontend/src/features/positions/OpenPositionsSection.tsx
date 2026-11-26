@@ -80,7 +80,8 @@ export function OpenPositionsSection({ strategy }: OpenPositionsSectionProps) {
       headingId={headingId}
       dense
       action={
-        <div className="flex items-center gap-2">
+        // Beside the aside the column can be too narrow for the title and these: they then wrap to the right edge (L45).
+        <div className="ml-auto flex items-center gap-2">
           {notes.length > 0 && <InfoButton disclosure={info} label={t("positions.note.info")} />}
           <CountChip testId="positions-count">{t("positions.table.count", { count: mine.positions.length })}</CountChip>
         </div>

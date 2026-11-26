@@ -11,6 +11,7 @@ import { cn } from "@/shared/lib/cn";
 import { Masked, Revealed, useHidden } from "@/shared/hidden/Masked";
 import { clockText, compactDateText, figureText, tableFigureText } from "@/shared/lib/figure-text";
 import { useIsWide } from "@/shared/layout/useIsWide";
+import { useTableFits } from "@/shared/layout/useTableFits";
 import { Absent } from "@/shared/ui/Absent";
 import { Instant } from "@/shared/ui/Instant";
 import { TABLE_BOX, TABLE_CELL, TABLE_HEAD } from "@/shared/ui/table-styles";
@@ -478,17 +479,21 @@ function PositionCard({
 
 /**
  * Open positions, in the strategy variant (a strategy's page) or the pool variant (the Overview: the strategy's
- * name first, no Fees): a table from `md` upward and, below it, one card per position (the prototype's
- * example 20 decides, N2). It renders ONE of the two, never both hidden by CSS, so that the venue
- * line, the links and the accessible names exist once.
+ * name first, no Fees): a table from `md` upward where its box holds it and, otherwise, one card per position
+ * (the prototype's example 20 decides, N2; L45: a column beside the aside can be narrower than the table on a
+ * desktop window). It renders ONE of the two, never both hidden by CSS, so that the venue line, the links and the
+ * accessible names exist once.
  */
 export function PositionsTable(props: PositionsTableProps) {
   const { i18n } = useTranslation();
-  const table = useIsWide(MD_QUERY);
-  if (table) return props.variant === "pool" ? <PoolTable {...props} /> : <DesktopTable {...props} />;
+  const wide = useIsWide(MD_QUERY);
+  const { ref, fits } = useTableFits();
   const locale = i18n.resolvedLanguage ?? "en";
+  if (wide && fits) {
+    return <div ref={ref}>{props.variant === "pool" ? <PoolTable {...props} /> : <DesktopTable {...props} />}</div>;
+  }
   return (
-    <div className="flex flex-col gap-4">
+    <div ref={ref} className="flex flex-col gap-4">
       {props.positions.map((position) => (
         <PositionCard
           key={position.allocation_id}

@@ -811,6 +811,52 @@ describe("on a phone the positions are cards (T10; N2: the prototype's example 2
     expect(screen.queryByRole("table")).toBeInTheDocument();
   });
 
+  it("turns to cards at desktop width where its box cannot hold the table, and back where it can (L45)", async () => {
+    setViewport("wide");
+    // jsdom lays nothing out: the box reports `room`, the table its own 574 px.
+    let room = 264;
+    const callbacks: Array<() => void> = [];
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(callback: () => void) {
+          callbacks.push(callback);
+        }
+        observe = vi.fn();
+        unobserve = vi.fn();
+        disconnect = vi.fn();
+      },
+    );
+    const clientWidth = vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(() => room);
+    const offsetWidth = vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockImplementation(() => room);
+    const scrollWidth = vi
+      .spyOn(HTMLElement.prototype, "scrollWidth", "get")
+      .mockImplementation(function (this: HTMLElement) {
+        return this.tagName === "TABLE" ? 574 : room;
+      });
+    try {
+      await mountSection(answering(THREE));
+
+      // A 1100 px window with the sidebar open: the strategy's column is 264 px wide.
+      await waitFor(() => cards(3));
+      expect(screen.queryByRole("table")).not.toBeInTheDocument();
+
+      // Wide again: the table comes back.
+      room = 700;
+      act(() => {
+        for (const callback of callbacks) callback();
+      });
+      expect(positionRows(theTable())).toHaveLength(3);
+      expect(screen.queryAllByRole("article")).toHaveLength(0);
+      // In a narrow column the count goes under the title, at the card's right edge, not hanging under the title.
+      expect(screen.getByTestId("positions-count").parentElement).toHaveClass("ml-auto");
+    } finally {
+      clientWidth.mockRestore();
+      offsetWidth.mockRestore();
+      scrollWidth.mockRestore();
+    }
+  });
+
   it("names each card by its pair and side, composed in the component", async () => {
     setViewport("narrow");
     await mountSection(answering(THREE));
