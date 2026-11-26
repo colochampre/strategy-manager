@@ -12,6 +12,7 @@ import { useStrategyPerformance } from "@/shared/api/performance";
 import { usePublicRecord } from "@/shared/api/public-record";
 import type { PublicStrategy, Strategy, StrategyPerformance } from "@/shared/api/types";
 import { amountText, joinedPercent, parseDecimal, percentText, toneClass } from "@/shared/lib/amount-text";
+import { cn } from "@/shared/lib/cn";
 import { Masked } from "@/shared/hidden/Masked";
 import { InfoTip } from "@/shared/ui/Tooltip";
 
@@ -109,7 +110,11 @@ function Row({ prefix, testId, figures, pnl, recordReturn, currency }: RowProps)
         >
           <span
             data-testid={`${prefix}-pnl`}
-            className={pnl.value === undefined || pnl.value === null ? undefined : toneClass(pnl.value)}
+            // In a narrow column the currency goes under the amount instead of spilling out (L44).
+            className={cn(
+              "inline-flex flex-wrap items-baseline",
+              pnl.value === undefined || pnl.value === null ? undefined : toneClass(pnl.value),
+            )}
           >
             {leadMoney(pnl.value, pnl.currency, locale, true)}
           </span>

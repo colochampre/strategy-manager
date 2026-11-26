@@ -924,6 +924,8 @@ describe("the header card (S14, RD.7b)", () => {
     const pnl = within(header).getByTestId("strategy-group-pnl");
     const values = Array.from((pnl.querySelector("dd") as HTMLElement).children).map((value) => value.getAttribute("data-testid"));
     expect(values).toEqual(["strategy-pnl"]);
+    // In a narrow column the currency goes under the amount instead of spilling out (L44).
+    expect(within(pnl).getByTestId("strategy-pnl")).toHaveClass("inline-flex", "flex-wrap", "items-baseline");
     const ret = within(header).getByTestId("strategy-group-return");
     expect(ret.querySelector("dt")).toHaveTextContent(/^Return$/);
     expect(within(ret).getByTestId("strategy-return")).toHaveTextContent(/^\+2\.0%$/);
