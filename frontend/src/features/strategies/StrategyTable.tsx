@@ -30,7 +30,8 @@ interface StrategyTableProps {
   rows: readonly StrategyTableRow[];
   /** The id of the heading that names the table. */
   labelledBy: string;
-  /** The roomy size (ex15's): larger type and wider cells, for the table that has the fewest columns. */
+  /** The roomy size (ex15's): wider cells, for the table that has the fewest columns. Both sizes write the strategy
+   * page's 13 px under 12.5 px headings (L34); the others keep 8 px sides, so My subscriptions' eleven columns fit. */
   roomy?: boolean;
 }
 
@@ -41,11 +42,11 @@ interface StrategyTableProps {
 export function StrategyTable({ columns, rows, labelledBy, roomy = false }: StrategyTableProps) {
   const head = cn(
     "whitespace-nowrap border-b border-rule bg-ground py-2.5 font-medium text-ink-3 first:pl-3.5 last:pr-3",
-    roomy ? "px-3 text-[12.5px]" : "px-2 text-xs",
+    roomy ? "px-3 text-[12.5px]" : "px-2 text-[12.5px]",
   );
   const cell = cn(
     "whitespace-nowrap border-b border-rule-soft font-sans first:pl-3.5 last:pr-3",
-    roomy ? "px-3 py-[11px] text-[13px]" : "px-2 py-2.5 text-[12.5px]",
+    roomy ? "px-3 py-[11px] text-[13px]" : "px-2 py-[11px] text-[13px]",
   );
 
   return (

@@ -343,6 +343,20 @@ describe("the strategies table", () => {
   });
 });
 
+describe("the strategies table's type (L34)", () => {
+  it("writes its cells at 13 px under 12.5 px headings, as the strategy page's tables, keeping 8 px sides to fit", async () => {
+    const api = strategiesApi([strategy()]);
+    stubApi(HEALTH, [], POOLS, {}, api.route);
+    renderAt(<AppRoutes />, "/strategies/authored");
+
+    const table = await authoredTable();
+    for (const head of within(table).getAllByRole("columnheader")) expect(head).toHaveClass("text-[12.5px]", "px-2");
+    for (const cell of within(screen.getByTestId("strategy-row")).getAllByRole("cell")) {
+      expect(cell).toHaveClass("text-[13px]", "py-[11px]", "px-2");
+    }
+  });
+});
+
 describe("the archived strategies, from the note under the table (L21)", () => {
   it("leaves the search card without a checkbox and says how many archived ones are hidden, with the link that shows them", async () => {
     stubApi(HEALTH, [], POOLS, {}, strategiesApi([strategy(), ARCHIVED]).route);

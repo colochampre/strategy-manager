@@ -165,6 +165,17 @@ describe("My subscriptions as a table, with what Explore shows", () => {
     expect(screen.getByTestId("subscription-row").tagName).toBe("TR");
   });
 
+  it("writes its cells at 13 px under 12.5 px headings, as the strategy page's tables, keeping 8 px sides to fit (L34)", async () => {
+    serve({ held: () => Promise.resolve(jsonResponse([heldSubscription()])) });
+    open();
+
+    const table = await subscriptionsTable();
+    for (const head of within(table).getAllByRole("columnheader")) expect(head).toHaveClass("text-[12.5px]", "px-2");
+    for (const cell of within(screen.getByTestId("subscription-row")).getAllByRole("cell")) {
+      expect(cell).toHaveClass("text-[13px]", "py-[11px]", "px-2");
+    }
+  });
+
   it("keeps the search and the sort above the table in one card, with no exchange buttons of its own", async () => {
     serve({ held: () => Promise.resolve(jsonResponse([heldSubscription()])) });
     open();
