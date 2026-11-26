@@ -353,6 +353,20 @@ describe("Users", () => {
     expect(tipOf(info.parentElement as HTMLElement)).toBe(i18n.t("users.brake"));
   });
 
+  it("lets the brake's tip leave the table's box, which clips nothing: a short list would scroll under it (L50)", async () => {
+    serve(() => Promise.resolve(jsonResponse([adminUser()])), { dry_run_brake: true, ...SIGNED_UP });
+    open();
+    await screen.findByTestId("admin-user-row");
+
+    const table = screen.getByRole("table");
+    const box = table.parentElement as HTMLElement;
+    expect(box.className).not.toMatch(/\boverflow-/);
+    // Nothing clips the heading row to the box's 8 px corners any more, so its two outer cells round their own.
+    const heads = within(table).getAllByRole("columnheader");
+    expect(heads[0]).toHaveClass("rounded-tl-[7px]");
+    expect(heads[heads.length - 1]).toHaveClass("rounded-tr-[7px]");
+  });
+
   it("says nothing of the brake when it is off", async () => {
     await rowOf(adminUser());
 

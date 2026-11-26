@@ -16,7 +16,7 @@ import { dateTimeText } from "@/shared/lib/figure-text";
 import { Card } from "@/shared/ui/Card";
 import { CountChip } from "@/shared/ui/CountChip";
 import { PageHeader } from "@/shared/ui/PageHeader";
-import { PAGER_BUTTON, TABLE_BOX, TABLE_CELL, TABLE_HEAD } from "@/shared/ui/table-styles";
+import { PAGER_BUTTON, TABLE_CELL, TABLE_HEAD } from "@/shared/ui/table-styles";
 import { InfoTip, Tooltip } from "@/shared/ui/Tooltip";
 
 /** Users a page (L47). The server answers the whole list, so the pages are cut here. */
@@ -258,12 +258,25 @@ function UsersTable({ users, me, brake, labelledBy }: ListProps & { labelledBy: 
     [<span className="sr-only">{t("users.head.actions")}</span>],
   ];
   return (
-    <div className={TABLE_BOX}>
+    // The panel's boxed table without its sideways scroll: this table never scrolls (it turns into cards where it
+    // does not fit), and a box that scrolls one way clips the other, so a tip opened in it (the brake's, under Mode)
+    // grew a vertical scrollbar on a short list (L50). With nothing clipped, the heading row rounds its own corners.
+    <div className="rounded-lg border border-rule">
       <table aria-labelledby={labelledBy} className="w-full border-collapse">
         <thead>
           <tr>
             {heads.map(([content, className], index) => (
-              <th key={index} scope="col" className={cn(TABLE_HEAD, SIDES, className)}>
+              <th
+                key={index}
+                scope="col"
+                className={cn(
+                  TABLE_HEAD,
+                  SIDES,
+                  index === 0 && "rounded-tl-[7px]",
+                  index === heads.length - 1 && "rounded-tr-[7px]",
+                  className,
+                )}
+              >
                 {content}
               </th>
             ))}
