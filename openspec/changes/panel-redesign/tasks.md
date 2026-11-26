@@ -409,3 +409,7 @@ The owner's words (2026-11-24) are quoted as written.
 - L39 (2026-11-26, owner): "Al igual que con el Panel, si no hubiera posiciones abiertas, la tarjeta se oculta? La explicacion de margen causa desbordamiento vertical, además no creo que sea necesario explicarlo"
   - Built: the strategy page's open positions card is not drawn after a good read that leaves nothing to say: no position, no order in flight and nothing unmatched on its exchange. An order in flight or the unmatched sentence still draws it, under "No open position.", and so does a failed read.
   - Built: the "Margin USDT" heading has no tip. The note's text (`positions.note.margin`) had no other use and was removed from both locales.
+- L40 (2026-11-26, owner): "Quedó bien. Antes del push, podemos probar poner el aside comenzando a la altura de la primer tarjeta Acerca de esta estrategia en lugar de a la altura del titulo de la estrategia?"
+- L41 (2026-11-26, owner): "Dale, sí, aplicalo también en la pública. Además, el botón de Conectar una alerta ahora pasa un poco más desapercibida, por lo que probemos ponerle el estilo de botones tipo Nueva estrategia y Tengo un código"
+  - Built: on an own strategy and on its public page, the title block spans both columns, above the grid, so the aside starts level with the header card. On a phone the aside still comes last.
+  - Built: "Connect a TradingView alert" takes the green outline of "New strategy" and "I have a code" (`GAIN_OUTLINE`, `h-10`, `px-4`).

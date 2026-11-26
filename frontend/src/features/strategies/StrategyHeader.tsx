@@ -9,6 +9,7 @@ import { StrategyTitle } from "@/features/strategies/StrategyTitle";
 import { WebhookMessage } from "@/features/strategies/WebhookMessage";
 import { useMe } from "@/shared/api/me";
 import type { Strategy } from "@/shared/api/types";
+import { GAIN_OUTLINE } from "@/shared/ui/button-styles";
 
 interface StrategyHeaderProps {
   strategy: Strategy;
@@ -54,7 +55,8 @@ export function StrategyHeader({ strategy }: StrategyHeaderProps) {
           aria-expanded={open}
           aria-controls={panelId}
           onClick={() => setOpen(!open)}
-          className="inline-flex min-h-11 items-center gap-1.5 shrink-0 whitespace-nowrap rounded-lg border border-rule px-3.5 text-sm text-ink hover:bg-panel-2"
+          // Drawn as New strategy and I have a code (L40): above the aside it read as a quiet button.
+          className={`inline-flex h-10 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg px-4 text-sm ${GAIN_OUTLINE}`}
         >
           <Webhook aria-hidden="true" className="size-4 shrink-0" />
           {t("strategies.webhook.open")}

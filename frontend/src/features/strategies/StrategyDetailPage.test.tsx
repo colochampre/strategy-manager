@@ -538,6 +538,28 @@ describe("StrategyDetailPage", () => {
     expect(within(leverageRegion).getByRole("button", { name: en.strategies.leverage.save })).toBeDisabled();
   });
 
+  it("draws Connect a TradingView alert as New strategy and I have a code are drawn: the green outline (L40)", async () => {
+    renderPage(strategy());
+    await heading("ETH Breakout");
+
+    const button = screen.getByRole("button", { name: en.strategies.webhook.open });
+    expect(button).toHaveClass("h-10", "rounded-lg", "px-4", "border-gain/45", "text-gain-bright", "font-medium");
+    expect(button).not.toHaveClass("border-rule", "text-ink");
+  });
+
+  it("draws the title above the two columns, so the settings start level with the header card (L40)", async () => {
+    renderPage(strategy({ description: "Runs at 3x" }));
+    const title = await heading("ETH Breakout");
+
+    const settings = screen.getByRole("complementary", { name: en.strategies.detail.settings });
+    const grid = settings.parentElement as HTMLElement;
+    expect(grid).not.toContainElement(title);
+    expect(title.compareDocumentPosition(grid) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // The header card is the first thing of the left column, beside the top of the settings.
+    const column = grid.firstElementChild as HTMLElement;
+    expect(column.firstElementChild).toContainElement(screen.getByTestId("strategy-description"));
+  });
+
   it("puts Open positions in the left column, beside the settings, under the header card and above Performance (L37)", async () => {
     renderPage(strategy({ description: "Runs at 3x" }), { open: [openPosition({ strategy_id: ID })] });
     await heading("ETH Breakout");

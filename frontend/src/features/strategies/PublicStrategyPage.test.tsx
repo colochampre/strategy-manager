@@ -162,7 +162,10 @@ describe("the public page", () => {
       const column = grid.firstElementChild as HTMLElement;
       expect(grid.className).toContain("lg:grid-cols-[minmax(0,1fr)_25rem]");
       expect(column).not.toBe(aside);
-      expect(column).toContainElement(screen.getByRole("heading", { level: 1, name: "Alpha" }));
+      // The title spans both columns, above the grid, so the aside starts level with the record (L40).
+      const heading = screen.getByRole("heading", { level: 1, name: "Alpha" });
+      expect(grid).not.toContainElement(heading);
+      expect(heading.compareDocumentPosition(grid) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
       // The card is redrawn once the reads settle, so the title is looked up again until the column holds it.
       await waitFor(() => expect(column).toContainElement(screen.getByRole("heading", { name: "Performance" })));
       expect(aside).not.toContainElement(screen.getByTestId("public-return"));
