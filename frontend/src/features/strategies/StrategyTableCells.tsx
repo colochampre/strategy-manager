@@ -19,8 +19,8 @@ const NO_FIGURE = "—";
 /** What a figure shows while its report is on its way. */
 const LOADING = "…";
 
-/** The tone of a row's state dot: running, paused or leaving by someone else's doing, or off. */
-export type DotTone = "gain" | "paused" | "off";
+/** The tone of a row's state dot: running, paused or leaving by someone else's doing, off, or stopped by a fault (a suspended user). */
+export type DotTone = "gain" | "paused" | "off" | "loss";
 
 /**
  * The fill of each tone. Amber is written in one file of the positions unit (`panel-tokens.test.ts`): the paused dot
@@ -30,6 +30,7 @@ const DOT_FILL: Readonly<Record<DotTone, string>> = {
   gain: "bg-gain",
   paused: ORIGIN_STYLE.rehearsal.dot,
   off: "bg-ink-3",
+  loss: "bg-loss",
 };
 
 /** Where a tip opens. The first row of a longer table opens its tips under the cell: above it, the box would cut them. */

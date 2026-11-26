@@ -303,7 +303,7 @@ The owner's words (2026-11-24) are quoted as written.
 - [ ] RD.4 PR 4: My trades (S5).
 - [ ] RD.5 PR 5: Notifications (S6).
 - [ ] RD.6 PR 6: info tooltips and motion (S13).
-- [ ] RD.8: the Users page (`/users`, admin) as a table, like the strategy lists and the open positions (L25). Prototype first, when the owner calls for it.
+- [x] RD.8: the Users page (`/users`, admin) as a table, like the strategy lists and the open positions (L25). Prototype first, when the owner calls for it. Prototyped as ex16 (L47, L48), approved (L49), built on `feat/rd8-users-table`.
 
 ## Log
 
@@ -452,3 +452,6 @@ The owner's words (2026-11-24) are quoted as written.
 - L48 (2026-11-26, owner, on ex16): "En la columna Claves, prefiero o bien el punto con color, como lo tienen la columna Usuario, o el simbolo triangular de exclamación, como en Posiciones abiertas y puntos de Operaciones cerradas en la columna Par. Del lado izquierdo del dato, para mantener la misma coherencia de las tablas. Además, en Operaciones cerradas, el paginado solo dice 'Página x' entre los botones de Anterior y Siguiente, y me gusta más la del prototipo que dice 'Página 1 de 3'"
   - Prototype: ex16's Keys column takes the open positions' Pair pattern, a mark in a fixed slot left of the text: a gain dot where every enabled pool has its key, a grey one with no key at all, and the loss triangle in its place where an enabled pool has none, the sentence in its tooltip. ex12's pager reads "Anterior · Página 1 de 3 · Siguiente".
   - Built: Closed trades' pager reads "Page 1 of 3" / "Página 1 de 3", the count from the total the server already serves, at `TRADES_PAGE_SIZE` a page, and never fewer pages than the one on screen.
+- L49 (2026-11-26, owner, on ex16 with L48's Keys column): "Apruebo"
+  - Built: `features/users/UsersPage.tsx` draws ex16. 20 users a page, cut in the browser (`USERS_PAGE_SIZE`); the count chip in the card's header; "Page 1 of 3" between Previous and Next, the closed trades' `PAGER_BUTTON` (now in `shared/ui/table-styles.ts`). Every explanation is a tip: the state dot beside the e-mail (`StateDot` gained a `loss` tone for a suspension), the CUIT and country on the legal name, "Not signed up" with its sentence, the Keys mark of L48, the brake's (i) beside Mode. Lift reads "Reactivate" / "Reactivar"; the admin's own row reads "You" / "Usted".
+  - Fit: at 13 px with the panel's 12 px sides the nine columns needed 1057 px of a 1054 px column at 1446 px, so the table takes My subscriptions' 8 px sides (L34) at the same 13 px: 993 px needed of 1046. Where it still does not fit (a narrower window with the sidebar open, a phone) each user is a card, by `useTableFits` (L45).

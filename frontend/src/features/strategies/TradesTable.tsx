@@ -15,7 +15,7 @@ import { HintedHead } from "@/shared/ui/HintedHead";
 import { CountChip } from "@/shared/ui/CountChip";
 import { InfoButton, InfoText, useInfoDisclosure } from "@/shared/ui/InfoDisclosure";
 import { Instant } from "@/shared/ui/Instant";
-import { TABLE_BOX, TABLE_CELL, TABLE_HEAD } from "@/shared/ui/table-styles";
+import { PAGER_BUTTON, TABLE_BOX, TABLE_CELL, TABLE_HEAD } from "@/shared/ui/table-styles";
 
 interface TradesTableProps {
   strategyId: string;
@@ -31,8 +31,6 @@ interface TradeRowProps {
   onOpen: (trade: StrategyTrade, opener: HTMLButtonElement) => void;
 }
 
-const PAGER_BUTTON =
-  "min-h-11 rounded-lg border border-rule px-3.5 text-sm text-ink hover:bg-panel-2 disabled:text-ink-3 disabled:opacity-50";
 // The boxed table of the open positions and By pair, at their 13 px (L30, L32): figures right-aligned in the
 // monospace face and ink-2, words in the sans face.
 const CELL = cn(TABLE_CELL, "text-right font-mono tabular-nums text-ink-2");
