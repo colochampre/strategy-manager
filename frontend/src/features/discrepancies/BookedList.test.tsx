@@ -192,7 +192,7 @@ describe("on a wide screen the bookings are a table", () => {
     const names = within(screen.getByRole("table"))
       .getAllByRole("columnheader")
       .map((heading) => heading.textContent);
-    expect(names).toEqual(["Registrada (UTC)", "Par", "Sentido", "Cantidad", "Estrategia", "Ejecuciones", "Por", "Ahora"]);
+    expect(names).toEqual(["Registrada (UTC)", "Par", "Lado", "Cantidad", "Estrategia", "Ejecuciones", "Por", "Ahora"]);
     const [bybit, binance] = groupsOfTable() as [TableGroup, TableGroup];
     expect(bybit.rows[0]).toEqual([
       "16/10/2026 21:33",

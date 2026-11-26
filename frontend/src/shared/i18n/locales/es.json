@@ -205,7 +205,7 @@
     "table": {
       "booked": "Registrada (UTC)",
       "pair": "Par",
-      "side": "Sentido",
+      "side": "Lado",
       "quantity": "Cantidad",
       "strategy": "Estrategia",
       "fills": "Ejecuciones",
@@ -740,7 +740,7 @@
         "opened": "Apertura (UTC)",
         "closed": "Cierre (UTC)",
         "pair": "Par",
-        "side": "Sentido",
+        "side": "Lado",
         "direction": { "LONG": "LONG", "SHORT": "SHORT" },
         "pnl": "PnL {{currency}}",
         "entry": "Entrada",
@@ -943,7 +943,7 @@
       "count_other": "{{count}} posiciones",
       "empty": "Sin posiciones abiertas.",
       "head": {
-        "symbol": "Símbolo",
+        "symbol": "Par",
         "side": "Lado",
         "markPrice": "Precio de marca",
         "pnl": "PnL ({{currency}})",

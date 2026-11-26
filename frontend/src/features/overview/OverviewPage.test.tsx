@@ -68,7 +68,7 @@ describe("the Overview has no decision rail (spec: no rail, on any width; protot
 
   // RD.3 replaces "frames the chart, Month by month and Open positions, and not the ledger line" (owner decision 67
   // Q4, Q7): the dashboard's blocks are cards now, one each, under the header card.
-  it("draws the header card, then the chart, the month grid and the open positions, each in a card of its own (ex1)", async () => {
+  it("draws the header card, then the chart and the month grid, each in a card of its own (ex1); no open positions card while nothing is held (L36)", async () => {
     setViewport("wide");
     stubApi(HEALTH, [], { kind: "ok", body: [pool("bybit", "linear", "USDT", BALANCE)] }, {
       "bybit/linear/USDT": { kind: "ok", body: activeReport("bybit", "linear", "USDT") },
@@ -82,7 +82,6 @@ describe("the Overview has no decision rail (spec: no rail, on any width; protot
       "header-card",
       "Compounded return",
       "Monthly performance",
-      "Open positions",
     ]);
     expect(within(panel).queryByTestId("report-section")).toBeNull();
   });

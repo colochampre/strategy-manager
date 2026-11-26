@@ -943,7 +943,7 @@
       "count_other": "{{count}} positions",
       "empty": "No open position.",
       "head": {
-        "symbol": "Symbol",
+        "symbol": "Pair",
         "side": "Side",
         "markPrice": "Mark price",
         "pnl": "PnL ({{currency}})",

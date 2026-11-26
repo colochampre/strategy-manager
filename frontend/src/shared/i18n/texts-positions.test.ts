@@ -147,7 +147,7 @@ const KEPT = [
 const REUSED: ReadonlyArray<readonly [string, string, string]> = [
   ["strategies.performance.trades.opened", "Opened (UTC)", "Apertura (UTC)"],
   ["strategies.performance.trades.pair", "Pair", "Par"],
-  ["strategies.performance.trades.side", "Side", "Sentido"],
+  ["strategies.performance.trades.side", "Side", "Lado"],
   ["strategies.performance.trades.size", "Size", "Tamaño"],
   ["strategies.performance.trades.entry", "Entry", "Entrada"],
   ["strategies.performance.trades.fees", "Fees {{currency}}", "Comisiones {{currency}}"],

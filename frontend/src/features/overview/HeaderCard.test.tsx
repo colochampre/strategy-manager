@@ -17,7 +17,7 @@ import {
   stubApi,
   unlock,
 } from "@/test/harness";
-import type { PerformanceStub } from "@/test/harness";
+import type { OpenPositionsStub, PerformanceStub } from "@/test/harness";
 
 /**
  * RD.3, ex1 and ex2: one header card per pool, at the top of its section: the balance with the eye, the capital in
@@ -108,7 +108,8 @@ describe("the header card", () => {
     expect(within(card).getByTestId("pool-eyebrow")).toHaveTextContent("Bybit, usdt-m pool in USDT");
     expect(within(card).getByTestId("ledger-lead")).toHaveTextContent(/^1,284\.52USDT$/);
     expect(within(card).getByTestId("header-capital")).toHaveTextContent("Capital in positions");
-    expect(within(card).getByTestId("header-capital")).toHaveTextContent("215.48 USDT");
+    // The margin granted to the three real positions (3 x 30.00) and the 215.48 still reserved in flight (L36).
+    expect(within(card).getByTestId("header-capital")).toHaveTextContent("305.48 USDT");
   });
 
   it("says a pool that is the exchange's only one is single", async () => {
@@ -178,7 +179,7 @@ describe("the eye on the header card (S1)", () => {
     expect(within(card).getByTestId("header-capital")).toHaveTextContent("******");
     expect(within(card).getByTestId("ledger-pnl")).toHaveTextContent("******");
     expect(card.textContent).not.toContain("1,284.52");
-    expect(card.textContent).not.toContain("215.48");
+    expect(card.textContent).not.toContain("305.48");
     expect(card.textContent).not.toContain("2,414.30");
     expect(within(card).getByTestId("ledger-return")).toHaveTextContent("+24.1%");
     expect(within(card).getByTestId("ledger-deepest")).toHaveTextContent("-8.7%");
@@ -232,11 +233,11 @@ describe("the eye on the header card (S1)", () => {
 });
 
 describe("the cards under the header card", () => {
-  it("draws Compounded return with the range selector as a segmented control, then Monthly performance, then Open positions with its count", async () => {
+  it("draws Open positions with its count, then Compounded return with the range selector as a segmented control, then Monthly performance (L36)", async () => {
     const panel = await mountPanel();
 
     const headings = within(panel).getAllByRole("heading", { level: 2 }).map((heading) => heading.textContent);
-    expect(headings).toEqual(["Compounded return", "Monthly performance", "Open positions"]);
+    expect(headings).toEqual(["Open positions", "Compounded return", "Monthly performance"]);
 
     const chartCard = within(panel).getByRole("heading", { name: "Compounded return" }).closest("section") as HTMLElement;
     const ranges = within(chartCard).getByRole("radiogroup", { name: "Range" });
@@ -259,5 +260,65 @@ describe("the cards under the header card", () => {
 
     await waitFor(() => expect(within(panel).getByRole("radio", { name: "7D" })).toBeChecked());
     expect(within(panel).getByTestId("header-spark-return")).toHaveTextContent("+4.2%");
+  });
+});
+
+// "Capital in positions" read only the reservations in flight, which settle as soon as the order fills, so a held
+// position left it at 0.00 (L36). It is the margin granted to the pool's real positions, plus what is still in flight.
+describe("the capital in positions (L36)", () => {
+  const capital = async (open: OpenPositionsStub, poolRow = POOL) => {
+    stubApi(HEALTH, [], { kind: "ok", body: [poolRow] }, { [KEY]: report() }, undefined, {}, undefined, open);
+    renderAt(<PoolPanel pool={poolRow} />);
+    await settle();
+    const panel = await screen.findByTestId("pool-panel");
+    return within(within(panel).getByTestId("header-card")).getByTestId("header-capital");
+  };
+  const held = (overrides: Partial<OpenPosition>) =>
+    openPosition({ pool: USDT_POOL, currency: "USDT", markets: ["SOLUSDT"], ...overrides });
+  const NOTHING_RESERVED = { ...POOL, reserved: "0" };
+
+  it("adds the margin granted to every real position of the pool, a position of both origins included", async () => {
+    const line = await capital(
+      { kind: "ok", body: openState([held({ margin_granted: "369.83" }), held({ origin: "mixed", margin_granted: "20.17" })]) },
+      NOTHING_RESERVED,
+    );
+    expect(line).toHaveTextContent("390.00 USDT");
+  });
+
+  it("leaves out a dry-run position, which holds no money of the balance above it", async () => {
+    const line = await capital(
+      { kind: "ok", body: openState([held({ margin_granted: "369.83" }), held({ origin: "rehearsal", margin_granted: "500.00" })]) },
+      NOTHING_RESERVED,
+    );
+    expect(line).toHaveTextContent("369.83 USDT");
+  });
+
+  it("leaves out another pool's positions (rule 7)", async () => {
+    const other: OpenPool = { exchange: "bybit", venue: "inverse", settlement_currency: "BTC" };
+    const line = await capital(
+      { kind: "ok", body: openState([held({ margin_granted: "369.83" }), held({ pool: other, currency: "BTC", margin_granted: "0.5" })]) },
+      NOTHING_RESERVED,
+    );
+    expect(line).toHaveTextContent("369.83 USDT");
+  });
+
+  it("says 0.00 when nothing is held and nothing is in flight", async () => {
+    const line = await capital({ kind: "ok", body: openState([]) }, NOTHING_RESERVED);
+    expect(line).toHaveTextContent("0.00 USDT");
+  });
+
+  it("draws a dash, not a smaller sum, when a real position's margin cannot be read", async () => {
+    const line = await capital(
+      { kind: "ok", body: openState([held({ margin_granted: "369.83" }), held({ margin_granted: null })]) },
+      NOTHING_RESERVED,
+    );
+    expect(line).toHaveTextContent("Capital in positions —");
+    expect(line.textContent).not.toContain("369.83");
+  });
+
+  it("draws a dash while the positions cannot be read", async () => {
+    const line = await capital({ kind: "status", status: 500, body: { detail: "boom" } });
+    expect(line).toHaveTextContent("Capital in positions —");
+    expect(line.textContent).not.toContain("215.48");
   });
 });

@@ -31,6 +31,8 @@ interface HeaderCardProps {
   asOf: number;
   /** How many positions the pool holds; null while that read is loading or has failed, never a zero. */
   openCount: number | null;
+  /** The capital in positions, `PoolPanel`'s `capitalOf`; null while it cannot be told, never a zero. */
+  capital: number | null;
 }
 
 /** One of the four figures of the row under the card, `className` carrying its rules (two a row on a phone, four from `md`). */
@@ -57,7 +59,7 @@ function StatUnit({ currency }: { currency: string }) {
  * currency and never merged with another pool's (rule 7). Figures are parsed only to be formatted; nothing is
  * computed (CLAUDE.md, rule 7).
  */
-export function HeaderCard({ pool, sole, balanceInfo, report, status, asOf, openCount }: HeaderCardProps) {
+export function HeaderCard({ pool, sole, balanceInfo, report, status, asOf, openCount, capital }: HeaderCardProps) {
   const { t, i18n } = useTranslation();
   const labelId = useId();
   const disclosure = useInfoDisclosure();
@@ -67,7 +69,6 @@ export function HeaderCard({ pool, sole, balanceInfo, report, status, asOf, open
   const currency = pool.settlement_currency;
 
   const available = pool.balance === null ? null : parseDecimal(pool.balance.available);
-  const reserved = parseDecimal(pool.reserved);
   const EyeIcon = hidden ? EyeOff : Eye;
 
   return (
@@ -108,7 +109,7 @@ export function HeaderCard({ pool, sole, balanceInfo, report, status, asOf, open
           <p data-testid="header-capital" className="text-[13px] text-ink-3">
             {t("overview.header.capital")}{" "}
             <span className="font-mono text-ink-2">
-              <Masked>{reserved === null ? NO_FIGURE : `${amountText(reserved, currency, locale)} ${currency}`}</Masked>
+              <Masked>{capital === null ? NO_FIGURE : `${amountText(capital, currency, locale)} ${currency}`}</Masked>
             </span>
           </p>
           {balanceInfo !== undefined && (

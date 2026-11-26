@@ -20,9 +20,9 @@ interface PoolOpenPositionsProps {
  * and draws no order in flight (owner decision Q8, 2026-10-13) and no note. It does not depend on the pool's
  * performance report.
  *
- * The heading is always drawn. A failed first read is an error with "Read again", never "No open position.":
- * the Overview's count is absent both when nothing is open and when the read failed, so this sentence is what
- * keeps an absent count from being read as zero (design § K row 21). A failed refresh keeps the last answer.
+ * The card is drawn only to hold a position, or to say the read failed (L36): with nothing held it draws nothing,
+ * and the header card's count says 0. A failed first read is an error with "Read again", under the heading: the
+ * header card's count is absent then, never a zero (design § K row 21). A failed refresh keeps the last answer.
  */
 export function PoolOpenPositions({ pool }: PoolOpenPositionsProps) {
   const { t, i18n } = useTranslation();
@@ -41,6 +41,9 @@ export function PoolOpenPositions({ pool }: PoolOpenPositionsProps) {
 
   const answer = open.data;
   const mine = ofPool(answer, pool);
+  // Nothing held and the last read good: no card (L36). The header card's count says 0. A failed refresh keeps the
+  // card, so its red line is not hidden with it.
+  if (mine.positions.length === 0 && open.status !== "error") return null;
   const lastRead = timeOfAnswerText(answer.as_of, answer.as_of, locale, true) ?? answer.as_of;
 
   return (

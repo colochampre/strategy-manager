@@ -655,7 +655,7 @@ describe("in Spanish (T10 and T11; owner decision Q9, 2026-10-13)", () => {
     expect(within(table).getAllByRole("columnheader").map((head) => head.textContent)).toEqual([
       "Apertura (UTC)",
       "Par",
-      "Sentido",
+      "Lado",
       "Tamaño",
       "Entrada",
       "Comisiones USDT",
