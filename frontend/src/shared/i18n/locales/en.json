@@ -424,7 +424,8 @@
       "totalPnl": "Total PnL",
       "totalPnlRange": "Total PnL · {{range}}",
       "maxDrawdown": "Max drawdown",
-      "winRate": "Win rate",
+      "return": "Return",
+      "profitable": "Profitable trades",
       "aum": "AuM",
       "aumHint": "Assets under management: live subscribers and capital",
       "setup": "Settings"
@@ -467,9 +468,6 @@
       },
       "tooMany": "Too many wrong codes in the last hour. Try again later.",
       "lookupFailed": "The code could not be checked. Try again."
-    },
-    "header": {
-      "wins": "{{wins}}/{{closed}} trades"
     },
     "report": {
       "title": "Performance",
@@ -943,7 +941,7 @@
       "count_other": "{{count}} positions",
       "empty": "No open position.",
       "head": {
-        "symbol": "Symbol",
+        "symbol": "Pair",
         "side": "Side",
         "markPrice": "Mark price",
         "pnl": "PnL ({{currency}})",
@@ -957,6 +955,11 @@
       "notRecorded": "not recorded",
       "ofOpened": "of {{opened}} opened",
       "averageOf": "average of {{fills}} fills",
+      "marginShort": "Margin {{currency}}",
+      "entryTip": {
+        "average": "Average price of {{fills}} fills.",
+        "left": "{{held}} left of {{opened}} opened."
+      },
       "unmatched_one": "{{count}} open position or order could not be matched to a strategy. The Strategies page names it.",
       "unmatched_other": "{{count}} open positions or orders could not be matched to a strategy. The Strategies page names them."
     },
@@ -979,7 +982,6 @@
       "other": "The figures could not be derived from the fills."
     },
     "note": {
-      "margin": "Margin granted is what the share took from the pool when the position opened. It is not what the exchange holds now.",
       "rehearsal": "A dry-run position was filled by the simulated exchange, at 1x. It is not at the exchange and enters no total.",
       "mixed": "This position holds dry-run and live fills. Neither mode can close it safely: check it against the exchange by hand.",
       "reservation": "Its reservation reads {{status}}, not FILLED.",

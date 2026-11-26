@@ -8,13 +8,14 @@ import { PositionMark } from "@/features/positions/PositionMark";
 import type { OpenPosition } from "@/shared/api/positions";
 import { amountText, parseDecimal, toneClass } from "@/shared/lib/amount-text";
 import { cn } from "@/shared/lib/cn";
-import { Masked, Revealed } from "@/shared/hidden/Masked";
+import { Masked, Revealed, useHidden } from "@/shared/hidden/Masked";
 import { clockText, compactDateText, figureText, tableFigureText } from "@/shared/lib/figure-text";
 import { useIsWide } from "@/shared/layout/useIsWide";
+import { useTableFits } from "@/shared/layout/useTableFits";
 import { Absent } from "@/shared/ui/Absent";
-import { HintedHead } from "@/shared/ui/HintedHead";
 import { Instant } from "@/shared/ui/Instant";
 import { TABLE_BOX, TABLE_CELL, TABLE_HEAD } from "@/shared/ui/table-styles";
+import { Tooltip } from "@/shared/ui/Tooltip";
 
 interface PositionsTableProps {
   positions: OpenPosition[];
@@ -120,8 +121,12 @@ function leverageOf(position: OpenPosition, t: Translate): ReactNode {
   return t("positions.table.leverageValue", { value: figureText(position.leverage) ?? t("positions.state.unreadable") });
 }
 
-/** Nine columns in the strategy variant's table, the close button's included (the pool variant has its own seven, `POOL_COLUMNS`). */
-const COLUMNS = 9;
+/**
+ * Six columns in the strategy variant's table, the close button's included, so it fits beside the settings aside
+ * (L37); the pool variant has its own seven, `POOL_COLUMNS`. The opening, the size and the fees stay on the phone's
+ * card.
+ */
+const COLUMNS = 6;
 
 /** The page this user can open: the detail is the author's, and a subscriber reaches the public page while it is listed. */
 function strategyHref({ strategy_id: id, strategy_page: page }: OpenPosition): string | null {
@@ -244,7 +249,6 @@ function strategyCellsOf(position: OpenPosition, locale: string, t: Translate, a
   const cells = cellsOf(position, locale, t);
   const unreadable = reasonOf(position, t, "other");
   return [
-    { content: cells[0], className: "font-mono tabular-nums text-ink-2" },
     {
       content: (
         <span className="inline-flex items-center gap-1.5">
@@ -258,13 +262,39 @@ function strategyCellsOf(position: OpenPosition, locale: string, t: Translate, a
       content: position.side === null ? <Absent reason={unreadable} /> : t(`positions.table.sideWord.${position.side}`),
       className: "text-ink",
     },
-    { content: cells[3], className: FIGURE },
-    { content: cells[4], className: FIGURE },
-    { content: cells[5], className: FIGURE },
+    {
+      content: position.entry_price === null ? <Absent reason={unreadable} /> : <EntryFigure position={position} price={position.entry_price} />,
+      className: FIGURE,
+    },
     { content: cells[6], className: FIGURE },
     { content: leverageOf(position, t), className: FIGURE },
     { content: <CloseNowControl position={position} appearance="text" />, className: "text-right" },
   ];
+}
+
+/**
+ * The entry price alone on its line (L37). What used to sit under the size and the price, how much of what was
+ * opened is left and that the price is an average, is its tip: a dotted underline says there is one. The size is
+ * left out of the tip while the balances are hidden, as the card leaves its note out.
+ */
+function EntryFigure({ position, price }: { position: OpenPosition; price: string }) {
+  const { t } = useTranslation();
+  const hidden = useHidden();
+  const written = tableFigureText(price) ?? t("positions.state.unreadable");
+  const held = position.size === null ? null : tableFigureText(position.size);
+  const opened = position.opened_size === null ? null : tableFigureText(position.opened_size);
+  const parts: string[] = [];
+  if (position.fill_count > 1) parts.push(t("positions.table.entryTip.average", { fills: position.fill_count }));
+  if (!hidden && held !== null && opened !== null && opened !== held) {
+    const unit = position.base_currency === null ? "" : ` ${position.base_currency}`;
+    parts.push(t("positions.table.entryTip.left", { held: `${held}${unit}`, opened }));
+  }
+  if (parts.length === 0) return <>{written}</>;
+  return (
+    <Tooltip text={parts.join(" ")} className="inline-flex cursor-help underline decoration-dotted underline-offset-2">
+      {written}
+    </Tooltip>
+  );
 }
 
 interface BoxedTableProps {
@@ -355,16 +385,11 @@ function DesktopTable({ positions, asOf, currency, labelledBy }: TableProps) {
   const locale = i18n.resolvedLanguage ?? "en";
   const right = "text-right";
   const heads: Cell[] = [
-    { content: t("strategies.performance.trades.opened") },
     { content: t("strategies.performance.trades.pair") },
     { content: t("strategies.performance.trades.side") },
-    { content: t("strategies.performance.trades.size"), className: right },
     { content: t("strategies.performance.trades.entry"), className: right },
-    { content: t("strategies.performance.trades.fees", { currency }), className: right },
-    {
-      content: <HintedHead label={t("positions.table.margin", { currency })} hint={t("positions.note.margin")} />,
-      className: right,
-    },
+    // No tip on the margin's heading: it explained more than the column needs, and its box ran past the table (L39).
+    { content: t("positions.table.marginShort", { currency }), className: right },
     { content: t("positions.table.leverage"), className: right },
     { content: <span className="sr-only">{t("positions.table.head.actions")}</span> },
   ];
@@ -454,17 +479,21 @@ function PositionCard({
 
 /**
  * Open positions, in the strategy variant (a strategy's page) or the pool variant (the Overview: the strategy's
- * name first, no Fees): a table from `md` upward and, below it, one card per position (the prototype's
- * example 20 decides, N2). It renders ONE of the two, never both hidden by CSS, so that the venue
- * line, the links and the accessible names exist once.
+ * name first, no Fees): a table from `md` upward where its box holds it and, otherwise, one card per position
+ * (the prototype's example 20 decides, N2; L45: a column beside the aside can be narrower than the table on a
+ * desktop window). It renders ONE of the two, never both hidden by CSS, so that the venue line, the links and the
+ * accessible names exist once.
  */
 export function PositionsTable(props: PositionsTableProps) {
   const { i18n } = useTranslation();
-  const table = useIsWide(MD_QUERY);
-  if (table) return props.variant === "pool" ? <PoolTable {...props} /> : <DesktopTable {...props} />;
+  const wide = useIsWide(MD_QUERY);
+  const { ref, fits } = useTableFits();
   const locale = i18n.resolvedLanguage ?? "en";
+  if (wide && fits) {
+    return <div ref={ref}>{props.variant === "pool" ? <PoolTable {...props} /> : <DesktopTable {...props} />}</div>;
+  }
   return (
-    <div className="flex flex-col gap-4">
+    <div ref={ref} className="flex flex-col gap-4">
       {props.positions.map((position) => (
         <PositionCard
           key={position.allocation_id}

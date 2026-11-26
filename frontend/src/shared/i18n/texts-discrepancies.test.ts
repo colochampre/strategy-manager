@@ -147,7 +147,7 @@ const TEXTS: ReadonlyArray<readonly [string, string, string]> = [
   // The booked list: its eight headings and the values of "By" and "Now".
   ["discrepancies.table.booked", "Booked (UTC)", "Registrada (UTC)"],
   ["discrepancies.table.pair", "Pair", "Par"],
-  ["discrepancies.table.side", "Side", "Sentido"],
+  ["discrepancies.table.side", "Side", "Lado"],
   ["discrepancies.table.quantity", "Quantity", "Cantidad"],
   ["discrepancies.table.strategy", "Strategy", "Estrategia"],
   ["discrepancies.table.fills", "Fills", "Ejecuciones"],

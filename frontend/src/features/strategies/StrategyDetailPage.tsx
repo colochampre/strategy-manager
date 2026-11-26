@@ -84,13 +84,16 @@ export function StrategyDetailPage() {
   return (
     <StrategyCrumbs value={crumbs}>
     <div className="flex flex-col gap-4">
+      {/* The title spans both columns, so the settings start level with the header card (L40). */}
+      <StrategyHeader strategy={subject} />
       <div className="grid gap-9 lg:grid-cols-[minmax(0,1fr)_25rem]">
-        {/* The header, the header card (the description and the figures, S14) and Performance as another author's page draws them (owner, 2026-11-17). */}
+        {/* The header card (the description and the figures, S14) and Performance as another author's page draws them (owner, 2026-11-17). */}
         <div className="flex min-w-0 flex-col gap-4">
-          <StrategyHeader strategy={subject} />
           <StrategyHeaderCard about={<AuthorDescription key={`description-${subject.id}`} strategy={subject} />}>
             <AuthorFigures strategy={subject} />
           </StrategyHeaderCard>
+          {/* Beside the settings, under the header card (L37): its table has the six columns that fit there. */}
+          <OpenPositionsSection strategy={subject} />
           {/* Its PnL, return and drawdown are in the header card's figures, so the report draws no second line of them.
               The Performance card carries its own title (L26), so no heading sits above it. */}
           <StrategyPerformance key={subject.id} strategyId={subject.id} ledger={false} />
@@ -120,7 +123,6 @@ export function StrategyDetailPage() {
           </div>
         </aside>
       </div>
-      <OpenPositionsSection strategy={subject} />
       <TradesTable strategyId={subject.id} currency={subject.settlement_currency} />
       <DeleteStrategyControl strategy={subject} />
     </div>

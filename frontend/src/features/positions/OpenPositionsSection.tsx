@@ -18,7 +18,7 @@ interface OpenPositionsSectionProps {
 
 /**
  * The notes behind the section's (i), each drawn only when a row on screen makes it true, in this order: the
- * dry-run note, then the note of a position of both origins. The margin note is the Margin column's tip.
+ * dry-run note, then the note of a position of both origins.
  */
 function noteKeys(positions: OpenPosition[]): string[] {
   return [
@@ -34,6 +34,8 @@ function noteKeys(positions: OpenPosition[]): string[] {
  * the exchange scope. It counts what its own exchange holds that no strategy owns: while that is not empty the
  * section never says "No open position.", because one of those elements may be this strategy's own. A failed
  * first read is an error with "Read again", never "No open position."; a failed refresh keeps the last answer.
+ * With nothing to say, no position, no order in flight and nothing unmatched, after a good read, it draws no card
+ * at all, as the Overview (L39).
  */
 export function OpenPositionsSection({ strategy }: OpenPositionsSectionProps) {
   const { t, i18n } = useTranslation();
@@ -59,6 +61,7 @@ export function OpenPositionsSection({ strategy }: OpenPositionsSectionProps) {
   const sentence = unmatchedCount > 0 && (
     <p className="text-sm text-ink">{t("positions.table.unmatched", { count: unmatchedCount })}</p>
   );
+  if (mine.positions.length === 0 && mine.orders.length === 0 && unmatchedCount === 0 && open.status !== "error") return null;
   const lastRead = timeOfAnswerText(answer.as_of, answer.as_of, locale, true) ?? answer.as_of;
   const notes = noteKeys(mine.positions);
   const orders = mine.orders.length > 0 && (
@@ -77,7 +80,8 @@ export function OpenPositionsSection({ strategy }: OpenPositionsSectionProps) {
       headingId={headingId}
       dense
       action={
-        <div className="flex items-center gap-2">
+        // Beside the aside the column can be too narrow for the title and these: they then wrap to the right edge (L45).
+        <div className="ml-auto flex items-center gap-2">
           {notes.length > 0 && <InfoButton disclosure={info} label={t("positions.note.info")} />}
           <CountChip testId="positions-count">{t("positions.table.count", { count: mine.positions.length })}</CountChip>
         </div>

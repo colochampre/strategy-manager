@@ -34,21 +34,25 @@ function PublicRecord({ strategy }: { strategy: PublicStrategy }) {
   ];
   return (
     <StrategyCrumbs value={crumbs}>
-      <div className="grid gap-9 lg:grid-cols-[minmax(0,1fr)_25rem]">
-        {/* Blocks 4 apart, as on every view; the header, then the header card (the description and the figures) and Performance, as the own page draws them. */}
-        <div className="flex min-w-0 flex-col gap-4">
-          <StrategyPageHeader
-            prefix="public"
-            back={<BackToExplore />}
-            title={<h1 className={STRATEGY_TITLE}>{strategy.name}</h1>}
-            status={<EnabledBadge enabled={strategy.enabled} testId="public-enabled" />}
-            byline={t("strategies.public.by", { name: strategy.author_name })}
-            market={`${strategy.exchange} · ${strategy.venue} · ${strategy.settlement_currency}`}
-            since={strategy.created_at}
-          />
-          <StrategyReportViews strategy={strategy} />
+      {/* Blocks 4 apart, as on every view. The title spans both columns, so the aside starts level with the header
+          card, as on an own strategy (L40). */}
+      <div className="flex flex-col gap-4">
+        <StrategyPageHeader
+          prefix="public"
+          back={<BackToExplore />}
+          title={<h1 className={STRATEGY_TITLE}>{strategy.name}</h1>}
+          status={<EnabledBadge enabled={strategy.enabled} testId="public-enabled" />}
+          byline={t("strategies.public.by", { name: strategy.author_name })}
+          market={`${strategy.exchange} · ${strategy.venue} · ${strategy.settlement_currency}`}
+          since={strategy.created_at}
+        />
+        <div className="grid gap-9 lg:grid-cols-[minmax(0,1fr)_25rem]">
+          {/* The header card (the description and the figures) and Performance, as the own page draws them. */}
+          <div className="flex min-w-0 flex-col gap-4">
+            <StrategyReportViews strategy={strategy} />
+          </div>
+          <SubscribePanel strategy={strategy} />
         </div>
-        <SubscribePanel strategy={strategy} />
       </div>
     </StrategyCrumbs>
   );

@@ -133,7 +133,7 @@ function pairsOfTable(): string[] {
   // Found by its heading, so that a missing or extra column cannot make this read another column's text.
   const at = within(table)
     .getAllByRole("columnheader")
-    .findIndex((heading) => heading.textContent === "Symbol");
+    .findIndex((heading) => heading.textContent === "Pair");
   return positionRows(table).map((row) => (cellsOf(row)[at]?.firstChild?.textContent ?? "").trim());
 }
 
@@ -295,7 +295,7 @@ describe("the open positions table follows ex1 (RD.3c)", () => {
     await mountList(answering([aave(MARKED)]));
 
     const heads = within(theTable()).getAllByRole("columnheader");
-    expect(heads.map((head) => head.textContent).slice(0, 6)).toEqual(["Strategy", "Symbol", "Side", "Entry", "Mark price", "PnL (USDT)"]);
+    expect(heads.map((head) => head.textContent).slice(0, 6)).toEqual(["Strategy", "Pair", "Side", "Entry", "Mark price", "PnL (USDT)"]);
     // The origin dots in the body are images by role; the headings hold none.
     expect(within(theTable().querySelector("thead") as HTMLElement).queryByRole("img")).not.toBeInTheDocument();
     expect(heads).toHaveLength(7);
@@ -352,7 +352,7 @@ describe("the open positions table follows ex1 (RD.3c)", () => {
     await mountList(answering([aave({ ...MARKED, side: "SHORT" })]));
 
     const heads = within(theTable()).getAllByRole("columnheader");
-    expect(heads.map((head) => head.textContent).slice(0, 6)).toEqual(["Estrategia", "Símbolo", "Lado", "Entrada", "Precio de marca", "PnL (USDT)"]);
+    expect(heads.map((head) => head.textContent).slice(0, 6)).toEqual(["Estrategia", "Par", "Lado", "Entrada", "Precio de marca", "PnL (USDT)"]);
     const row = rowsOfTable()[0] as HTMLElement;
     expect(at(row, 2).textContent).toBe("Corto");
     expect(within(at(row, 6)).getByRole("button", { name: "Cerrar ahora" })).toHaveTextContent("Cerrar ahora");
@@ -700,11 +700,11 @@ describe("the states (T13; K row 21)", () => {
     expect(screen.queryByText("No open position.")).not.toBeInTheDocument();
   });
 
-  it("reads 'No open position.' under the heading when the read succeeded and this pool holds nothing", async () => {
+  it("draws nothing when the read succeeded and this pool holds nothing (L36): the Overview shows the card only to hold a position", async () => {
     await mountList(answering([held("SUIUSDT", USDC_POOL)]));
 
-    expect(screen.queryByRole("heading", { name: "Open positions" })).toBeInTheDocument();
-    expect(screen.queryByText("No open position.")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Open positions" })).not.toBeInTheDocument();
+    expect(screen.queryByText("No open position.")).not.toBeInTheDocument();
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
@@ -882,7 +882,7 @@ describe("in Spanish (T10 and T11; owner decision Q9, 2026-10-13)", () => {
     const headings = within(screen.getByRole("table", { name: "Posiciones abiertas" })).getAllByRole("columnheader");
     expect(headings.map((heading) => heading.textContent).slice(0, 6)).toEqual([
       "Estrategia",
-      "Símbolo",
+      "Par",
       "Lado",
       "Entrada",
       "Precio de marca",
@@ -921,9 +921,10 @@ describe("in Spanish (T10 and T11; owner decision Q9, 2026-10-13)", () => {
     expect(card.children[1]).toHaveTextContent("STX 4h - RSI Divergences");
   });
 
-  it("reads its states in Spanish", async () => {
-    await mountList(answering([]));
-    expect(screen.queryByText("Sin posiciones abiertas.")).toBeInTheDocument();
+  it("is titled and counted in Spanish", async () => {
+    await mountList(answering([held("SUIUSDT")]));
+    expect(screen.getByRole("heading", { name: "Posiciones abiertas" })).toBeInTheDocument();
+    expect(screen.getByTestId("positions-count")).toHaveTextContent("1 posición");
   });
 
   it("reads the loading and the failed states in Spanish, with 'Leer de nuevo'", async () => {

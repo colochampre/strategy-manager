@@ -99,23 +99,29 @@ describe("a pool with a position and no report (T13; K row 24)", () => {
 });
 
 describe("a pool with a report (T13)", () => {
-  it("draws the month grid, its summary and then the list, in that order", async () => {
+  it("draws the open positions right under the balance, then the chart, then the month grid and its summary (L36)", async () => {
     await mountPanel(answering([held("AAVEUSDT")]), report());
 
     const panel = await screen.findByTestId("pool-panel");
+    const header = within(panel).getByTestId("header-card");
+    const positions = within(panel).getByRole("heading", { name: "Open positions" });
+    const chart = within(panel).getByRole("heading", { name: "Compounded return" });
     const grid = within(panel).getByTestId("month-2026-9");
     const summary = within(panel).getByTestId("monthly-summary");
-    const heading = within(panel).getByRole("heading", { name: "Open positions" });
-    expect(grid.compareDocumentPosition(summary) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(summary.compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const follows = (a: Element, b: Element) => Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(follows(header, positions)).toBe(true);
+    expect(follows(positions, chart)).toBe(true);
+    expect(follows(chart, grid)).toBe(true);
+    expect(follows(grid, summary)).toBe(true);
   });
 
-  it("draws the list under its own heading even when the pool holds nothing", async () => {
+  it("draws no open positions card when the pool holds nothing: the header card's count says 0 (L36)", async () => {
     await mountPanel(answering([]), report());
 
     const panel = await screen.findByTestId("pool-panel");
-    expect(within(panel).queryByRole("heading", { name: "Open positions" })).toBeInTheDocument();
-    expect(within(panel).queryByText("No open position.")).toBeInTheDocument();
+    expect(within(panel).queryByRole("heading", { name: "Open positions" })).not.toBeInTheDocument();
+    expect(within(panel).queryByText("No open position.")).not.toBeInTheDocument();
+    expect(within(panel).getByTestId("header-card")).toHaveTextContent("Open positions0");
   });
 });
 

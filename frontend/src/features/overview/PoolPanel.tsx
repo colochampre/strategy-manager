@@ -12,6 +12,7 @@ import { usePoolPerformance } from "@/shared/api/performance";
 import { ofPool, useOpenPositions } from "@/shared/api/positions";
 import type { OpenState } from "@/shared/api/positions";
 import type { Pool } from "@/shared/api/types";
+import { parseDecimal } from "@/shared/lib/amount-text";
 import { Card } from "@/shared/ui/Card";
 import { Segmented } from "@/shared/ui/Segmented";
 
@@ -31,6 +32,25 @@ function observedAtText(observedAt: string, locale: string): string {
     timeZone: "UTC",
   }).format(instant);
   return `${text} UTC`;
+}
+
+/**
+ * The capital the pool has in positions (L36): the margin granted to each of its real positions, a position of both
+ * origins included, plus the reservations still in flight, which settle once their order fills. A dry-run position
+ * holds none of the balance above it. Null, drawn as a dash, when a real position's margin cannot be read: a smaller
+ * sum would read as the whole.
+ */
+function capitalOf(answer: OpenState, pool: Pool): number | null {
+  const reserved = parseDecimal(pool.reserved);
+  if (reserved === null) return null;
+  let total = reserved;
+  for (const position of ofPool(answer, pool).positions) {
+    if (position.origin === "rehearsal") continue;
+    const margin = position.margin_granted === null ? null : parseDecimal(position.margin_granted);
+    if (margin === null) return null;
+    total += margin;
+  }
+  return total;
 }
 
 /** The pool's own positions and how many are dry run; a position of both origins is counted in the first only. */
@@ -60,6 +80,7 @@ export function PoolPanel({ pool, sole = false }: PoolPanelProps) {
   // summary writes no part about open positions; the pool's own positions only (rule 7).
   const answer = useOpenPositions().data;
   const openCount = answer === undefined ? null : openCountOf(answer, pool);
+  const capital = answer === undefined ? null : capitalOf(answer, pool);
 
   let status: ReactNode = null;
   if (performance.status === "pending") {
@@ -106,7 +127,11 @@ export function PoolPanel({ pool, sole = false }: PoolPanelProps) {
         status={status}
         asOf={performance.dataUpdatedAt}
         openCount={openCount === null ? null : openCount.total}
+        capital={capital}
       />
+      {/* Right under the balance (L36), and outside the report condition: a pool whose report is missing or failed
+          can still hold a position (design § K row 24). It draws nothing while the pool holds nothing. */}
+      <PoolOpenPositions pool={pool} />
       {report !== null && (
         <>
           <Card
@@ -132,8 +157,6 @@ export function PoolPanel({ pool, sole = false }: PoolPanelProps) {
           <MonthlyCard monthly={report.monthly} excluded={report.excluded} open={openCount} />
         </>
       )}
-      {/* Outside the report condition: a pool whose report is missing or failed can still hold a position (design § K row 24). */}
-      <PoolOpenPositions pool={pool} />
     </section>
   );
 }

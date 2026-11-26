@@ -618,7 +618,7 @@ describe("TradesTable", () => {
       "Apertura (UTC)",
       "Cierre (UTC)",
       "Par",
-      "Sentido",
+      "Lado",
       "Entrada",
       "Salida",
       "Tamaño",

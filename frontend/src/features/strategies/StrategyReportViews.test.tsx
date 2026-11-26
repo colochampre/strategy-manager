@@ -144,14 +144,16 @@ describe("StrategyReportViews", () => {
     const line = await screen.findByTestId("record-line");
     await waitFor(() => expect(screen.getByTestId("public-return")).toHaveTextContent("+5.1%"));
 
-    const pnl = within(line).getByTestId("public-group-pnl");
-    expect(pnl.querySelector("dt")).toHaveTextContent(/^Total PnL/);
+    // A record holds no money: its first figure is the return, and the range selector names the range (L42).
+    expect(within(line).queryByTestId("public-group-pnl")).toBeNull();
+    const ret = within(line).getByTestId("public-group-return");
+    expect(ret.querySelector("dt span")?.textContent).toBe("Return");
     const drawdown = within(line).getByTestId("public-group-drawdown");
     expect(drawdown.querySelector("dt")).toHaveTextContent(/^Max drawdown$/);
     expect(within(drawdown).getByTestId("public-deepest")).toHaveClass("text-loss");
     // The unleveraged, before-fees disclosure stays with the return.
     expect(
-      within(pnl.querySelector("dt") as HTMLElement).getByRole("img", { name: i18n.t("strategies.public.returnInfo") }),
+      within(ret.querySelector("dt") as HTMLElement).getByRole("img", { name: i18n.t("strategies.public.returnInfo") }),
     ).toBeInTheDocument();
   });
 
@@ -166,16 +168,16 @@ describe("StrategyReportViews", () => {
     expect(card.compareDocumentPosition(screen.getByRole("region", { name: "Performance" })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it("names the range in the Total PnL label only when it is not All", async () => {
+  it("never names the range in the record's Return label: the selector names it (L42)", async () => {
     serve();
     renderAt(<StrategyReportViews strategy={STRATEGY} />);
     await screen.findByTestId("return-curve");
-    const name = () => (screen.getByTestId("public-group-pnl").querySelector("dt span") as HTMLElement).textContent;
+    const name = () => (screen.getByTestId("public-group-return").querySelector("dt span") as HTMLElement).textContent;
 
     fireEvent.click(screen.getByRole("button", { name: "7D" }));
-    expect(name()).toBe("Total PnL · 7D");
+    expect(name()).toBe("Return");
     fireEvent.click(screen.getByRole("button", { name: "All" }));
-    expect(name()).toBe("Total PnL");
+    expect(name()).toBe("Return");
     // The range is one choice for the whole panel: put it back where the other tests expect it.
     fireEvent.click(screen.getByRole("button", { name: "30D" }));
   });
@@ -211,9 +213,10 @@ describe("StrategyReportViews", () => {
     const line = screen.getByTestId("record-line");
     const pnl = within(line).getByTestId("public-group-pnl");
     const values = Array.from((pnl.querySelector("dd") as HTMLElement).children).map((value) => value.getAttribute("data-testid"));
-    expect(values).toEqual(["public-pnl", "public-return"]);
+    expect(values).toEqual(["public-pnl"]);
     await waitFor(() => expect(within(line).getByTestId("public-pnl")).toHaveTextContent(/^\+41\.25USDT$/));
-    expect(within(line).getByTestId("public-return")).toHaveTextContent("+2.0%");
+    // The return is a figure of its own beside the PnL, as the Panel draws them (L42).
+    expect(within(within(line).getByTestId("public-group-return")).getByTestId("public-return")).toHaveTextContent("+2.0%");
     expect(within(line).getByTestId("public-deepest")).toHaveTextContent("-1.0%");
     // The record's (i) explains the record's return, which is not theirs.
     expect(within(line).queryByRole("button", { name: i18n.t("strategies.public.returnInfo") })).toBeNull();

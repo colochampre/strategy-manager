@@ -240,7 +240,7 @@ describe("PairStatsTable win rate column", () => {
 
     expect(screen.getByRole("columnheader", { name: "% acierto" })).toBeInTheDocument();
     // `toHaveTextContent` folds a no-break space into a plain one, so the exact text is compared.
-    expect(cellsOf("SOLUSDT")[2]?.textContent).toBe("62,5 %");
+    expect(cellsOf("SOLUSDT")[2]?.textContent).toBe("62,5%");
   });
 
   it("the OPEN column is not built", () => {

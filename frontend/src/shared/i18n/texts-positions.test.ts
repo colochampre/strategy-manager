@@ -103,11 +103,6 @@ const TEXTS: ReadonlyArray<readonly [string, string, string]> = [
     "Las cifras no se pudieron calcular a partir de las ejecuciones.",
   ],
   [
-    "positions.note.margin",
-    "Margin granted is what the share took from the pool when the position opened. It is not what the exchange holds now.",
-    "El margen otorgado es lo que la participación tomó del pool al abrir la posición. No es lo que el exchange retiene ahora.",
-  ],
-  [
     "positions.note.rehearsal",
     "A dry-run position was filled by the simulated exchange, at 1x. It is not at the exchange and enters no total.",
     "Una posición de simulación fue ejecutada por el exchange simulado, a 1x. No está en el exchange real y no entra en ningún total.",
@@ -147,7 +142,7 @@ const KEPT = [
 const REUSED: ReadonlyArray<readonly [string, string, string]> = [
   ["strategies.performance.trades.opened", "Opened (UTC)", "Apertura (UTC)"],
   ["strategies.performance.trades.pair", "Pair", "Par"],
-  ["strategies.performance.trades.side", "Side", "Sentido"],
+  ["strategies.performance.trades.side", "Side", "Lado"],
   ["strategies.performance.trades.size", "Size", "Tamaño"],
   ["strategies.performance.trades.entry", "Entry", "Entrada"],
   ["strategies.performance.trades.fees", "Fees {{currency}}", "Comisiones {{currency}}"],

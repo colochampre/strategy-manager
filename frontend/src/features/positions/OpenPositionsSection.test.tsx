@@ -10,6 +10,7 @@ import { OPEN_POSITIONS_KEY } from "@/shared/api/positions";
 import type { ConfirmedDiscrepancy } from "@/shared/api/discrepancies";
 import type { OpenPosition } from "@/shared/api/positions";
 import type { Strategy } from "@/shared/api/types";
+import { useHiddenStore } from "@/shared/hidden/hidden-store";
 import i18n from "@/shared/i18n";
 import {
   confirmedBody,
@@ -92,11 +93,11 @@ function theTable(): HTMLElement {
   return screen.getByRole("table");
 }
 
-/** The rows of the table that are positions (nine cells), not sub-rows (one cell across the nine). */
+/** The rows of the table that are positions (six cells, L37), not sub-rows (one cell across the six). */
 function positionRows(table: HTMLElement): HTMLElement[] {
   return within(table)
     .getAllByRole("row")
-    .filter((row) => row.querySelectorAll("td").length === 9);
+    .filter((row) => row.querySelectorAll("td").length === 6);
 }
 
 function cellsOf(row: HTMLElement): HTMLElement[] {
@@ -109,7 +110,19 @@ function onlyRowOf(row: HTMLElement | undefined): HTMLElement[] {
   return cellsOf(row as HTMLElement);
 }
 
-const COLUMN = { opened: 0, pair: 1, side: 2, size: 3, entry: 4, fees: 5, margin: 6, leverage: 7, close: 8 } as const;
+// Six columns, to fit beside the settings aside (L37): the opening, the size and the fees stay on the phone's card.
+const COLUMN = { pair: 0, side: 1, entry: 2, margin: 3, leverage: 4, close: 5 } as const;
+
+/** The tip behind a row's entry price, or null when the price has none. */
+function entryTip(cells: HTMLElement[]): string | null {
+  const entry = cells[COLUMN.entry] as HTMLElement;
+  const trigger = entry.querySelector<HTMLElement>("[tabindex]");
+  if (trigger === null) return null;
+  fireEvent.mouseEnter(trigger);
+  const tip = within(entry).getByRole("tooltip").textContent;
+  fireEvent.mouseLeave(trigger);
+  return tip;
+}
 
 /** The one position row of a table that holds one, and its cells. */
 function onlyRow(): HTMLElement[] {
@@ -162,37 +175,33 @@ function aave(overrides: Partial<OpenPosition> = {}): OpenPosition {
 }
 
 describe("the cells of a position (T10; spec 'Times And Figures Of Open Positions Are Written One Way')", () => {
-  it("lists a live position with every column, the heading of the margin naming the currency", async () => {
+  it("lists a live position in six columns, the margin's heading short and naming the currency (L37)", async () => {
     await mountSection(answering([aave()]));
 
     const table = theTable();
     const headings = within(table)
       .getAllByRole("columnheader")
       .map((heading) => heading.textContent);
-    expect(headings).toEqual([
-      "Opened (UTC)",
-      "Pair",
-      "Side",
-      "Size",
-      "Entry",
-      "Fees USDT",
-      "Margin granted USDT",
-      "Leverage",
-      "Actions",
-    ]);
+    expect(headings).toEqual(["Pair", "Side", "Entry", "Margin USDT", "Leverage", "Actions"]);
 
     const cells = onlyRow();
-    const date = cells[COLUMN.opened]?.querySelectorAll("span");
-    expect([...(date ?? [])].map((part) => part.textContent)).toEqual(["10/11/2026", "14:05"]);
-    expect(date?.[1]).toHaveClass("text-ink-3");
+    expect(cells).toHaveLength(6);
     expect(cells[COLUMN.pair]?.textContent).toBe("AAVEUSDT");
     expect(within(cells[COLUMN.pair] as HTMLElement).getByRole("img", { name: "Live" })).toBeInTheDocument();
     expect(cells[COLUMN.side]?.textContent).toBe("Long");
-    expect(cells[COLUMN.size]?.textContent).toBe("0.82 AAVE");
     expect(cells[COLUMN.entry]?.textContent).toBe("184.3");
-    expect(cells[COLUMN.fees]?.textContent).toBe("0.17");
     expect(cells[COLUMN.margin]?.textContent).toBe("121.80");
     expect(cells[COLUMN.leverage]?.textContent).toBe("2x");
+  });
+
+  it("writes no opening, size or fees in the table, which the phone's card keeps (L37)", async () => {
+    await mountSection(answering([aave()]));
+
+    const row = positionRows(theTable())[0] as HTMLElement;
+    expect(row.textContent).not.toContain("10/11/2026");
+    expect(row.textContent).not.toContain("0.82");
+    expect(row.textContent).not.toContain("AAVE ");
+    expect(row.textContent).not.toContain("0.17");
   });
 
   it("marks the origin with the Overview's dot beside the pair, named by the origin's word, in its token (L30)", async () => {
@@ -227,40 +236,51 @@ describe("the cells of a position (T10; spec 'Times And Figures Of Open Position
     for (const cell of onlyRowOf(positionRows(table)[0])) expect(cell).toHaveClass("text-[13px]", "whitespace-nowrap");
   });
 
-  it("writes the base currency as a unit, in the sans type and the faint ink", async () => {
-    await mountSection(answering([aave()]));
-
-    const unit = onlyRow()[COLUMN.size]?.querySelector(".font-sans") as HTMLElement;
-    expect(unit).toHaveTextContent("AAVE");
-    expect(unit).toHaveClass("text-[11px]", "text-ink-3");
-  });
-
-  it("says what was opened under the size, only when it differs from the size", async () => {
-    await mountSection(
-      answering([aave({ size: "0.3", opened_size: "0.5" }), aave({ markets: ["LINKUSDT"], size: "0.5", opened_size: "0.50000000" })]),
-    );
-
-    const [partial, whole] = positionRows(theTable()).map(cellsOf) as [HTMLElement[], HTMLElement[]];
-    expect(partial[COLUMN.size]).toHaveTextContent("0.3 AAVE");
-    expect(within(partial[COLUMN.size] as HTMLElement).getByText("of 0.5 opened")).toHaveClass("block", "font-sans", "text-[11px]", "text-ink-3");
-    expect(whole[COLUMN.size]?.textContent).not.toContain("opened");
-  });
-
-  it("says that the entry is an average only above one fill", async () => {
+  it("says behind the entry price that it is an average, only above one fill, and writes nothing under it (L37)", async () => {
     await mountSection(answering([aave({ fill_count: 3 }), aave({ markets: ["LINKUSDT"], fill_count: 1 })]));
 
     const [three, one] = positionRows(theTable()).map(cellsOf) as [HTMLElement[], HTMLElement[]];
-    expect(three[COLUMN.entry]).toHaveTextContent("184.3");
-    expect(within(three[COLUMN.entry] as HTMLElement).getByText("average of 3 fills")).toBeInTheDocument();
+    expect(three[COLUMN.entry]?.textContent).toBe("184.3");
+    expect(entryTip(three)).toBe("Average price of 3 fills.");
     expect(one[COLUMN.entry]?.textContent).toBe("184.3");
+    expect(entryTip(one)).toBeNull();
   });
 
-  it("writes a fee in another currency beside the fees, as the closed trades table does", async () => {
+  it("says behind the entry price how much of what was opened is left, only when it differs (L37)", async () => {
+    await mountSection(
+      answering([
+        aave({ size: "0.3", opened_size: "0.5" }),
+        aave({ markets: ["LINKUSDT"], size: "0.5", opened_size: "0.50000000" }),
+        aave({ markets: ["SUIUSDT"], size: "0.3", opened_size: "0.5", fill_count: 3 }),
+      ]),
+    );
+
+    const [partial, whole, both] = positionRows(theTable()).map(cellsOf) as [HTMLElement[], HTMLElement[], HTMLElement[]];
+    expect(partial[COLUMN.entry]?.textContent).toBe("184.3");
+    expect(entryTip(partial)).toBe("0.3 AAVE left of 0.5 opened.");
+    expect(entryTip(whole)).toBeNull();
+    expect(entryTip(both)).toBe("Average price of 3 fills. 0.3 AAVE left of 0.5 opened.");
+  });
+
+  it("leaves the size out of the entry's tip while the balances are hidden (L37)", async () => {
+    useHiddenStore.setState({ hidden: true });
+    try {
+      await mountSection(answering([aave({ size: "0.3", opened_size: "0.5", fill_count: 3 }), aave({ markets: ["SUIUSDT"], size: "0.3", opened_size: "0.5" })]));
+
+      const [both, partial] = positionRows(theTable()).map(cellsOf) as [HTMLElement[], HTMLElement[]];
+      expect(entryTip(both)).toBe("Average price of 3 fills.");
+      expect(entryTip(partial)).toBeNull();
+    } finally {
+      useHiddenStore.setState({ hidden: false });
+    }
+  });
+
+  it("writes a fee in another currency beside the fees on the phone's card, as the closed trades table does", async () => {
+    setViewport("narrow");
     await mountSection(answering([aave({ other_fees: [{ currency: "SOL", amount: "0.00100000" }] })]));
 
-    const fees = onlyRow()[COLUMN.fees] as HTMLElement;
-    expect(fees.textContent).toBe("0.17+ 0.001 SOL");
-    expect(within(fees).getByText("+ 0.001 SOL")).toHaveClass("ml-2", "font-sans", "text-[11px]", "text-ink-3");
+    expect(valuesOf(cards(1)[0] as HTMLElement)["Fees USDT"]).toBe("0.17+ 0.001 SOL");
+    expect(within(cards(1)[0] as HTMLElement).getByText("+ 0.001 SOL")).toHaveClass("ml-2", "font-sans", "text-[11px]", "text-ink-3");
   });
 
   it("writes the margin with the currency's decimals: two for USDT, eight for BTC", async () => {
@@ -274,7 +294,6 @@ describe("the cells of a position (T10; spec 'Times And Figures Of Open Position
     const [usdt, btc] = positionRows(theTable()).map(cellsOf) as [HTMLElement[], HTMLElement[]];
     expect(usdt[COLUMN.margin]?.textContent).toBe("121.80");
     expect(btc[COLUMN.margin]?.textContent).toBe("0.00123457");
-    expect(btc[COLUMN.fees]?.textContent).toBe("0.00001230");
   });
 
   it.each([
@@ -299,7 +318,7 @@ describe("the cells of a position (T10; spec 'Times And Figures Of Open Position
 
     const text = (view.container.textContent ?? "").toLowerCase();
     for (const word of ["notional", "unrealised", "unrealized", "pnl", "current price", "mark price"]) expect(text).not.toContain(word);
-    expect(within(theTable()).getAllByRole("columnheader")).toHaveLength(9);
+    expect(within(theTable()).getAllByRole("columnheader")).toHaveLength(6);
   });
 
   it("selects the strategy's positions over the WHOLE answer, wherever the ledger put them", async () => {
@@ -367,7 +386,7 @@ function subRowsOf(table: HTMLElement, index = 0): HTMLElement[] {
   const rows = within(table).getAllByRole("row");
   const own = positionRows(table)[index] as HTMLElement;
   const after = rows.slice(rows.indexOf(own) + 1);
-  const next = after.findIndex((row) => row.querySelectorAll("td").length === 9);
+  const next = after.findIndex((row) => row.querySelectorAll("td").length === 6);
   return next === -1 ? after : after.slice(0, next);
 }
 
@@ -421,7 +440,7 @@ describe("the warning sign and the reservation's row, as the Overview's (L17, L3
     );
   });
 
-  it("keeps the reservation's note as a real row of one cell across the nine columns, under its row, only when not FILLED", async () => {
+  it("keeps the reservation's note as a real row of one cell across the six columns, under its row, only when not FILLED", async () => {
     await mountSection(
       answering([aave({ reservation_status: "EXPIRED" }), aave({ markets: ["LINKUSDT"], reservation_status: "FILLED" })]),
     );
@@ -432,7 +451,7 @@ describe("the warning sign and the reservation's row, as the Overview's (L17, L3
     const sub = subs[0] as HTMLElement;
     expect(sub.tagName).toBe("TR");
     expect(sub.querySelectorAll("td")).toHaveLength(1);
-    expect((sub.querySelector("td") as HTMLTableCellElement).colSpan).toBe(9);
+    expect((sub.querySelector("td") as HTMLTableCellElement).colSpan).toBe(6);
     expect(sub.className).not.toMatch(/\bflex\b/);
     expect(sub).toHaveTextContent("Its reservation reads EXPIRED, not FILLED.");
     expect(subRowsOf(table, 1)).toEqual([]);
@@ -480,13 +499,16 @@ function openNotes(container: HTMLElement): string[] {
 }
 
 describe("the notes and the unmatched sentence (T10; spec 'Drawn Only When True')", () => {
-  it("draws no (i) for one live position, and the margin note is the Margin column's tip, not a paragraph", async () => {
+  it("draws no (i) for one live position, and no note about the margin anywhere: its heading has no tip (L39)", async () => {
     const { view } = await mountSection(answering([aave()]));
 
     expect(notesButton()).toBeNull();
     expect(notesOnScreen(view.container)).toEqual([]);
-    fireEvent.mouseEnter(within(theTable()).getByText("Margin granted USDT"));
-    expect(screen.getByRole("tooltip")).toHaveTextContent(NOTE.margin);
+    const heading = within(theTable()).getByRole("columnheader", { name: "Margin USDT" });
+    expect(heading.querySelector("[tabindex]")).toBeNull();
+    fireEvent.mouseEnter(within(heading).getByText("Margin USDT"));
+    expect(screen.queryByRole("tooltip")).toBeNull();
+    expect(document.body.textContent).not.toContain(NOTE.margin);
   });
 
   it("puts the dry-run note behind the (i) for a rehearsal position", async () => {
@@ -519,12 +541,13 @@ describe("the notes and the unmatched sentence (T10; spec 'Drawn Only When True'
     expect(heading.parentElement).toContainElement(notesButton());
   });
 
-  it("draws no (i) and no note when the strategy holds no position", async () => {
+  it("draws no card at all when the strategy holds no position and nothing is in flight or unmatched (L39)", async () => {
     const { view } = await mountSection(answering([]));
 
     expect(notesButton()).toBeNull();
     expect(notesOnScreen(view.container)).toEqual([]);
-    expect(screen.queryByText("No open position.")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Open positions" })).not.toBeInTheDocument();
+    expect(screen.queryByText("No open position.")).not.toBeInTheDocument();
   });
 
   it("says that one element could not be matched, in place of 'No open position.', when the strategy holds none", async () => {
@@ -558,12 +581,12 @@ describe("the notes and the unmatched sentence (T10; spec 'Drawn Only When True'
     expect(view.container.textContent).not.toContain("No open position.");
   });
 
-  it("does not count an unmatched element of ANOTHER exchange, and still says 'No open position.'", async () => {
+  it("does not count an unmatched element of ANOTHER exchange, so it draws no card (L39)", async () => {
     await mountSection(
       answering([unowned({ pool: { exchange: "binance", venue: "usdt-m", settlement_currency: "USDT" } })]),
     );
 
-    expect(screen.queryByText("No open position.")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Open positions" })).not.toBeInTheDocument();
     expect(document.body.textContent).not.toContain("could not be matched");
   });
 });
@@ -653,29 +676,18 @@ describe("in Spanish (T10 and T11; owner decision Q9, 2026-10-13)", () => {
     // The columns are named in words (L30), and the margin's note is its tip.
     const table = theTable();
     expect(within(table).getAllByRole("columnheader").map((head) => head.textContent)).toEqual([
-      "Apertura (UTC)",
       "Par",
-      "Sentido",
-      "Tamaño",
+      "Lado",
       "Entrada",
-      "Comisiones USDT",
-      "Margen otorgado USDT",
+      "Margen USDT",
       "Apalancamiento",
       "Acciones",
     ]);
-    // The sign opened above still has the focus, and its own tip: the margin's is the one in its heading.
-    const margin = within(table).getByText("Margen otorgado USDT");
-    fireEvent.mouseEnter(margin);
-    expect(within(margin.closest("th") as HTMLElement).getByRole("tooltip").textContent).toBe(
-      "El margen otorgado es lo que la participación tomó del pool al abrir la posición. No es lo que el exchange retiene ahora.",
-    );
     // The dry-run note and the note of both origins wait behind the (i) beside the heading.
     fireEvent.click(screen.getByRole("button", { name: "Sobre estas posiciones" }));
     const text = view.container.textContent ?? "";
     for (const spanish of [
       "Posiciones abiertas",
-      "de 0.5 abiertas",
-      "promedio de 3 ejecuciones",
       "no registrado",
       "orden en curso · cierre · Simulación · enviada 21:12 UTC",
       "el exchange no coincide",
@@ -708,9 +720,9 @@ describe("in Spanish (T10 and T11; owner decision Q9, 2026-10-13)", () => {
     expect(screen.queryByText(MATCHED_ONE_ES)).toBeInTheDocument();
   });
 
-  it("reads 'Sin posiciones abiertas.' for an empty section", async () => {
+  it("reads 'Sin posiciones abiertas.' above an order in flight when the strategy holds no position", async () => {
     await act(() => i18n.changeLanguage("es"));
-    await mountSection(answering([]));
+    await mountSection(answering([], [openOrder({ strategy_id: ALPHA, market: "AAVEUSDT" })]));
 
     expect(screen.queryByText("Sin posiciones abiertas.")).toBeInTheDocument();
   });
@@ -720,12 +732,16 @@ describe("in Spanish (T10 and T11; owner decision Q9, 2026-10-13)", () => {
     await mountSection(answering([aave()]));
 
     const cells = onlyRow();
-    expect(cells[COLUMN.size]?.textContent).toBe("0.82 AAVE");
     expect(cells[COLUMN.entry]?.textContent).toBe("184.3");
-    expect(cells[COLUMN.fees]?.textContent).toBe("0,17");
     expect(cells[COLUMN.margin]?.textContent).toBe("121,80");
     expect(cells[COLUMN.leverage]?.textContent).toBe("2x");
-    expect(cells[COLUMN.opened]?.textContent).toBe("11/10/2026 14:05");
+  });
+
+  it("writes the entry's tip in Spanish (L37)", async () => {
+    await act(() => i18n.changeLanguage("es"));
+    await mountSection(answering([aave({ size: "0.3", opened_size: "0.5", fill_count: 3 })]));
+
+    expect(entryTip(onlyRow())).toBe("Precio promedio de 3 ejecuciones. Quedan 0.3 AAVE de 0.5 abiertas.");
   });
 
   it("writes the same figures in a card", async () => {
@@ -793,6 +809,52 @@ describe("on a phone the positions are cards (T10; N2: the prototype's example 2
 
     expect(asked).toContain(MD);
     expect(screen.queryByRole("table")).toBeInTheDocument();
+  });
+
+  it("turns to cards at desktop width where its box cannot hold the table, and back where it can (L45)", async () => {
+    setViewport("wide");
+    // jsdom lays nothing out: the box reports `room`, the table its own 574 px.
+    let room = 264;
+    const callbacks: Array<() => void> = [];
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(callback: () => void) {
+          callbacks.push(callback);
+        }
+        observe = vi.fn();
+        unobserve = vi.fn();
+        disconnect = vi.fn();
+      },
+    );
+    const clientWidth = vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(() => room);
+    const offsetWidth = vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockImplementation(() => room);
+    const scrollWidth = vi
+      .spyOn(HTMLElement.prototype, "scrollWidth", "get")
+      .mockImplementation(function (this: HTMLElement) {
+        return this.tagName === "TABLE" ? 574 : room;
+      });
+    try {
+      await mountSection(answering(THREE));
+
+      // A 1100 px window with the sidebar open: the strategy's column is 264 px wide.
+      await waitFor(() => cards(3));
+      expect(screen.queryByRole("table")).not.toBeInTheDocument();
+
+      // Wide again: the table comes back.
+      room = 700;
+      act(() => {
+        for (const callback of callbacks) callback();
+      });
+      expect(positionRows(theTable())).toHaveLength(3);
+      expect(screen.queryAllByRole("article")).toHaveLength(0);
+      // In a narrow column the count goes under the title, at the card's right edge, not hanging under the title.
+      expect(screen.getByTestId("positions-count").parentElement).toHaveClass("ml-auto");
+    } finally {
+      clientWidth.mockRestore();
+      offsetWidth.mockRestore();
+      scrollWidth.mockRestore();
+    }
   });
 
   it("names each card by its pair and side, composed in the component", async () => {
@@ -884,7 +946,7 @@ describe("on a phone the positions are cards (T10; N2: the prototype's example 2
 });
 
 describe("its place on the detail page (T10)", () => {
-  it("is a full-width block between the two-column grid and the closed trades", async () => {
+  it("is a card in the left column, beside the settings, above the closed trades under the grid (L37)", async () => {
     stubApi(HEALTH, [], undefined, {}, strategyRoute(ALPHA, "Alpha"), {}, undefined, answering([aave()]));
     renderAt(
       <Routes>
@@ -896,12 +958,12 @@ describe("its place on the detail page (T10)", () => {
     const open = await screen.findByRole("heading", { level: 2, name: "Open positions" });
     const closed = await screen.findByRole("heading", { level: 2, name: "Closed trades" });
     const settings = await screen.findByRole("complementary");
-    expect(settings.compareDocumentPosition(open) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(open.compareDocumentPosition(settings) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(open.compareDocumentPosition(closed) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     const section = open.closest("section") as HTMLElement;
-    // The card is the full-width block itself, with no framed section around it (L30).
+    // A card of its own, with no framed section around it (L30), in the grid's first column (L37).
     expect(section.closest('[data-testid="report-section"]')).toBeNull();
-    expect(section.parentElement).toBe(settings.parentElement?.parentElement);
+    expect(settings.parentElement?.firstElementChild).toContainElement(section);
     expect(await within(section).findByRole("table", { name: "Open positions" })).toBeInTheDocument();
   });
 });
@@ -1008,10 +1070,11 @@ describe("the states and the orders (T10; spec 'An Order In Flight Is A Dashed L
     expect(screen.queryByText("No open position.")).not.toBeInTheDocument();
   });
 
-  it("reads 'No open position.' when the read succeeded and the strategy holds nothing", async () => {
+  it("draws nothing when the read succeeded and the strategy holds nothing, as the Overview (L39)", async () => {
     await mountSection(answering([]));
 
-    expect(screen.queryByText("No open position.")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Open positions" })).not.toBeInTheDocument();
+    expect(screen.queryByText("No open position.")).not.toBeInTheDocument();
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
@@ -1103,21 +1166,22 @@ describe("an absent figure is a dash with its reason (T10, the first red of op.3
     await mountSection(answering([noFacts()]));
 
     const cells = onlyRow();
-    for (const column of ["opened", "side", "size", "entry", "fees", "margin", "leverage"] as const) {
+    for (const column of ["side", "entry", "margin", "leverage"] as const) {
       expect(cells[COLUMN[column]]?.textContent, column).toBe("—figures not readable");
     }
     expect(cells[COLUMN.pair]).toHaveTextContent("STXUSDT");
   });
 
-  it("draws the Opened cell of a null as a dash, never 'Invalid Date' and never an 'x' alone", async () => {
+  it("draws the Opened field of a null as a dash on the phone's card, never 'Invalid Date' and never an 'x' alone", async () => {
+    setViewport("narrow");
     await mountSection(answering([noFacts()]));
 
-    const cells = onlyRow();
-    const text = cells.map((cell) => cell.textContent).join("|");
+    const values = valuesOf(cards(1)[0] as HTMLElement);
+    const text = Object.values(values).join("|");
     expect(text).not.toContain("Invalid Date");
     expect(text).not.toMatch(/(^|\|)x/);
-    expect(cells[COLUMN.opened]?.textContent).toBe("—figures not readable");
-    expect(cells[COLUMN.leverage]?.textContent).not.toContain("x");
+    expect(values["Opened (UTC)"]).toBe("—figures not readable");
+    expect(values.Leverage).not.toContain("x");
   });
 
   it("keeps 'not recorded' for the leverage of a position with facts and writes the facts it has", async () => {
@@ -1127,7 +1191,6 @@ describe("an absent figure is a dash with its reason (T10, the first red of op.3
 
     const cells = onlyRow();
     expect(cells[COLUMN.leverage]?.textContent).toBe("—not recorded");
-    expect(cells[COLUMN.fees]).toHaveTextContent("0.17");
     expect(cells[COLUMN.margin]).toHaveTextContent("121.8");
   });
 });

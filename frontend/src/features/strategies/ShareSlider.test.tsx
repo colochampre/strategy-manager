@@ -371,7 +371,7 @@ describe("ShareSlider, step 2: the track and the stops", () => {
 
   it.each([
     ["en", "Set the share to 25%", "33.5% of the pool"],
-    ["es", "Fijar el porcentaje en 25 %", "33.5 % del pool"],
+    ["es", "Fijar el porcentaje en 25%", "33.5% del pool"],
   ])("the stop names and the value text are translated: %s", async (language, stopName, valueText) => {
     await i18n.changeLanguage(language);
     try {
