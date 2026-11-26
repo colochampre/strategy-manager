@@ -82,6 +82,7 @@ a{color:inherit;text-decoration:none}
 .i-pencil{--i:url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M21.17 6.81a1 1 0 0 0-3.99-3.99L3.84 16.17a2 2 0 0 0-.5.83l-1.32 4.35a.5.5 0 0 0 .62.62l4.35-1.32a2 2 0 0 0 .83-.5z'/></svg>")}
 .i-alert{--i:url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='10'/><path d='M12 8v4'/><path d='M12 16h.01'/></svg>")}
 .i-info{--i:url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='10'/><path d='M12 16v-4'/><path d='M12 8h.01'/></svg>")}
+.i-tri{--i:url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3'/><path d='M12 9v4'/><path d='M12 17h.01'/></svg>")}
 .i-trash{--i:url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M3 6h18'/><path d='M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6'/><path d='M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2'/></svg>")}
 .i-home{--i:url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8'/><path d='M3 10a2 2 0 0 1 .71-1.53l7-6a2 2 0 0 1 2.58 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z'/></svg>")}
 .i-lock{--i:url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><rect width='18' height='11' x='3' y='11' rx='2'/><path d='M7 11V7a5 5 0 0 1 10 0v4'/></svg>")}
@@ -411,6 +412,8 @@ tr:last-child td{border-bottom:0}
 .sd{display:inline-block;flex:none;width:8px;height:8px;border-radius:50%;background:var(--ink-3);cursor:help}
 .sd.g{background:var(--gain)} .sd.a{background:var(--decision)} .sd.l{background:var(--loss)}
 .mt{color:var(--ink-3)}
+.slot{display:inline-flex;flex:none;width:14px;justify-content:center;align-items:center}
+.slot .ic{width:14px;height:14px;cursor:help}
 </style>
 </head>
 <body>
@@ -1555,7 +1558,7 @@ tr:last-child td{border-bottom:0}
           <tr><td>2026-11-17 22:00</td><td>2026-11-18 13:00</td><td class="t">ETHUSDT</td><td class="t">LONG</td><td class="r">3.120,00</td><td class="r">3.207,50</td><td class="r">0,095</td><td class="r">0,34</td><td class="r gain">+7,97</td><td class="r gain">+0,8</td><td class="r">978,00</td><td class="t"><button class="btn sm">Detalle</button></td></tr>
           <tr><td>2026-11-15 08:00</td><td>2026-11-16 00:00</td><td class="t">BTCUSDT</td><td class="t">LONG</td><td class="r">96.880,00</td><td class="r">95.940,00</td><td class="r">0,003</td><td class="r">0,32</td><td class="r loss">−3,14</td><td class="r loss">−0,3</td><td class="r">971,00</td><td class="t"><button class="btn sm">Detalle</button></td></tr>
         </tbody></table></div>
-      <div class="cl"><span>Página 1</span><button class="btn sm">Siguiente</button></div>
+      <div class="cl"><button class="btn sm" disabled style="opacity:.45">Anterior</button><span class="num">Página 1 de 3</span><button class="btn sm">Siguiente</button></div>
     </div>
 
     <div class="card" style="padding:18px 22px">
@@ -1749,6 +1752,63 @@ tr:last-child td{border-bottom:0}
           <tr><td><span class="nm"><i class="sd g" title="Activada"></i><a class="lk">Range Scalper 15m</a></span></td><td>Agustina Leiva</td><td title="Binance · USDT-M · USDT">Binance</td><td title="20 nov 2026 – 24 nov 2026">20 nov 2026</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="r num">0</td><td class="r num">—</td></tr>
         </tbody></table></div>
       <div style="height:10px"></div>
+    </div>
+  </div></main>
+</div>
+</section>
+
+<!-- ============ ex16 ============ -->
+<section class="screen" id="ex16">
+<p class="cap">ex16 — PROPUESTA (RD.8, L25, L47, L48): Usuarios como tabla, al estilo de Operaciones cerradas y Posiciones abiertas. Letra de las demás tablas: celdas de 13 px y encabezados de 12,5 px (la tabla <code>.tbl-w.t.l</code>). Paginada de a 20, en el navegador (el servidor ya da la lista entera); el total va arriba a la derecha y el pie dice la página de cuántas. Se ven 6 de las 20 filas de la página. Dónde fue cada cosa de la tarjeta, sin texto que alargue una fila: el punto junto al correo es el estado (gain = activa, loss = suspendida, con "Suspendida desde..." en su tooltip); Identidad muestra el nombre legal y su tooltip el CUIT y el país ("Sin alta" cuando falta, con la frase entera en el tooltip); Claves lleva a la izquierda la marca de la fila, como el Par de las posiciones: un punto gain si cada pool habilitado tiene su clave, gris si no tiene ninguna, y el triángulo en loss en su lugar si un pool habilitado no tiene clave, con el texto en su tooltip (L48); la nota del freno ("El freno está activo...") es el (i) de Modo, y solo aparece con el freno puesto. Suscripciones y Posiciones abiertas son "Subs." y "Posiciones". El botón dice "Suspender" en loss o "Reactivar" en gain, del mismo ancho, y pide confirmación como hoy; la fila propia dice "Usted". Donde la tabla no entra (teléfono o ventana angosta), cada usuario es una tarjeta, como las posiciones (L45).</p>
+<div class="frame">
+  <aside class="side">
+    <div class="side-top">
+      <div class="brand"><span class="mark"><i class="ic i-brand"></i></span><span class="brand-name">Strategy Manager</span></div>
+      <button class="icon-btn ghost" aria-label="Contraer la barra lateral"><i class="ic i-panel"></i></button>
+    </div>
+    <nav class="nav">
+      <a><i class="ic i-dash"></i><span>Panel de control</span></a>
+      <a><i class="ic i-bell"></i><span>Notificaciones</span></a>
+      <a><i class="ic i-ops"></i><span>Mis operaciones</span></a>
+      <div><a><i class="ic i-trend"></i><span>Estrategias</span><i class="ic i-down chev"></i></a></div>
+      <a><i class="ic i-link"></i><span>Vincular exchange</span></a>
+    </nav>
+    <div class="side-foot">
+      <div>
+        <a><i class="ic i-shield"></i><span>Administración</span><i class="ic i-up chev"></i></a>
+        <div class="sub"><a class="on">Usuarios</a><a>Discrepancias<span class="badge-n">2</span></a></div>
+      </div>
+      <a><i class="ic i-user"></i><span class="two"><b>Mi cuenta</b><small>María Gómez</small></span></a>
+      <a><i class="ic i-out"></i><span>Cerrar sesión</span></a>
+      <div class="build"><span class="lbl">build </span>cf95299<span class="lbl">ef7f7</span></div>
+    </div>
+  </aside>
+  <main class="main"><div class="wrap">
+    <div class="top end">
+      <div class="tools">
+        <span class="badge-live"><i></i>En vivo</span>
+        <button class="icon-btn" aria-label="Mi cuenta"><i class="ic i-user"></i></button>
+        <button class="icon-btn" aria-label="Notificaciones"><i class="ic i-bell"></i></button>
+        <button class="icon-btn" aria-label="Idioma: español"><span class="flag"></span></button>
+      </div>
+    </div>
+    <div class="crumb"><i class="ic i-home"></i><i class="ic i-right"></i>Administración<i class="ic i-right"></i><b>Usuarios</b></div>
+    <h1>Usuarios</h1>
+    <p class="sub-t">Las cuentas del panel. Visible solo para administradores.</p>
+
+    <div class="card">
+      <div class="card-h"><h2>Usuarios</h2><span class="chip-n">47 usuarios</span></div>
+      <div class="tbl-w t l x"><table>
+        <thead><tr><th>Usuario</th><th>Nombre</th><th>Identidad</th><th><span style="display:inline-flex;align-items:center;gap:5px">Modo<i class="ic i-info" style="width:14px;height:14px;color:var(--ink-3);cursor:help" title="El freno está activo: todos operan en simulación, sea cual sea el modo que eligieron."></i></span></th><th>Claves</th><th class="r">Subs.</th><th class="r">Posiciones</th><th>Último ingreso</th><th></th></tr></thead>
+        <tbody>
+          <tr><td><span class="nm"><i class="sd g" title="Activa"></i>maria.gomez@gmail.com</span></td><td>María G.</td><td><span class="tip" title="CUIT 27-30123456-4 · Argentina">María Gómez</span></td><td>En vivo</td><td><span class="nm"><span class="slot"><i class="sd g" title="Clave activa en cada pool habilitado"></i></span>Binance, Bybit</span></td><td class="r num">2</td><td class="r num">1</td><td class="num">26 nov 2026 09:12</td><td class="r"><span class="mt">Usted</span></td></tr>
+          <tr><td><span class="nm"><i class="sd g" title="Activa"></i>martin.ibarra@outlook.com</span></td><td>Martín</td><td><span class="tip" title="CUIT 20-28765432-1 · Argentina">Martín Ibarra</span></td><td>En vivo</td><td><span class="nm"><span class="slot"><i class="sd g" title="Clave activa en cada pool habilitado"></i></span>Binance</span></td><td class="r num">4</td><td class="r num">3</td><td class="num">26 nov 2026 08:47</td><td class="r"><button class="btn sm danger tg">Suspender</button></td></tr>
+          <tr><td><span class="nm"><i class="sd g" title="Activa"></i>camila.rossi@gmail.com</span></td><td>Cami</td><td><span class="tip" title="CUIT 27-35111222-9 · Argentina">Camila Rossi</span></td><td>Simulación</td><td><span class="nm"><span class="slot"><i class="ic i-tri loss" title="Pool habilitado sin clave activa: Binance"></i></span>Bybit</span></td><td class="r num">1</td><td class="r num">0</td><td class="num">25 nov 2026 22:03</td><td class="r"><button class="btn sm danger tg">Suspender</button></td></tr>
+          <tr><td><span class="nm"><i class="sd l" title="Suspendida desde 18 nov 2026 10:42"></i>tomas.quiroga@yahoo.com</span></td><td>Tomás Q.</td><td><span class="tip" title="CUIT 20-31987654-5 · Argentina">Tomás Quiroga</span></td><td>En vivo</td><td><span class="nm"><span class="slot"><i class="sd g" title="Clave activa en cada pool habilitado"></i></span>Binance</span></td><td class="r num">0</td><td class="r num">1</td><td class="num">18 nov 2026 10:40</td><td class="r"><button class="btn sm line tg">Reactivar</button></td></tr>
+          <tr><td><span class="nm"><i class="sd g" title="Activa"></i>valentina.nunez@gmail.com</span></td><td>Valen</td><td><span class="tip" title="CUIT 27-33444555-2 · Argentina">Valentina Núñez</span></td><td>Simulación</td><td><span class="nm"><span class="slot"><i class="sd" title="Sin claves"></i></span><span class="mt">Ninguna</span></span></td><td class="r num">3</td><td class="r num">0</td><td class="num">24 nov 2026 17:55</td><td class="r"><button class="btn sm danger tg">Suspender</button></td></tr>
+          <tr><td><span class="nm"><i class="sd g" title="Activa"></i>lucas.ferreyra@hotmail.com</span></td><td><span class="mt">Sin nombre</span></td><td><span class="mt tip" title="Todavía no completó el alta">Sin alta</span></td><td>Simulación</td><td><span class="nm"><span class="slot"><i class="sd" title="Sin claves"></i></span><span class="mt">Ninguna</span></span></td><td class="r num">0</td><td class="r num">0</td><td class="num">23 nov 2026 11:20</td><td class="r"><button class="btn sm danger tg">Suspender</button></td></tr>
+        </tbody></table></div>
+      <div class="cl"><button class="btn sm" disabled style="opacity:.45">Anterior</button><span class="num">Página 1 de 3</span><button class="btn sm">Siguiente</button></div>
     </div>
   </div></main>
 </div>

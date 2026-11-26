@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 
 import { OriginDot } from "@/features/positions/PositionMark";
 import { TradeDetailDialog } from "@/features/strategies/TradeDetailDialog";
-import { useStrategyTrades } from "@/shared/api/performance";
+import { TRADES_PAGE_SIZE, useStrategyTrades } from "@/shared/api/performance";
 import type { StrategyTrade } from "@/shared/api/types";
 import { amountText, parseDecimal, percentText, toneClass } from "@/shared/lib/amount-text";
 import { cn } from "@/shared/lib/cn";
@@ -15,7 +15,7 @@ import { HintedHead } from "@/shared/ui/HintedHead";
 import { CountChip } from "@/shared/ui/CountChip";
 import { InfoButton, InfoText, useInfoDisclosure } from "@/shared/ui/InfoDisclosure";
 import { Instant } from "@/shared/ui/Instant";
-import { TABLE_BOX, TABLE_CELL, TABLE_HEAD } from "@/shared/ui/table-styles";
+import { PAGER_BUTTON, TABLE_BOX, TABLE_CELL, TABLE_HEAD } from "@/shared/ui/table-styles";
 
 interface TradesTableProps {
   strategyId: string;
@@ -31,8 +31,6 @@ interface TradeRowProps {
   onOpen: (trade: StrategyTrade, opener: HTMLButtonElement) => void;
 }
 
-const PAGER_BUTTON =
-  "min-h-11 rounded-lg border border-rule px-3.5 text-sm text-ink hover:bg-panel-2 disabled:text-ink-3 disabled:opacity-50";
 // The boxed table of the open positions and By pair, at their 13 px (L30, L32): figures right-aligned in the
 // monospace face and ink-2, words in the sans face.
 const CELL = cn(TABLE_CELL, "text-right font-mono tabular-nums text-ink-2");
@@ -322,7 +320,11 @@ function TradesTableView({ strategyId, currency }: TradesTableProps) {
               {t("strategies.performance.trades.previous")}
             </button>
             <span className="font-mono text-xs text-ink-2">
-              {t("strategies.performance.trades.page", { page: pageIndex + 1 })}
+              {/* "Page 1 of 3", from the total the server serves (L48); never fewer pages than the one on screen. */}
+              {t("strategies.performance.trades.page", {
+                page: pageIndex + 1,
+                pages: Math.max(Math.ceil((total ?? 0) / TRADES_PAGE_SIZE), pageIndex + 1),
+              })}
             </span>
             <button
               type="button"

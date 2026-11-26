@@ -92,7 +92,8 @@ const bodyRows = () => {
 };
 const next = () => screen.getByRole("button", { name: i18n.t("strategies.performance.trades.next") });
 const previous = () => screen.getByRole("button", { name: i18n.t("strategies.performance.trades.previous") });
-const pageLabel = (page: number) => i18n.t("strategies.performance.trades.page", { page });
+/** "Page 2 of 3": the page, then how many there are, whatever a fixture's total makes of it (L48). */
+const pageLabel = (page: number) => new RegExp(`^Page ${page} of \\d+$`);
 /** The columns' names in order, written in words. */
 const headerNames = () => screen.getAllByRole("columnheader").map((header) => header.textContent);
 const pnls = () => bodyRows().map((row) => within(row).getAllByRole("cell")[8]?.textContent);
@@ -199,14 +200,16 @@ describe("TradesTable", () => {
     expect(server.requests[0]?.searchParams.get("limit")).toBe("20");
   });
 
-  it("shows the page number and no page count, since the server serves no total", async () => {
-    serve([1, 2, 3].map((n) => trade(n)), 2);
+  it("shows the page and how many there are, from the total the server serves (L48)", async () => {
+    // 45 trades at 20 a page: three pages.
+    serve(Array.from({ length: 45 }, (_, index) => trade(index + 1)), 20);
     renderTable();
 
     await screen.findByRole("table");
 
-    expect(screen.getByText(pageLabel(1)).textContent).toBe("Page 1");
-    expect(screen.queryByText(/\bof\b/i)).toBeNull();
+    expect(screen.getByText(pageLabel(1)).textContent).toBe("Page 1 of 3");
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    expect((await screen.findByText(pageLabel(2))).textContent).toBe("Page 2 of 3");
   });
 
   // Was "shows no load-more button when the first page is the whole list".
@@ -630,7 +633,7 @@ describe("TradesTable", () => {
     ]);
     expect(screen.getByRole("button", { name: "Anterior" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Siguiente" })).toBeDisabled();
-    expect(screen.getByText("Página 1")).toBeInTheDocument();
+    expect(screen.getByText("Página 1 de 1")).toBeInTheDocument();
     expect(within(bodyRows()[0] as HTMLElement).getAllByRole("cell")[3]?.textContent).toBe("Corto");
   });
 });

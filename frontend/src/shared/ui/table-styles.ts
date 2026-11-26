@@ -10,3 +10,7 @@ export const TABLE_HEAD =
 
 /** `.tbl-w td`: 13 px cells padded 11 / 12 px, one line high. */
 export const TABLE_CELL = "whitespace-nowrap border-b border-rule-soft px-3 py-[11px] text-[13px]";
+
+/** Previous and Next under a paged table (the closed trades, the users): a 44 px touch target, dimmed when it cannot move. */
+export const PAGER_BUTTON =
+  "min-h-11 rounded-lg border border-rule px-3.5 text-sm text-ink hover:bg-panel-2 disabled:text-ink-3 disabled:opacity-50";
