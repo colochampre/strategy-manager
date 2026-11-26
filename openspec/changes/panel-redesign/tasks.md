@@ -243,7 +243,7 @@ The owner's words (2026-11-24) are quoted as written.
       - `positions: 401` without a session, as expected.
     - The script counted one "warning". It was the INFO line in which `strategy_manager.alerts.composition` says ERROR and above go to Telegram; the grep matched the word. There was no real warning or error.
     - **Not yet seen live:** the mark price and the unrealized PnL. The owner held no open position at deploy time, so they are checked on the next one.
-- [ ] RD.7: the strategy pages' header card (S14), and the lists as tables if approved (S15). First the prototype's strategy screens are edited for the owner's approval; then the pages are built.
+- [x] RD.7: the strategy pages' header card (S14), and the lists as tables if approved (S15). First the prototype's strategy screens are edited for the owner's approval; then the pages are built.
   - **RD.7a, prototype, on branch `design/strategy-pages`.** Route: delegated to one Sonnet writer, for the parent's context backstop.
     - `ex11` and `ex12` are edited in place for S14 (git keeps the earlier version).
     - The tables of S15 are new screens after `ex12`, so the owner can compare them with the card lists of `ex8` to `ex10`.
@@ -270,6 +270,22 @@ The owner's words (2026-11-24) are quoted as written.
   - **RD.7f, S16: the lists' search box, sort buttons and outlined buttons.** Route: inline (parent).
     - The search is the prototype's pill on the darker ground, 40 px tall, half the row from sm up, the glass at its right end. The sort keys are 32 px tall, 12.5 px type, 11 px each side.
     - Every green button wears one outline, `GAIN_OUTLINE` in `shared/ui/button-styles.ts`: the gain border at 45 %, no fill, the bright gain text. `IconButton`'s primary tone too. `button-styles.test.ts` fails on any `bg-gain` paired with `text-ground` in the source. The toolbar buttons are 40 px, as tall as the search.
+
+  - L29 to L35 refined the pages after RD.7f; each is logged under its L entry.
+  - *Delivered 2026-11-26 as PR #139*, fifteen commits. The owner merged it with a merge commit, `d3bc653435e3`.
+    - **Deploy, run by the owner**, by `deploy_d3bc653435e3.sh`. Both files were copied with `scp`, and the script ran on the VPS.
+      - The backend part ran first, because the new panel refuses a trades page without `total`. The checkout was fast-forwarded as `strategy`, and `strategy-api` and `strategy-worker` were restarted.
+      - The panel part (pps.6): the bundle was built from a clean worktree of `origin/main` at `d3bc653435e3`. It holds 29 entries, SHA-256 `1a5a8ff1…b3fc09`.
+    - The VPS answered:
+      - the archive's checksum `OK`, and `readable`;
+      - `checkout: d3bc653435e3` and `migrations changed by the pull: 0`;
+      - `api: active` and `worker: active`;
+      - `bundle: d3bc653435e3` and `panel: 200 text/html`;
+      - `trades: 401` without a session, as expected.
+      - No warning or error since the restart. The script now leaves out the INFO line that says ERROR and above go to Telegram.
+    - The owner ran both commands from this session with `!`, which runs in Git Bash.
+      - Git Bash's own `ssh` cannot prompt for the key's passphrase there, so the VPS refused it. Windows' `scp.exe` launched from Git Bash hung instead.
+      - What worked: `SSH_ASKPASS=/mingw64/bin/git-askpass.exe SSH_ASKPASS_REQUIRE=force` before `scp` and `ssh`. The passphrase is asked for in a window each time and stored nowhere.
 
 - [ ] RD.4 PR 4: My trades (S5).
 - [ ] RD.5 PR 5: Notifications (S6).
