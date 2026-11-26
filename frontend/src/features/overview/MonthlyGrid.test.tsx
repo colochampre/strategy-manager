@@ -41,7 +41,8 @@ describe("MonthlyGrid", () => {
       [9, "-0.0750000000", "bg-loss-3"],
       [10, "-0.0760000000", "bg-loss-4"],
       [11, "-0.1200000000", "bg-loss-5"],
-      [12, "-0.2000000000", "bg-loss-6"],
+      // The widest month is 15%, so the scale is the 2.5 points these cases were written for (L35).
+      [12, "-0.1500000000", "bg-loss-6"],
     ];
     render(<MonthlyGrid monthly={cases.map(([m, value]) => month(2026, m, value))} />);
     for (const [m, value, expected] of cases) {
@@ -49,6 +50,33 @@ describe("MonthlyGrid", () => {
       // Exactly one band class, and it is the expected one: the sign decides gain or loss.
       expect(bandClasses(element), value).toEqual([expected]);
     }
+  });
+
+  it("follows the grid's widest month, so a 6% month takes the strongest shade in a grid that reaches 6% (L35)", () => {
+    render(
+      <MonthlyGrid
+        monthly={[month(2026, 1, "0.0600000000"), month(2026, 2, "0.0300000000"), month(2026, 3, "-0.0050000000")]}
+      />,
+    );
+    expect(bandClasses(screen.getByTestId("month-2026-1"))).toEqual(["bg-gain-6"]);
+    expect(bandClasses(screen.getByTestId("month-2026-2"))).toEqual(["bg-gain-3"]);
+    expect(bandClasses(screen.getByTestId("month-2026-3"))).toEqual(["bg-loss-1"]);
+  });
+
+  it("reads the widest month of every year, the hidden ones too, so showing them recolours nothing", () => {
+    render(
+      <MonthlyGrid
+        monthly={[
+          month(2026, 1, "0.0300000000"),
+          month(2025, 1, "0.0100000000"),
+          month(2024, 1, "0.0100000000"),
+          month(2023, 1, "0.0600000000"),
+        ]}
+      />,
+    );
+    // 2023 is behind "Show earlier years", and its 6% still sets the 1 point bands.
+    expect(screen.queryByTestId("month-2023-1")).toBeNull();
+    expect(bandClasses(screen.getByTestId("month-2026-1"))).toEqual(["bg-gain-3"]);
   });
 
   it("colours exactly zero with the neutral base, not with a gain or loss band", () => {

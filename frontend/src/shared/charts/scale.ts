@@ -193,11 +193,26 @@ export function timeScale(
   return (date) => left + ((utcDay(date) - start) / span) * (right - left);
 }
 
-/** Six bands of 2.5 points on a fixed ±15% scale; 0 is exactly zero, 6 is 12.5% and beyond. */
-export function gridBand(value: number): number {
-  // Round away the float noise so a month of exactly 7.5% is band 3, not band 4.
-  const steps = Number((Math.abs(value) / 0.025).toFixed(9));
+/** Six bands of `step` each; 0 is exactly zero, 6 is the last band and beyond. */
+export function gridBand(value: number, step: number): number {
+  // Round away the float noise so a month of exactly 7.5% is band 3 of 2.5 points, not band 4.
+  const steps = Number((Math.abs(value) / step).toFixed(9));
   return Math.min(6, Math.ceil(steps));
+}
+
+const QUARTER_POINT = 0.0025;
+/** The narrowest band: below it a grid of quiet months would be drawn in the loud shades. */
+const MIN_GRID_STEP = 0.005;
+
+/**
+ * The width of one band of a monthly grid (L35): the grid's widest month, gain or loss, over six bands, up to the
+ * next quarter point, and half a point at least. The scale follows the grid, so two grids are not coloured alike.
+ */
+export function gridStep(values: readonly number[]): number {
+  const widest = Math.max(0, ...values.map(Math.abs));
+  // Round away the float noise so a widest month of exactly 15% gives 2.5 points, not 2.75.
+  const quarters = Math.ceil(Number((widest / 6 / QUARTER_POINT).toFixed(9)));
+  return Math.max(MIN_GRID_STEP, Number((quarters * QUARTER_POINT).toFixed(6)));
 }
 
 const TICK_STEPS = [0.05, 0.1, 0.25, 0.5];

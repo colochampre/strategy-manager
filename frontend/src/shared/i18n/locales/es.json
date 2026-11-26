@@ -254,7 +254,11 @@
     "card": {
       "compound": "Rendimiento compuesto",
       "monthly": "Rendimiento mensual",
-      "monthlyScale": "Rango fijo de ±15%"
+      "monthlyScale_one": "Cada tono es {{step}} punto de rendimiento, hasta ±{{top}}. La escala se ajusta al mes de mayor movimiento de esta grilla, así que dos grillas no se colorean igual.",
+      "monthlyScale_other": "Cada tono son {{step}} puntos de rendimiento, hasta ±{{top}}. La escala se ajusta al mes de mayor movimiento de esta grilla, así que dos grillas no se colorean igual.",
+      "monthlyScaleInfo": "Sobre la escala de colores",
+      "median_one": "Mediana {{value}} · {{count}} mes",
+      "median_other": "Mediana {{value}} · {{count}} meses"
     },
     "ledger": {
       "available": "Saldo disponible",

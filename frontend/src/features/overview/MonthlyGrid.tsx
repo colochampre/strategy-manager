@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 
 import { parseDecimal, percentText, toneClass } from "@/shared/lib/amount-text";
 import type { MonthReturn } from "@/shared/api/types";
-import { gridBand } from "@/shared/charts/scale";
+import { gridBand, gridStep } from "@/shared/charts/scale";
 import { cn } from "@/shared/lib/cn";
 
 interface MonthlyGridProps {
@@ -12,8 +12,8 @@ interface MonthlyGridProps {
 }
 
 /**
- * Band 0 is exactly zero (the neutral base); bands 1 to 6 are 2.5 points each on
- * a fixed +-15% scale. Every class is written out whole so Tailwind can see it.
+ * Band 0 is exactly zero (the neutral base); bands 1 to 6 are `gridStep` each, a scale that follows the grid's widest
+ * month (L35). Every class is written out whole so Tailwind can see it.
  */
 const GAIN_BANDS = [
   "bg-rule-soft",
@@ -112,6 +112,8 @@ export function MonthlyGrid({ monthly }: MonthlyGridProps) {
   const allRows = [...years.entries()].sort(([a], [b]) => b - a);
   const hasEarlier = allRows.length > VISIBLE_YEARS;
   const rows = showEarlier ? allRows : allRows.slice(0, VISIBLE_YEARS);
+  // Every year's months, the hidden ones too, so showing the earlier years recolours nothing.
+  const step = gridStep(allRows.flatMap(([, row]) => [...row.values()]));
 
   return (
     // No gap: the earlier years toggle sits right under the table (L29).
@@ -162,7 +164,7 @@ export function MonthlyGrid({ monthly }: MonthlyGridProps) {
                         />
                       );
                     }
-                    const band = gridBand(value);
+                    const band = gridBand(value, step);
                     return (
                       <td
                         key={month}

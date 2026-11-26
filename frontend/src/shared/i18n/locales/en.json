@@ -254,7 +254,11 @@
     "card": {
       "compound": "Compounded return",
       "monthly": "Monthly performance",
-      "monthlyScale": "Fixed range of ±15%"
+      "monthlyScale_one": "Each shade is {{step}} point of return, up to ±{{top}}. The scale adapts to this grid's largest month, so two grids are not coloured alike.",
+      "monthlyScale_other": "Each shade is {{step}} points of return, up to ±{{top}}. The scale adapts to this grid's largest month, so two grids are not coloured alike.",
+      "monthlyScaleInfo": "About the colour scale",
+      "median_one": "Median {{value}} · {{count}} month",
+      "median_other": "Median {{value}} · {{count}} months"
     },
     "ledger": {
       "available": "Available balance",
