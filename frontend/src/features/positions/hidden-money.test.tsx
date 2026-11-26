@@ -38,12 +38,12 @@ function mount() {
 }
 
 describe("the open positions table while the balances are hidden", () => {
-  it("masks the size, the fees and the margin, and keeps the entry price and the leverage", () => {
+  it("masks the margin, and keeps the entry price and the leverage; the size and the fees are not in the table (L37)", () => {
     mount();
 
     const row = within(screen.getAllByRole("rowgroup")[1] as HTMLElement).getAllByRole("row")[0] as HTMLElement;
     const text = row.textContent ?? "";
-    expect(within(row).getAllByText("******")).toHaveLength(3);
+    expect(within(row).getAllByText("******")).toHaveLength(1);
     expect(text).not.toContain("76");
     expect(text).not.toContain("0.55");
     expect(text).not.toContain("12.50");
@@ -57,8 +57,8 @@ describe("the open positions table while the balances are hidden", () => {
 
     const row = within(screen.getAllByRole("rowgroup")[1] as HTMLElement).getAllByRole("row")[0] as HTMLElement;
     expect(within(row).queryByText("******")).not.toBeInTheDocument();
-    expect(row.textContent).toContain("76");
-    expect(row.textContent).toContain("0.55");
+    expect(row.textContent).toContain("0.1234");
     expect(row.textContent).toContain("12.50");
+    expect(row.textContent).toContain("3x");
   });
 });

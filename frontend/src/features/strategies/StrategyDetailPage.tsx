@@ -91,6 +91,8 @@ export function StrategyDetailPage() {
           <StrategyHeaderCard about={<AuthorDescription key={`description-${subject.id}`} strategy={subject} />}>
             <AuthorFigures strategy={subject} />
           </StrategyHeaderCard>
+          {/* Beside the settings, under the header card (L37): its table has the six columns that fit there. */}
+          <OpenPositionsSection strategy={subject} />
           {/* Its PnL, return and drawdown are in the header card's figures, so the report draws no second line of them.
               The Performance card carries its own title (L26), so no heading sits above it. */}
           <StrategyPerformance key={subject.id} strategyId={subject.id} ledger={false} />
@@ -120,7 +122,6 @@ export function StrategyDetailPage() {
           </div>
         </aside>
       </div>
-      <OpenPositionsSection strategy={subject} />
       <TradesTable strategyId={subject.id} currency={subject.settlement_currency} />
       <DeleteStrategyControl strategy={subject} />
     </div>

@@ -957,6 +957,11 @@
       "notRecorded": "no registrado",
       "ofOpened": "de {{opened}} abiertas",
       "averageOf": "promedio de {{fills}} ejecuciones",
+      "marginShort": "Margen {{currency}}",
+      "entryTip": {
+        "average": "Precio promedio de {{fills}} ejecuciones.",
+        "left": "Quedan {{held}} de {{opened}} abiertas."
+      },
       "unmatched_one": "{{count}} posición u orden abierta no se pudo asociar a una estrategia. La página Estrategias la nombra.",
       "unmatched_other": "{{count}} posiciones u órdenes abiertas no se pudieron asociar a una estrategia. La página Estrategias las nombra."
     },

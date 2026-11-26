@@ -530,6 +530,19 @@ describe("StrategyDetailPage", () => {
     expect(within(leverageRegion).getByRole("button", { name: en.strategies.leverage.save })).toBeDisabled();
   });
 
+  it("puts Open positions in the left column, beside the settings, under the header card and above Performance (L37)", async () => {
+    renderPage(strategy({ description: "Runs at 3x" }));
+    await heading("ETH Breakout");
+
+    const positions = await screen.findByRole("region", { name: "Open positions" });
+    const grid = screen.getByRole("complementary", { name: en.strategies.detail.settings }).parentElement as HTMLElement;
+    expect(grid.firstElementChild).toContainElement(positions);
+    const description = screen.getByTestId("strategy-description");
+    const performance = screen.getByRole("heading", { level: 2, name: en.strategies.report.title });
+    expect(description.compareDocumentPosition(positions) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(positions.compareDocumentPosition(performance) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it("shows the description where the public page does, above Performance, and no editor in the settings column", async () => {
     renderPage(strategy({ description: "Runs at 3x\nNever above 5x" }));
     await heading("ETH Breakout");

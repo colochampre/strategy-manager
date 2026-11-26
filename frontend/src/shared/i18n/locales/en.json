@@ -957,6 +957,11 @@
       "notRecorded": "not recorded",
       "ofOpened": "of {{opened}} opened",
       "averageOf": "average of {{fills}} fills",
+      "marginShort": "Margin {{currency}}",
+      "entryTip": {
+        "average": "Average price of {{fills}} fills.",
+        "left": "{{held}} left of {{opened}} opened."
+      },
       "unmatched_one": "{{count}} open position or order could not be matched to a strategy. The Strategies page names it.",
       "unmatched_other": "{{count}} open positions or orders could not be matched to a strategy. The Strategies page names them."
     },
