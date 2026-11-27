@@ -41,6 +41,21 @@ or the opening is refused with `LEVERAGE_CONFLICT`.
    so where a key is added: a sub-account keeps manual trading out of the
    system's wallet. A sub-account has its own balance, so capital has to be
    transferred into it.
+   - The owner, 2026-11-27: "Vamos a tener que recordar con respecto a los
+     usuarios, entre otras cosas, recomendarles la subcuenta, o en su defecto,
+     evitar operar los pares de estrategias con posiciones abiertas, debido a
+     estos problemas que se pueden generar, con la debida explicación del
+     comportamiento de los exchanges en esas situaciones. Habrá que decidir
+     donde proveer estos avisos y recomendaciones de manera cómoda en el
+     panel. Si un aviso o recomendación corresponde a uno o algunos exchange
+     en particular, también aclararlo."
+   - So the panel recommends, with the reason in plain words: a sub-account
+     first; failing that, no manual trading on a pair a subscribed strategy
+     holds open, because the venue merges both into one position (one-way
+     mode), a strategy's `reduceOnly` close can then close part of the manual
+     position, and an opening can be refused for another leverage on the pair.
+   - A recommendation that holds for some venues only names them.
+   - Where these live in the panel is an open decision, to be prototyped.
 2. **Reconciliation still reads the whole pool.** It is what finds a real
    orphan the system left behind, and that must keep paging.
 3. **The alert is routed by whether the system ever touched the symbol.**
