@@ -561,6 +561,8 @@ export function stubApi(
     }
     // The webhook block reads the deployment's public host when it is opened: this deployment names none.
     if (url.endsWith("/webhook-origin")) return Promise.resolve(jsonResponse({ origin: null }));
+    // The bell of every shell asks what arrived since the page was last opened (RD.5): nothing, unless a test says so.
+    if (url.includes("/notifications/unseen")) return Promise.resolve(jsonResponse({ kinds: [] }));
     const performancePath = /\/performance\/pools\/(.+)$/.exec(url);
     if (performancePath) {
       const key = decodeURIComponent(performancePath[1] ?? "");

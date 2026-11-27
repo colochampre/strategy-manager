@@ -1,10 +1,10 @@
-import { Route, Routes } from "react-router";
+import { Navigate, Route, Routes } from "react-router";
 
 import { DiscrepanciesPage } from "@/features/discrepancies/DiscrepanciesPage";
 import { ExchangesPage } from "@/features/exchanges/ExchangesPage";
+import { NotificationsPage } from "@/features/notifications/NotificationsPage";
 import { OverviewPage } from "@/features/overview/OverviewPage";
 import { PrivacyPage } from "@/features/privacy/PrivacyPage";
-import { SafetyEventsPage } from "@/features/safety-events/SafetyEventsPage";
 import { SettingsPage } from "@/features/settings/SettingsPage";
 import { ExplorePage } from "@/features/strategies/ExplorePage";
 import { MySubscriptionsPage } from "@/features/strategies/MySubscriptionsPage";
@@ -42,7 +42,9 @@ export function AppRoutes() {
           <Route path="discrepancies" element={<DiscrepanciesPage />} />
           <Route path="users" element={<UsersPage />} />
         </Route>
-        <Route path="safety-events" element={<SafetyEventsPage />} />
+        <Route path="notifications" element={<NotificationsPage />} />
+        {/* The Safety events page merged into Notifications (RD.5): its old address goes there. */}
+        <Route path="safety-events" element={<Navigate to="/notifications" replace />} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="exchanges" element={<ExchangesPage />} />
         <Route path="privacy" element={<PrivacyPage />} />

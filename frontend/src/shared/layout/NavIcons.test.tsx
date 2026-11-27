@@ -33,7 +33,7 @@ afterEach(async () => {
 const ICONS = [
   ["link", "Overview", "lucide-layout-dashboard"],
   ["button", "Strategies", "lucide-trending-up"],
-  ["link", "Safety events", "lucide-shield-alert"],
+  ["link", "Notifications", "lucide-bell"],
   ["button", "Administration", "lucide-shield-check"],
   ["link", /My account/, "lucide-user"],
   ["link", "Sign out", "lucide-log-out"],

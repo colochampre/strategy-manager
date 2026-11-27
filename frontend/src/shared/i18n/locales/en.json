@@ -13,7 +13,7 @@
     "explore": "Explore",
     "discrepancies": "Discrepancies",
     "users": "Users",
-    "safetyEvents": "Safety events",
+    "notifications": "Notifications",
     "admin": "Administration",
     "account": "My account",
     "exchanges": "Link exchange",
@@ -39,34 +39,72 @@
     "users": "The panel's accounts. Visible to administrators only.",
     "notFound": "The page you are looking for does not exist or is no longer available."
   },
-  "safetyEvents": {
-    "title": "Safety events",
-    "intro": "What the safety net did for your positions: stops that fired, closes made for you, and openings refused.",
-    "loading": "Reading safety events…",
-    "error": "The safety events could not be read.",
-    "empty": "Nothing has needed the safety net yet.",
-    "listLabel": "Safety events, newest first",
-    "unknownStrategy": "Unknown strategy",
-    "kind": {
-      "STOP_FIRED": "Stop fired",
-      "STOP_FAILED_CLOSED": "Closed after a failed stop",
-      "STRATEGY_STOPPED_CLOSED": "Closed after the strategy stopped",
-      "MANUAL_CLOSE": "Closed by you",
-      "OPENING_REFUSED_LEVERAGE_CAP": "Opening refused: leverage cap",
-      "OPENING_REFUSED_ACCOUNT_SUSPENDED": "Opening refused: your account is suspended",
-      "OPENING_REFUSED_AUTHOR_SUSPENDED": "Opening refused: the strategy's author is suspended",
-      "unknown": "Safety event"
+  "notifications": {
+    "intro": "Your trades, the safety events and the notices of your account, newest first.",
+    "loading": "Reading notifications…",
+    "error": "Your notifications could not be read.",
+    "retry": "Try again",
+    "empty": "Nothing to show here yet.",
+    "filters": "Show",
+    "showMore": "Show more",
+    "moreError": "More notifications could not be read.",
+    "review": "Review",
+    "adminOnly": "Visible to administrators only",
+    "today": "Today, {{date}}",
+    "yesterday": "Yesterday, {{date}}",
+    "unknownStrategy": "a strategy",
+    "unknownExchange": "the exchange",
+    "unknownSide": "Position",
+    "bell": {
+      "label": "Notifications",
+      "new": "Notifications: there are new ones"
     },
-    "detail": {
-      "STOP_FIRED": "The stop was triggered at {{trigger_price}} and closed {{quantity}}.",
-      "STOP_FAILED_CLOSED": "The stop could not be kept in place, so the position was closed: {{quantity}} at {{price}}.",
-      "STRATEGY_STOPPED_CLOSED": "The strategy stopped, so the position was closed: {{quantity}} at {{price}}.",
-      "MANUAL_CLOSE": "You closed the position: {{quantity}} at {{price}}.",
-      "OPENING_REFUSED_LEVERAGE_CAP": "The opening asked for {{requested_leverage}}x, above the {{max_leverage}}x allowed with a {{stop_loss_pct}}% stop, so nothing was opened.",
-      "OPENING_REFUSED_ACCOUNT_SUSPENDED": "Nothing was opened: your account is suspended.",
-      "OPENING_REFUSED_AUTHOR_SUSPENDED": "Nothing was opened: the strategy's author is suspended.",
-      "unknown": "No details are available for this event.",
-      "missing": "n/a"
+    "chip": {
+      "all": "All",
+      "OPERATION": "Operations",
+      "SAFETY": "Safety",
+      "NOTICE": "Notices",
+      "DISCREPANCY": "Discrepancies"
+    },
+    "pill": {
+      "OPERATION": "Operation",
+      "SAFETY": "Safety",
+      "NOTICE": "Notice",
+      "DISCREPANCY": "Discrepancy"
+    },
+    "title": {
+      "OPENED": "Opening in {{strategy}}",
+      "CLOSED_SIGNAL": "Close in {{strategy}}",
+      "CLOSED_MANUAL_CLOSE": "Manual close in {{strategy}}",
+      "CLOSED_STOP_FIRED": "Stop fired in {{strategy}}",
+      "CLOSED_STOP_FAILED_CLOSED": "Safety close in {{strategy}}",
+      "CLOSED_STRATEGY_STOPPED_CLOSED": "Close in {{strategy}}, which stopped",
+      "OPENING_REFUSED": "Opening refused in {{strategy}}",
+      "DISCREPANCY_NO_MATCHING_ALLOCATION": "Position without an allocation on {{exchange}}",
+      "DISCREPANCY": "Discrepancy on {{exchange}}",
+      "unknown": "Notification"
+    },
+    "sentence": {
+      "OPENED": "{{side}} on <pair>{{pair}}</pair> on {{exchange}}, entry at <fig>{{entry}}</fig> {{currency}}.",
+      "OPENED_LEVERAGE": "{{side}} on <pair>{{pair}}</pair> on {{exchange}}, entry at <fig>{{entry}}</fig> {{currency}}, leverage <num>{{leverage}}x</num>.",
+      "result": "Result <pnl>{{pnl}}</pnl> {{currency}}.",
+      "CLOSED_SIGNAL": "{{side}} on <pair>{{pair}}</pair> on {{exchange}} closed at <fig>{{exit}}</fig> {{currency}}.",
+      "CLOSED_MANUAL_CLOSE": "{{side}} on <pair>{{pair}}</pair> on {{exchange}} closed manually at <fig>{{exit}}</fig> {{currency}}.",
+      "CLOSED_STOP_FIRED": "{{side}} on <pair>{{pair}}</pair> on {{exchange}} closed by the stop at <fig>{{exit}}</fig> {{currency}}.",
+      "CLOSED_STOP_FAILED_CLOSED": "{{side}} on <pair>{{pair}}</pair> on {{exchange}} closed for safety, because the stop could not be confirmed, at <fig>{{exit}}</fig> {{currency}}.",
+      "CLOSED_STRATEGY_STOPPED_CLOSED": "{{side}} on <pair>{{pair}}</pair> on {{exchange}} closed because the strategy was disabled, at <fig>{{exit}}</fig> {{currency}}.",
+      "OPENING_REFUSED_LEVERAGE_CAP": "The leverage you chose (<num>{{requested}}x</num>) is above the <num>{{max}}x</num> that the strategy's stop allows. No capital was reserved. Lower the leverage in My subscriptions.",
+      "OPENING_REFUSED_ACCOUNT_SUSPENDED": "Your account is suspended. No capital was reserved.",
+      "OPENING_REFUSED_AUTHOR_SUSPENDED": "The strategy's author is suspended. No capital was reserved.",
+      "EXCHANGE_KEY_READ_ONLY": "Your {{exchange}} key is read-only, so it cannot trade live. No capital was reserved. Save a key that can trade.",
+      "EXCHANGE_HAS_NO_KEY": "You have no key for {{exchange}}. No capital was reserved. Link a key that can trade.",
+      "MARGIN_NOT_ISOLATED": "Your {{exchange}} account is not on isolated margin. No capital was reserved.",
+      "LEVERAGE_CONFLICT": "You already hold <num>{{pair}}</num> at another leverage, and the leverage of a position is never changed. No capital was reserved.",
+      "LEVERAGE_NOT_APPLIED": "The exchange did not apply the leverage you chose. No capital was reserved.",
+      "openingRefused": "The opening was refused. No capital was reserved.",
+      "DISCREPANCY_NO_MATCHING_ALLOCATION": "The <num>{{pair}}</num> position on the exchange matches no allocation. It needs your decision.",
+      "discrepancy": "Reconciliation found a difference that needs your decision.",
+      "unknown": "This panel has no more detail for it."
     }
   },
   "trades": {
@@ -113,7 +151,7 @@
       "STOP_FIRED": "The stop fired at the exchange",
       "STOP_FAILED_CLOSED": "Safety close: the stop could not be confirmed",
       "STRATEGY_STOPPED_CLOSED": "Safety close: the strategy was disabled with the trade open",
-      "MANUAL_CLOSE": "Closed by you (Close now)"
+      "MANUAL_CLOSE": "Closed manually"
     }
   },
   "users": {
