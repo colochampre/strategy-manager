@@ -324,7 +324,7 @@ The owner's words (2026-11-24) are quoted as written.
       - `api: active` and `worker: active`.
     - Both commands ran from this session with `!` and the `SSH_ASKPASS` prefix.
     - The owner read the page in production: "Se ve bien!"
-- [ ] RD.5 PR 5: Notifications (S6), on branch `feat/rd5-notifications`. ex5 brought up to what the data holds (L57 to L60), approved (L61). Built as two units launched together, on one fixed contract:
+- [x] RD.5 PR 5: Notifications (S6), on branch `feat/rd5-notifications`. ex5 brought up to what the data holds (L57 to L60), approved (L61). Built as two units launched together, on one fixed contract:
   - [x] RD.5a, backend: a new module `notifications/` (domain, application, infrastructure) that reads the other modules through its own ports. No migration, no new table, no call to an exchange. By a Sonnet writer (parallel units): 46 route tests on PostgreSQL, the negatives proven by breaking each guard. Then the parent: the cross-user sweep gained probes for both routes and for RD.4's `GET /performance/trades`, which had none; sent as the owner of the data, they fail. The backend gate green: ruff 0, mypy 0 (426 files), pytest exit 0 (8191 tests).
     - Closed operations come from `ReadMyTrades.read_every`, open ones from `ReadOpenPositions` with no mark source, the opening leverage from the user's own `execution_attempts`. An allocation both closed and open is listed once, as closed.
     - An independent read-only check of data isolation (a Sonnet verifier, security item): no blocker. Every source is bound to the user's own rows; discrepancies are read for an admin only, under the same brake as `GET /reconciliation/confirmed`, and carry no e-mail or quantity; `outcome_detail` is never selected.
@@ -346,6 +346,18 @@ The owner's words (2026-11-24) are quoted as written.
     - The bell, in the top row between the account and the language, links to the page. It carries a dot when `GET /notifications/unseen` answers any kind since the user last opened the page, in the colour of the first kind it lists. It shakes (0.6 s on arrival, then every 30 s) only when that list holds `SAFETY`, `DISCREPANCY` or `NOTICE`, and never under `prefers-reduced-motion` (L59, L60). Opening the page stores the instant, per user and browser (local storage); with nothing stored, the first read stores now, so history alone lights nothing. The unseen read refreshes every 60 s.
     - Tokens `notif-operation` (gain), `notif-safety` (loss), `notif-discrepancy` (decision) and `notif-notice` (ink-2) in `@theme`, as RD.0 set them.
     - "Closed by you" becomes "Closed manually" in My trades' close mark too ("Cerrada manualmente"); the Close now button keeps its name (L58).
+  - *Delivered 2026-11-27 as PR #148*, six commits: the prototype (L57, L58), RD.9 and the shake (L59, L60), the contract (L61), RD.5a and RD.5b. The owner merged it with a merge commit, `242ad4e0a49a`.
+    - Deploy, backend and frontend, no migration:
+      - The bundle was built from a clean worktree of `origin/main` at `242ad4e0a49a`: 27 files, SHA-256 `7eec3a69908fbaab491ea2c79cdacaac77d55f37de7a79b3253606d932ac93b9`.
+      - One script pulled as `strategy`, restarted both services and unpacked the bundle (pps.6).
+    - The VPS answered:
+      - the archive's checksum `OK`, and `readable`;
+      - `checkout: 242ad4e0a49a` and `migrations changed since 7f188f7ac46a: 0`;
+      - `new route without a session: 401`;
+      - `bundle: 242ad4e0a49a` and `panel: 200 text/html`;
+      - `api: active` and `worker: active`.
+    - Both commands ran from this session with `!` and the `SSH_ASKPASS` prefix.
+    - The owner read the page in production: "Se ve bien. Veo las notificaciones pasadas de aperturas y cierres. Solo una notificacion tipo Seguridad de un stop activado."
 - [ ] RD.6 PR 6: info tooltips and motion (S13).
 - [x] RD.8: the Users page (`/users`, admin) as a table, like the strategy lists and the open positions (L25). Prototype first, when the owner calls for it. Prototyped as ex16 (L47, L48), approved (L49), built on `feat/rd8-users-table`.
   - *Delivered 2026-11-27 as PR #143*, four commits: the prototype (L47, L48), the closed trades' page count (L48), the table (L49) and the brake tip's fix (L50). The owner merged it with a merge commit, `3f88c289b28c`.
