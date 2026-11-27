@@ -83,14 +83,17 @@ class FakeSubscribers:
         holders: Sequence[UUID] = (),
         events: list[str] | None = None,
         ended: int = 0,
+        lowered: int = 0,
     ) -> None:
         self._reads = [list(read) for read in reads]
         self._holders = list(holders)
         self._events = events
         self._ended = ended
+        self._lowered = lowered
         self.reads = 0
         self.ended_at: list[datetime] = []
         self.holders_asked: list[list[UUID]] = []
+        self.lowered: list[tuple[UUID, int, datetime]] = []
 
     @classmethod
     def sole_author(cls, strategy: Strategy, **kwargs: object) -> "FakeSubscribers":
@@ -114,3 +117,9 @@ class FakeSubscribers:
             self._events.append("end_all")
         self.ended_at.append(now)
         return self._ended
+
+    async def lower_above(self, strategy_id: UUID, cap: int, now: datetime) -> int:
+        if self._events is not None:
+            self._events.append("lower_above")
+        self.lowered.append((strategy_id, cap, now))
+        return self._lowered

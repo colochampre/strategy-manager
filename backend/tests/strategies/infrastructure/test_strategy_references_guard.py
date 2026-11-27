@@ -88,6 +88,7 @@ async def test_every_foreign_key_into_strategies_is_one_the_history_check_counts
         "fk_subscriptions_strategy",
         "fk_invite_codes_strategy",
         "fk_safety_events_strategy",
+        "fk_leverage_lowered_events_strategy",
     }
     assert await uncounted_references(conn) == set(), _message(await uncounted_references(conn))
     assert set(COUNTED_STRATEGY_REFERENCES) == set(present), (
@@ -106,6 +107,7 @@ async def test_every_foreign_key_into_strategies_is_one_the_history_check_counts
         "fk_subscriptions_strategy": _CASCADE,
         "fk_invite_codes_strategy": _CASCADE,
         "fk_safety_events_strategy": _NO_ACTION,
+        "fk_leverage_lowered_events_strategy": _CASCADE,
     }
     assert {name: table for name, (table, _) in present.items()} == {
         name: table for name, (table, _) in COUNTED_STRATEGY_REFERENCES.items()

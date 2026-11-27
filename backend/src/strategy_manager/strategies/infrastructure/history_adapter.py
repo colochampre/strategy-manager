@@ -45,6 +45,10 @@ COUNTED_STRATEGY_REFERENCES: dict[str, tuple[str, str]] = {
     "fk_subscriptions_strategy": ("subscriptions", "subscriptions"),
     "fk_invite_codes_strategy": ("invite_codes", "invite_codes"),
     "fk_safety_events_strategy": ("safety_events", "safety_events"),
+    # What told a seat's owner that its leverage was lowered (RD.9a, migration 0048). It
+    # goes with its seat and its strategy (both keys cascade), so it is counted as the
+    # subscriptions are, under their field, and never refuses.
+    "fk_leverage_lowered_events_strategy": ("leverage_lowered_events", "subscriptions"),
 }
 """Every foreign key into ``strategies`` that the history check counts:
 constraint name -> ``(table, StrategyHistory field)``. Read by

@@ -26,6 +26,7 @@ from strategy_manager.accounts.infrastructure.trade_capability_adapter import (
 from strategy_manager.identity.infrastructure.models import UserRow
 from strategy_manager.ledger.application.read_symbol_holdings import ReadSymbolHoldings
 from strategy_manager.ledger.infrastructure.repository import SqlAlchemyLedgerRepository
+from strategy_manager.shared.domain.leverage import Leverage
 from strategy_manager.shared.domain.mode import Mode
 from strategy_manager.strategies.application.ports import SubscriberCounts, SubscriberPool
 from strategy_manager.strategies.infrastructure.models import StrategyRow
@@ -127,3 +128,15 @@ class StrategySubscribersAdapter:
         for subscription in live:
             await self._subscriptions.update(subscription.end(now))
         return len(live)
+
+    async def lower_above(self, strategy_id: UUID, cap: int, now: datetime) -> int:
+        """Under the caller's pool locks and strategy row lock, every live seat is
+        row-locked in ``pool_id, id`` order; only the ACTIVE ones above ``cap`` are
+        lowered, because a LEAVING seat opens nothing (``change_leverage`` refuses
+        it for the same reason)."""
+        lowered = 0
+        for seat in await self._subscriptions.live_for_strategy_for_update(strategy_id):
+            if seat.status is SubscriptionStatus.ACTIVE and seat.leverage.value > cap:
+                await self._subscriptions.lower_leverage(seat, Leverage(cap), now)
+                lowered += 1
+        return lowered

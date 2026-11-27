@@ -411,6 +411,15 @@ class StrategySubscribersPort(Protocol):
         committed: the caller's commit makes it one unit with the archive."""
         ...
 
+    async def lower_above(self, strategy_id: UUID, cap: int, now: datetime) -> int:
+        """Lowers every ACTIVE subscription of the strategy whose leverage is above
+        ``cap`` to ``cap``, records one event for each (the owner's notice), and
+        returns how many. A seat at or below the cap, and a LEAVING one (it opens
+        nothing), is left as it is. Flushed, not committed: the caller holds every
+        subscriber's pool lock and the strategy row, and its commit makes the
+        lowering one unit with the stop."""
+        ...
+
 
 class PoolLockPort(Protocol):
     """Takes EXACTLY the advisory lock ``AllocateCapital`` takes for this

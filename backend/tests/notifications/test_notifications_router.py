@@ -31,7 +31,7 @@ from strategy_manager.safety.infrastructure.models import SafetyEventRow
 from strategy_manager.shared import db as shared_db
 from strategy_manager.shared.config import get_settings
 from tests.identity_auth import ADMIN_HEADERS, FORGED_HEADERS, OTHER_HEADERS, act_as
-from tests.owner import OWNER_ID, ensure_delivery, seed_other_user
+from tests.owner import OWNER_ID, ensure_delivery, ensure_pool, seed_other_user
 from tests.performance.infrastructure.conftest import seed_signal
 from tests.performance.infrastructure.test_allocation_fills_source import (
     BYBIT,
@@ -47,6 +47,7 @@ from tests.performance.infrastructure.test_performance_router import (  # noqa: 
     _strategy,
 )
 from tests.reconciliation.infrastructure.test_confirmed_router import _discrepancy
+from tests.subscriptions.infrastructure.seeds import subscription
 
 pytestmark = pytest.mark.integration
 
@@ -832,3 +833,124 @@ async def test_the_routes_require_a_signed_in_user(client: AsyncClient) -> None:
         assert (await client.get(url, params={"since": _z(T0)})).status_code == 401
         forged = await client.get(url, headers=FORGED_HEADERS, params={"since": _z(T0)})
         assert forged.status_code == 401
+
+
+# --- a seat lowered by a widened stop (RD.9a) ---------------------------------------------
+
+
+async def _lowered(
+    factory: async_sessionmaker[AsyncSession],
+    strategy_id: UUID,
+    at: datetime,
+    *,
+    old: int = 10,
+    new: int = 6,
+    user_id: UUID = OWNER_ID,
+) -> UUID:
+    """A seat of ``user_id`` on ``strategy_id`` and the event that lowered it from ``old``
+    to ``new`` at ``at``: what ``UpdateStrategy`` writes. The seat has since ended, so
+    one user can hold several events of one strategy."""
+    async with factory() as session:
+        pool_id = await ensure_pool(session, ("bybit", "usdt-m", "USDT"), user_id=user_id)
+        await session.commit()
+    seat = await subscription(
+        factory, user_id, strategy_id, pool_id, status="ENDED", leverage=new
+    )
+    async with factory() as session:
+        event_id = (
+            await session.execute(
+                text(
+                    "INSERT INTO leverage_lowered_events (user_id, strategy_id, "
+                    "subscription_id, old_leverage, new_leverage, occurred_at) "
+                    "VALUES (:u, :s, :seat, :old, :new, :at) RETURNING id"
+                ),
+                {"u": user_id, "s": strategy_id, "seat": seat, "old": old, "new": new, "at": at},
+            )
+        ).scalar_one()
+        await session.commit()
+    return UUID(str(event_id))
+
+
+async def test_a_lowered_seat_is_a_notice_naming_the_old_and_the_new_leverage(
+    client: AsyncClient, pg_session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    strategy_id = await _strategy(pg_session_factory, BYBIT)
+    event_id = await _lowered(pg_session_factory, strategy_id, _at(5), old=10, new=6)
+
+    response = await client.get(URL, headers=ADMIN_HEADERS)
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "items": [
+            {
+                "id": f"lowered:{event_id}",
+                "kind": "NOTICE",
+                "event": "LEVERAGE_LOWERED",
+                "occurred_at": _z(_at(5)),
+                "reason": "STOP_CHANGED",
+                "strategy_id": str(strategy_id),
+                "strategy_name": f"strategy-{strategy_id}",
+                "exchange": None,
+                "venue": None,
+                "pair": None,
+                "side": None,
+                "rehearsal": False,
+                "currency": None,
+                "entry_price": None,
+                "exit_price": None,
+                "pnl": None,
+                "leverage": "6",
+                "close_cause": None,
+                "detail": {"from": "10", "to": "6"},
+            }
+        ],
+        "next_cursor": None,
+    }
+
+
+async def test_a_lowered_seat_sorts_and_pages_with_the_other_items(
+    client: AsyncClient, pg_session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    strategy_id = await _strategy(pg_session_factory, BYBIT)
+    allocation = await _operation(pg_session_factory, strategy_id, _at(1), closed_at=_at(3))
+    lowered = await _lowered(pg_session_factory, strategy_id, _at(2))
+    delivery = await _delivery(
+        pg_session_factory, strategy_id, reason="LEVERAGE_CONFLICT", decided_at=_at(4)
+    )
+
+    everything = await _everything(client, 1)
+    notices = await _everything(client, 1, kind="NOTICE")
+
+    assert [item["id"] for item in everything] == [
+        f"notice:{delivery}",
+        f"closed:{allocation}",
+        f"lowered:{lowered}",
+        f"opened:{allocation}",
+    ]
+    assert [item["id"] for item in notices] == [f"notice:{delivery}", f"lowered:{lowered}"]
+
+
+async def test_unseen_counts_a_lowered_seat_as_a_notice(
+    client: AsyncClient, pg_session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    strategy_id = await _strategy(pg_session_factory, BYBIT)
+    await _lowered(pg_session_factory, strategy_id, _at(5))
+
+    assert await _unseen(client, _at(4)) == ["NOTICE"]
+    assert await _unseen(client, _at(5)) == []
+
+
+async def test_another_users_lowered_seat_is_never_in_my_feed_or_my_unseen(
+    client: AsyncClient, pg_session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    async with pg_session_factory() as session:
+        other = await seed_other_user(session)
+        await session.commit()
+    strategy_id = await _strategy(pg_session_factory, BYBIT)
+    mine = await _lowered(pg_session_factory, strategy_id, _at(1))
+    await _lowered(pg_session_factory, strategy_id, _at(2), user_id=other)
+
+    body = await _get(client, limit=100)
+
+    assert _ids(body) == [f"lowered:{mine}"]
+    assert await _unseen(client, _at(1, 30)) == []
