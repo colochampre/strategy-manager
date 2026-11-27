@@ -57,6 +57,8 @@ SCOPED_TO_THE_SIGNED_IN_USER = {
     ("GET", "/api/performance/strategies/{strategy_id}"),
     ("GET", "/api/performance/strategies/{strategy_id}/trades"),
     ("GET", "/api/performance/strategies/{strategy_id}/trades/{allocation_id}/fills"),
+    # My trades (panel-redesign RD.4a): the user's own closed operations, every pool.
+    ("GET", "/api/performance/trades"),
     ("GET", "/api/positions/open"),
     # Close now (SS.9): only the signed-in user's own allocation; any other is 404.
     ("POST", "/api/positions/{allocation_id}/close"),

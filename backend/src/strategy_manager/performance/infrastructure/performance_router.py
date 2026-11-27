@@ -55,7 +55,7 @@ from typing import Annotated, Literal, cast
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field
+from pydantic import AwareDatetime, BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -64,8 +64,21 @@ from strategy_manager.identity.domain.user import User
 from strategy_manager.identity.infrastructure.dependencies import current_user
 from strategy_manager.performance.application.ports import (
     AllocationFillsSourcePort,
+    MyTradesSourcePort,
     OperationFillsSourcePort,
     RehearsalPricingSourcePort,
+)
+from strategy_manager.performance.application.read_my_trades import (
+    DEFAULT_PAGE_SIZE as MY_TRADES_PAGE_SIZE,
+)
+from strategy_manager.performance.application.read_my_trades import (
+    MAX_PAGE_SIZE as MY_TRADES_MAX_PAGE_SIZE,
+)
+from strategy_manager.performance.application.read_my_trades import (
+    InvalidMyTradesRequest,
+    MyTrade,
+    MyTradesPage,
+    ReadMyTrades,
 )
 from strategy_manager.performance.application.read_operation_fills import (
     ReadOperationFills,
@@ -90,6 +103,7 @@ from strategy_manager.performance.domain.curve import PoolPerformance
 from strategy_manager.performance.infrastructure.allocation_fills_source import (
     SqlAlchemyAllocationFillsSource,
 )
+from strategy_manager.performance.infrastructure.my_trades_source import SqlAlchemyMyTradesSource
 from strategy_manager.performance.infrastructure.operation_fills_source import (
     SqlAlchemyOperationFillsSource,
 )
@@ -134,6 +148,11 @@ def get_operation_fills_source(session: SessionDep) -> OperationFillsSourcePort:
     return SqlAlchemyOperationFillsSource(session)
 
 
+def get_my_trades_source(session: SessionDep) -> MyTradesSourcePort:
+    return SqlAlchemyMyTradesSource(session)
+
+
+MyTradesDep = Annotated[MyTradesSourcePort, Depends(get_my_trades_source)]
 ClockDep = Annotated[ClockPort, Depends(get_clock)]
 FillsDep = Annotated[AllocationFillsSourcePort, Depends(get_fills_source)]
 PricingDep = Annotated[RehearsalPricingSourcePort, Depends(get_pricing_source)]
@@ -374,6 +393,86 @@ class TradesBody(BaseModel):
         )
 
 
+class MyTradeBody(BaseModel):
+    """One closed operation of the signed-in user, in its own pool and its own
+    currency: no figure on it is converted or added to another row's."""
+
+    allocation_id: UUID
+    strategy_id: UUID
+    strategy_name: str
+    strategy_archived: bool
+    strategy_page: Literal["AUTHORED", "LISTED"] | None
+    exchange: str
+    venue: str
+    currency: str
+    pair: str
+    direction: Literal["LONG", "SHORT"]
+    opened_at: Instant
+    closed_at: Instant
+    rehearsal: bool
+    entry_price: Price | None
+    exit_price: Price | None
+    pnl: Money
+    fees_complete: bool
+    close_cause: Literal[
+        "STOP_FIRED", "STOP_FAILED_CLOSED", "STRATEGY_STOPPED_CLOSED", "MANUAL_CLOSE", "SIGNAL"
+    ]
+
+    @classmethod
+    def of(cls, item: MyTrade) -> "MyTradeBody":
+        trade = item.trade
+        figures = item.figures
+        return cls(
+            allocation_id=trade.allocation_id,
+            strategy_id=trade.strategy_id,
+            strategy_name=item.strategy.name,
+            strategy_archived=item.strategy.archived,
+            strategy_page=None if item.strategy.page is None else item.strategy.page.value,
+            exchange=trade.exchange,
+            venue=trade.venue,
+            currency=trade.settlement_currency,
+            pair=trade.pair,
+            direction=trade.direction.value,
+            opened_at=trade.opened_at,
+            closed_at=trade.closed_at,
+            rehearsal=item.rehearsal,
+            entry_price=None if figures is None else figures.entry_price,
+            exit_price=None if figures is None else figures.exit_price,
+            pnl=trade.pnl,
+            fees_complete=trade.fees_complete,
+            close_cause=item.close_cause.value,
+        )
+
+
+class MyTradesStrategyBody(BaseModel):
+    id: UUID
+    name: str
+    archived: bool
+
+
+class MyTradesBody(BaseModel):
+    """``total`` counts every row that passes the filters, before ``offset`` and
+    ``limit``. ``strategies`` and ``exchanges`` list what the user's closed
+    operations hold with no filter applied."""
+
+    trades: list[MyTradeBody]
+    total: int
+    strategies: list[MyTradesStrategyBody]
+    exchanges: list[str]
+
+    @classmethod
+    def of(cls, page: MyTradesPage) -> "MyTradesBody":
+        return cls(
+            trades=[MyTradeBody.of(item) for item in page.trades],
+            total=page.total,
+            strategies=[
+                MyTradesStrategyBody(id=s.strategy_id, name=s.name, archived=s.archived)
+                for s in page.strategies
+            ],
+            exchanges=list(page.exchanges),
+        )
+
+
 class FillBody(BaseModel):
     """One fill, as stored: nothing averaged, rounded or converted. ``fee`` is in
     ``fee_currency``, which travels with it."""
@@ -439,6 +538,35 @@ async def pool_performance(
         raise HTTPException(status_code=404, detail="no such pool")
     report = await _guarded(ReadPoolPerformance(fills, clock).read(user.id, pool))
     return PerformanceBody.of(report)
+
+
+@router.get("/trades", response_model=MyTradesBody)
+async def my_trades(
+    fills: FillsDep,
+    source: MyTradesDep,
+    user: Annotated[User, Depends(current_user)],
+    limit: Annotated[int, Query(ge=1, le=MY_TRADES_MAX_PAGE_SIZE)] = MY_TRADES_PAGE_SIZE,
+    offset: Annotated[int, Query(ge=0)] = 0,
+    closed_since: Annotated[AwareDatetime | None, Query()] = None,
+    strategy_id: UUID | None = None,
+    exchange: str | None = None,
+) -> MyTradesBody:
+    """The signed-in user's CLOSED operations across every pool they hold ledger
+    rows in, newest close first. A ``closed_since`` with no time zone is a 422."""
+    try:
+        page = await _guarded(
+            ReadMyTrades(fills, source).read(
+                user.id,
+                limit=limit,
+                offset=offset,
+                closed_since=closed_since,
+                strategy_id=strategy_id,
+                exchange=exchange,
+            )
+        )
+    except InvalidMyTradesRequest as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return MyTradesBody.of(page)
 
 
 @router.get("/strategies/{strategy_id}", response_model=StrategyPerformanceBody)
