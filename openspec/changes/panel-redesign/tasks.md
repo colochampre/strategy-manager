@@ -300,7 +300,17 @@ The owner's words (2026-11-24) are quoted as written.
     - Both commands ran from this session with `!` and the `SSH_ASKPASS` prefix.
     - The owner read the panel in production: "Revisado. Se ve bien".
 
-- [ ] RD.4 PR 4: My trades (S5).
+- [ ] RD.4 PR 4: My trades (S5), on branch `feat/rd4-my-trades`. ex4 brought up to the tables' rules (L52 to L54), approved (L55). Built as two units launched together, on one fixed contract:
+  - [ ] RD.4a, backend: `GET /performance/trades`, the signed-in user's CLOSED operations across every pool they hold ledger rows in.
+    - Query: `limit` (1 to 100, default 20), `offset` (0 or more, default 0), `closed_since` (an aware datetime; a naive one is 422), `strategy_id`, `exchange`. Each filter is optional and they combine.
+    - Body: `{trades, total, strategies, exchanges}`. `total` counts every row that passes the filters, before `offset` and `limit`. `strategies` (`{id, name, archived}`, by name) and `exchanges` list what the user's closed operations hold with no filter applied, so the panel's choices do not shrink as filters narrow.
+    - A row: `allocation_id`, `strategy_id`, `strategy_name`, `strategy_archived`, `strategy_page` (`AUTHORED`, `LISTED` or null, as an open position's), `exchange`, `venue`, `currency` (the pool's settlement currency), `pair`, `direction`, `opened_at`, `closed_at`, `rehearsal`, `entry_price`, `exit_price`, `pnl`, `fees_complete`, and `close_cause`: `STOP_FIRED`, `STOP_FAILED_CLOSED`, `STRATEGY_STOPPED_CLOSED` or `MANUAL_CLOSE` from the operation's safety event, `SIGNAL` when it has none.
+    - Order: `closed_at` then `allocation_id`, newest first, as a strategy's closed trades. Rehearsal operations are included and flagged, as the panel asks a strategy's. Nothing is added across pools (rule 7): each row carries its own currency.
+    - Only the user's own ledger rows, as every performance read (AD8).
+  - [ ] RD.4b, panel: the My trades page at `/trades`, a sidebar item after the Overview, as ex4.
+    - Open operations come from `GET /positions/open`, which the Overview already reads; they go first, newest opening first, and the period does not apply to them (they are now). Then the closed ones, from RD.4a, newest close first. One count and one pager over both, 20 a page.
+    - Filters: Period (last 7, 30 or 90 days, or all; 30 by default), Strategy, Exchange, and Clear filters.
+    - The table and its cards, the marks and the tips as ex4 shows them (L53, L54).
 - [ ] RD.5 PR 5: Notifications (S6).
 - [ ] RD.6 PR 6: info tooltips and motion (S13).
 - [x] RD.8: the Users page (`/users`, admin) as a table, like the strategy lists and the open positions (L25). Prototype first, when the owner calls for it. Prototyped as ex16 (L47, L48), approved (L49), built on `feat/rd8-users-table`.
@@ -476,3 +486,5 @@ The owner's words (2026-11-24) are quoted as written.
   - Changed in ex4: a simulated row's dot is amber (`decision`), as the mode and the other tables; the triangle is an open row's only, with the meaning it has in Open positions; the strategy-stopped close shows the safety close's alert, with its own tip.
 - L54 (2026-11-27, owner, on ex4): "Tiene un significado que la advertencia en Cierre sea circular y la de Par triangular? Conviene mantenerlos distintos o usar el mismo para ambos?" Then, on the shield family offered: "Si, cambialo así"
   - Kept apart: the triangle is what asks for a check now (an open position that disagrees with the exchange, a pool with no key); a close's mark tells what happened. The safety close takes a shield with an alert (lucide `ShieldAlert`) instead of the circled alert, so every close mark is of the stop's shield family.
+- L55 (2026-11-27, owner, on ex4 with L54's shields): "Apruebo"
+  - Read for the build: the open operations go first, since the newest-first order of ex4 would bury an old position that is still open several pages down; the period filters the closed ones by their close.
