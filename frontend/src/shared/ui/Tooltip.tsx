@@ -64,7 +64,7 @@ export function Tooltip({
           id={id}
           role="tooltip"
           // The tip resets what a trigger's cell would hand it (one line, a monospaced face), so it wraps in its own box (L18).
-          className={`pointer-events-none absolute z-10 w-max max-w-64 whitespace-normal break-words rounded-md border border-rule bg-panel-2 px-2 py-1 text-left font-sans text-xs font-normal normal-case tracking-normal text-ink ${
+          className={`pointer-events-none absolute z-10 w-max max-w-64 whitespace-normal break-words rounded-md border border-rule bg-panel-2 px-2 py-1 text-left font-sans text-xs font-normal normal-case tracking-normal text-ink motion-safe:animate-tip-in ${
             placement === "above"
               ? "bottom-full left-0 mb-1"
               : placement === "below"

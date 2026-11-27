@@ -188,7 +188,7 @@ export function NewStrategyDialog({ exchange, pools, onClose }: NewStrategyDialo
         }}
         className="fixed inset-0 z-50 flex items-center justify-center bg-ground/80 p-4"
       >
-        <div className="flex max-h-full w-full max-w-lg flex-col gap-4 overflow-auto rounded-lg border border-rule bg-panel p-6">
+        <div className="flex max-h-full w-full max-w-lg flex-col gap-4 overflow-auto rounded-lg border border-rule bg-panel p-6 motion-safe:animate-dialog-in">
           <h2 id={ids.title} className="text-sm font-semibold text-ink">
             {t("strategies.new.created")}
           </h2>
@@ -228,7 +228,7 @@ export function NewStrategyDialog({ exchange, pools, onClose }: NewStrategyDialo
       <form
         onSubmit={handleSubmit}
         noValidate
-        className="flex max-h-full w-full max-w-lg flex-col gap-4 overflow-auto rounded-lg border border-rule bg-panel p-6"
+        className="flex max-h-full w-full max-w-lg flex-col gap-4 overflow-auto rounded-lg border border-rule bg-panel p-6 motion-safe:animate-dialog-in"
       >
         <h2 id={ids.title} className="text-sm font-semibold text-ink">
           {t("strategies.new.title")}

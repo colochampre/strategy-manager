@@ -197,7 +197,7 @@ describe("WebhookMessage", () => {
     expect(screen.queryByText(MASK_HINT_EN)).toBeNull();
 
     const button = screen.getByRole("button", { name: "About the last four characters" });
-    expect(button.parentElement).toContainElement(screen.getByText("Webhook URL"));
+    expect(button.parentElement?.parentElement).toContainElement(screen.getByText("Webhook URL"));
     fireEvent.click(button);
     expect(screen.getByText(MASK_HINT_EN)).toBeInTheDocument();
   });
@@ -209,7 +209,7 @@ describe("WebhookMessage", () => {
 
     const heading = screen.getByRole("heading", { name: i18n.t("strategies.webhook.title") });
     const button = screen.getByRole("button", { name: "About these alerts" });
-    expect(button.parentElement).toContainElement(heading);
+    expect(button.parentElement?.parentElement).toContainElement(heading);
     fireEvent.click(button);
     expect(screen.getByText(hint)).toBeInTheDocument();
   });

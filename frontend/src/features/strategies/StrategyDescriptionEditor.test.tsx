@@ -323,7 +323,7 @@ describe("StrategyDescriptionEditor layout (L.7)", () => {
     const counter = screen.getByText(/^\d+ \/ 2000$/);
     expect(counter.parentElement).toBe(label.parentElement);
     expect(counter).toHaveClass("ml-auto");
-    expect(screen.getByRole("button", { name: "About the description" }).parentElement).toBe(label.parentElement);
+    expect(screen.getByRole("button", { name: "About the description" }).parentElement?.parentElement).toBe(label.parentElement);
   });
 
   it("puts Save on the right, under the field", async () => {

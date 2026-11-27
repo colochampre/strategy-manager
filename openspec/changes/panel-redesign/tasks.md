@@ -358,7 +358,7 @@ The owner's words (2026-11-24) are quoted as written.
       - `api: active` and `worker: active`.
     - Both commands ran from this session with `!` and the `SSH_ASKPASS` prefix.
     - The owner read the page in production: "Se ve bien. Veo las notificaciones pasadas de aperturas y cierres. Solo una notificacion tipo Seguridad de un stop activado."
-- [ ] RD.6 PR 6: info tooltips and motion (S13), on branch `feat/rd6-tooltips-motion`. The owner put it next (L62). One unit, by one writer (the long-session backstop):
+- [x] RD.6 PR 6: info tooltips and motion (S13), on branch `feat/rd6-tooltips-motion`. The owner put it next (L62). One unit, by one writer (the long-session backstop), a Sonnet writer, then the parent: measured in the browser, a box centred under a button at the end of a header left the screen, so the box lines up with the button's edge when one side has no room (its RED first). The frontend gate green (185 files, 4345 tests):
   - The information button (`shared/ui/InfoDisclosure.tsx`, 21 calls) opens its text in a floating box anchored to the button, instead of below it. The 21 callers keep their code: `InfoText` still holds the text where it is written, and it is shown in the box.
     - Click and tap toggle it; Escape, from the button or inside the box, closes it and returns focus to the button; a click outside closes it. `aria-expanded` and `aria-controls` stay.
     - The box looks as the table tips do (`shared/ui/Tooltip.tsx`: `border-rule`, `bg-panel-2`, small text) and is wider, for a paragraph. It opens below the button, and is never cut by the card around it.
