@@ -300,17 +300,30 @@ The owner's words (2026-11-24) are quoted as written.
     - Both commands ran from this session with `!` and the `SSH_ASKPASS` prefix.
     - The owner read the panel in production: "Revisado. Se ve bien".
 
-- [ ] RD.4 PR 4: My trades (S5), on branch `feat/rd4-my-trades`. ex4 brought up to the tables' rules (L52 to L54), approved (L55). Built as two units launched together, on one fixed contract:
-  - [x] RD.4a, backend (commit `8503a16`; a Sonnet writer, parallel units): 23 route tests on PostgreSQL, the backend gate green once the route guard test listed the route as scoped to the signed-in user. Pools are read from the user's ledger rows, which cannot miss a pool holding fills. `GET /performance/trades`, the signed-in user's CLOSED operations across every pool they hold ledger rows in.
+- [x] RD.4 PR 4: My trades (S5), on branch `feat/rd4-my-trades`. ex4 brought up to the tables' rules (L52 to L54), approved (L55). Built as two units launched together, on one fixed contract:
+  - [x] RD.4a, backend: `GET /performance/trades`, the signed-in user's CLOSED operations across every pool they hold ledger rows in. Commit `8503a16`, by a Sonnet writer (parallel units): 23 route tests on PostgreSQL; the backend gate green once the route guard test listed the route as scoped to the signed-in user. Pools are read from the user's ledger rows, which cannot miss a pool holding fills.
     - Query: `limit` (1 to 100, default 20), `offset` (0 or more, default 0), `closed_since` (an aware datetime; a naive one is 422), `strategy_id`, `exchange`. Each filter is optional and they combine.
     - Body: `{trades, total, strategies, exchanges}`. `total` counts every row that passes the filters, before `offset` and `limit`. `strategies` (`{id, name, archived}`, by name) and `exchanges` list what the user's closed operations hold with no filter applied, so the panel's choices do not shrink as filters narrow.
     - A row: `allocation_id`, `strategy_id`, `strategy_name`, `strategy_archived`, `strategy_page` (`AUTHORED`, `LISTED` or null, as an open position's), `exchange`, `venue`, `currency` (the pool's settlement currency), `pair`, `direction`, `opened_at`, `closed_at`, `rehearsal`, `entry_price`, `exit_price`, `pnl`, `fees_complete`, and `close_cause`: `STOP_FIRED`, `STOP_FAILED_CLOSED`, `STRATEGY_STOPPED_CLOSED` or `MANUAL_CLOSE` from the operation's safety event, `SIGNAL` when it has none.
     - Order: `closed_at` then `allocation_id`, newest first, as a strategy's closed trades. Rehearsal operations are included and flagged, as the panel asks a strategy's. Nothing is added across pools (rule 7): each row carries its own currency.
     - Only the user's own ledger rows, as every performance read (AD8).
-  - [x] RD.4b, panel (the commit after `8503a16`; a Sonnet writer, parallel units, then the parent: `strategyHref` shared with the positions, "Lado" as the other tables, the close time on the opening time's line, and L56's cap): 32 page tests, the frontend gate green (182 files, 4283 tests). Measured at 1446 px with production-length texts: 1000 of 1046 px. the My trades page at `/trades`, a sidebar item after the Overview, as ex4.
+  - [x] RD.4b, panel: the My trades page at `/trades`, a sidebar item after the Overview, as ex4. Commit `2f515a3`, by a Sonnet writer (parallel units), then the parent: `strategyHref` shared with the positions, "Lado" as the other tables, the close time on the opening time's line, and L56's cap. 32 page tests; the frontend gate green (182 files, 4283 tests). Measured at 1446 px with production-length texts: 1000 of 1046 px.
     - Open operations come from `GET /positions/open`, which the Overview already reads; they go first, newest opening first, and the period does not apply to them (they are now). Then the closed ones, from RD.4a, newest close first. One count and one pager over both, 20 a page.
     - Filters: Period (last 7, 30 or 90 days, or all; 30 by default), Strategy, Exchange, and Clear filters.
     - The table and its cards, the marks and the tips as ex4 shows them (L53, L54).
+  - An independent read-only check of RD.4a's data isolation (a Sonnet verifier, security item): no blocker; every query is bound to the user, and a foreign `strategy_id` or `exchange` gives an empty page that says nothing about the strategy. Its advisory, the port's docstring on `strategy_facts`, is commit `871bdd6`.
+  - *Delivered 2026-11-27 as PR #146*, seven commits: the prototype (L52 to L54), the contract (L55), RD.4a, RD.4b and the docstring. The owner merged it with a merge commit, `7f188f7ac46a`.
+    - Deploy, backend and frontend, no migration:
+      - The bundle was built from a clean worktree of `origin/main` at `7f188f7ac46a`: 27 files, SHA-256 `e9739fe4d348e1f27d80ac90d4c41bd5af9c94b8c1b2e2e12c1fdc45970c0e9d`.
+      - One script pulled as `strategy`, restarted both services and unpacked the bundle (pps.6).
+    - The VPS answered:
+      - the archive's checksum `OK`, and `readable`;
+      - `checkout: 7f188f7ac46a` and `migrations changed since 538fc2ddb8b7: 0`;
+      - `new route without a session: 401`;
+      - `bundle: 7f188f7ac46a` and `panel: 200 text/html`;
+      - `api: active` and `worker: active`.
+    - Both commands ran from this session with `!` and the `SSH_ASKPASS` prefix.
+    - The owner read the page in production: "Se ve bien!"
 - [ ] RD.5 PR 5: Notifications (S6).
 - [ ] RD.6 PR 6: info tooltips and motion (S13).
 - [x] RD.8: the Users page (`/users`, admin) as a table, like the strategy lists and the open positions (L25). Prototype first, when the owner calls for it. Prototyped as ex16 (L47, L48), approved (L49), built on `feat/rd8-users-table`.
