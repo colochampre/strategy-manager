@@ -413,6 +413,7 @@ tr:last-child td{border-bottom:0}
 .sd.g{background:var(--gain)} .sd.a{background:var(--decision)} .sd.l{background:var(--loss)}
 .mt{color:var(--ink-3)}
 .slot{display:inline-flex;flex:none;width:14px;justify-content:center;align-items:center}
+#ex4 td>.nm{display:flex}
 .slot .ic{width:14px;height:14px;cursor:help}
 </style>
 </head>
@@ -665,7 +666,7 @@ tr:last-child td{border-bottom:0}
 
 <!-- ============ ex4 ============ -->
 <section class="screen" id="ex4">
-<p class="cap">ex4 — Mis operaciones, escritorio; la barra lateral muestra el grupo Administración desplegado</p>
+<p class="cap">ex4 — PROPUESTA (RD.4, S5, L52): Mis operaciones, escritorio; la barra lateral muestra el grupo Administración desplegado. Puesta al día con las reglas de las tablas que vinieron después de RD.0: letra de 13 px (<code>.tbl-w.t.l</code>), el total arriba a la derecha, paginada de a 20 con "Página 1 de 3" entre Anterior y Siguiente (L48), y la marca de la fila a la izquierda del Par: un punto gain si es real, gris si es simulada, y el triángulo en loss si el exchange no coincide con lo registrado, cada uno con su tooltip. Abiertas y cerradas en una sola lista, la más reciente primero; una abierta dice "Abierta" en Cierre, no tiene Salida, y su PnL es el no realizado, al último precio (lo dice su tooltip). Sin columna Estado: con sus píldoras la tabla pedía 1129 px de 1052 a 1446 px. Cómo cerró va como marca a la izquierda del Cierre, con su tooltip: el escudo en loss si disparó el stop en el exchange, la alerta en loss si fue un cierre de seguridad (el stop no se pudo confirmar), la persona si la cerró usted (Cerrar ahora), la pausa si se cerró al detenerse la estrategia; un cierre por señal no lleva marca. Fechas en UTC, como en la página de cada estrategia. El nombre de la estrategia lleva a su página, donde siguen sus operaciones con el Detalle (S5). El PnL va en la moneda del pool: hoy todos son USDT; una fila de otro pool diría la suya, y nada se suma entre pools. Sin selector de exchange arriba: el filtro Exchange hace ese trabajo. Período: Últimos 7, 30 o 90 días, o Todo. Ocultar saldos tapa los importes, como en las demás tablas. Se ven 10 de las 20 filas de la página. Donde la tabla no entra, cada operación es una tarjeta (L45).</p>
 <div class="frame">
   <aside class="side">
     <div class="side-top">
@@ -690,18 +691,17 @@ tr:last-child td{border-bottom:0}
     </div>
   </aside>
   <main class="main"><div class="wrap">
-    <div class="top">
-      <div class="exs"><button class="ex on"><span class="wm binance">BINANCE</span></button><button class="ex"><span class="wm bybit">BYBIT</span></button></div>
+    <div class="top end">
       <div class="tools">
         <span class="badge-live"><i></i>En vivo</span>
-        <button class="icon-btn"><i class="ic i-user"></i></button>
-        <button class="icon-btn"><i class="ic i-bell"></i></button>
-        <button class="icon-btn"><span class="flag"></span></button>
+        <button class="icon-btn" aria-label="Mi cuenta"><i class="ic i-user"></i></button>
+        <button class="icon-btn" aria-label="Notificaciones"><i class="ic i-bell"></i></button>
+        <button class="icon-btn" aria-label="Idioma: español"><span class="flag"></span></button>
       </div>
     </div>
     <div class="crumb"><i class="ic i-home"></i><i class="ic i-right"></i><b>Mis operaciones</b></div>
     <h1>Mis operaciones</h1>
-    <p class="sub-t">Consulte todas sus operaciones, de todas sus estrategias, en un solo lugar.</p>
+    <p class="sub-t">Todas sus operaciones, de todas sus estrategias, en un solo lugar.</p>
 
     <div class="card"><div class="pad" style="display:flex;gap:16px;align-items:flex-end">
       <div class="field"><label>Período</label><div class="sel">Últimos 30 días<i class="ic i-down"></i></div></div>
@@ -711,24 +711,22 @@ tr:last-child td{border-bottom:0}
     </div></div>
 
     <div class="card">
-      <div class="card-h"><h2>Operaciones</h2></div>
-      <div style="padding:0 22px"><div class="total">Total <span class="chip-n">42 registros</span></div></div>
-      <div class="tbl-w" style="margin-top:0"><table>
-        <thead><tr><th>Apertura</th><th>Cierre</th><th>Estrategia</th><th>Par</th><th>Lado</th><th>Exchange</th><th class="r">Entrada</th><th class="r">Salida</th><th class="r">PnL (USDT)</th><th>Estado</th></tr></thead>
+      <div class="card-h"><h2>Operaciones</h2><span class="chip-n">42 operaciones</span></div>
+      <div class="tbl-w t l x"><table>
+        <thead><tr><th>Apertura (UTC)</th><th>Cierre (UTC)</th><th>Estrategia</th><th>Par</th><th>Sentido</th><th>Exchange</th><th class="r">Entrada</th><th class="r">Salida</th><th class="r">PnL USDT</th></tr></thead>
         <tbody>
-          <tr><td class="num">24/11 09:00</td><td class="mute">—</td><td>Trend Rider 4h</td><td class="num">BTCUSDT.P</td><td>Largo</td><td><span class="wm binance">Binance</span></td><td class="r num">96.420,5</td><td class="r mute">—</td><td class="r num gain">+41,20</td><td><span class="pill dot t-op">Abierta</span></td></tr>
-          <tr><td class="num">24/11 04:00</td><td class="mute">—</td><td>SOL Breakout</td><td class="num">SOLUSDT.P</td><td>Corto</td><td><span class="wm binance">Binance</span></td><td class="r num">182,40</td><td class="r mute">—</td><td class="r num loss">−12,35</td><td><span class="pill dot t-op">Abierta</span></td></tr>
-          <tr><td class="num">23/11 16:00</td><td class="mute">—</td><td>ETH Mean Reversion</td><td class="num">ETHUSDT.P</td><td>Largo</td><td><span class="wm binance">Binance</span></td><td class="r num">3.412,8</td><td class="r mute">—</td><td class="r num gain">+18,90</td><td><span class="pill dot t-op">Abierta</span></td></tr>
-          <tr><td class="num">23/11 08:00</td><td class="num">23/11 14:00</td><td>Trend Rider 4h</td><td class="num">ETHUSDT.P</td><td>Largo</td><td><span class="wm bybit">Bybit</span></td><td class="r num">3.371,2</td><td class="r num">3.402,6</td><td class="r num gain">+27,40</td><td><span class="pill dot t-no">Cerrada</span></td></tr>
-          <tr><td class="num">22/11 20:00</td><td class="num">22/11 23:12</td><td>SOL Breakout</td><td class="num">SOLUSDT.P</td><td>Largo</td><td><span class="wm binance">Binance</span></td><td class="r num">178,10</td><td class="r num">171,55</td><td class="r num loss">−31,80</td><td><span class="pill dot t-sf">Stop</span></td></tr>
-          <tr><td class="num">22/11 04:00</td><td class="num">22/11 12:00</td><td>Trend Rider 4h</td><td class="num">BTCUSDT.P</td><td>Largo</td><td><span class="wm binance">Binance</span></td><td class="r num">95.180,0</td><td class="r num">96.020,5</td><td class="r num gain">+36,75</td><td><span class="pill dot t-no">Cerrada</span></td></tr>
-          <tr><td class="num">21/11 12:00</td><td class="num">21/11 13:40</td><td>ETH Mean Reversion</td><td class="num">ETHUSDT.P</td><td>Corto</td><td><span class="wm bybit">Bybit</span></td><td class="r num">3.455,0</td><td class="r num">3.431,7</td><td class="r num gain">+12,60</td><td><span class="pill t-no"><i class="ic i-user"></i>Cerrada por usted</span></td></tr>
-          <tr><td class="num">20/11 08:00</td><td class="num">20/11 20:00</td><td>SOL Breakout</td><td class="num">SOLUSDT.P</td><td>Corto</td><td><span class="wm bybit">Bybit</span></td><td class="r num">190,25</td><td class="r num">186,90</td><td class="r num gain">+21,05</td><td><span class="pill dot t-no">Cerrada</span></td></tr>
-          <tr><td class="num">19/11 16:00</td><td class="num">19/11 18:30</td><td>Trend Rider 4h</td><td class="num">BTCUSDT.P</td><td>Largo</td><td><span class="wm binance">Binance</span></td><td class="r num">97.020,0</td><td class="r num">95.930,0</td><td class="r num loss">−48,20</td><td><span class="pill dot t-sf">Stop</span></td></tr>
-          <tr><td class="num">18/11 00:00</td><td class="num">18/11 16:00</td><td>ETH Mean Reversion</td><td class="num">ETHUSDT.P</td><td>Largo</td><td><span class="wm binance">Binance</span></td><td class="r num">3.298,4</td><td class="r num">3.361,0</td><td class="r num gain">+33,90</td><td><span class="pill dot t-no">Cerrada</span></td></tr>
+          <tr><td class="num">2026-11-24 09:00</td><td><span class="nm"><span class="slot"></span><span class="pill dot t-op">Abierta</span></span></td><td><a class="lk">Trend Rider 4h</a></td><td><span class="nm"><span class="slot"><i class="sd g" title="Real"></i></span>BTCUSDT</span></td><td>LONG</td><td><span class="wm binance">Binance</span></td><td class="r num">96.420,50</td><td class="r mute">—</td><td class="r num gain"><span class="tip" title="No realizado, al último precio">+41,20</span></td></tr>
+          <tr><td class="num">2026-11-24 04:00</td><td><span class="nm"><span class="slot"></span><span class="pill dot t-op">Abierta</span></span></td><td><a class="lk">SOL Breakout</a></td><td><span class="nm"><span class="slot"><i class="sd g" title="Real"></i></span>SOLUSDT</span></td><td>SHORT</td><td><span class="wm binance">Binance</span></td><td class="r num">182,40</td><td class="r mute">—</td><td class="r num loss"><span class="tip" title="No realizado, al último precio">−12,35</span></td></tr>
+          <tr><td class="num">2026-11-23 16:00</td><td><span class="nm"><span class="slot"></span><span class="pill dot t-op">Abierta</span></span></td><td><a class="lk">ETH Mean Reversion</a></td><td><span class="nm"><span class="slot"><i class="sd" title="Simulada"></i></span>ETHUSDT</span></td><td>LONG</td><td><span class="wm bybit">Bybit</span></td><td class="r num">3.412,80</td><td class="r mute">—</td><td class="r num gain"><span class="tip" title="No realizado, al último precio">+18,90</span></td></tr>
+          <tr><td class="num">2026-11-23 08:00</td><td class="num"><span class="nm"><span class="slot"></span>2026-11-23 14:00</span></td><td><a class="lk">Trend Rider 4h</a></td><td><span class="nm"><span class="slot"><i class="sd g" title="Real"></i></span>ETHUSDT</span></td><td>LONG</td><td><span class="wm bybit">Bybit</span></td><td class="r num">3.371,20</td><td class="r num">3.402,60</td><td class="r num gain">+27,40</td></tr>
+          <tr><td class="num">2026-11-22 20:00</td><td class="num"><span class="nm"><span class="slot"><i class="ic i-shield loss" title="Disparó el stop en el exchange"></i></span>2026-11-22 23:12</span></td><td><a class="lk">SOL Breakout</a></td><td><span class="nm"><span class="slot"><i class="sd g" title="Real"></i></span>SOLUSDT</span></td><td>LONG</td><td><span class="wm binance">Binance</span></td><td class="r num">178,10</td><td class="r num">171,55</td><td class="r num loss">−31,80</td></tr>
+          <tr><td class="num">2026-11-22 04:00</td><td class="num"><span class="nm"><span class="slot"></span>2026-11-22 12:00</span></td><td><a class="lk">Trend Rider 4h</a></td><td><span class="nm"><span class="slot"><i class="sd g" title="Real"></i></span>BTCUSDT</span></td><td>LONG</td><td><span class="wm binance">Binance</span></td><td class="r num">95.180,00</td><td class="r num">96.020,50</td><td class="r num gain">+36,75</td></tr>
+          <tr><td class="num">2026-11-21 12:00</td><td class="num"><span class="nm"><span class="slot"><i class="ic i-user mute" title="Cerrada por usted (Cerrar ahora)"></i></span>2026-11-21 13:40</span></td><td><a class="lk">ETH Mean Reversion</a></td><td><span class="nm"><span class="slot"><i class="sd" title="Simulada"></i></span>ETHUSDT</span></td><td>SHORT</td><td><span class="wm bybit">Bybit</span></td><td class="r num">3.455,00</td><td class="r num">3.431,70</td><td class="r num gain">+12,60</td></tr>
+          <tr><td class="num">2026-11-20 08:00</td><td class="num"><span class="nm"><span class="slot"><i class="ic i-alert loss" title="Cierre de seguridad: el stop no se pudo confirmar"></i></span>2026-11-20 20:00</span></td><td><a class="lk">SOL Breakout</a></td><td><span class="nm"><span class="slot"><i class="ic i-tri loss" title="El exchange no coincide con lo registrado"></i></span>SOLUSDT</span></td><td>SHORT</td><td><span class="wm bybit">Bybit</span></td><td class="r num">190,25</td><td class="r num">186,90</td><td class="r num gain">+21,05</td></tr>
+          <tr><td class="num">2026-11-19 16:00</td><td class="num"><span class="nm"><span class="slot"><i class="ic i-shield loss" title="Disparó el stop en el exchange"></i></span>2026-11-19 18:30</span></td><td><a class="lk">Trend Rider 4h</a></td><td><span class="nm"><span class="slot"><i class="sd g" title="Real"></i></span>BTCUSDT</span></td><td>LONG</td><td><span class="wm binance">Binance</span></td><td class="r num">97.020,00</td><td class="r num">95.930,00</td><td class="r num loss">−48,20</td></tr>
+          <tr><td class="num">2026-11-18 00:00</td><td class="num"><span class="nm"><span class="slot"><i class="ic i-pause mute" title="Cerrada al detenerse la estrategia"></i></span>2026-11-18 16:00</span></td><td><a class="lk">ETH Mean Reversion</a></td><td><span class="nm"><span class="slot"><i class="sd g" title="Real"></i></span>ETHUSDT</span></td><td>LONG</td><td><span class="wm binance">Binance</span></td><td class="r num">3.298,40</td><td class="r num">3.361,00</td><td class="r num gain">+33,90</td></tr>
         </tbody></table></div>
-      <div class="pager"><span>Mostrando 1 a 10 de 42</span>
-        <div class="pages"><span>Anterior</span><span class="on num">1</span><span class="num">2</span><span class="num">3</span><span class="num">4</span><span class="num">5</span><span>Siguiente</span></div></div>
+      <div class="cl"><button class="btn sm" disabled style="opacity:.45">Anterior</button><span class="num">Página 1 de 3</span><button class="btn sm">Siguiente</button></div>
     </div>
   </div></main>
 </div>
