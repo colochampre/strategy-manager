@@ -141,7 +141,8 @@ class TradeStrategyFacts:
 
 class MyTradesSourcePort(Protocol):
     """The three reads behind ``GET /performance/trades``, each ONE statement
-    however many ids it is asked about, all of ONE user's rows."""
+    however many ids it is asked about. Two are bound to the user in SQL;
+    ``strategy_facts`` reads strategies by id alone."""
 
     async def pools_with_fills(self, user_id: UUID) -> Sequence[PoolKey]:
         """Every pool the user has a ledger row in, read from the ledger itself:
@@ -151,7 +152,11 @@ class MyTradesSourcePort(Protocol):
 
     async def strategy_facts(
         self, user_id: UUID, strategy_ids: Sequence[UUID]
-    ) -> Mapping[UUID, TradeStrategyFacts]: ...
+    ) -> Mapping[UUID, TradeStrategyFacts]:
+        """Each strategy's name, archived flag and page for this user. It reads
+        the strategies by id with no user filter: a caller passes only ids taken
+        from the user's own ledger rows, never ids from a request."""
+        ...
 
     async def close_event_kinds(
         self, user_id: UUID, allocation_ids: Sequence[UUID]
