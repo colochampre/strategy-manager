@@ -141,7 +141,7 @@ describe("the sidebar", () => {
     const hrefs = within(nav)
       .getAllByRole("link")
       .map((link) => link.getAttribute("href"));
-    expect(hrefs.slice(0, 4)).toEqual(["/", "/strategies/authored", "/strategies", "/strategies/explore"]);
+    expect(hrefs.slice(0, 5)).toEqual(["/", "/trades", "/strategies/authored", "/strategies", "/strategies/explore"]);
   });
 
   it("toggles a group with aria-expanded, and hides its links while it is closed", async () => {

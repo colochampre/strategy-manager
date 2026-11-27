@@ -5,6 +5,7 @@ import { Link } from "react-router";
 
 import { CloseNowControl } from "@/features/positions/CloseNowControl";
 import { PositionMark } from "@/features/positions/PositionMark";
+import { strategyHref } from "@/features/positions/strategyHref";
 import type { OpenPosition } from "@/shared/api/positions";
 import { amountText, parseDecimal, toneClass } from "@/shared/lib/amount-text";
 import { cn } from "@/shared/lib/cn";
@@ -128,20 +129,13 @@ function leverageOf(position: OpenPosition, t: Translate): ReactNode {
  */
 const COLUMNS = 6;
 
-/** The page this user can open: the detail is the author's, and a subscriber reaches the public page while it is listed. */
-function strategyHref({ strategy_id: id, strategy_page: page }: OpenPosition): string | null {
-  if (id === null) return null;
-  if (page === "AUTHORED") return `/strategies/${id}`;
-  return page === "LISTED" ? `/strategies/explore/${id}` : null;
-}
-
 /**
  * The strategy's name, the pool variant's first column: a link to the page the server says this user can open,
  * plain text when there is none (a position the facts could not decorate, or a subscriber's strategy off the
  * list). Never matched by name.
  */
 function StrategyName({ position }: { position: OpenPosition }) {
-  const href = strategyHref(position);
+  const href = strategyHref(position.strategy_id, position.strategy_page);
   if (href === null) return <span className="font-sans">{position.strategy_name}</span>;
   return (
     <Link to={href} className="font-sans text-gain hover:text-gain-bright">
