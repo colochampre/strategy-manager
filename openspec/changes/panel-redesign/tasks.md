@@ -368,6 +368,12 @@ The owner's words (2026-11-24) are quoted as written.
     - the dialogs fade in with a slight scale;
     - buttons, cards and rows change colour on hover and focus in about 120 ms.
   - The figures and charts are not animated; hiding the balances is instant. The shell's motion is RD.1's and does not change.
+  - [ ] RD.6b: every tip behaves the same, hybrid (L63, L64). The hover tips (`shared/ui/Tooltip.tsx`: `Tooltip`, `IconTip`, `InfoTip`; the Mode column of Users, the tables' headers) and the information button (`InfoDisclosure`) share one behaviour:
+    - the pointer on the trigger opens it after a short delay, so passing over does not flash it; leaving closes it after a short delay;
+    - the pointer moving onto the box keeps it open, so a paragraph can be read;
+    - a click or a tap pins it open until a click outside or Escape (on a phone this is the only way);
+    - keyboard focus opens it, Escape closes it and returns focus to the trigger;
+    - the information button keeps `aria-expanded`; a tip that only repeats its trigger's name keeps describing nothing.
 - [x] RD.8: the Users page (`/users`, admin) as a table, like the strategy lists and the open positions (L25). Prototype first, when the owner calls for it. Prototyped as ex16 (L47, L48), approved (L49), built on `feat/rd8-users-table`.
   - *Delivered 2026-11-27 as PR #143*, four commits: the prototype (L47, L48), the closed trades' page count (L48), the table (L49) and the brake tip's fix (L50). The owner merged it with a merge commit, `3f88c289b28c`.
     - **Deploy, run by the owner**, by `deploy_3f88c289b28c.sh`. Frontend only: no backend file changed since `d3bc653435e3`, so no restart and no migration. The bundle was built from a clean worktree of `origin/main` at `3f88c289b28c`: 29 entries, SHA-256 `118df3e3…6dea748fa`.
@@ -556,3 +562,5 @@ The owner's words (2026-11-24) are quoted as written.
 - L60 (2026-11-27, owner, on that proposal): "Si, me parece bien. Que sería prefers-reduced-motion?"
 - L61 (2026-11-27, owner, on ex5 as L57 to L60 left it): "Si, apruebo"
 - L62 (2026-11-27, owner, on what follows RD.5): "No. Ya hice el merge del registro. Primero terminamos RD.6, RD.9 y después vemos de las tareas pendientes, cuál debería tener prioridad"
+- L63 (2026-11-27, owner, after RD.6 was built): "Volviendo a los tooltips actuales: hay uno o más tooltips que se despliegan automaticamente al pasar el cursor por encima, como el de la columna Modo en /users y otros como en las configuraciones de estrategia que hay que hacer clic en el (i) para verlos. Que todos se comporten igual. Cual conviene? el que aparece al pasarle el cursor por encima o al hacer clic? Creo que el hover es más dinámico". The same message asked to advise users on sub-accounts, recorded in `openspec/changes/manual-trading/proposal.md` (PR #151).
+- L64 (2026-11-27, owner, on the recommended hybrid): "Si, híbrido." RD.6b is added.
