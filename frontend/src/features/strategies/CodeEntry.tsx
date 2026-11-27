@@ -53,7 +53,7 @@ function CodeDialog({ onClose }: CodeDialogProps) {
       <form
         onSubmit={send}
         noValidate
-        className="flex max-h-full w-full max-w-lg flex-col gap-4 overflow-auto rounded-lg border border-rule bg-panel p-6"
+        className="flex max-h-full w-full max-w-lg flex-col gap-4 overflow-auto rounded-lg border border-rule bg-panel p-6 motion-safe:animate-dialog-in"
       >
         <h2 id={titleId} className="text-sm font-semibold text-ink">
           {t(`${KEY}.haveCode`)}

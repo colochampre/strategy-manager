@@ -111,7 +111,7 @@ export function TradeDetailDialog({ strategyId, trade, currency, locale, onClose
       aria-labelledby={titleId}
       onKeyDown={handleKeyDown}
       onCancel={handleCancelEvent}
-      className="fixed inset-0 m-auto max-h-[90vh] w-full max-w-2xl flex-col rounded-lg border border-rule bg-panel p-0 text-ink backdrop:bg-ground/80 open:flex"
+      className="fixed inset-0 m-auto max-h-[90vh] w-full max-w-2xl flex-col rounded-lg border border-rule bg-panel p-0 text-ink backdrop:bg-ground/80 open:flex motion-safe:animate-dialog-in"
     >
       <div className="flex items-start justify-between gap-4 border-b border-rule p-5">
         <h2 id={titleId} className="font-display text-base font-semibold text-ink">

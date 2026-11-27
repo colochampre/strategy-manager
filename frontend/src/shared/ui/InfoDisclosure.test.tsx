@@ -111,7 +111,7 @@ describe("InfoDisclosure", () => {
     expect(screen.queryByText(SHARE.text)).toBeInTheDocument();
   });
 
-  it("tabbing away from an open explanation leaves it open and so does a press elsewhere", () => {
+  it("tabbing away from an open explanation leaves it open", () => {
     render(
       <>
         <Row {...SHARE} />
@@ -125,12 +125,159 @@ describe("InfoDisclosure", () => {
     act(() => {
       pressTab();
     });
-    expect(screen.getByRole("button", { name: "Elsewhere" })).toHaveFocus();
-    fireEvent.mouseDown(document.body);
-    fireEvent.click(document.body);
 
+    expect(screen.getByRole("button", { name: "Elsewhere" })).toHaveFocus();
     expect(screen.queryByText(SHARE.text)).toBeInTheDocument();
     expect(shareButton()).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("a press outside closes it, and a press on the button or inside the box does not", () => {
+    render(
+      <>
+        <Row {...SHARE} />
+        <p>Elsewhere</p>
+      </>,
+    );
+    fireEvent.click(shareButton());
+
+    fireEvent.mouseDown(screen.getByText(SHARE.text));
+    expect(screen.queryByText(SHARE.text)).toBeInTheDocument();
+    fireEvent.mouseDown(shareButton());
+    expect(screen.queryByText(SHARE.text)).toBeInTheDocument();
+
+    fireEvent.mouseDown(screen.getByText("Elsewhere"));
+
+    expect(screen.queryByText(SHARE.text)).toBeNull();
+    expect(shareButton()).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("an outside press does nothing while it is closed, and the listener is gone after unmount", () => {
+    const { unmount } = render(<Row {...SHARE} />);
+    fireEvent.mouseDown(document.body);
+    expect(shareButton()).toHaveAttribute("aria-expanded", "false");
+
+    fireEvent.click(shareButton());
+    unmount();
+
+    expect(() => fireEvent.mouseDown(document.body)).not.toThrow();
+  });
+
+  it("opens the text in a floating box anchored to the button, not inline where the text is written", () => {
+    render(<Row {...SHARE} />);
+    fireEvent.click(shareButton());
+
+    const box = document.getElementById(shareButton().getAttribute("aria-controls") ?? "");
+    expect(box).toContainElement(screen.getByText(SHARE.text));
+    expect(box?.className).toMatch(/(^|\s)absolute(\s|$)/);
+    expect(box?.className).toMatch(/(^|\s)top-full(\s|$)/);
+    expect(box?.className).toMatch(/(^|\s)z-\d+(\s|$)/);
+    expect(box).toHaveClass("border", "border-rule", "bg-panel-2");
+    // The anchor holds the button and the box together, so the box is placed against the button.
+    expect(box?.parentElement?.className).toMatch(/(^|\s)relative(\s|$)/);
+    expect(box?.parentElement).toContainElement(shareButton());
+    expect(box).not.toHaveAttribute("style");
+  });
+
+  it.each([
+    ["in the middle of the screen, it is centred under the button", 700, ["left-1/2", "-translate-x-1/2"], ["right-0", "left-0"]],
+    ["near the right edge, it lines up with the button's right edge", 1380, ["right-0"], ["left-1/2", "left-0"]],
+    ["near the left edge, it lines up with the button's left edge", 40, ["left-0"], ["left-1/2", "right-0"]],
+  ])("the box stays on screen: %s", (_case, centre, present, absent) => {
+    render(<Row {...SHARE} />);
+    const width = 1422;
+    Object.defineProperty(document.documentElement, "clientWidth", { configurable: true, value: width });
+    shareButton().getBoundingClientRect = () => new DOMRect(centre - 22, 100, 44, 44);
+    fireEvent.click(shareButton());
+
+    const box = document.getElementById(shareButton().getAttribute("aria-controls") ?? "");
+    expect(box).toHaveClass(...present);
+    for (const name of absent) expect(box).not.toHaveClass(name);
+  });
+
+  // The hybrid of L63/L64: the pointer opens it, a click pins it.
+  function anchor(): HTMLElement {
+    return shareButton().parentElement as HTMLElement;
+  }
+
+  it("the pointer on the button opens it, and leaving closes it", () => {
+    render(<Row {...SHARE} />);
+
+    fireEvent.mouseEnter(anchor());
+    expect(screen.getByText(SHARE.text)).toBeInTheDocument();
+    expect(shareButton()).toHaveAttribute("aria-expanded", "true");
+
+    fireEvent.mouseLeave(anchor());
+    expect(screen.queryByText(SHARE.text)).toBeNull();
+    expect(shareButton()).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("the pointer moving from the button onto the box keeps it open: the box is inside what the pointer is on", () => {
+    render(<Row {...SHARE} />);
+    fireEvent.mouseEnter(anchor());
+
+    // Leaving the button for the box does not leave the anchor, which holds both.
+    fireEvent.mouseLeave(shareButton());
+    const box = document.getElementById(shareButton().getAttribute("aria-controls") ?? "");
+    expect(anchor()).toContainElement(box);
+    expect(screen.getByText(SHARE.text)).toBeInTheDocument();
+  });
+
+  it("a click on one the pointer opened pins it: leaving does not close it, a press outside does", () => {
+    render(
+      <>
+        <Row {...SHARE} />
+        <p>Elsewhere</p>
+      </>,
+    );
+    fireEvent.mouseEnter(anchor());
+    fireEvent.click(shareButton());
+
+    fireEvent.mouseLeave(anchor());
+    expect(screen.getByText(SHARE.text)).toBeInTheDocument();
+    expect(shareButton()).toHaveAttribute("aria-expanded", "true");
+
+    fireEvent.mouseDown(screen.getByText("Elsewhere"));
+    expect(screen.queryByText(SHARE.text)).toBeNull();
+  });
+
+  it("a click on a pinned one closes it, even with the pointer still on it", () => {
+    render(<Row {...SHARE} />);
+    fireEvent.mouseEnter(anchor());
+    fireEvent.click(shareButton());
+
+    fireEvent.click(shareButton());
+
+    expect(screen.queryByText(SHARE.text)).toBeNull();
+    expect(shareButton()).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("Escape closes one the pointer opened, and it stays closed until the pointer comes back", () => {
+    render(<Row {...SHARE} />);
+    fireEvent.mouseEnter(anchor());
+
+    fireEvent.keyDown(shareButton(), { key: "Escape" });
+    expect(screen.queryByText(SHARE.text)).toBeNull();
+
+    fireEvent.mouseLeave(anchor());
+    fireEvent.mouseEnter(anchor());
+    expect(screen.getByText(SHARE.text)).toBeInTheDocument();
+  });
+
+  it("the box shows the arrow over its text, as every tip does (L66)", () => {
+    render(<Row {...SHARE} />);
+    fireEvent.click(shareButton());
+
+    const box = document.getElementById(shareButton().getAttribute("aria-controls") ?? "");
+    expect(box).toHaveClass("cursor-default");
+  });
+
+  it("the box fades in with the tip animation, by motion-safe only", () => {
+    render(<Row {...SHARE} />);
+    fireEvent.click(shareButton());
+
+    const box = document.getElementById(shareButton().getAttribute("aria-controls") ?? "");
+    expect(box?.className).toMatch(/(^|\s)motion-safe:animate-tip-in(\s|$)/);
+    expect(box?.className).not.toMatch(/(^|\s)animate-tip-in(\s|$)/);
   });
 
   it("two disclosures open together and closing one leaves the other", () => {

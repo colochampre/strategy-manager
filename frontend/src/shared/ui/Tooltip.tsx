@@ -1,5 +1,5 @@
 import type { LucideIcon } from "lucide-react";
-import { useId, useState } from "react";
+import { type MouseEvent, useEffect, useId, useRef, useState } from "react";
 import type { ReactNode } from "react";
 
 interface TooltipProps {
@@ -20,9 +20,17 @@ interface TooltipProps {
   open?: boolean;
 }
 
+/** What inside a trigger acts on a click by itself: a click there is the control's, never the tip's. */
+const CONTROLS = "button, a, input, select, textarea, label, [role='button']";
+
 /**
  * A short explanation shown on hover and on keyboard focus, hidden on leave, blur and Escape. The trigger is
  * focusable itself, so a keyboard user reaches it; while the tip is shown the trigger is described by it.
+ *
+ * Every tip behaves as the information button does (L63, L64): a click or a tap on the trigger pins the tip
+ * open (on a phone, the only way to open it) until a click on the trigger again, a press outside or Escape.
+ * The tip takes the pointer, and a bridge over the gap to its trigger keeps the pointer inside on the way, so
+ * a long tip can be read.
  */
 export function Tooltip({
   text,
@@ -37,10 +45,42 @@ export function Tooltip({
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
   const [dismissed, setDismissed] = useState(false);
-  const shown = (hovered || focused || open) && !dismissed;
+  const [pinned, setPinned] = useState(false);
+  const wrapper = useRef<HTMLSpanElement | null>(null);
+  const tipRef = useRef<HTMLSpanElement | null>(null);
+  const shown = (pinned || hovered || focused || open) && !dismissed;
+
+  // A press outside the trigger and its tip lets a pinned tip go.
+  useEffect(() => {
+    if (!pinned) return;
+    const releaseOutside = (event: globalThis.MouseEvent) => {
+      if (event.target instanceof Node && wrapper.current?.contains(event.target)) return;
+      setPinned(false);
+      setHovered(false);
+    };
+    document.addEventListener("mousedown", releaseOutside);
+    return () => document.removeEventListener("mousedown", releaseOutside);
+  }, [pinned]);
+
+  const pin = (event: MouseEvent<HTMLSpanElement>) => {
+    // Around a control, the click is the control's action; the tip still shows on its hover and focus.
+    if (!tabbable) return;
+    // A click inside the tip is a reader's, on the text: it neither pins nor lets go.
+    if (event.target instanceof Node && tipRef.current?.contains(event.target)) return;
+    const control = event.target instanceof Element ? event.target.closest(CONTROLS) : null;
+    if (control !== null && event.currentTarget.contains(control)) return;
+    if (pinned) {
+      setPinned(false);
+      setDismissed(true);
+    } else {
+      setPinned(true);
+      setDismissed(false);
+    }
+  };
 
   return (
     <span
+      ref={wrapper}
       tabIndex={tabbable ? 0 : undefined}
       aria-describedby={shown && describes ? id : undefined}
       className={`relative ${className}`}
@@ -54,8 +94,11 @@ export function Tooltip({
         setDismissed(false);
       }}
       onBlur={() => setFocused(false)}
+      onClick={pin}
       onKeyDown={(event) => {
-        if (event.key === "Escape") setDismissed(true);
+        if (event.key !== "Escape") return;
+        setPinned(false);
+        setDismissed(true);
       }}
     >
       {children}
@@ -64,12 +107,15 @@ export function Tooltip({
           id={id}
           role="tooltip"
           // The tip resets what a trigger's cell would hand it (one line, a monospaced face), so it wraps in its own box (L18).
-          className={`pointer-events-none absolute z-10 w-max max-w-64 whitespace-normal break-words rounded-md border border-rule bg-panel-2 px-2 py-1 text-left font-sans text-xs font-normal normal-case tracking-normal text-ink ${
+          // The bridge (`before:`) spans the 4 px gap, so the pointer moving onto the tip never leaves the trigger.
+          // The arrow over the text, which is only read, whatever cursor the trigger shows (decision 61, L66).
+          ref={tipRef}
+          className={`absolute z-10 cursor-default before:absolute before:inset-x-0 before:h-1 w-max max-w-64 whitespace-normal break-words rounded-md border border-rule bg-panel-2 px-2 py-1 text-left font-sans text-xs font-normal normal-case tracking-normal text-ink motion-safe:animate-tip-in ${
             placement === "above"
-              ? "bottom-full left-0 mb-1"
+              ? "bottom-full left-0 mb-1 before:-bottom-1"
               : placement === "below"
-                ? "right-0 top-full mt-1"
-                : "left-0 top-full mt-1"
+                ? "right-0 top-full mt-1 before:-top-1"
+                : "left-0 top-full mt-1 before:-top-1"
           }`}
         >
           {text}
@@ -116,7 +162,8 @@ interface InfoTipProps {
  */
 export function InfoTip({ label, text, placement = "above" }: InfoTipProps) {
   return (
-    <Tooltip text={text} placement={placement}>
+    // A click pins the tip, so the (i) shows the hand, as the information button does (decision 61, L65).
+    <Tooltip text={text} placement={placement} className="inline-flex cursor-pointer">
       <span role="img" aria-label={label} className="inline-flex size-6 items-center justify-center text-ink-3 hover:text-ink-2">
         <svg aria-hidden="true" viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.5">
           <circle cx="8" cy="8" r="6.75" />

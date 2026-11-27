@@ -72,6 +72,34 @@
   --animate-drawer-in: drawer-in 180ms ease-out;
   --animate-scrim-in: scrim-in 180ms ease-out;
 
+  /* The tips (S13, RD.6): the info box and the table tips fade in with a slight offset, 150 ms. The dialogs fade in
+     with a slight scale. Both elements carry `motion-safe:`, so prefers-reduced-motion shows them at once.
+     A tip is held back 100 ms, hidden until then (`both`), so a pointer passing over does not flash it (L64). */
+  --animate-tip-in: tip-in 150ms ease-out 100ms both;
+  --animate-dialog-in: dialog-in 150ms ease-out;
+
+  @keyframes tip-in {
+    from {
+      opacity: 0;
+      transform: translateY(-4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes dialog-in {
+    from {
+      opacity: 0;
+      transform: scale(0.97);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+
   /* The bell's shake (L59, L60): the whole cycle is 30 s and the shake takes its first 2 %, so it lasts 0.6 s on
      arrival and again every 30 s. The bell carries `motion-safe:`, so prefers-reduced-motion stops it. */
   --animate-bell-ring: bell-ring 30s ease-in-out infinite;
@@ -150,6 +178,20 @@ body {
   textarea:not(:disabled),
   input:not(:disabled, [type="checkbox"], [type="radio"], [type="range"], [type="button"], [type="submit"], [type="reset"]) {
     cursor: text;
+  }
+}
+
+/* Hover and focus change colour in 120 ms (S13, RD.6) on buttons, links, fields and on whatever carries a
+   `hover:` or `focus:` utility (cards, rows). Colour only: no figure, chart or balance moves. It sits in the base
+   layer, so a `transition-*` utility on an element (the sidebar's width) still wins, and outside the media query
+   under prefers-reduced-motion nothing transitions. */
+@media (prefers-reduced-motion: no-preference) {
+  @layer base {
+    :where(button, a, select, input, textarea, summary, [class*="hover:"], [class*="focus:"], [class*="focus-visible:"]) {
+      transition-property: color, background-color, border-color;
+      transition-duration: 120ms;
+      transition-timing-function: ease-out;
+    }
   }
 }
 
