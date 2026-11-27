@@ -64,6 +64,10 @@ SCOPED_TO_THE_SIGNED_IN_USER = {
     ("POST", "/api/positions/{allocation_id}/close"),
     # Safety events (SS.10): the signed-in user's own, an admin's included.
     ("GET", "/api/safety-events"),
+    # Notifications (panel-redesign RD.5a): the signed-in user's own feed, an admin's
+    # included; the discrepancy items are the admin's, decided inside the read.
+    ("GET", "/api/notifications"),
+    ("GET", "/api/notifications/unseen"),
     ("POST", "/api/subscriptions"),
     ("GET", "/api/subscriptions"),
     ("GET", "/api/subscriptions/held"),
