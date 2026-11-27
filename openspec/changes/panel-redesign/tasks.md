@@ -375,6 +375,17 @@ The owner's words (2026-11-24) are quoted as written.
     - keyboard focus opens a tip; the information button opens with Enter or Space, as any disclosure button, so tabbing through a form does not open every explanation on the way. Escape closes either and focus ends on the trigger;
     - the information button keeps `aria-expanded`; a tip that only repeats its trigger's name keeps describing nothing.
     - Built inline by the parent, RED first (8 tests on assertions; the 4 that passed at once were proven by mutating the pin, the Escape and the control guard). Measured in Edge: the hover opens, leaving closes, a click pins through a leave, a press outside releases; with motion allowed the box is at opacity 0 at 40 ms and 1 at 400 ms. `ExchangeKeyCard`'s every-combination test (about 1.5 s alone, unchanged by this work) passed Vitest's 5 s default under the full parallel suite twice; it takes its own 30 s. The frontend gate green (185 files, 4358 tests).
+  - The cursors (L65, L66): the hand over every (i), the arrow over every tip's text; a click inside a pinned tip keeps it.
+  - *Delivered 2026-11-27 as PR #152*, six commits: the contract (L62), RD.6, the RD.6b contract (L63, L64), RD.6b, and the two cursor fixes (L65, L66). The owner merged it with a merge commit, `4ca812183b61`, after PR #151 (`e76e988b`, the manual-trading advice).
+    - Deploy, frontend only: no backend file changed since `242ad4e0a49a`, so no migration and no restart.
+      - The bundle was built from a clean worktree of `origin/main` at `4ca812183b61`: 29 files, SHA-256 `46433e0c7d287affaccdbdc3d6b96814818b788c645e1b39b984c2016b2cef1b`.
+      - One script pulled as `strategy` and unpacked the bundle (pps.6).
+    - The VPS answered:
+      - the archive's checksum `OK`, and `readable`;
+      - `checkout: 4ca812183b61` and `backend changed since 242ad4e0a49a: 0`;
+      - `bundle: 4ca812183b61`, `panel: 200 text/html`;
+      - `api` and `worker` `active`.
+    - The owner read it in production: "Se ven bien", and confirmed the sidebar's build is `4ca812183b61`.
 - [x] RD.8: the Users page (`/users`, admin) as a table, like the strategy lists and the open positions (L25). Prototype first, when the owner calls for it. Prototyped as ex16 (L47, L48), approved (L49), built on `feat/rd8-users-table`.
   - *Delivered 2026-11-27 as PR #143*, four commits: the prototype (L47, L48), the closed trades' page count (L48), the table (L49) and the brake tip's fix (L50). The owner merged it with a merge commit, `3f88c289b28c`.
     - **Deploy, run by the owner**, by `deploy_3f88c289b28c.sh`. Frontend only: no backend file changed since `d3bc653435e3`, so no restart and no migration. The bundle was built from a clean worktree of `origin/main` at `3f88c289b28c`: 29 entries, SHA-256 `118df3e3…6dea748fa`.
@@ -567,3 +578,4 @@ The owner's words (2026-11-24) are quoted as written.
 - L64 (2026-11-27, owner, on the recommended hybrid): "Si, híbrido." RD.6b is added.
 - L65 (2026-11-27, owner, on RD.6b): "El comportamiento quedó bien. Pero algunos (i) al pasar el cursor encima pasan a verse como pointers, y otros dejan el cursor default. Que pasen al pointer en todos". The (i) of `InfoTip` (top bar, the Mode column of Users) was a span under the arrow; it takes `cursor-pointer`, since a click pins it (decision 61). Measured in Edge: every (i) on Overview, Exchanges, Users, Settings and a new strategy shows the hand. Frontend gate green (185 files, 4359 tests).
 - L66 (2026-11-27, owner, on L65): "Un ultimo detalle: el boton (i) ahora pone el cursor correctamente como manito, y al pasar al tooltip, éste se mantiene abierto, y el cursor en algunos tooltip pasa a manito y en otros por defecto. También que se comporten igual todos". A box inherited its trigger's cursor; every box (the tips and the information box) now shows the arrow over its text, which is only read (decision 61). Found on the way: a click inside a pinned tip reached its trigger and let it go; it now leaves it pinned (its test RED first). Measured in Edge: hand over every (i), arrow over every box, on Exchanges and Users. Frontend gate green (185 files, 4362 tests).
+- L67 (2026-11-27, owner, after the deploy of PR #152): "Se ven bien. La build ahora la veo directo en el sidebar, confirmo que es la 4ca812183b61"
