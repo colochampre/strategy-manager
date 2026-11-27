@@ -157,7 +157,8 @@ interface InfoTipProps {
  */
 export function InfoTip({ label, text, placement = "above" }: InfoTipProps) {
   return (
-    <Tooltip text={text} placement={placement}>
+    // A click pins the tip, so the (i) shows the hand, as the information button does (decision 61, L65).
+    <Tooltip text={text} placement={placement} className="inline-flex cursor-pointer">
       <span role="img" aria-label={label} className="inline-flex size-6 items-center justify-center text-ink-3 hover:text-ink-2">
         <svg aria-hidden="true" viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.5">
           <circle cx="8" cy="8" r="6.75" />

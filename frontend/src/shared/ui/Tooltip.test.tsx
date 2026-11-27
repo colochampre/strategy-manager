@@ -2,7 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { Clock } from "lucide-react";
 import { describe, expect, it } from "vitest";
 
-import { IconTip, Tooltip } from "@/shared/ui/Tooltip";
+import { IconTip, InfoTip, Tooltip } from "@/shared/ui/Tooltip";
 
 function trigger(): HTMLElement {
   return screen.getByText("Hover me").parentElement as HTMLElement;
@@ -246,5 +246,14 @@ describe("Tooltip: the hybrid of L63/L64", () => {
     fireEvent.mouseEnter(trigger());
 
     expect(tip().className).toMatch(/(^|\s)before:-top-1(\s|$)/);
+  });
+});
+
+describe("InfoTip", () => {
+  it("shows the hand over its (i), as the information button does, since a click pins it (L65)", () => {
+    render(<InfoTip label="About the mode" text="Explained" />);
+
+    const glyph = screen.getByRole("img", { name: "About the mode" });
+    expect(glyph.parentElement).toHaveClass("cursor-pointer");
   });
 });
