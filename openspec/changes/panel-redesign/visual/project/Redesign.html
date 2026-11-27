@@ -735,7 +735,7 @@ tr:last-child td{border-bottom:0}
 
 <!-- ============ ex5 ============ -->
 <section class="screen" id="ex5">
-<p class="cap">ex5 — Notificaciones, escritorio, barra lateral contraída a iconos (S4). La discrepancia solo la ve el administrador; en el feed de un usuario común no aparece.</p>
+<p class="cap">ex5 — PROPUESTA (RD.5, S6, L57): Notificaciones, escritorio, barra lateral contraída a iconos (S4). Reemplaza a Eventos de seguridad: su entrada de la barra lateral se va y su dirección lleva aquí. Un feed por día, el más reciente arriba, sin estado de leído (S6); la campana, entre la cuenta y el idioma, lleva aquí y no tiene contador. De dónde sale cada color: <b>Operación</b> (gain), cada apertura y cada cierre por señal de sus estrategias, con su entrada o su salida y su resultado; <b>Seguridad</b> (loss), los eventos de seguridad de hoy: el stop que disparó, el cierre de seguridad, el cierre al detenerse la estrategia, el Cerrar ahora y las aperturas rechazadas por el tope de apalancamiento o una suspensión; un cierre así aparece una sola vez, como Seguridad, no también como Operación; <b>Aviso</b> (gris), una apertura rechazada por algo que usted tiene que arreglar en el exchange o en su clave (sin clave, clave de solo lectura, margen no aislado, apalancamiento distinto en el par), con un enlace a dónde arreglarlo; <b>Discrepancia</b> (ámbar), solo para el administrador, las que piden su decisión. Ya no hay aviso de política de privacidad: ese cambio bloquea el panel con su modal hasta aceptarlo. Las cifras con el formato de las tablas del panel. Los chips filtran por tipo; al final, "Ver más" trae los anteriores, de a 30.</p>
 <div class="frame">
   <aside class="side collapsed">
     <div class="side-top">
@@ -757,45 +757,45 @@ tr:last-child td{border-bottom:0}
     </div>
   </aside>
   <main class="main"><div class="wrap">
-    <div class="top">
-      <div class="exs"><button class="ex on"><span class="wm binance">BINANCE</span></button><button class="ex"><span class="wm bybit">BYBIT</span></button></div>
+    <div class="top end">
       <div class="tools">
         <span class="badge-live"><i></i>En vivo</span>
-        <button class="icon-btn"><i class="ic i-user"></i></button>
-        <button class="icon-btn"><i class="ic i-bell"></i></button>
-        <button class="icon-btn"><span class="flag"></span></button>
+        <button class="icon-btn" aria-label="Mi cuenta"><i class="ic i-user"></i></button>
+        <button class="icon-btn" aria-label="Notificaciones"><i class="ic i-bell"></i></button>
+        <button class="icon-btn" aria-label="Idioma: español"><span class="flag"></span></button>
       </div>
     </div>
     <div class="crumb"><i class="ic i-home"></i><i class="ic i-right"></i><b>Notificaciones</b></div>
     <h1>Notificaciones</h1>
-    <p class="sub-t">Operaciones, eventos de seguridad y avisos de su cuenta, en orden cronológico.</p>
+    <p class="sub-t">Sus operaciones, los eventos de seguridad y los avisos de su cuenta, el más reciente primero.</p>
     <div class="chips">
       <button class="chipf on">Todas</button>
       <button class="chipf t-op"><i></i>Operaciones</button>
       <button class="chipf t-sf"><i></i>Seguridad</button>
-      <button class="chipf t-di"><i></i>Discrepancias</button>
       <button class="chipf t-no"><i></i>Avisos</button>
+      <button class="chipf t-di"><i></i>Discrepancias</button>
     </div>
 
     <div class="day" style="margin-top:0">Hoy, 24 de noviembre</div>
     <div class="feed">
-      <div class="fi t-op"><i class="ic i-ops"></i><div class="fi-b"><b>Apertura en Trend Rider 4h</b><p>Largo en <span class="num">BTCUSDT.P</span> en Binance, entrada a <span class="num">96.420,5</span> USDT con apalancamiento 3x.</p></div><div class="fi-m"><span class="pill t-op">Operación</span><span class="num">09:00</span></div></div>
-      <div class="fi t-op"><i class="ic i-ops"></i><div class="fi-b"><b>Apertura en SOL Breakout</b><p>Corto en <span class="num">SOLUSDT.P</span> en Binance, entrada a <span class="num">182,40</span> USDT con apalancamiento 3x.</p></div><div class="fi-m"><span class="pill t-op">Operación</span><span class="num">04:00</span></div></div>
+      <div class="fi t-op"><i class="ic i-ops"></i><div class="fi-b"><b>Apertura en Trend Rider 4h</b><p>Largo en <span class="num">BTCUSDT</span> en Binance, entrada a <span class="num">96420.5</span> USDT, apalancamiento 3x.</p></div><div class="fi-m"><span class="pill t-op">Operación</span><span class="num">09:00</span></div></div>
+      <div class="fi t-no"><i class="ic i-key"></i><div class="fi-b"><b>Apertura rechazada en SOL Breakout</b><p>Su clave de Bybit es de solo lectura: no puede operar en vivo. No se reservó capital. Guarde una clave que pueda operar.</p></div><div class="fi-m"><span class="pill t-no">Aviso</span><span class="num">04:00</span><a>Vincular exchange</a></div></div>
       <div class="fi t-sf"><i class="ic i-shield"></i><div class="fi-b"><b>Apertura rechazada en ETH Mean Reversion</b><p>El apalancamiento elegido (10x) supera el máximo que permite el stop de la estrategia (6x). No se reservó capital. Reduzca el apalancamiento en Mis suscripciones.</p></div><div class="fi-m"><span class="pill t-sf">Seguridad</span><span class="num">03:15</span></div></div>
     </div>
 
     <div class="day">Ayer, 23 de noviembre</div>
     <div class="feed">
-      <div class="fi t-op"><i class="ic i-ops"></i><div class="fi-b"><b>Cierre en Trend Rider 4h</b><p>Largo en <span class="num">ETHUSDT.P</span> en Bybit cerrado a <span class="num">3.402,6</span> USDT. Resultado <span class="num gain">+27,40</span> USDT.</p></div><div class="fi-m"><span class="pill t-op">Operación</span><span class="num">14:00</span></div></div>
-      <div class="fi t-no"><i class="ic i-info"></i><div class="fi-b"><b>Cambió la política de privacidad</b><p>Revise los cambios y acéptelos para seguir usando el panel.</p></div><div class="fi-m"><span class="pill t-no">Aviso</span><span class="num">11:20</span><a>Leer la política</a></div></div>
-      <div class="fi t-di"><i class="ic i-alert"></i><div class="fi-b"><b>Posición sin asignación en Binance</b><p>La posición <span class="num">STXUSDT.P</span> del exchange no coincide con ninguna asignación. Requiere su decisión.</p><div class="adm"><i class="ic i-lock"></i>Visible solo para administradores</div></div><div class="fi-m"><span class="pill t-di">Discrepancia</span><span class="num">09:05</span><a>Revisar</a></div></div>
+      <div class="fi t-op"><i class="ic i-ops"></i><div class="fi-b"><b>Cierre en Trend Rider 4h</b><p>Largo en <span class="num">ETHUSDT</span> en Bybit cerrado a <span class="num">3402.6</span> USDT. Resultado <span class="num gain">+27,40</span> USDT.</p></div><div class="fi-m"><span class="pill t-op">Operación</span><span class="num">14:00</span></div></div>
+      <div class="fi t-sf"><i class="ic i-user"></i><div class="fi-b"><b>Cerrada por usted en ETH Mean Reversion</b><p>Corto en <span class="num">ETHUSDT</span> en Bybit cerrado con Cerrar ahora a <span class="num">3431.7</span> USDT.</p></div><div class="fi-m"><span class="pill t-sf">Seguridad</span><span class="num">13:40</span></div></div>
+      <div class="fi t-di"><i class="ic i-alert"></i><div class="fi-b"><b>Posición sin asignación en Binance</b><p>La posición <span class="num">STXUSDT</span> del exchange no coincide con ninguna asignación. Requiere su decisión.</p><div class="adm"><i class="ic i-lock"></i>Visible solo para administradores</div></div><div class="fi-m"><span class="pill t-di">Discrepancia</span><span class="num">09:05</span><a>Revisar</a></div></div>
     </div>
 
     <div class="day">22 de noviembre</div>
     <div class="feed">
-      <div class="fi t-sf"><i class="ic i-shield"></i><div class="fi-b"><b>Stop activado en SOL Breakout</b><p>Largo en <span class="num">SOLUSDT.P</span> en Binance cerrado por el stop a <span class="num">171,55</span> USDT. Resultado <span class="num loss">−31,80</span> USDT.</p></div><div class="fi-m"><span class="pill t-sf">Seguridad</span><span class="num">23:12</span></div></div>
-      <div class="fi t-op"><i class="ic i-ops"></i><div class="fi-b"><b>Cierre en Trend Rider 4h</b><p>Largo en <span class="num">BTCUSDT.P</span> en Binance cerrado a <span class="num">96.020,5</span> USDT. Resultado <span class="num gain">+36,75</span> USDT.</p></div><div class="fi-m"><span class="pill t-op">Operación</span><span class="num">12:00</span></div></div>
+      <div class="fi t-sf"><i class="ic i-shield"></i><div class="fi-b"><b>Stop activado en SOL Breakout</b><p>Largo en <span class="num">SOLUSDT</span> en Binance cerrado por el stop a <span class="num">171.55</span> USDT. Resultado <span class="num loss">−31,80</span> USDT.</p></div><div class="fi-m"><span class="pill t-sf">Seguridad</span><span class="num">23:12</span></div></div>
+      <div class="fi t-op"><i class="ic i-ops"></i><div class="fi-b"><b>Cierre en Trend Rider 4h</b><p>Largo en <span class="num">BTCUSDT</span> en Binance cerrado a <span class="num">96020.5</span> USDT. Resultado <span class="num gain">+36,75</span> USDT.</p></div><div class="fi-m"><span class="pill t-op">Operación</span><span class="num">12:00</span></div></div>
     </div>
+    <div style="display:flex;justify-content:center;margin-top:16px"><button class="btn sm">Ver más</button></div>
   </div></main>
 </div>
 </section>

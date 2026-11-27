@@ -503,3 +503,4 @@ The owner's words (2026-11-24) are quoted as written.
   - Read for the build: the open operations go first, since the newest-first order of ex4 would bury an old position that is still open several pages down; the period filters the closed ones by their close.
 - L56 (2026-11-27, owner, on the built table): "Dale, si" — the answer to: with texts as long as production's (a 31-character strategy name, five-decimal prices) the table needed 1034 of 1046 px at 1446 px, 12 to spare; cap the Strategy column and tell a cut name whole in a tip?
   - Built: the name is at most 176 px (`max-w-44`), cut with an ellipsis, and a cut name is told whole in a tip (measured again once the web fonts load). The local names, up to 157 px, show whole. The table now needs 1000 of 1046 px at 1446: 46 to spare.
+- L57 (2026-11-27, owner, choosing what follows RD.4): "Dale, vamos con RD.5"
