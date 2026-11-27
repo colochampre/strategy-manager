@@ -92,6 +92,7 @@
     "error": "No se pudieron leer los usuarios.",
     "brake": "El freno está activo: todos operan en simulación, sea cual sea el modo que eligieron.",
     "noName": "Sin nombre",
+    "nameTip": "Nombre: {{name}}",
     "mode": "Modo",
     "keys": "Claves",
     "noKeys": "Ninguna",
