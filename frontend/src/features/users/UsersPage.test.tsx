@@ -218,7 +218,8 @@ describe("Users", () => {
     const row = await rowOf(adminUser());
 
     expect(within(row).getByTestId("admin-user-email")).toHaveTextContent("ana@example.com");
-    expect(within(row).getByTestId("admin-user-name")).toHaveTextContent("Ana");
+    // The name the user chose is the e-mail's tip: the table has no Name column (L51).
+    expect(tipOf(within(row).getByTestId("admin-user-email"))).toBe("Name: Ana");
     expect(within(row).getByTestId("admin-user-mode")).toHaveTextContent("Live");
     expect(within(row).getByTestId("admin-user-keys")).toHaveTextContent("Bybit");
     expect(within(row).getByTestId("admin-user-subscriptions")).toHaveTextContent("3");
@@ -226,13 +227,12 @@ describe("Users", () => {
     expect(within(row).getByTestId("admin-user-seen")).toHaveTextContent("Oct 30, 2026, 12:34");
   });
 
-  it("is a table at the 13 px of the panel's other tables, with My subscriptions' 8 px sides for its nine columns (L47)", async () => {
+  it("is a table at the 13 px of the panel's other tables, with My subscriptions' 8 px sides for its eight columns (L47, L51)", async () => {
     const row = await rowOf(adminUser());
 
     const table = screen.getByRole("table", { name: "Users" });
     expect(within(table).getAllByRole("columnheader").map((head) => head.textContent)).toEqual([
       "User",
-      "Name",
       "Identity",
       "Mode",
       "Keys",
@@ -299,7 +299,7 @@ describe("Users", () => {
   it("says a user has chosen no name", async () => {
     const row = await rowOf(adminUser({ display_name: null }));
 
-    expect(within(row).getByTestId("admin-user-name")).toHaveTextContent("No name");
+    expect(tipOf(within(row).getByTestId("admin-user-email"))).toBe("No name");
   });
 
   it("lists every exchange with a key, by its proper name", async () => {
@@ -349,7 +349,7 @@ describe("Users", () => {
     await screen.findByTestId("admin-user-row");
 
     const info = await screen.findByRole("img", { name: "Brake on" });
-    expect(within(screen.getByRole("table")).getAllByRole("columnheader")[3]).toContainElement(info);
+    expect(within(screen.getByRole("table")).getAllByRole("columnheader")[2]).toContainElement(info);
     expect(tipOf(info.parentElement as HTMLElement)).toBe(i18n.t("users.brake"));
   });
 
@@ -396,7 +396,7 @@ describe("Users", () => {
 
     expect(screen.getByRole("heading", { level: 1, name: "Usuarios" })).toBeInTheDocument();
     expect(within(row).getByTestId("admin-user-mode")).toHaveTextContent("Simulación");
-    expect(within(row).getByTestId("admin-user-name")).toHaveTextContent("Sin nombre");
+    expect(tipOf(within(row).getByTestId("admin-user-email"))).toBe("Sin nombre");
     expect(within(row).getByTestId("admin-user-keys")).toHaveTextContent("Ninguna");
     expect(within(row).getByTestId("admin-user-no-key")).toHaveAccessibleName("Pool habilitado sin clave activa: Bybit");
     expect(screen.getByTestId("admin-users-count")).toHaveTextContent("1 usuario");
@@ -458,6 +458,8 @@ describe("Users on a phone", () => {
     expect(screen.getAllByRole("article")).toHaveLength(20);
     const card = screen.getAllByTestId("admin-user-row")[0] as HTMLElement;
     expect(within(card).getByTestId("admin-user-email")).toHaveTextContent("user1@example.com");
+    // A card has room for the name as a fact of its own.
+    expect(within(card).getByTestId("admin-user-name")).toHaveTextContent("Ana");
     expect(within(card).getByTestId("admin-user-keys")).toHaveTextContent("Bybit");
     expect(within(card).getByRole("button", { name: "Suspend" })).toBeInTheDocument();
     expect(screen.getByText("Page 1 of 2")).toBeInTheDocument();

@@ -213,16 +213,21 @@ const FIGURE = "text-right font-mono tabular-nums text-ink-2";
 const SIDES = "px-2 first:pl-3.5 last:pr-3";
 
 function UserRow({ user, me, placement }: { user: AdminUser; me: string | undefined; placement: TipPlacement }) {
+  const { t } = useTranslation();
   const facts = useFacts(user, placement, me, false);
+  // No Name column: eight columns fit the page's column with room to spare, nine did not (L51). The name the user
+  // chose is the e-mail's tip.
+  const nameTip = user.display_name === null ? t("users.noName") : t("users.nameTip", { name: user.display_name });
   const cells: Array<[ReactNode, string?]> = [
     [
       <span className="flex items-center gap-2">
         <StateMark user={user} placement={placement} />
-        <span data-testid="admin-user-email">{user.email}</span>
+        <Tooltip text={nameTip} placement={placement} className={HAS_TIP}>
+          <span data-testid="admin-user-email">{user.email}</span>
+        </Tooltip>
       </span>,
       "text-ink",
     ],
-    [facts.name, "text-ink"],
     [facts.identity, "text-ink"],
     [facts.mode, "text-ink"],
     [facts.keys, "text-ink"],
@@ -248,7 +253,6 @@ function UsersTable({ users, me, brake, labelledBy }: ListProps & { labelledBy: 
   const right = "text-right";
   const heads: Array<[ReactNode, string?]> = [
     [t("users.head.user")],
-    [t("users.head.name")],
     [t("users.head.identity")],
     [<ModeLabel brake={brake} />],
     [t("users.keys")],

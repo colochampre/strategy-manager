@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { RefObject } from "react";
 
 /**
@@ -39,6 +39,25 @@ export function useTableFits(): { ref: RefObject<HTMLDivElement | null>; fits: b
     if (table !== null) observer.observe(table);
     return () => observer.disconnect();
   }, [fits]);
+
+  // The panel's faces are web fonts. A table first drawn in the fallback face can spill by a few pixels and keep
+  // its narrow form for good, since nothing measures it again (seen on the Users page in production, RD.8). Once
+  // the fonts load, the stored width is dropped, so the table is drawn and measured again in the real face, still
+  // before the paint.
+  useEffect(() => {
+    const fonts = typeof document === "undefined" ? undefined : document.fonts;
+    if (fonts === undefined) return undefined;
+    let live = true;
+    const retry = () => {
+      if (live) setNeeded(null);
+    };
+    fonts.addEventListener("loadingdone", retry);
+    if (fonts.status === "loading") void fonts.ready.then(retry);
+    return () => {
+      live = false;
+      fonts.removeEventListener("loadingdone", retry);
+    };
+  }, []);
 
   return { ref, fits };
 }
