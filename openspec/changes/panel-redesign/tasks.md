@@ -397,7 +397,7 @@ The owner's words (2026-11-24) are quoted as written.
     - Both deploys ran from this session with `!` and the `SSH_ASKPASS` prefix.
     - The owner read the panel in production: "Se ve bien ahora si".
 
-- [ ] RD.9: a stop widened under seats above its new cap (L58, L59). Today `update_strategy.py` changes the stop and leaves every seat's leverage as it was, so a seat above `max_leverage(stop)` has each live opening refused (`OPENING_REFUSED_LEVERAGE_CAP`) until its owner lowers it. Agreed: the stop change lowers those seats to the new cap in the same transaction, and each owner gets a Notice in Notifications naming the strategy, the old and the new leverage. A seat holding an open position keeps its leverage on that position: only later openings use the new one. Separate from RD.5; built after it, so the Notice has a feed to land in.
+- [x] RD.9: a stop widened under seats above its new cap (L58, L59). Today `update_strategy.py` changes the stop and leaves every seat's leverage as it was, so a seat above `max_leverage(stop)` has each live opening refused (`OPENING_REFUSED_LEVERAGE_CAP`) until its owner lowers it. Agreed: the stop change lowers those seats to the new cap in the same transaction, and each owner gets a Notice in Notifications naming the strategy, the old and the new leverage. A seat holding an open position keeps its leverage on that position: only later openings use the new one. Separate from RD.5; built after it, so the Notice has a feed to land in.
   - Contract (L68, L69), on branch `feat/rd9-stop-lowers-leverage`. Risk: item 1 (it changes stored seats) and item 4 (locks), so an independent verifier follows the checks.
     - **RD.9a, backend** (one Sonnet writer, the long-session backstop):
       - When a PATCH changes the stop and `max_leverage(new stop)` is below a live seat's leverage, that seat is lowered to the new cap in the SAME transaction as the stop. The locks follow the disable path's order (`strategies/application/subscriber_locks.py`): every subscriber's pool advisory lock in ascending pool order, then the strategy row, then `confirm`, then the seats row-locked (`live_for_strategy_for_update`). A seat at or below the cap is untouched; a stop narrowed (cap up) touches nothing.
@@ -408,6 +408,17 @@ The owner's words (2026-11-24) are quoted as written.
     - **RD.9b, panel** (inline, by the parent):
       - The feed draws the notice: "The stop of <strategy> changed, so your leverage went from <num>10x</num> to <num>6x</num>." / "El stop de <strategy> cambió, así que su apalancamiento bajó de 10x a 6x."
       - The author's stop editor warns, before saving, when the new stop lowers the cap: "Subscriptions above 6x will be lowered to 6x." / "Las suscripciones por encima de 6x bajarán a 6x." No count (L69): the author never learns any subscriber's leverage, so the privacy policy is unchanged. The cap comes from the stop in the panel (`stop-level.ts:maxLeverage`); no new endpoint.
+    - **Built** in three commits:
+      - RD.9b: the panel, inline, RED first (`fae7cbd5`). The editor's warning writes the cap as `x6`, the convention of the field's own "Max leverage x9"; the notice writes `10x`, as the feed writes leverage.
+      - RD.9a: the backend, by a Sonnet writer (`c58e2a5f`), RED first on assertions. The integration tests were proven by mutation: dropping the lock, the "cap lowered" condition, a commit inside the lowering, and the user filter of the notice source.
+      - A PATCH that names a stop now always takes the pool locks, even with an unchanged value, so it can answer `SubscribersChanged` ("try again").
+    - **Gates:**
+      - backend `ruff` 0, `mypy src` 0 (426 files), `pytest` exit 0;
+      - frontend `npm run lint` 0, `vitest` 185 files and 4369 tests.
+    - **Independent verifier:** every contract bullet PASS, no blockers. Its advisories:
+      - `Subscribe` checks the cap against an unlocked read of the stop, so a join racing a widening can leave one seat above the new cap. That seat's openings are refused, as before. The window existed before this change.
+      - The lowered-seat source reads all of a user's events on each read.
+      - `account_deletion.py` never deletes a user row: it ends seats and closes strategies. The new table's plain user FK, like `subscriptions.user_id`, is therefore safe.
 ## Log
 
 - L1 (2026-11-24, owner): "Quiero hacer un rediseño general de la app. Comentame si te parece bien, qué cambiarías o si falta algo:" followed by S1 to S8 as quoted, with screenshots of Edelap's home, Binance's assets overview and Edelap's "Mis facturas".
