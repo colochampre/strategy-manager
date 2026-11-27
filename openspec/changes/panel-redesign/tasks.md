@@ -304,6 +304,15 @@ The owner's words (2026-11-24) are quoted as written.
 - [ ] RD.5 PR 5: Notifications (S6).
 - [ ] RD.6 PR 6: info tooltips and motion (S13).
 - [x] RD.8: the Users page (`/users`, admin) as a table, like the strategy lists and the open positions (L25). Prototype first, when the owner calls for it. Prototyped as ex16 (L47, L48), approved (L49), built on `feat/rd8-users-table`.
+  - *Delivered 2026-11-27 as PR #143*, four commits: the prototype (L47, L48), the closed trades' page count (L48), the table (L49) and the brake tip's fix (L50). The owner merged it with a merge commit, `3f88c289b28c`.
+    - **Deploy, run by the owner**, by `deploy_3f88c289b28c.sh`. Frontend only: no backend file changed since `d3bc653435e3`, so no restart and no migration. The bundle was built from a clean worktree of `origin/main` at `3f88c289b28c`: 29 entries, SHA-256 `118df3e3…6dea748fa`.
+    - The VPS answered: the checksum `OK`, `readable`, checkout and bundle `3f88c289b28c`, `backend files changed since d3bc653435e3: 0`, `panel: 200 text/html`, `api: active`, `worker: active`.
+    - The owner read the panel in production and found the Users page in cards on a 1920 px screen (L51).
+  - *Delivered 2026-11-27 as PR #144*, two commits: `useTableFits` measures again once the web fonts load, and the table drops its Name column (L51). The owner merged it with a merge commit, `538fc2ddb8b7`.
+    - **Deploy, run by the owner**, by `deploy_538fc2ddb8b7.sh`, the same way: no backend file changed. The bundle was built from a clean worktree of `origin/main` at `538fc2ddb8b7`: 29 entries, SHA-256 `0c88fd96…14d91fe955a`.
+    - The VPS answered: the checksum `OK`, `readable`, checkout and bundle `538fc2ddb8b7`, `backend files changed since d3bc653435e3: 0`, `panel: 200 text/html`, `api: active`, `worker: active`.
+    - Both deploys ran from this session with `!` and the `SSH_ASKPASS` prefix.
+    - The owner read the panel in production: "Se ve bien ahora si".
 
 ## Log
 
