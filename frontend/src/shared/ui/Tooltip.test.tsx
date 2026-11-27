@@ -257,3 +257,26 @@ describe("InfoTip", () => {
     expect(glyph.parentElement).toHaveClass("cursor-pointer");
   });
 });
+
+describe("the tip's own box (L66)", () => {
+  it("shows the arrow over its text, whatever its trigger shows", () => {
+    render(<InfoTip label="About the mode" text="Explained" />);
+    fireEvent.mouseEnter(screen.getByRole("img", { name: "About the mode" }).parentElement as HTMLElement);
+
+    expect(screen.getByRole("tooltip")).toHaveClass("cursor-default");
+  });
+
+  it("a click inside a pinned tip leaves it pinned", () => {
+    render(
+      <Tooltip text="Explained">
+        <span>Hover me</span>
+      </Tooltip>,
+    );
+    fireEvent.click(trigger());
+
+    fireEvent.click(screen.getByRole("tooltip"));
+    fireEvent.mouseLeave(trigger());
+
+    expect(screen.getByRole("tooltip")).toBeInTheDocument();
+  });
+});

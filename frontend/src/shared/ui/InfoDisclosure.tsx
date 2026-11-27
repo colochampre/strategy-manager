@@ -170,7 +170,7 @@ export function InfoButton({ disclosure, label }: InfoButtonProps) {
         onKeyDown={closeOnEscape(disclosure)}
         className={cn(
           ALIGN_CLASSES[align],
-          "absolute top-full z-20 flex w-72 max-w-[calc(100vw-2rem)] flex-col gap-1.5 whitespace-normal break-words rounded-md border border-rule bg-panel-2 px-3 py-2 text-left font-sans text-xs font-normal normal-case tracking-normal text-ink empty:hidden motion-safe:animate-tip-in",
+          "absolute top-full z-20 flex cursor-default w-72 max-w-[calc(100vw-2rem)] flex-col gap-1.5 whitespace-normal break-words rounded-md border border-rule bg-panel-2 px-3 py-2 text-left font-sans text-xs font-normal normal-case tracking-normal text-ink empty:hidden motion-safe:animate-tip-in",
         )}
       />
     </span>

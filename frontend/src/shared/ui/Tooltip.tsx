@@ -47,6 +47,7 @@ export function Tooltip({
   const [dismissed, setDismissed] = useState(false);
   const [pinned, setPinned] = useState(false);
   const wrapper = useRef<HTMLSpanElement | null>(null);
+  const tipRef = useRef<HTMLSpanElement | null>(null);
   const shown = (pinned || hovered || focused || open) && !dismissed;
 
   // A press outside the trigger and its tip lets a pinned tip go.
@@ -64,6 +65,8 @@ export function Tooltip({
   const pin = (event: MouseEvent<HTMLSpanElement>) => {
     // Around a control, the click is the control's action; the tip still shows on its hover and focus.
     if (!tabbable) return;
+    // A click inside the tip is a reader's, on the text: it neither pins nor lets go.
+    if (event.target instanceof Node && tipRef.current?.contains(event.target)) return;
     const control = event.target instanceof Element ? event.target.closest(CONTROLS) : null;
     if (control !== null && event.currentTarget.contains(control)) return;
     if (pinned) {
@@ -105,7 +108,9 @@ export function Tooltip({
           role="tooltip"
           // The tip resets what a trigger's cell would hand it (one line, a monospaced face), so it wraps in its own box (L18).
           // The bridge (`before:`) spans the 4 px gap, so the pointer moving onto the tip never leaves the trigger.
-          className={`absolute z-10 before:absolute before:inset-x-0 before:h-1 w-max max-w-64 whitespace-normal break-words rounded-md border border-rule bg-panel-2 px-2 py-1 text-left font-sans text-xs font-normal normal-case tracking-normal text-ink motion-safe:animate-tip-in ${
+          // The arrow over the text, which is only read, whatever cursor the trigger shows (decision 61, L66).
+          ref={tipRef}
+          className={`absolute z-10 cursor-default before:absolute before:inset-x-0 before:h-1 w-max max-w-64 whitespace-normal break-words rounded-md border border-rule bg-panel-2 px-2 py-1 text-left font-sans text-xs font-normal normal-case tracking-normal text-ink motion-safe:animate-tip-in ${
             placement === "above"
               ? "bottom-full left-0 mb-1 before:-bottom-1"
               : placement === "below"

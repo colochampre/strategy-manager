@@ -263,6 +263,14 @@ describe("InfoDisclosure", () => {
     expect(screen.getByText(SHARE.text)).toBeInTheDocument();
   });
 
+  it("the box shows the arrow over its text, as every tip does (L66)", () => {
+    render(<Row {...SHARE} />);
+    fireEvent.click(shareButton());
+
+    const box = document.getElementById(shareButton().getAttribute("aria-controls") ?? "");
+    expect(box).toHaveClass("cursor-default");
+  });
+
   it("the box fades in with the tip animation, by motion-safe only", () => {
     render(<Row {...SHARE} />);
     fireEvent.click(shareButton());
