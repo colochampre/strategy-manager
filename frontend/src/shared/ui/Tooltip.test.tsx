@@ -141,3 +141,110 @@ describe("Tooltip layout class", () => {
     expect(trigger()).not.toHaveClass("inline-flex");
   });
 });
+
+describe("Tooltip: the hybrid of L63/L64", () => {
+  function tip(): HTMLElement {
+    return screen.getByRole("tooltip");
+  }
+
+  it("a click on the trigger pins the tip: leaving and blur do not hide it, a press outside does", () => {
+    render(
+      <>
+        <Tooltip text="Explained">
+          <span>Hover me</span>
+        </Tooltip>
+        <p>Elsewhere</p>
+      </>,
+    );
+    fireEvent.mouseEnter(trigger());
+    fireEvent.click(trigger());
+
+    fireEvent.mouseLeave(trigger());
+    fireEvent.blur(trigger());
+    expect(tip()).toHaveTextContent("Explained");
+
+    fireEvent.mouseDown(screen.getByText("Elsewhere"));
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+  });
+
+  it("a tap pins it with no pointer before it, and a press inside the tip keeps it", () => {
+    render(
+      <Tooltip text="Explained">
+        <span>Hover me</span>
+      </Tooltip>,
+    );
+    fireEvent.click(trigger());
+    fireEvent.mouseDown(tip());
+    expect(tip()).toBeInTheDocument();
+  });
+
+  it("a click on a pinned tip's trigger hides it, even with the pointer still on it", () => {
+    render(
+      <Tooltip text="Explained">
+        <span>Hover me</span>
+      </Tooltip>,
+    );
+    fireEvent.mouseEnter(trigger());
+    fireEvent.click(trigger());
+
+    fireEvent.click(trigger());
+
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+  });
+
+  it("Escape hides a pinned tip and focus stays on the trigger", () => {
+    render(
+      <Tooltip text="Explained">
+        <span>Hover me</span>
+      </Tooltip>,
+    );
+    trigger().focus();
+    fireEvent.click(trigger());
+
+    fireEvent.keyDown(trigger(), { key: "Escape" });
+
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+    expect(trigger()).toHaveFocus();
+  });
+
+  it("a click on a control the tip wraps is the control's, and does not pin the tip", () => {
+    render(
+      <Tooltip text="Explained" tabbable={false}>
+        <button type="button">Act</button>
+      </Tooltip>,
+    );
+    const wrapper = screen.getByRole("button", { name: "Act" }).parentElement as HTMLElement;
+    fireEvent.mouseEnter(wrapper);
+    fireEvent.click(screen.getByRole("button", { name: "Act" }));
+
+    fireEvent.mouseLeave(wrapper);
+
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+  });
+
+  it("the tip takes the pointer, and a bridge over its gap keeps the pointer inside on the way to it", () => {
+    render(
+      <>
+        <Tooltip text="Above">
+          <span>Hover me</span>
+        </Tooltip>
+      </>,
+    );
+    fireEvent.mouseEnter(trigger());
+
+    expect(tip()).not.toHaveClass("pointer-events-none");
+    expect(tip().className).toMatch(/(^|\s)before:absolute(\s|$)/);
+    expect(tip().className).toMatch(/(^|\s)before:-bottom-1(\s|$)/);
+  });
+
+  it("below its trigger, the bridge reaches up instead", () => {
+    render(
+      <Tooltip text="Below" placement="below">
+        <span>Hover me</span>
+      </Tooltip>,
+    );
+    fireEvent.mouseEnter(trigger());
+
+    expect(tip().className).toMatch(/(^|\s)before:-top-1(\s|$)/);
+  });
+});

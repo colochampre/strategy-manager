@@ -194,6 +194,75 @@ describe("InfoDisclosure", () => {
     for (const name of absent) expect(box).not.toHaveClass(name);
   });
 
+  // The hybrid of L63/L64: the pointer opens it, a click pins it.
+  function anchor(): HTMLElement {
+    return shareButton().parentElement as HTMLElement;
+  }
+
+  it("the pointer on the button opens it, and leaving closes it", () => {
+    render(<Row {...SHARE} />);
+
+    fireEvent.mouseEnter(anchor());
+    expect(screen.getByText(SHARE.text)).toBeInTheDocument();
+    expect(shareButton()).toHaveAttribute("aria-expanded", "true");
+
+    fireEvent.mouseLeave(anchor());
+    expect(screen.queryByText(SHARE.text)).toBeNull();
+    expect(shareButton()).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("the pointer moving from the button onto the box keeps it open: the box is inside what the pointer is on", () => {
+    render(<Row {...SHARE} />);
+    fireEvent.mouseEnter(anchor());
+
+    // Leaving the button for the box does not leave the anchor, which holds both.
+    fireEvent.mouseLeave(shareButton());
+    const box = document.getElementById(shareButton().getAttribute("aria-controls") ?? "");
+    expect(anchor()).toContainElement(box);
+    expect(screen.getByText(SHARE.text)).toBeInTheDocument();
+  });
+
+  it("a click on one the pointer opened pins it: leaving does not close it, a press outside does", () => {
+    render(
+      <>
+        <Row {...SHARE} />
+        <p>Elsewhere</p>
+      </>,
+    );
+    fireEvent.mouseEnter(anchor());
+    fireEvent.click(shareButton());
+
+    fireEvent.mouseLeave(anchor());
+    expect(screen.getByText(SHARE.text)).toBeInTheDocument();
+    expect(shareButton()).toHaveAttribute("aria-expanded", "true");
+
+    fireEvent.mouseDown(screen.getByText("Elsewhere"));
+    expect(screen.queryByText(SHARE.text)).toBeNull();
+  });
+
+  it("a click on a pinned one closes it, even with the pointer still on it", () => {
+    render(<Row {...SHARE} />);
+    fireEvent.mouseEnter(anchor());
+    fireEvent.click(shareButton());
+
+    fireEvent.click(shareButton());
+
+    expect(screen.queryByText(SHARE.text)).toBeNull();
+    expect(shareButton()).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("Escape closes one the pointer opened, and it stays closed until the pointer comes back", () => {
+    render(<Row {...SHARE} />);
+    fireEvent.mouseEnter(anchor());
+
+    fireEvent.keyDown(shareButton(), { key: "Escape" });
+    expect(screen.queryByText(SHARE.text)).toBeNull();
+
+    fireEvent.mouseLeave(anchor());
+    fireEvent.mouseEnter(anchor());
+    expect(screen.getByText(SHARE.text)).toBeInTheDocument();
+  });
+
   it("the box fades in with the tip animation, by motion-safe only", () => {
     render(<Row {...SHARE} />);
     fireEvent.click(shareButton());

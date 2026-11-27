@@ -11,17 +11,26 @@ export interface InfoDisclosureState {
   /** The floating box beside the button, once it is in the document; the text is drawn into it while open. */
   box: HTMLDivElement | null;
   setBox: (element: HTMLDivElement | null) => void;
+  /** A click: pins the text open, or closes a pinned one. */
   toggle: () => void;
   /** Closes the text and puts focus back on the button, whichever element had it. */
   close: () => void;
+  /** The pointer entering (true) or leaving (false) the button and its box. */
+  hover: (on: boolean) => void;
 }
 
 /**
  * The state of one information button (design § B2): closed by default, local to the component that
  * calls it, never stored. Each call owns its own state, so two disclosures open and close independently.
+ *
+ * It behaves as every tip does (L63, L64): the pointer on the button opens it and leaving closes it; a click
+ * or a tap pins it open until a click on it, a press outside or Escape. The keyboard opens it with Enter or
+ * Space, as any disclosure button, so tabbing through a form does not open every explanation on the way.
  */
 export function useInfoDisclosure(): InfoDisclosureState {
-  const [open, setOpen] = useState(false);
+  const [pinned, setPinned] = useState(false);
+  const [hovered, setHovered] = useState(false);
+  const open = pinned || hovered;
   const [box, setBox] = useState<HTMLDivElement | null>(null);
   const textId = useId();
   const buttonRef = useRef<HTMLButtonElement | null>(null);
@@ -33,7 +42,8 @@ export function useInfoDisclosure(): InfoDisclosureState {
       const target = event.target;
       if (!(target instanceof Node)) return;
       if (buttonRef.current?.contains(target) || box?.contains(target)) return;
-      setOpen(false);
+      setPinned(false);
+      setHovered(false);
     };
     document.addEventListener("mousedown", closeOutside);
     return () => document.removeEventListener("mousedown", closeOutside);
@@ -45,11 +55,17 @@ export function useInfoDisclosure(): InfoDisclosureState {
     buttonRef,
     box,
     setBox,
-    toggle: () => setOpen(!open),
+    // A click on a pinned text closes it even under the pointer, which has to leave and come back to reopen it.
+    toggle: () => {
+      if (pinned) setHovered(false);
+      setPinned(!pinned);
+    },
     close: () => {
-      setOpen(false);
+      setPinned(false);
+      setHovered(false);
       buttonRef.current?.focus();
     },
+    hover: setHovered,
   };
 }
 
@@ -101,8 +117,29 @@ interface InfoButtonProps {
  */
 export function InfoButton({ disclosure, label }: InfoButtonProps) {
   const [align, setAlign] = useState<BoxAlign>("centre");
+  const [anchor, setAnchor] = useState<HTMLSpanElement | null>(null);
+  const { hover } = disclosure;
+
+  // The pointer is followed on the anchor, which holds the button and the box, with the DOM's own enter and
+  // leave: the text reaches the box through a portal, and React would send the leave up its own tree, so
+  // moving from the button onto the text would read as leaving.
+  useEffect(() => {
+    if (anchor === null) return;
+    const enter = () => {
+      setAlign(alignOf(anchor));
+      hover(true);
+    };
+    const leave = () => hover(false);
+    anchor.addEventListener("mouseenter", enter);
+    anchor.addEventListener("mouseleave", leave);
+    return () => {
+      anchor.removeEventListener("mouseenter", enter);
+      anchor.removeEventListener("mouseleave", leave);
+    };
+  }, [anchor, hover]);
+
   return (
-    <span className="relative -my-3 inline-flex shrink-0">
+    <span ref={setAnchor} className="relative -my-3 inline-flex shrink-0">
       <button
         type="button"
         ref={disclosure.buttonRef}

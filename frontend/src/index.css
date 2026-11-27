@@ -73,8 +73,9 @@
   --animate-scrim-in: scrim-in 180ms ease-out;
 
   /* The tips (S13, RD.6): the info box and the table tips fade in with a slight offset, 150 ms. The dialogs fade in
-     with a slight scale. Both elements carry `motion-safe:`, so prefers-reduced-motion shows them at once. */
-  --animate-tip-in: tip-in 150ms ease-out;
+     with a slight scale. Both elements carry `motion-safe:`, so prefers-reduced-motion shows them at once.
+     A tip is held back 100 ms, hidden until then (`both`), so a pointer passing over does not flash it (L64). */
+  --animate-tip-in: tip-in 150ms ease-out 100ms both;
   --animate-dialog-in: dialog-in 150ms ease-out;
 
   @keyframes tip-in {

@@ -696,7 +696,8 @@ describe("one phrase per fact (decision 55)", () => {
       }
     }
     expect(rendered).toBeGreaterThan(100);
-  });
+    // It renders every combination: about 1.5 s alone, past Vitest's 5 s default under the full parallel suite.
+  }, 30_000);
 
   it("test_confirmed_and_not_verified_tags_are_neutral_not_amber", () => {
     for (const entry of [confirmed(), unrecorded(), confirmed({ trade_confirmed_at: null })]) {

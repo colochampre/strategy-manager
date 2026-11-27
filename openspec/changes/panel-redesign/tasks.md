@@ -368,12 +368,13 @@ The owner's words (2026-11-24) are quoted as written.
     - the dialogs fade in with a slight scale;
     - buttons, cards and rows change colour on hover and focus in about 120 ms.
   - The figures and charts are not animated; hiding the balances is instant. The shell's motion is RD.1's and does not change.
-  - [ ] RD.6b: every tip behaves the same, hybrid (L63, L64). The hover tips (`shared/ui/Tooltip.tsx`: `Tooltip`, `IconTip`, `InfoTip`; the Mode column of Users, the tables' headers) and the information button (`InfoDisclosure`) share one behaviour:
-    - the pointer on the trigger opens it after a short delay, so passing over does not flash it; leaving closes it after a short delay;
-    - the pointer moving onto the box keeps it open, so a paragraph can be read;
-    - a click or a tap pins it open until a click outside or Escape (on a phone this is the only way);
-    - keyboard focus opens it, Escape closes it and returns focus to the trigger;
+  - [x] RD.6b: every tip behaves the same, hybrid (L63, L64). The hover tips (`shared/ui/Tooltip.tsx`: `Tooltip`, `IconTip`, `InfoTip`; the Mode column of Users, the tables' headers) and the information button (`InfoDisclosure`) share one behaviour:
+    - the pointer on the trigger opens it, and the tip is held back 100 ms, hidden, so passing over does not flash it (`tip-in 150ms ease-out 100ms both`; under `prefers-reduced-motion` it shows at once); leaving closes it;
+    - the pointer moving onto the box keeps it open, so a paragraph can be read. No close delay was needed: the info box is inside the element the pointer is followed on (with the DOM's own enter and leave, since its text arrives through a portal), and a tip bridges its 4 px gap with a `before:` strip;
+    - a click or a tap pins it open until a click on the trigger again, a press outside or Escape (on a phone this is the only way). Around a control (`tabbable={false}`, or a button or link inside the trigger) the click is the control's and pins nothing;
+    - keyboard focus opens a tip; the information button opens with Enter or Space, as any disclosure button, so tabbing through a form does not open every explanation on the way. Escape closes either and focus ends on the trigger;
     - the information button keeps `aria-expanded`; a tip that only repeats its trigger's name keeps describing nothing.
+    - Built inline by the parent, RED first (8 tests on assertions; the 4 that passed at once were proven by mutating the pin, the Escape and the control guard). Measured in Edge: the hover opens, leaving closes, a click pins through a leave, a press outside releases; with motion allowed the box is at opacity 0 at 40 ms and 1 at 400 ms. `ExchangeKeyCard`'s every-combination test (about 1.5 s alone, unchanged by this work) passed Vitest's 5 s default under the full parallel suite twice; it takes its own 30 s. The frontend gate green (185 files, 4358 tests).
 - [x] RD.8: the Users page (`/users`, admin) as a table, like the strategy lists and the open positions (L25). Prototype first, when the owner calls for it. Prototyped as ex16 (L47, L48), approved (L49), built on `feat/rd8-users-table`.
   - *Delivered 2026-11-27 as PR #143*, four commits: the prototype (L47, L48), the closed trades' page count (L48), the table (L49) and the brake tip's fix (L50). The owner merged it with a merge commit, `3f88c289b28c`.
     - **Deploy, run by the owner**, by `deploy_3f88c289b28c.sh`. Frontend only: no backend file changed since `d3bc653435e3`, so no restart and no migration. The bundle was built from a clean worktree of `origin/main` at `3f88c289b28c`: 29 entries, SHA-256 `118df3e3…6dea748fa`.

@@ -29,6 +29,10 @@ describe("the motion of S13 (RD.6)", () => {
     expect(CSS).toMatch(/@keyframes dialog-in\s*\{[^@]*opacity:\s*0[^@]*scale\(/);
   });
 
+  it("holds a tip back a moment, hidden until then, so a pointer passing over does not flash it (L64)", () => {
+    expect(CSS).toMatch(/--animate-tip-in:\s*tip-in 150ms ease-out 100ms both;/);
+  });
+
   it("changes colour on hover and focus in 120 ms, only when the user has not asked for less motion", () => {
     const block = /@media \(prefers-reduced-motion: no-preference\)\s*\{([\s\S]*?)\n\}/.exec(CSS);
     expect(block).not.toBeNull();
