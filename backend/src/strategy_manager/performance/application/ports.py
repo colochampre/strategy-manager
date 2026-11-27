@@ -130,6 +130,43 @@ class PositionFacts:
 
 
 @dataclass(frozen=True, slots=True)
+class TradeStrategyFacts:
+    """What a row of the user's trades names of its strategy."""
+
+    strategy_id: UUID
+    name: str
+    archived: bool
+    page: StrategyPage | None
+
+
+class MyTradesSourcePort(Protocol):
+    """The three reads behind ``GET /performance/trades``, each ONE statement
+    however many ids it is asked about. Two are bound to the user in SQL;
+    ``strategy_facts`` reads strategies by id alone."""
+
+    async def pools_with_fills(self, user_id: UUID) -> Sequence[PoolKey]:
+        """Every pool the user has a ledger row in, read from the ledger itself:
+        a pool whose configuration row is gone or switched off still holds
+        history."""
+        ...
+
+    async def strategy_facts(
+        self, user_id: UUID, strategy_ids: Sequence[UUID]
+    ) -> Mapping[UUID, TradeStrategyFacts]:
+        """Each strategy's name, archived flag and page for this user. It reads
+        the strategies by id with no user filter: a caller passes only ids taken
+        from the user's own ledger rows, never ids from a request."""
+        ...
+
+    async def close_event_kinds(
+        self, user_id: UUID, allocation_ids: Sequence[UUID]
+    ) -> Mapping[UUID, str]:
+        """The kind of each allocation's close safety event (the latest, when
+        there is more than one). An allocation with none is absent."""
+        ...
+
+
+@dataclass(frozen=True, slots=True)
 class SubmittedOrder:
     """One ``SUBMITTED`` attempt, with or without an order id. The parent
     columns are ``None`` when the LEFT joins found no reservation or strategy:

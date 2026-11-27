@@ -325,6 +325,7 @@ describe("the Discrepancies item and its badge", () => {
     const links = within(sidebar()).getAllByRole("link");
     expect(links.map((link) => link.getAttribute("href"))).toEqual([
       "/",
+      "/trades",
       "/strategies/authored",
       "/strategies",
       "/strategies/explore",

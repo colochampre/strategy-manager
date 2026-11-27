@@ -1,4 +1,4 @@
-import { LayoutDashboard, Link2, ShieldAlert, ShieldCheck, TrendingUp } from "lucide-react";
+import { ArrowLeftRight, LayoutDashboard, Link2, ShieldAlert, ShieldCheck, TrendingUp } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 import { useMe } from "@/shared/api/me";
@@ -8,6 +8,7 @@ export interface NavLinkItem {
   to: string;
   labelKey:
     | "overview"
+    | "trades"
     | "authored"
     | "subscriptions"
     | "explore"
@@ -38,6 +39,8 @@ export interface NavLeaf extends NavLinkItem {
 }
 
 export const OVERVIEW: NavLeaf = { to: "/", icon: LayoutDashboard, labelKey: "overview", end: true };
+/** Every operation of the user, open and closed, from every strategy (S5, RD.4). */
+export const TRADES: NavLeaf = { to: "/trades", icon: ArrowLeftRight, labelKey: "trades", end: false };
 /** Where the API keys are managed (S4, S9), apart from Mi cuenta. */
 export const EXCHANGES: NavLeaf = { to: "/exchanges", icon: Link2, labelKey: "exchanges", end: false };
 /** Stays until RD.5 merges the safety events into Notificaciones. */
@@ -71,5 +74,5 @@ export const ADMIN: NavGroup = {
 /** The pages the sidebar offers this person, top part then foot. Until `me` answers they are not the admin's, so no stranger sees them flash by. */
 export function useNavigation(): { main: readonly (NavLeaf | NavGroup)[]; admin: NavGroup | null } {
   const { data } = useMe();
-  return { main: [OVERVIEW, STRATEGIES, EXCHANGES, SAFETY_EVENTS], admin: data?.isAdmin === true ? ADMIN : null };
+  return { main: [OVERVIEW, TRADES, STRATEGIES, EXCHANGES, SAFETY_EVENTS], admin: data?.isAdmin === true ? ADMIN : null };
 }

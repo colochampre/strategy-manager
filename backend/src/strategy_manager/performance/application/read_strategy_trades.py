@@ -151,7 +151,7 @@ def _key(trade: ClosedTrade) -> tuple[datetime, int]:
     return (trade.closed_at, trade.allocation_id.int)
 
 
-def _log_underivable(
+def log_underivable(
     pool: PoolKey, strategy_id: UUID, trade: ClosedTrade, groups: list[FillGroup]
 ) -> None:
     """Why an operation's entry price, exit price and size are null. The domain
@@ -218,7 +218,7 @@ class ReadStrategyTrades:
         listed_groups = live_groups
 
         if include_rehearsal:
-            rehearsal_groups, rehearsal_derived = self._rehearsal_operations(
+            rehearsal_groups, rehearsal_derived = self.rehearsal_operations(
                 pool, strategy_id, live_groups, pool_fills.rehearsal_groups
             )
             unresolved += rehearsal_derived.unresolved_allocation_ids
@@ -337,7 +337,7 @@ class ReadStrategyTrades:
     ) -> TradeItem:
         figures = operation_figures(groups, trade.direction)
         if figures is None:
-            _log_underivable(pool, strategy_id, trade, groups)
+            log_underivable(pool, strategy_id, trade, groups)
         if sides_overlap(groups, trade.direction):
             logger.warning(
                 "performance %s strategy %s allocation %s: the opening side's last fill is "
@@ -357,7 +357,7 @@ class ReadStrategyTrades:
         )
 
     @staticmethod
-    def _rehearsal_operations(
+    def rehearsal_operations(
         pool: PoolKey,
         strategy_id: UUID,
         live_groups: tuple[FillGroup, ...],

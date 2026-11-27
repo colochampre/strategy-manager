@@ -13,6 +13,7 @@ import { StrategiesLayout } from "@/features/strategies/StrategiesLayout";
 import { StrategiesPage } from "@/features/strategies/StrategiesPage";
 import { StrategyDetailPage } from "@/features/strategies/StrategyDetailPage";
 import { TermsPage } from "@/features/terms/TermsPage";
+import { MyTradesPage } from "@/features/trades/MyTradesPage";
 import { WayOutPage } from "@/features/way-out/WayOutPage";
 import { UsersPage } from "@/features/users/UsersPage";
 import { AdminRoute } from "@/shared/auth/AdminRoute";
@@ -29,6 +30,7 @@ export function AppRoutes() {
     <Routes>
       <Route element={<AppShell />}>
         <Route index element={<OverviewPage />} />
+        <Route path="trades" element={<MyTradesPage />} />
         <Route path="strategies" element={<StrategiesLayout />}>
           <Route index element={<MySubscriptionsPage />} />
           <Route path="explore" element={<ExplorePage />} />
