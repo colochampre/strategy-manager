@@ -358,7 +358,16 @@ The owner's words (2026-11-24) are quoted as written.
       - `api: active` and `worker: active`.
     - Both commands ran from this session with `!` and the `SSH_ASKPASS` prefix.
     - The owner read the page in production: "Se ve bien. Veo las notificaciones pasadas de aperturas y cierres. Solo una notificacion tipo Seguridad de un stop activado."
-- [ ] RD.6 PR 6: info tooltips and motion (S13).
+- [ ] RD.6 PR 6: info tooltips and motion (S13), on branch `feat/rd6-tooltips-motion`. The owner put it next (L62). One unit, by one writer (the long-session backstop):
+  - The information button (`shared/ui/InfoDisclosure.tsx`, 21 calls) opens its text in a floating box anchored to the button, instead of below it. The 21 callers keep their code: `InfoText` still holds the text where it is written, and it is shown in the box.
+    - Click and tap toggle it; Escape, from the button or inside the box, closes it and returns focus to the button; a click outside closes it. `aria-expanded` and `aria-controls` stay.
+    - The box looks as the table tips do (`shared/ui/Tooltip.tsx`: `border-rule`, `bg-panel-2`, small text) and is wider, for a paragraph. It opens below the button, and is never cut by the card around it.
+    - No inline style anywhere (the CSP): placement by classes.
+  - Motion, with `prefers-reduced-motion` turning every one off:
+    - the info box and the table tips fade in with a slight offset, fast (about 150 ms);
+    - the dialogs fade in with a slight scale;
+    - buttons, cards and rows change colour on hover and focus in about 120 ms.
+  - The figures and charts are not animated; hiding the balances is instant. The shell's motion is RD.1's and does not change.
 - [x] RD.8: the Users page (`/users`, admin) as a table, like the strategy lists and the open positions (L25). Prototype first, when the owner calls for it. Prototyped as ex16 (L47, L48), approved (L49), built on `feat/rd8-users-table`.
   - *Delivered 2026-11-27 as PR #143*, four commits: the prototype (L47, L48), the closed trades' page count (L48), the table (L49) and the brake tip's fix (L50). The owner merged it with a merge commit, `3f88c289b28c`.
     - **Deploy, run by the owner**, by `deploy_3f88c289b28c.sh`. Frontend only: no backend file changed since `d3bc653435e3`, so no restart and no migration. The bundle was built from a clean worktree of `origin/main` at `3f88c289b28c`: 29 entries, SHA-256 `118df3e3…6dea748fa`.
@@ -546,3 +555,4 @@ The owner's words (2026-11-24) are quoted as written.
   - The second part, agreed after a proposal: the bell shakes only for Safety, Discrepancy or Notice, once (0.6 s) on arrival and again every 30 s until the page is opened; an Operation alone gives only the dot; no shake under `prefers-reduced-motion`.
 - L60 (2026-11-27, owner, on that proposal): "Si, me parece bien. Que sería prefers-reduced-motion?"
 - L61 (2026-11-27, owner, on ex5 as L57 to L60 left it): "Si, apruebo"
+- L62 (2026-11-27, owner, on what follows RD.5): "No. Ya hice el merge del registro. Primero terminamos RD.6, RD.9 y después vemos de las tareas pendientes, cuál debería tener prioridad"
