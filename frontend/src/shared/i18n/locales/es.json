@@ -80,6 +80,7 @@
       "CLOSED_STOP_FAILED_CLOSED": "Cierre de seguridad en {{strategy}}",
       "CLOSED_STRATEGY_STOPPED_CLOSED": "Cierre en {{strategy}}, que se detuvo",
       "OPENING_REFUSED": "Apertura rechazada en {{strategy}}",
+      "LEVERAGE_LOWERED": "Apalancamiento reducido en {{strategy}}",
       "DISCREPANCY_NO_MATCHING_ALLOCATION": "Posición sin asignación en {{exchange}}",
       "DISCREPANCY": "Discrepancia en {{exchange}}",
       "unknown": "Notificación"
@@ -101,6 +102,7 @@
       "MARGIN_NOT_ISOLATED": "Su cuenta de {{exchange}} no está en margen aislado. No se reservó capital.",
       "LEVERAGE_CONFLICT": "Usted ya tiene <num>{{pair}}</num> con otro apalancamiento, y el de una posición nunca se cambia. No se reservó capital.",
       "LEVERAGE_NOT_APPLIED": "El exchange no aplicó el apalancamiento que eligió. No se reservó capital.",
+      "LEVERAGE_LOWERED": "El stop de {{strategy}} cambió, así que su apalancamiento bajó de <num>{{from}}x</num> a <num>{{to}}x</num>. Una posición ya abierta conserva el suyo.",
       "openingRefused": "Se rechazó la apertura. No se reservó capital.",
       "DISCREPANCY_NO_MATCHING_ALLOCATION": "La posición <num>{{pair}}</num> del exchange no coincide con ninguna asignación. Requiere su decisión.",
       "discrepancy": "La conciliación encontró una diferencia que requiere su decisión.",
@@ -677,7 +679,8 @@
     "stopLevel": {
       "label": "Nivel de stop",
       "info": "Acerca del nivel de stop",
-      "hint": "La distancia al precio de entrada, como porcentaje del precio, a la que se detiene una posición de esta estrategia. El sistema coloca ese stop en el exchange con cada apertura en vivo; una apertura simulada no lo lleva. También limita el apalancamiento que cualquiera puede usar en ella, para que el stop llegue antes que la liquidación: un stop del 10% permite hasta x9, y uno del 5% hasta x16. Un cambio se aplica a las aperturas que se hagan después; una posición ya abierta conserva su stop. Un puesto que quede por encima del nuevo límite deja de abrir hasta que su usuario reduzca su apalancamiento.",
+      "hint": "La distancia al precio de entrada, como porcentaje del precio, a la que se detiene una posición de esta estrategia. El sistema coloca ese stop en el exchange con cada apertura en vivo; una apertura simulada no lo lleva. También limita el apalancamiento que cualquiera puede usar en ella, para que el stop llegue antes que la liquidación: un stop del 10% permite hasta x9, y uno del 5% hasta x16. Un cambio se aplica a las aperturas que se hagan después; una posición ya abierta conserva su stop. Un puesto que quede por encima de un nuevo límite baja al nuevo límite, y se le avisa a su usuario; una posición ya abierta conserva su apalancamiento.",
+      "lowersSeats": "Las suscripciones por encima de x{{max}} bajarán a x{{max}}.",
       "unit": "% del precio",
       "cap": "Apalancamiento máximo de x{{max}}",
       "save": "Guardar",

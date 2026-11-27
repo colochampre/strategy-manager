@@ -1,4 +1,4 @@
-import { ArrowLeftRight, Info, KeyRound, Shield, ShieldAlert, TriangleAlert, User } from "lucide-react";
+import { ArrowLeftRight, Gauge, Info, KeyRound, Shield, ShieldAlert, TriangleAlert, User } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { TFunction, i18n as I18nInstance } from "i18next";
 
@@ -135,6 +135,21 @@ export function describeItem(item: NotificationItem, t: TFunction, i18n: I18nIns
         item.reason !== null && KEY_REASONS.includes(item.reason)
           ? { to: "/exchanges", labelKey: "nav.exchanges" }
           : null,
+    };
+  }
+
+  // A seat lowered to the cap of its strategy's wider stop (RD.9): no market, no figure, only the two leverages.
+  if (item.event === "LEVERAGE_LOWERED") {
+    const leverage = (name: string) => {
+      const value = item.detail[name];
+      return value === undefined ? dash : (tableFigureText(value) ?? value);
+    };
+    return {
+      ...base,
+      icon: Gauge,
+      titleKey: "LEVERAGE_LOWERED",
+      titleValues: { strategy },
+      sentence: [{ key: "LEVERAGE_LOWERED", values: { strategy, from: leverage("from"), to: leverage("to") } }],
     };
   }
 
