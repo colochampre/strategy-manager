@@ -27,6 +27,7 @@ otherwise; no price, quantity or fee is ever logged.
 
 import logging
 from collections import defaultdict
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from uuid import UUID
@@ -110,21 +111,8 @@ class ReadMyTrades:
         ):
             raise InvalidMyTradesRequest("closed_since has no time zone")
 
-        operations: list[tuple[ClosedTrade, bool]] = []
-        groups_of: dict[UUID, list[FillGroup]] = defaultdict(list)
-        pool_of: dict[UUID, PoolKey] = {}
-        for pool in await self._source.pools_with_fills(user_id):
-            await self._derive_pool(user_id, pool, operations, groups_of, pool_of)
-
-        facts = await self._source.strategy_facts(
-            user_id, sorted({trade.strategy_id for trade, _ in operations}, key=str)
-        )
-        for trade, _ in operations:
-            if trade.strategy_id not in facts:
-                raise InvariantViolation(
-                    f"allocation {trade.allocation_id} names strategy {trade.strategy_id}, "
-                    "which the strategy read does not know"
-                )
+        operations, groups_of, pool_of = await self._derive_every_pool(user_id)
+        facts = await self._facts_of(user_id, operations)
 
         listed = [
             (trade, rehearsal)
@@ -136,6 +124,62 @@ class ReadMyTrades:
         listed.sort(key=lambda op: _key(op[0]), reverse=True)
         page = listed[offset : offset + limit]
 
+        trades = await self._my_trades(user_id, page, groups_of, pool_of, facts)
+        return MyTradesPage(
+            trades=trades,
+            total=len(listed),
+            strategies=tuple(
+                sorted(
+                    (facts[sid] for sid in {trade.strategy_id for trade, _ in operations}),
+                    key=lambda s: (s.name, str(s.strategy_id)),
+                )
+            ),
+            exchanges=tuple(sorted({trade.exchange for trade, _ in operations})),
+        )
+
+    async def read_every(self, user_id: UUID) -> tuple[MyTrade, ...]:
+        """Every closed operation of the user, newest close first, with the
+        figures and the close cause ``read`` gives a row (the notifications feed
+        reads them all and cuts its own pages). The same derivation, not a second
+        one: ``read`` and this method share every step but the cut."""
+        operations, groups_of, pool_of = await self._derive_every_pool(user_id)
+        facts = await self._facts_of(user_id, operations)
+        ordered = sorted(operations, key=lambda op: _key(op[0]), reverse=True)
+        return await self._my_trades(user_id, ordered, groups_of, pool_of, facts)
+
+    async def _derive_every_pool(
+        self, user_id: UUID
+    ) -> tuple[list[tuple[ClosedTrade, bool]], dict[UUID, list[FillGroup]], dict[UUID, PoolKey]]:
+        operations: list[tuple[ClosedTrade, bool]] = []
+        groups_of: dict[UUID, list[FillGroup]] = defaultdict(list)
+        pool_of: dict[UUID, PoolKey] = {}
+        for pool in await self._source.pools_with_fills(user_id):
+            await self._derive_pool(user_id, pool, operations, groups_of, pool_of)
+        return operations, groups_of, pool_of
+
+    async def _facts_of(
+        self, user_id: UUID, operations: list[tuple[ClosedTrade, bool]]
+    ) -> Mapping[UUID, TradeStrategyFacts]:
+        facts = await self._source.strategy_facts(
+            user_id, sorted({trade.strategy_id for trade, _ in operations}, key=str)
+        )
+        for trade, _ in operations:
+            if trade.strategy_id not in facts:
+                raise InvariantViolation(
+                    f"allocation {trade.allocation_id} names strategy {trade.strategy_id}, "
+                    "which the strategy read does not know"
+                )
+        return facts
+
+    async def _my_trades(
+        self,
+        user_id: UUID,
+        page: Sequence[tuple[ClosedTrade, bool]],
+        groups_of: dict[UUID, list[FillGroup]],
+        pool_of: dict[UUID, PoolKey],
+        facts: Mapping[UUID, TradeStrategyFacts],
+    ) -> tuple[MyTrade, ...]:
+        """The figures and the cause of each operation of ``page``."""
         kinds = await self._source.close_event_kinds(
             user_id, [trade.allocation_id for trade, _ in page]
         )
@@ -154,17 +198,7 @@ class ReadMyTrades:
                     close_cause=close_cause_of(kinds.get(trade.allocation_id)),
                 )
             )
-        return MyTradesPage(
-            trades=tuple(trades),
-            total=len(listed),
-            strategies=tuple(
-                sorted(
-                    (facts[sid] for sid in {trade.strategy_id for trade, _ in operations}),
-                    key=lambda s: (s.name, str(s.strategy_id)),
-                )
-            ),
-            exchanges=tuple(sorted({trade.exchange for trade, _ in operations})),
-        )
+        return tuple(trades)
 
     async def _derive_pool(
         self,

@@ -141,7 +141,14 @@ describe("the sidebar", () => {
     const hrefs = within(nav)
       .getAllByRole("link")
       .map((link) => link.getAttribute("href"));
-    expect(hrefs.slice(0, 5)).toEqual(["/", "/trades", "/strategies/authored", "/strategies", "/strategies/explore"]);
+    expect(hrefs.slice(0, 6)).toEqual([
+      "/",
+      "/notifications",
+      "/trades",
+      "/strategies/authored",
+      "/strategies",
+      "/strategies/explore",
+    ]);
   });
 
   it("toggles a group with aria-expanded, and hides its links while it is closed", async () => {
@@ -290,7 +297,7 @@ describe("the top row", () => {
     stubApi(HEALTH, [], undefined, {}, meAs(true));
   });
 
-  it("puts, on the right, the mode, the person, the language, in that order, all the same size", async () => {
+  it("puts, on the right, the mode, the person, the bell, the language, in that order, all the same size", async () => {
     renderShell("/settings");
 
     // The mode is only shown (L12): a status of the same 36 px, not a button, and the first of the tools.
@@ -301,12 +308,16 @@ describe("the top row", () => {
     const items = Array.from(tools.querySelectorAll("button, a"));
     expect(items.map((item) => item.getAttribute("aria-label"))).toEqual([
       "My account",
+      "Notifications",
       "Language: English. Switch to Spanish",
     ]);
     const person = within(tools).getByRole("link", { name: "My account" });
+    const bell = within(tools).getByRole("link", { name: "Notifications" });
     const language = within(tools).getByRole("button", { name: /^Language/ });
     expect(person).toHaveAttribute("href", "/settings");
     expect(person.className).toBe(language.className);
+    // The bell is the same 36 px button, positioned so that its dot can sit on a corner.
+    expect(bell.className).toBe(`${person.className} relative`);
   });
 
   it.each(["/", "/strategies/authored", "/strategies/5b0c7a52-6f43-4d6e-9c1c-0c2f3f3f2a11"])(
@@ -382,7 +393,7 @@ describe("every page keeps a way in", () => {
       "/discrepancies",
       "/users",
       "/exchanges",
-      "/safety-events",
+      "/notifications",
       "/settings",
       "/privacy",
       "/terms",

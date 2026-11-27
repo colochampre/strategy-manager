@@ -268,7 +268,7 @@ describe("My trades: the closed rows", () => {
       "text-loss",
       "Safety close: the strategy was disabled with the trade open",
     ],
-    ["MANUAL_CLOSE", "lucide-user", "text-ink-3", "Closed by you (Close now)"],
+    ["MANUAL_CLOSE", "lucide-user", "text-ink-3", "Closed manually"],
   ])("marks a %s close with %s, in %s, and tells it in a tip", async (cause, icon, tone, tip) => {
     serve({ closed: [closed({ close_cause: cause })] });
     open();

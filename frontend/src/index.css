@@ -45,6 +45,24 @@
   --color-loss-5: color-mix(in srgb, #E0644B 68%, #1E272F);
   --color-loss-6: color-mix(in srgb, #E0644B 80%, #1E272F);
 
+  /* The notification tokens (RD.0, RD.5): an edge colour, a soft fill over the panel and an ink for each kind. */
+  /* notif-operation: an opening or a close made by a signal or by hand. Teal family, derived from gain. */
+  --color-notif-operation: var(--color-gain);
+  --color-notif-operation-soft: color-mix(in srgb, var(--color-gain) 14%, var(--color-panel));
+  --color-notif-operation-ink: var(--color-gain-bright);
+  /* notif-safety: a stop fired, a safety close, an opening refused. Ember family, derived from loss. */
+  --color-notif-safety: var(--color-loss);
+  --color-notif-safety-soft: color-mix(in srgb, var(--color-loss) 14%, var(--color-panel));
+  --color-notif-safety-ink: color-mix(in srgb, var(--color-loss) 72%, #fff);
+  /* notif-discrepancy: reconciliation found something. It needs a decision, so it takes the amber. */
+  --color-notif-discrepancy: var(--color-decision);
+  --color-notif-discrepancy-soft: color-mix(in srgb, var(--color-decision) 14%, var(--color-panel));
+  --color-notif-discrepancy-ink: color-mix(in srgb, var(--color-decision) 72%, #fff);
+  /* notif-notice: something to fix at the exchange or in a key. Neutral, derived from ink-2. */
+  --color-notif-notice: var(--color-ink-2);
+  --color-notif-notice-soft: color-mix(in srgb, var(--color-ink-2) 11%, var(--color-panel));
+  --color-notif-notice-ink: var(--color-ink-2);
+
   --font-display: "Archivo", system-ui, sans-serif;
   --font-sans: "IBM Plex Sans", system-ui, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
@@ -53,6 +71,32 @@
      The elements carry `motion-reduce:animate-none`, so under prefers-reduced-motion they simply appear. */
   --animate-drawer-in: drawer-in 180ms ease-out;
   --animate-scrim-in: scrim-in 180ms ease-out;
+
+  /* The bell's shake (L59, L60): the whole cycle is 30 s and the shake takes its first 2 %, so it lasts 0.6 s on
+     arrival and again every 30 s. The bell carries `motion-safe:`, so prefers-reduced-motion stops it. */
+  --animate-bell-ring: bell-ring 30s ease-in-out infinite;
+
+  @keyframes bell-ring {
+    0% {
+      rotate: 0deg;
+    }
+    0.4% {
+      rotate: 14deg;
+    }
+    0.8% {
+      rotate: -12deg;
+    }
+    1.2% {
+      rotate: 8deg;
+    }
+    1.6% {
+      rotate: -4deg;
+    }
+    2%,
+    100% {
+      rotate: 0deg;
+    }
+  }
 
   @keyframes drawer-in {
     from {

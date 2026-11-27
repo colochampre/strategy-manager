@@ -64,12 +64,12 @@ describe("what the navigation offers", () => {
     await screen.findByRole("button", { name: "Administration" });
     expect(hrefs()).toEqual([
       "/",
+      "/notifications",
       "/trades",
       "/strategies/authored",
       "/strategies",
       "/strategies/explore",
       "/exchanges",
-      "/safety-events",
       "/discrepancies",
       "/users",
       "/settings",
@@ -85,12 +85,12 @@ describe("what the navigation offers", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(hrefs()).toEqual([
       "/",
+      "/notifications",
       "/trades",
       "/strategies/authored",
       "/strategies",
       "/strategies/explore",
       "/exchanges",
-      "/safety-events",
       "/settings",
       "/cdn-cgi/access/logout",
     ]);

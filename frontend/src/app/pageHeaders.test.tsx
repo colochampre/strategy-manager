@@ -26,7 +26,7 @@ const PAGES: ReadonlyArray<{ path: string; crumbs: string[]; title: string; subt
   { path: "/trades", crumbs: ["My trades"], title: "My trades", subtitle: en.pageHeader.trades },
   { path: "/settings", crumbs: ["My account"], title: "My account", subtitle: en.pageHeader.account },
   { path: "/exchanges", crumbs: ["Link exchange"], title: "Link exchange", subtitle: en.pageHeader.exchanges },
-  { path: "/safety-events", crumbs: ["Safety events"], title: "Safety events", subtitle: en.safetyEvents.intro },
+  { path: "/notifications", crumbs: ["Notifications"], title: "Notifications", subtitle: en.notifications.intro },
   { path: "/users", crumbs: ["Administration", "Users"], title: "Users", subtitle: en.pageHeader.users },
   { path: "/no/such/page", crumbs: ["Page not found"], title: "Page not found", subtitle: en.pageHeader.notFound },
 ];

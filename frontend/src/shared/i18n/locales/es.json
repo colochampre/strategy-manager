@@ -13,7 +13,7 @@
     "explore": "Explorar",
     "discrepancies": "Discrepancias",
     "users": "Usuarios",
-    "safetyEvents": "Eventos de seguridad",
+    "notifications": "Notificaciones",
     "admin": "Administración",
     "account": "Mi cuenta",
     "exchanges": "Vincular exchange",
@@ -39,34 +39,72 @@
     "users": "Las cuentas del panel. Visible solo para administradores.",
     "notFound": "La página que busca no existe o ya no está disponible."
   },
-  "safetyEvents": {
-    "title": "Eventos de seguridad",
-    "intro": "Lo que la red de seguridad hizo por sus posiciones: stops que saltaron, cierres hechos por usted y aperturas rechazadas.",
-    "loading": "Leyendo eventos de seguridad…",
-    "error": "No se pudieron leer los eventos de seguridad.",
-    "empty": "Todavía nada ha necesitado la red de seguridad.",
-    "listLabel": "Eventos de seguridad, del más reciente al más antiguo",
-    "unknownStrategy": "Estrategia desconocida",
-    "kind": {
-      "STOP_FIRED": "Stop activado",
-      "STOP_FAILED_CLOSED": "Cerrada tras un stop fallido",
-      "STRATEGY_STOPPED_CLOSED": "Cerrada al detenerse la estrategia",
-      "MANUAL_CLOSE": "Cerrada por usted",
-      "OPENING_REFUSED_LEVERAGE_CAP": "Apertura rechazada: tope de apalancamiento",
-      "OPENING_REFUSED_ACCOUNT_SUSPENDED": "Apertura rechazada: su cuenta está suspendida",
-      "OPENING_REFUSED_AUTHOR_SUSPENDED": "Apertura rechazada: el autor de la estrategia está suspendido",
-      "unknown": "Evento de seguridad"
+  "notifications": {
+    "intro": "Sus operaciones, los eventos de seguridad y los avisos de su cuenta, el más reciente primero.",
+    "loading": "Leyendo notificaciones…",
+    "error": "No se pudieron leer sus notificaciones.",
+    "retry": "Reintentar",
+    "empty": "Todavía no hay nada que mostrar.",
+    "filters": "Mostrar",
+    "showMore": "Ver más",
+    "moreError": "No se pudieron leer más notificaciones.",
+    "review": "Revisar",
+    "adminOnly": "Visible solo para administradores",
+    "today": "Hoy, {{date}}",
+    "yesterday": "Ayer, {{date}}",
+    "unknownStrategy": "una estrategia",
+    "unknownExchange": "el exchange",
+    "unknownSide": "Posición",
+    "bell": {
+      "label": "Notificaciones",
+      "new": "Notificaciones: hay nuevas"
     },
-    "detail": {
-      "STOP_FIRED": "El stop se activó en {{trigger_price}} y cerró {{quantity}}.",
-      "STOP_FAILED_CLOSED": "No se pudo mantener el stop, así que se cerró la posición: {{quantity}} a {{price}}.",
-      "STRATEGY_STOPPED_CLOSED": "La estrategia se detuvo, así que se cerró la posición: {{quantity}} a {{price}}.",
-      "MANUAL_CLOSE": "Usted cerró la posición: {{quantity}} a {{price}}.",
-      "OPENING_REFUSED_LEVERAGE_CAP": "La apertura pedía {{requested_leverage}}x, por encima de los {{max_leverage}}x permitidos con un stop de {{stop_loss_pct}}%, así que no se abrió nada.",
-      "OPENING_REFUSED_ACCOUNT_SUSPENDED": "No se abrió nada: su cuenta está suspendida.",
-      "OPENING_REFUSED_AUTHOR_SUSPENDED": "No se abrió nada: el autor de la estrategia está suspendido.",
-      "unknown": "No hay detalles disponibles para este evento.",
-      "missing": "n/d"
+    "chip": {
+      "all": "Todas",
+      "OPERATION": "Operaciones",
+      "SAFETY": "Seguridad",
+      "NOTICE": "Avisos",
+      "DISCREPANCY": "Discrepancias"
+    },
+    "pill": {
+      "OPERATION": "Operación",
+      "SAFETY": "Seguridad",
+      "NOTICE": "Aviso",
+      "DISCREPANCY": "Discrepancia"
+    },
+    "title": {
+      "OPENED": "Apertura en {{strategy}}",
+      "CLOSED_SIGNAL": "Cierre en {{strategy}}",
+      "CLOSED_MANUAL_CLOSE": "Cierre manual en {{strategy}}",
+      "CLOSED_STOP_FIRED": "Stop activado en {{strategy}}",
+      "CLOSED_STOP_FAILED_CLOSED": "Cierre de seguridad en {{strategy}}",
+      "CLOSED_STRATEGY_STOPPED_CLOSED": "Cierre en {{strategy}}, que se detuvo",
+      "OPENING_REFUSED": "Apertura rechazada en {{strategy}}",
+      "DISCREPANCY_NO_MATCHING_ALLOCATION": "Posición sin asignación en {{exchange}}",
+      "DISCREPANCY": "Discrepancia en {{exchange}}",
+      "unknown": "Notificación"
+    },
+    "sentence": {
+      "OPENED": "{{side}} en <pair>{{pair}}</pair> en {{exchange}}, entrada a <fig>{{entry}}</fig> {{currency}}.",
+      "OPENED_LEVERAGE": "{{side}} en <pair>{{pair}}</pair> en {{exchange}}, entrada a <fig>{{entry}}</fig> {{currency}}, apalancamiento <num>{{leverage}}x</num>.",
+      "result": "Resultado <pnl>{{pnl}}</pnl> {{currency}}.",
+      "CLOSED_SIGNAL": "{{side}} en <pair>{{pair}}</pair> en {{exchange}} cerrado a <fig>{{exit}}</fig> {{currency}}.",
+      "CLOSED_MANUAL_CLOSE": "{{side}} en <pair>{{pair}}</pair> en {{exchange}} cerrado manualmente a <fig>{{exit}}</fig> {{currency}}.",
+      "CLOSED_STOP_FIRED": "{{side}} en <pair>{{pair}}</pair> en {{exchange}} cerrado por el stop a <fig>{{exit}}</fig> {{currency}}.",
+      "CLOSED_STOP_FAILED_CLOSED": "{{side}} en <pair>{{pair}}</pair> en {{exchange}} cerrado por seguridad, porque no se pudo confirmar el stop, a <fig>{{exit}}</fig> {{currency}}.",
+      "CLOSED_STRATEGY_STOPPED_CLOSED": "{{side}} en <pair>{{pair}}</pair> en {{exchange}} cerrado porque la estrategia se desactivó, a <fig>{{exit}}</fig> {{currency}}.",
+      "OPENING_REFUSED_LEVERAGE_CAP": "El apalancamiento que eligió (<num>{{requested}}x</num>) supera los <num>{{max}}x</num> que permite el stop de la estrategia. No se reservó capital. Redúzcalo en Mis suscripciones.",
+      "OPENING_REFUSED_ACCOUNT_SUSPENDED": "Su cuenta está suspendida. No se reservó capital.",
+      "OPENING_REFUSED_AUTHOR_SUSPENDED": "El autor de la estrategia está suspendido. No se reservó capital.",
+      "EXCHANGE_KEY_READ_ONLY": "Su clave de {{exchange}} es de solo lectura, así que no puede operar en vivo. No se reservó capital. Guarde una clave que pueda operar.",
+      "EXCHANGE_HAS_NO_KEY": "Usted no tiene una clave de {{exchange}}. No se reservó capital. Vincule una clave que pueda operar.",
+      "MARGIN_NOT_ISOLATED": "Su cuenta de {{exchange}} no está en margen aislado. No se reservó capital.",
+      "LEVERAGE_CONFLICT": "Usted ya tiene <num>{{pair}}</num> con otro apalancamiento, y el de una posición nunca se cambia. No se reservó capital.",
+      "LEVERAGE_NOT_APPLIED": "El exchange no aplicó el apalancamiento que eligió. No se reservó capital.",
+      "openingRefused": "Se rechazó la apertura. No se reservó capital.",
+      "DISCREPANCY_NO_MATCHING_ALLOCATION": "La posición <num>{{pair}}</num> del exchange no coincide con ninguna asignación. Requiere su decisión.",
+      "discrepancy": "La conciliación encontró una diferencia que requiere su decisión.",
+      "unknown": "Este panel no tiene más detalle sobre ella."
     }
   },
   "trades": {
@@ -113,7 +151,7 @@
       "STOP_FIRED": "Disparó el stop en el exchange",
       "STOP_FAILED_CLOSED": "Cierre de seguridad: el stop no se pudo confirmar",
       "STRATEGY_STOPPED_CLOSED": "Cierre de seguridad: la estrategia quedó desactivada con la operación abierta",
-      "MANUAL_CLOSE": "Cerrada por usted (Cerrar ahora)"
+      "MANUAL_CLOSE": "Cerrada manualmente"
     }
   },
   "users": {

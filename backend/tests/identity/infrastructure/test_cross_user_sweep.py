@@ -130,6 +130,8 @@ class Probe:
     unknown: tuple[str, ...] = (PRIVATE, PUBLIC, CLOSED_TRADE, SEAT_OF_A)
     #: A trace of A's, or the name of an id of A's, this route shows on purpose.
     shows: tuple[str, ...] = ()
+    #: The query string a route cannot answer without.
+    query: Mapping[str, str] | None = None
 
 
 def _market(market: tuple[str, str, str], currency: str) -> dict[str, str]:
@@ -248,6 +250,15 @@ PROBES: tuple[Probe, ...] = (
     Probe("GET", "/api/pools", answers=200),
     Probe("GET", "/api/positions/open", answers=200),
     Probe("GET", "/api/safety-events", answers=200),
+    # B's operations across every pool, and B's feed: never A's trade, open or closed.
+    Probe("GET", "/api/performance/trades", answers=200),
+    Probe("GET", "/api/notifications", answers=200),
+    Probe(
+        "GET",
+        "/api/notifications/unseen",
+        answers=200,
+        query={"since": "2000-01-01T00:00:00Z"},
+    ),
     Probe("GET", "/api/strategies", answers=200),
     Probe("GET", "/api/subscriptions", answers=200),
     Probe("GET", "/api/subscriptions/held", answers=200),
@@ -518,7 +529,11 @@ async def _send(
         }
     )
     return await world.api.request(
-        probe.method, probe.path.format(**values), json=body, headers=headers
+        probe.method,
+        probe.path.format(**values),
+        json=body,
+        headers=headers,
+        params=None if probe.query is None else dict(probe.query),
     )
 
 

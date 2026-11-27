@@ -148,6 +148,9 @@ from strategy_manager.ledger.application.read_symbol_holdings import ReadSymbolH
 from strategy_manager.ledger.application.read_symbol_positions import ReadSymbolPositions
 from strategy_manager.ledger.application.record_fill import RecordFill
 from strategy_manager.ledger.infrastructure.repository import SqlAlchemyLedgerRepository
+from strategy_manager.notifications.infrastructure.router import (
+    router as notifications_router,
+)
 from strategy_manager.performance.infrastructure.open_position_marks import (
     PublicOpenPositionMarks,
 )
@@ -2551,6 +2554,8 @@ def create_app() -> FastAPI:
     app.add_middleware(NoStoreMiddleware, prefix="/api/strategies")
     # Nor a user's safety events: what the system did to their money (SS.10).
     app.add_middleware(NoStoreMiddleware, prefix="/api/safety-events")
+    # Nor the feed that gathers them with the user's operations and notices (RD.5a).
+    app.add_middleware(NoStoreMiddleware, prefix="/api/notifications")
 
     @app.get("/health")
     async def health() -> dict[str, str | bool]:
@@ -2591,6 +2596,7 @@ def create_app() -> FastAPI:
     api_router.include_router(performance_router)
     api_router.include_router(open_positions_router)
     api_router.include_router(safety_events_router)
+    api_router.include_router(notifications_router)
     api_router.include_router(manual_close_router)
     api_router.include_router(public_strategies_router)
     api_router.include_router(invite_lookup_router)

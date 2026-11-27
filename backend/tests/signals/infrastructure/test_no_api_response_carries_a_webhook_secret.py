@@ -234,7 +234,12 @@ def _concrete_path(
             # than skipped.
             value = _SAMPLE_PATH_PARAMS.get(name, str(uuid4()))
         path = path.replace("{" + name + "}", value)
-    return path
+    return path + _QUERIES.get(template, "")
+
+
+#: The query a GET route cannot answer without: given so the handler runs and finds data,
+#: rather than the 422 a missing parameter earns.
+_QUERIES = {"/api/notifications/unseen": "?since=2000-01-01T00:00:00Z"}
 
 
 @pytest.mark.integration

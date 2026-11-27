@@ -1,4 +1,4 @@
-import { ArrowLeftRight, LayoutDashboard, Link2, ShieldAlert, ShieldCheck, TrendingUp } from "lucide-react";
+import { ArrowLeftRight, Bell, LayoutDashboard, Link2, ShieldCheck, TrendingUp } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 import { useMe } from "@/shared/api/me";
@@ -15,7 +15,7 @@ export interface NavLinkItem {
     | "exchanges"
     | "discrepancies"
     | "users"
-    | "safetyEvents";
+    | "notifications";
   /** `/` and `/strategies` would otherwise stay active on every route under them. */
   end: boolean;
   /** The item carries the `NavBadge` of what needs the owner. */
@@ -43,8 +43,8 @@ export const OVERVIEW: NavLeaf = { to: "/", icon: LayoutDashboard, labelKey: "ov
 export const TRADES: NavLeaf = { to: "/trades", icon: ArrowLeftRight, labelKey: "trades", end: false };
 /** Where the API keys are managed (S4, S9), apart from Mi cuenta. */
 export const EXCHANGES: NavLeaf = { to: "/exchanges", icon: Link2, labelKey: "exchanges", end: false };
-/** Stays until RD.5 merges the safety events into Notificaciones. */
-export const SAFETY_EVENTS: NavLeaf = { to: "/safety-events", icon: ShieldAlert, labelKey: "safetyEvents", end: false };
+/** The user's operations, the safety events and the notices of their account in one feed (S6, RD.5). */
+export const NOTIFICATIONS: NavLeaf = { to: "/notifications", icon: Bell, labelKey: "notifications", end: false };
 
 export const STRATEGIES: NavGroup = {
   id: "strategies",
@@ -74,5 +74,5 @@ export const ADMIN: NavGroup = {
 /** The pages the sidebar offers this person, top part then foot. Until `me` answers they are not the admin's, so no stranger sees them flash by. */
 export function useNavigation(): { main: readonly (NavLeaf | NavGroup)[]; admin: NavGroup | null } {
   const { data } = useMe();
-  return { main: [OVERVIEW, TRADES, STRATEGIES, EXCHANGES, SAFETY_EVENTS], admin: data?.isAdmin === true ? ADMIN : null };
+  return { main: [OVERVIEW, NOTIFICATIONS, TRADES, STRATEGIES, EXCHANGES], admin: data?.isAdmin === true ? ADMIN : null };
 }

@@ -71,7 +71,7 @@ describe("navigation", () => {
       ["My strategies", "/strategies/authored"],
       ["My subscriptions", "/strategies"],
       ["Explore", "/strategies/explore"],
-      ["Safety events", "/safety-events"],
+      ["Notifications", "/notifications"],
     ] as const) {
       expect(within(sidebar()).getByRole("link", { name: label })).toHaveAttribute("href", href);
     }
@@ -325,12 +325,12 @@ describe("the Discrepancies item and its badge", () => {
     const links = within(sidebar()).getAllByRole("link");
     expect(links.map((link) => link.getAttribute("href"))).toEqual([
       "/",
+      "/notifications",
       "/trades",
       "/strategies/authored",
       "/strategies",
       "/strategies/explore",
       "/exchanges",
-      "/safety-events",
       "/discrepancies",
       "/users",
       "/settings",

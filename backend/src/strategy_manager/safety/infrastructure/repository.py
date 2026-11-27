@@ -1,9 +1,10 @@
 """SQLAlchemy adapters for the safety events (subscriber-safety SS.10): the writer every
 site that causes an event uses, and the reader behind the panel's list."""
 
+from collections.abc import Collection, Sequence
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import Row, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -61,18 +62,36 @@ class SqlAlchemySafetyEventReader:
             .order_by(SafetyEventRow.occurred_at.desc(), SafetyEventRow.id.desc())
             .limit(limit)
         )
-        return [
-            SafetyEventView(
-                id=row.id,
-                kind=SafetyEventKind(row.kind),
-                strategy_id=row.strategy_id,
-                strategy_name=name,
-                allocation_id=row.allocation_id,
-                exchange=row.exchange,
-                venue=row.venue,
-                symbol=row.symbol,
-                occurred_at=row.occurred_at,
-                detail={key: str(value) for key, value in row.detail.items()},
+        return _views(rows.all())
+
+    async def of_kinds(
+        self, user_id: UUID, kinds: Collection[SafetyEventKind]
+    ) -> list[SafetyEventView]:
+        rows = await self._session.execute(
+            select(SafetyEventRow, StrategyRow.name)
+            .join(StrategyRow, StrategyRow.id == SafetyEventRow.strategy_id)
+            .where(
+                SafetyEventRow.user_id == user_id,
+                SafetyEventRow.kind.in_([kind.value for kind in kinds]),
             )
-            for row, name in rows.all()
-        ]
+            .order_by(SafetyEventRow.occurred_at.desc(), SafetyEventRow.id.desc())
+        )
+        return _views(rows.all())
+
+
+def _views(rows: Sequence[Row[tuple[SafetyEventRow, str]]]) -> list[SafetyEventView]:
+    return [
+        SafetyEventView(
+            id=row.id,
+            kind=SafetyEventKind(row.kind),
+            strategy_id=row.strategy_id,
+            strategy_name=name,
+            allocation_id=row.allocation_id,
+            exchange=row.exchange,
+            venue=row.venue,
+            symbol=row.symbol,
+            occurred_at=row.occurred_at,
+            detail={key: str(value) for key, value in row.detail.items()},
+        )
+        for row, name in rows
+    ]

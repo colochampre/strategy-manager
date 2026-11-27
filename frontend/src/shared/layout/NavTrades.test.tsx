@@ -32,13 +32,33 @@ afterEach(async () => {
   await act(() => i18n.changeLanguage("en"));
 });
 
+describe("the Notifications item of the sidebar (RD.5)", () => {
+  it("is the link to /notifications right after the Overview, in place of Safety events", async () => {
+    await renderShell();
+
+    const names = within(sidebar())
+      .getAllByRole("link")
+      .map((link) => link.textContent);
+    expect(names.indexOf("Notifications")).toBe(names.indexOf("Overview") + 1);
+    expect(within(sidebar()).getByRole("link", { name: "Notifications" })).toHaveAttribute("href", "/notifications");
+    expect(names).not.toContain("Safety events");
+  });
+
+  it("is named Notificaciones in Spanish", async () => {
+    await act(() => i18n.changeLanguage("es"));
+    await renderShell();
+
+    expect(within(sidebar()).getByRole("link", { name: "Notificaciones" })).toHaveAttribute("href", "/notifications");
+  });
+});
+
 describe("the My trades item of the sidebar (RD.4)", () => {
-  it("is the link to /trades right after the Overview, with the arrows icon", async () => {
+  it("is the link to /trades right after Notifications, with the arrows icon", async () => {
     await renderShell();
 
     const links = within(sidebar()).getAllByRole("link");
     const names = links.map((link) => link.textContent);
-    expect(names.indexOf("My trades")).toBe(names.indexOf("Overview") + 1);
+    expect(names.indexOf("My trades")).toBe(names.indexOf("Notifications") + 1);
     const item = within(sidebar()).getByRole("link", { name: "My trades" });
     expect(item).toHaveAttribute("href", "/trades");
     const icon = item.querySelector("svg");
