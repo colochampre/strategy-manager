@@ -80,6 +80,7 @@
       "CLOSED_STOP_FAILED_CLOSED": "Safety close in {{strategy}}",
       "CLOSED_STRATEGY_STOPPED_CLOSED": "Close in {{strategy}}, which stopped",
       "OPENING_REFUSED": "Opening refused in {{strategy}}",
+      "LEVERAGE_LOWERED": "Leverage lowered in {{strategy}}",
       "DISCREPANCY_NO_MATCHING_ALLOCATION": "Position without an allocation on {{exchange}}",
       "DISCREPANCY": "Discrepancy on {{exchange}}",
       "unknown": "Notification"
@@ -101,6 +102,7 @@
       "MARGIN_NOT_ISOLATED": "Your {{exchange}} account is not on isolated margin. No capital was reserved.",
       "LEVERAGE_CONFLICT": "You already hold <num>{{pair}}</num> at another leverage, and the leverage of a position is never changed. No capital was reserved.",
       "LEVERAGE_NOT_APPLIED": "The exchange did not apply the leverage you chose. No capital was reserved.",
+      "LEVERAGE_LOWERED": "The stop of {{strategy}} changed, so your leverage went from <num>{{from}}x</num> to <num>{{to}}x</num>. A position already open keeps its own.",
       "openingRefused": "The opening was refused. No capital was reserved.",
       "DISCREPANCY_NO_MATCHING_ALLOCATION": "The <num>{{pair}}</num> position on the exchange matches no allocation. It needs your decision.",
       "discrepancy": "Reconciliation found a difference that needs your decision.",
@@ -677,7 +679,8 @@
     "stopLevel": {
       "label": "Stop level",
       "info": "About the stop level",
-      "hint": "The distance from the entry price, as a percentage of price, at which a position of this strategy is stopped. The system places that stop at the exchange with every live opening; a simulated opening has none. It also limits the leverage anyone may use on it, so that the stop comes before liquidation: a stop of 10% allows up to x9, and one of 5% up to x16. A change applies to openings made after it; a position already open keeps its stop. A seat left above the new limit stops opening until its user lowers its leverage.",
+      "hint": "The distance from the entry price, as a percentage of price, at which a position of this strategy is stopped. The system places that stop at the exchange with every live opening; a simulated opening has none. It also limits the leverage anyone may use on it, so that the stop comes before liquidation: a stop of 10% allows up to x9, and one of 5% up to x16. A change applies to openings made after it; a position already open keeps its stop. A seat above a new limit is lowered to the new limit, and its user is told; a position already open keeps its leverage.",
+      "lowersSeats": "Subscriptions above x{{max}} will be lowered to x{{max}}.",
       "unit": "% of price",
       "cap": "Max leverage x{{max}}",
       "save": "Save",

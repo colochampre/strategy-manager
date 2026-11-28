@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 
 import { FieldSaveButton } from "@/features/strategies/ShareSlider";
 import { StopLevelField } from "@/features/strategies/StopLevelField";
-import { readStopLevel } from "@/features/strategies/stop-level";
+import { maxLeverage, readStopLevel } from "@/features/strategies/stop-level";
 import { ApiError } from "@/shared/api/client";
 import { useSetStrategyStopLevel } from "@/shared/api/strategies";
 import type { Strategy } from "@/shared/api/types";
@@ -47,6 +47,10 @@ export function StopLevelEditor({ strategy }: StopLevelEditorProps) {
   const reading = readStopLevel(text);
   const changed = reading.valid && !sameLevel(text, strategy.stop_loss_pct);
   const busy = save.isPending;
+  // A wider stop lowers the cap, and saving it lowers every seat above the new cap to it (RD.9). The author is told
+  // before saving, with no count: how many seats are above it would tell them about their subscribers (L69).
+  const newCap = maxLeverage(text);
+  const lowersCap = changed && newCap < maxLeverage(strategy.stop_loss_pct);
 
   // A button that reads "Saved" is disabled, so a save never starts while "Saved" stands. Set on success only.
   const handleSave = () => {
@@ -82,6 +86,7 @@ export function StopLevelEditor({ strategy }: StopLevelEditorProps) {
           />
         }
       />
+      {lowersCap && <p className="text-sm text-ink-2">{t("strategies.stopLevel.lowersSeats", { max: newCap })}</p>}
       {save.status === "error" && (
         <p role="alert" className="text-sm text-loss">
           {t(saveRefusal(save.error))}

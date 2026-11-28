@@ -48,6 +48,7 @@ from strategy_manager.notifications.domain.notification import (
 )
 from strategy_manager.notifications.infrastructure.sources import (
     ReconciliationDiscrepancySource,
+    SqlAlchemyLoweredSeatSource,
     SqlAlchemyNoticeSource,
     SqlAlchemyOperationSource,
     SqlAlchemyRefusalSource,
@@ -78,6 +79,7 @@ def get_read_notifications(session: SessionDep, settings: SettingsDep) -> ReadNo
         SqlAlchemyRefusalSource(session),
         SqlAlchemyNoticeSource(session),
         ReconciliationDiscrepancySource(session, settings),
+        SqlAlchemyLoweredSeatSource(session),
     )
 
 
@@ -116,7 +118,7 @@ class NotificationBody(BaseModel):
 
     id: str
     kind: Literal["OPERATION", "SAFETY", "NOTICE", "DISCREPANCY"]
-    event: Literal["OPENED", "CLOSED", "OPENING_REFUSED", "DISCREPANCY"]
+    event: Literal["OPENED", "CLOSED", "OPENING_REFUSED", "LEVERAGE_LOWERED", "DISCREPANCY"]
     occurred_at: Instant
     reason: str | None
     strategy_id: UUID | None

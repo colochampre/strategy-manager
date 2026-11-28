@@ -97,6 +97,25 @@ class NoticeSourcePort(Protocol):
 
 
 @dataclass(frozen=True, slots=True)
+class LoweredSeatFacts:
+    """One seat of the user an author's wider stop lowered to the new cap
+    (panel-redesign RD.9a): the leverage it had and the one it has now."""
+
+    event_id: UUID
+    strategy_id: UUID
+    strategy_name: str
+    old_leverage: int
+    new_leverage: int
+    occurred_at: datetime
+
+
+class LoweredSeatSourcePort(Protocol):
+    async def lowered(self, user_id: UUID) -> Sequence[LoweredSeatFacts]:
+        """The user's own lowered seats, and nobody else's."""
+        ...
+
+
+@dataclass(frozen=True, slots=True)
 class DiscrepancyFacts:
     discrepancy_id: UUID
     exchange: str

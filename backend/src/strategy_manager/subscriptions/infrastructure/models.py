@@ -171,3 +171,48 @@ class InviteCodeAttemptRow(Base):
         nullable=False,
     )
     attempted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class LeverageLoweredRow(Base):
+    """Mirrors the ``leverage_lowered_events`` table created by migration ``0048``
+    (panel-redesign RD.9a): one row each time an author's wider stop lowered a
+    seat's leverage to the new cap, which is the seat owner's notice.
+
+    Never updated; the application has no code that does. Deleting the strategy or
+    the seat takes its events with it, as the seat itself goes."""
+
+    __tablename__ = "leverage_lowered_events"
+    __table_args__ = (
+        CheckConstraint(
+            "old_leverage BETWEEN 1 AND 20 AND new_leverage BETWEEN 1 AND 20 "
+            "AND new_leverage < old_leverage",
+            name="ck_leverage_lowered_events_lowered",
+        ),
+        Index("ix_leverage_lowered_events_user_occurred", "user_id", text("occurred_at DESC")),
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    user_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("users.id", name="fk_leverage_lowered_events_user"),
+        nullable=False,
+    )
+    strategy_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey(
+            "strategies.id", name="fk_leverage_lowered_events_strategy", ondelete="CASCADE"
+        ),
+        nullable=False,
+    )
+    subscription_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey(
+            "subscriptions.id", name="fk_leverage_lowered_events_subscription", ondelete="CASCADE"
+        ),
+        nullable=False,
+    )
+    old_leverage: Mapped[int] = mapped_column(Integer, nullable=False)
+    new_leverage: Mapped[int] = mapped_column(Integer, nullable=False)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

@@ -35,7 +35,13 @@ from strategy_manager.strategies.domain.strategy import (
 )
 from tests.owner import OWNER_ID
 from tests.strategies.author_names import FixedAuthorNames
-from tests.strategies.fakes import DisableGuard, FakeSubscribers, author_pool, disable_guard
+from tests.strategies.fakes import (
+    DisableGuard,
+    FakeSubscribers,
+    RecordingPoolLock,
+    author_pool,
+    disable_guard,
+)
 
 STRATEGY_ID = UUID("7256917a-9937-4a6c-b6d3-9cb2b4a9cedd")
 FIXED_NOW = datetime(2026, 9, 25, 12, 0, 0, tzinfo=UTC)
@@ -518,3 +524,105 @@ async def test_a_subscriber_who_joins_during_a_disable_refuses_it_and_writes_not
     assert log.calls == []
     assert commit.commits == 0
     assert guard["exposure"].asked == 0
+
+
+# --- a stop widened under seats above its new cap (panel-redesign RD.9a) ----------------------
+
+
+def _stop_change(
+    *, was: str, lowered: int = 0
+) -> tuple[UpdateStrategy, FakeRepository, SpyCommit, DisableGuard, list[str]]:
+    """A strategy at ``was`` percent and a use case whose subscribers lower ``lowered``
+    seats; ``events`` is the order the seats, the row and the commit were touched in."""
+    events: list[str] = []
+    strategy = _strategy(stop_loss_pct=StopLossPct(Decimal(was)))
+    repository = FakeRepository(strategy)
+    guard = disable_guard(strategy)
+    guard["subscribers"] = FakeSubscribers.sole_author(strategy, events=events, lowered=lowered)
+    guard["pool_lock"] = RecordingPoolLock(events)
+    commit = SpyCommit()
+    use_case = UpdateStrategy(
+        repository=repository,  # type: ignore[arg-type]
+        commit=commit,  # type: ignore[arg-type]
+        enablement_log=SpyEnablementLog(),  # type: ignore[arg-type]
+        clock=FixedClock(FIXED_NOW),  # type: ignore[arg-type]
+        author_names=FixedAuthorNames(),
+        **guard,
+    )
+    return use_case, repository, commit, guard, events
+
+
+async def test_a_widened_stop_lowers_the_seats_above_its_new_cap_to_that_cap() -> None:
+    use_case, repository, commit, guard, _ = _stop_change(was="10", lowered=2)
+
+    await use_case.update(
+        UpdateCommand(strategy_id=STRATEGY_ID, stop_loss_pct=StopLossPct(Decimal("20")))
+    )
+
+    # 100 / (20 + 1) is 4.76: the cap of a 20 percent stop is 4x.
+    assert guard["subscribers"].lowered == [(STRATEGY_ID, 4, FIXED_NOW)]  # type: ignore[attr-defined]
+    assert repository.updated[0].stop_loss_pct == StopLossPct(Decimal("20"))
+    assert commit.commits == 1
+
+
+async def test_the_seats_are_lowered_under_the_pool_locks_and_the_row_before_the_commit() -> None:
+    use_case, _, _, _, events = _stop_change(was="10", lowered=1)
+
+    await use_case.update(
+        UpdateCommand(strategy_id=STRATEGY_ID, stop_loss_pct=StopLossPct(Decimal("20")))
+    )
+
+    assert events == ["live_pools", "pool_lock", "live_pools", "lower_above"]
+
+
+@pytest.mark.parametrize("to", ["10", "5", "9.5"])
+async def test_a_stop_that_leaves_the_cap_or_raises_it_lowers_nothing(to: str) -> None:
+    # 10 percent is 9x; 5 percent is 16x; 9.5 percent is 9x again (100 / 10.5).
+    use_case, repository, _, guard, _ = _stop_change(was="10")
+
+    await use_case.update(
+        UpdateCommand(strategy_id=STRATEGY_ID, stop_loss_pct=StopLossPct(Decimal(to)))
+    )
+
+    assert guard["subscribers"].lowered == []  # type: ignore[attr-defined]
+    assert repository.updated[0].stop_loss_pct == StopLossPct(Decimal(to))
+
+
+async def test_a_request_that_names_no_stop_takes_no_lock_and_lowers_nothing() -> None:
+    use_case, _, _, guard, events = _stop_change(was="10")
+
+    await use_case.update(UpdateCommand(strategy_id=STRATEGY_ID, name="renamed"))
+
+    assert guard["subscribers"].lowered == []  # type: ignore[attr-defined]
+    assert events == []
+
+
+async def test_a_failure_while_lowering_commits_nothing_and_writes_no_stop() -> None:
+    use_case, repository, commit, guard, _ = _stop_change(was="10", lowered=1)
+
+    async def fails(strategy_id: UUID, cap: int, now: datetime) -> int:
+        raise RuntimeError("the seats could not be written")
+
+    guard["subscribers"].lower_above = fails  # type: ignore[method-assign]
+
+    with pytest.raises(RuntimeError):
+        await use_case.update(
+            UpdateCommand(strategy_id=STRATEGY_ID, stop_loss_pct=StopLossPct(Decimal("20")))
+        )
+
+    assert commit.commits == 0
+    assert repository.updated == []
+
+
+async def test_the_log_line_of_a_changed_stop_names_how_many_seats_were_lowered(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    use_case, _, _, _, _ = _stop_change(was="10", lowered=3)
+
+    with caplog.at_level(logging.INFO, logger=LOGGER):
+        await use_case.update(
+            UpdateCommand(strategy_id=STRATEGY_ID, stop_loss_pct=StopLossPct(Decimal("20")))
+        )
+
+    [record] = [r for r in caplog.records if "stop level changed" in r.getMessage()]
+    assert "seats_lowered=3" in record.getMessage()

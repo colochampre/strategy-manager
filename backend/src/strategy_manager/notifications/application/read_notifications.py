@@ -17,18 +17,24 @@ RD.5 (``openspec/changes/panel-redesign/tasks.md``):
 * a refused opening is a ``SAFETY`` item from the safety events, and a ``NOTICE``
   item from a rejected delivery whose reason is in ``NOTICE_REASONS``, an
   allow-list: a reason that is not on it is not something the user can fix;
+* a seat an author's wider stop lowered (RD.9a) is a ``NOTICE`` item of the seat's
+  owner alone, from its event: ``reason`` ``STOP_CHANGED``, ``leverage`` the new one and
+  ``detail`` the old and the new, as strings;
 * a discrepancy that needs the owner is a ``DISCREPANCY`` item for the admin, and
   none while the reconciliation reads ``dry_run``.
 """
 
 from collections.abc import Collection
 from datetime import datetime
+from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
 from strategy_manager.execution.domain.market_symbol import market_key
 from strategy_manager.notifications.application.ports import (
     DiscrepancySourcePort,
+    LoweredSeatFacts,
+    LoweredSeatSourcePort,
     NoticeFacts,
     NoticeSourcePort,
     OperationFacts,
@@ -79,10 +85,12 @@ class ReadNotifications:
         refusals: RefusalSourcePort,
         notices: NoticeSourcePort,
         discrepancies: DiscrepancySourcePort,
+        lowered_seats: LoweredSeatSourcePort,
     ) -> None:
         self._operations = operations
         self._refusals = refusals
         self._notices = notices
+        self._lowered_seats = lowered_seats
         self._discrepancies = discrepancies
 
     async def read(
@@ -116,6 +124,7 @@ class ReadNotifications:
         if NotificationKind.NOTICE in wanted:
             notices = await self._notices.notices(user_id, NOTICE_REASONS)
             items += [_notice_item(n) for n in notices]
+            items += [_lowered_item(s) for s in await self._lowered_seats.lowered(user_id)]
         if NotificationKind.DISCREPANCY in wanted and is_admin:
             reading = await self._discrepancies.needs_owner()
             if not reading.dry_run:
@@ -206,4 +215,22 @@ def _notice_item(notice: NoticeFacts) -> NotificationItem:
         venue=notice.venue,
         pair=market_key(notice.symbol),
         currency=notice.currency,
+    )
+
+
+#: The one reason a lowered seat gives: the author's stop moved the cap under it.
+LOWERED_REASON = "STOP_CHANGED"
+
+
+def _lowered_item(seat: LoweredSeatFacts) -> NotificationItem:
+    return NotificationItem(
+        id=f"lowered:{seat.event_id}",
+        kind=NotificationKind.NOTICE,
+        event=NotificationEvent.LEVERAGE_LOWERED,
+        occurred_at=seat.occurred_at,
+        reason=LOWERED_REASON,
+        strategy_id=str(seat.strategy_id),
+        strategy_name=seat.strategy_name,
+        leverage=Decimal(seat.new_leverage),
+        detail={"from": str(seat.old_leverage), "to": str(seat.new_leverage)},
     )

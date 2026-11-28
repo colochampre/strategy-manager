@@ -6,21 +6,26 @@ existence is not revealed.
 """
 
 from collections.abc import Sequence
+from datetime import datetime
 from decimal import Decimal
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from strategy_manager.identity.infrastructure.models import UserRow
+from strategy_manager.shared.domain.errors import InvariantViolation
 from strategy_manager.shared.domain.leverage import Leverage
 from strategy_manager.strategies.domain.strategy import AllocationPercent
 from strategy_manager.strategies.infrastructure.models import StrategyRow
 from strategy_manager.subscriptions.application.errors import AlreadySubscribed
 from strategy_manager.subscriptions.application.ports import HeldSubscription
 from strategy_manager.subscriptions.domain.subscription import Subscription, SubscriptionStatus
-from strategy_manager.subscriptions.infrastructure.models import SubscriptionRow
+from strategy_manager.subscriptions.infrastructure.models import (
+    LeverageLoweredRow,
+    SubscriptionRow,
+)
 
 ONE_LIVE_PER_STRATEGY_CONSTRAINT = "ux_subscriptions_one_live_per_strategy"
 _LIVE = (SubscriptionStatus.ACTIVE.value, SubscriptionStatus.LEAVING.value)
@@ -223,6 +228,35 @@ class SqlAlchemySubscriptionRepository:
             .execution_options(populate_existing=True)
         )
         return [_to_domain(row) for row in result.scalars().all()]
+
+    async def lower_leverage(
+        self, subscription: Subscription, leverage: Leverage, now: datetime
+    ) -> Subscription:
+        """Lowers an ACTIVE subscription to ``leverage`` through the domain's own
+        ``change_leverage`` (the one ``ChangeShare`` uses) and records the event the
+        owner is told by, in the same session. The caller holds the row lock and
+        commits. A leverage that is not below the seat's is refused: an event says
+        the leverage went down."""
+        if leverage.value >= subscription.leverage.value:
+            raise InvariantViolation(
+                f"subscription {subscription.id} is at x{subscription.leverage.value}, "
+                f"which x{leverage.value} does not lower"
+            )
+        lowered = subscription.change_leverage(leverage)
+        await self.update(lowered)
+        self._session.add(
+            LeverageLoweredRow(
+                id=uuid4(),
+                user_id=subscription.user_id,
+                strategy_id=subscription.strategy_id,
+                subscription_id=subscription.id,
+                old_leverage=subscription.leverage.value,
+                new_leverage=leverage.value,
+                occurred_at=now,
+            )
+        )
+        await self._session.flush()
+        return lowered
 
     async def has_live(self, user_id: UUID, strategy_id: UUID) -> bool:
         found = (

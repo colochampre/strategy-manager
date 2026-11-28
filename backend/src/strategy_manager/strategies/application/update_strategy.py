@@ -39,6 +39,7 @@ from uuid import UUID
 
 from strategy_manager.shared.application.ports import ClockPort
 from strategy_manager.shared.domain.errors import DomainError
+from strategy_manager.shared.domain.leverage import max_leverage
 from strategy_manager.strategies.application.ports import (
     AuthorHasNoDisplayName,
     AuthorNamesPort,
@@ -217,10 +218,17 @@ class UpdateStrategy:
         # from the request, not from an unlocked read of the row: a read taken
         # before the locks could be stale, and a disable that missed its locks
         # would be the race this guard exists to close.
+        #
+        # A request that NAMES a stop takes the same locks (RD.9a): whether it lowers
+        # the cap is only known under the row lock, and a stop that lowers it lowers
+        # the subscribers' seats in the same transaction, which is a write to every
+        # subscriber's pool. It is judged from the request for the same reason.
         disabling = command.enabled is False
+        locking = disabling or command.stop_loss_pct is not None
         locked: frozenset[int] = frozenset()
+        subscribers: list[SubscriberPool] = []
         pool: tuple[str, str, str] | None = None
-        if disabling:
+        if locking:
             unlocked = await self._repository.get_by_id(command.strategy_id)
             if unlocked is None:
                 raise UnknownStrategy(f"no strategy registered under id {command.strategy_id}")
@@ -246,9 +254,9 @@ class UpdateStrategy:
             # The subscribers again, under the row lock: one who joined after the
             # read has a pool no lock covers (``SubscriberLocks``).
             subscribers = await self._locks.confirm(
-                command.strategy_id, locked, action="disable"
+                command.strategy_id, locked, action="disable" if disabling else "update"
             )
-            if strategy.enabled:
+            if disabling and strategy.enabled:
                 await refuse_if_exposed(
                     exposure_port=self._exposure,
                     subscribers_port=self._subscribers,
@@ -277,8 +285,6 @@ class UpdateStrategy:
             name=strategy.name if command.name is None else command.name,
             policy=policy,
             enabled=strategy.enabled if command.enabled is None else command.enabled,
-            # No leverage is touched: a seat left above the new cap has its openings
-            # refused instead (``ProcessDelivery``), and its leverage stays as it was.
             stop_loss_pct=(
                 strategy.stop_loss_pct if command.stop_loss_pct is None else command.stop_loss_pct
             ),
@@ -292,6 +298,22 @@ class UpdateStrategy:
         # with the change (decision 41).
         if command.visibility is not None:
             updated = updated.with_visibility(command.visibility, new_share_token)
+
+        # A stop that lowers the cap lowers the seats above it, in this transaction
+        # and under the locks taken above. Only a LOWERED cap does: a narrowed stop
+        # raises it and an equal one leaves it, and neither touches a seat. An open
+        # position keeps the leverage it opened with (the venue holds it); only the
+        # next opening reads the seat.
+        seats_lowered = 0
+        if (
+            pool is not None
+            and updated.stop_loss_pct != strategy.stop_loss_pct
+            and max_leverage(updated.stop_loss_pct.value)
+            < max_leverage(strategy.stop_loss_pct.value)
+        ):
+            seats_lowered = await self._subscribers.lower_above(
+                strategy.id, max_leverage(updated.stop_loss_pct.value), self._clock.now()
+            )
 
         await self._repository.update(updated)
 
@@ -308,11 +330,13 @@ class UpdateStrategy:
         await self._commit.commit()
         if updated.stop_loss_pct != strategy.stop_loss_pct:
             logger.info(
-                "strategy stop level changed from %s to %s: strategy=%s author=%s",
+                "strategy stop level changed from %s to %s: strategy=%s author=%s "
+                "seats_lowered=%d",
                 format(strategy.stop_loss_pct.value, "f"),
                 format(updated.stop_loss_pct.value, "f"),
                 updated.id,
                 updated.author_id,
+                seats_lowered,
             )
         # Whoever holds a link opens the strategy, so when one began or stopped
         # working is answerable from the log, never the token itself; a link killed

@@ -225,3 +225,58 @@ describe("StopLevelEditor layout, as Share and Leverage", () => {
     expect(classesOf(name)).not.toContain("text-sm");
   });
 });
+
+describe("StopLevelEditor: a stop that lowers the cap (RD.9, L68, L69)", () => {
+  const warning = () => screen.queryByText(/will be lowered to/);
+
+  it("warns before saving that the seats above the new cap will be lowered to it, naming no count", async () => {
+    // 10% allows x9; 15% allows x6.
+    setup(strategy({ stop_loss_pct: "10.00" }));
+    await ready();
+
+    fireEvent.change(field(), { target: { value: "15" } });
+
+    expect(warning()).toHaveTextContent("Subscriptions above x6 will be lowered to x6.");
+    expect(warning()?.textContent).not.toMatch(/\b\d+ subscriptions?\b/i);
+  });
+
+  it("says nothing for a stop that raises the cap, keeps it, or does not read", async () => {
+    setup(strategy({ stop_loss_pct: "10.00" }));
+    await ready();
+
+    fireEvent.change(field(), { target: { value: "5" } });
+    expect(warning()).toBeNull();
+    // 10.1% still allows x9.
+    fireEvent.change(field(), { target: { value: "10.1" } });
+    expect(warning()).toBeNull();
+    fireEvent.change(field(), { target: { value: "abc" } });
+    expect(warning()).toBeNull();
+  });
+
+  it("is said in Spanish too", async () => {
+    await i18n.changeLanguage("es");
+    setup(strategy({ stop_loss_pct: "10.00" }));
+    await screen.findByRole("textbox");
+
+    fireEvent.change(screen.getByRole("textbox") as HTMLInputElement, { target: { value: "15" } });
+
+    expect(screen.getByText("Las suscripciones por encima de x6 bajarán a x6.")).toBeInTheDocument();
+  });
+
+  it("goes once the level is saved", async () => {
+    setup(strategy({ stop_loss_pct: "10.00" }));
+    await ready();
+    fireEvent.change(field(), { target: { value: "15" } });
+
+    fireEvent.click(saveButton());
+    await waitFor(() => expect(saveButton()).toHaveAccessibleName("Saved"));
+
+    expect(warning()).toBeNull();
+  });
+
+  it("the hint says the seats above a new limit are lowered to it", () => {
+    expect(i18n.t("strategies.stopLevel.hint", { lng: "en" })).toMatch(/lowered to the new limit/);
+    expect(i18n.t("strategies.stopLevel.hint", { lng: "en" })).not.toMatch(/stops opening until/);
+    expect(i18n.t("strategies.stopLevel.hint", { lng: "es" })).toMatch(/baja al nuevo límite/);
+  });
+});

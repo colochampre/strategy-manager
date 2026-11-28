@@ -188,6 +188,27 @@ describe("NotificationsPage", () => {
       "SAFETY",
     ],
     [
+      "a seat lowered by the author's wider stop (RD.9)",
+      item({
+        id: "lowered:1",
+        kind: "NOTICE",
+        event: "LEVERAGE_LOWERED",
+        reason: "STOP_CHANGED",
+        exchange: null,
+        venue: null,
+        pair: null,
+        side: null,
+        currency: null,
+        entry_price: null,
+        leverage: "6",
+        detail: { from: "10", to: "6" },
+      }),
+      "Leverage lowered in Alpha",
+      "The stop of Alpha changed, so your leverage went from 10x to 6x. A position already open keeps its own.",
+      "Notice",
+      "NOTICE",
+    ],
+    [
       "a read-only key",
       item({ kind: "NOTICE", event: "OPENING_REFUSED", reason: "EXCHANGE_KEY_READ_ONLY" }),
       "Opening refused in Alpha",
@@ -253,6 +274,35 @@ describe("NotificationsPage", () => {
     expect(row).toHaveTextContent(sentence);
     expect(within(row).getByText(pill, { selector: "span" })).toBeInTheDocument();
     expect(row).toHaveAttribute("data-kind", kind);
+  });
+
+  it("tells a lowered seat in Spanish, with no market or figure to show (RD.9)", async () => {
+    await i18n.changeLanguage("es");
+    serve([
+      item({
+        id: "lowered:1",
+        kind: "NOTICE",
+        event: "LEVERAGE_LOWERED",
+        reason: "STOP_CHANGED",
+        exchange: null,
+        venue: null,
+        pair: null,
+        side: null,
+        currency: null,
+        entry_price: null,
+        leverage: "6",
+        detail: { from: "10", to: "6" },
+      }),
+    ]);
+    open();
+
+    const row = (await screen.findAllByTestId("notification"))[0] as HTMLElement;
+    expect(within(row).getByText("Apalancamiento reducido en Alpha")).toBeInTheDocument();
+    expect(row).toHaveTextContent(
+      "El stop de Alpha cambió, así que su apalancamiento bajó de 10x a 6x. Una posición ya abierta conserva el suyo.",
+    );
+    expect(row).not.toHaveTextContent(/null|undefined/);
+    expect(within(row).queryByRole("link")).not.toBeInTheDocument();
   });
 
   it("writes the time of an item as the panel writes a clock, in UTC", async () => {

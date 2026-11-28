@@ -6,7 +6,8 @@ An item is one thing that happened to one user: an operation opened or closed,
 an opening that was refused, or (for the admin) a discrepancy that needs a
 decision. Its ``id`` is stable and says what it is about, so the panel can tell
 a repeat from a new one: ``opened:<allocation>``, ``closed:<allocation>``,
-``refused:<safety event>``, ``notice:<delivery>``, ``discrepancy:<discrepancy>``.
+``refused:<safety event>``, ``notice:<delivery>``, ``lowered:<leverage event>``,
+``discrepancy:<discrepancy>``.
 
 **Order.** Newest first by ``occurred_at``, then by ``id`` descending: the id
 breaks a tie between two items at one instant, so a page boundary never lands
@@ -31,6 +32,7 @@ class NotificationEvent(StrEnum):
     OPENED = "OPENED"
     CLOSED = "CLOSED"
     OPENING_REFUSED = "OPENING_REFUSED"
+    LEVERAGE_LOWERED = "LEVERAGE_LOWERED"
     DISCREPANCY = "DISCREPANCY"
 
 

@@ -11,6 +11,7 @@ builds it. None of them writes, signs or calls an exchange.
 * ``SqlAlchemyRefusalSource``: the safety events of the three refusal kinds.
 * ``SqlAlchemyNoticeSource``: the user's rejected deliveries and their strategy.
   ``outcome_detail`` is never selected.
+* ``SqlAlchemyLoweredSeatSource``: the user's own seats an author's wider stop lowered.
 * ``ReconciliationDiscrepancySource``: ``ReadConfirmed``, assembled exactly as
   ``GET /reconciliation/confirmed`` assembles it.
 """
@@ -31,6 +32,7 @@ from strategy_manager.notifications.application.ports import (
     ClosedFacts,
     DiscrepancyFacts,
     DiscrepancyReading,
+    LoweredSeatFacts,
     NoticeFacts,
     OperationFacts,
     RefusalFacts,
@@ -66,6 +68,7 @@ from strategy_manager.shared.config import Settings
 from strategy_manager.shared.infrastructure.clock import SystemClock
 from strategy_manager.signals.infrastructure.models import SignalDeliveryRow, SignalRow
 from strategy_manager.strategies.infrastructure.models import StrategyRow
+from strategy_manager.subscriptions.infrastructure.models import LeverageLoweredRow
 
 _REJECTED = "REJECTED"
 
@@ -263,3 +266,37 @@ class ReconciliationDiscrepancySource:
                 for d in reading.needs_owner
             ),
         )
+
+
+class SqlAlchemyLoweredSeatSource:
+    """Implements ``LoweredSeatSourcePort``: the user's own events, with the name of
+    their strategy. The ``user_id`` filter is the only way in, so another user's seat
+    is never read."""
+
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def lowered(self, user_id: UUID) -> Sequence[LoweredSeatFacts]:
+        rows = await self._session.execute(
+            select(
+                LeverageLoweredRow.id,
+                LeverageLoweredRow.strategy_id,
+                StrategyRow.name,
+                LeverageLoweredRow.old_leverage,
+                LeverageLoweredRow.new_leverage,
+                LeverageLoweredRow.occurred_at,
+            )
+            .join(StrategyRow, StrategyRow.id == LeverageLoweredRow.strategy_id)
+            .where(LeverageLoweredRow.user_id == user_id)
+        )
+        return [
+            LoweredSeatFacts(
+                event_id=row[0],
+                strategy_id=row[1],
+                strategy_name=row[2],
+                old_leverage=row[3],
+                new_leverage=row[4],
+                occurred_at=row[5],
+            )
+            for row in rows.all()
+        ]

@@ -1796,11 +1796,11 @@ async def test_an_update_that_names_no_level_leaves_the_level_alone(
     assert await _stored_stop_level(pg_session_factory, strategy_id) == Decimal("12")
 
 
-async def test_widening_the_level_leaves_the_authors_seat_where_it_was(
+async def test_widening_the_level_lowers_the_authors_seat_to_the_new_cap(
     client: AsyncClient, pg_session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
-    """A stop of 15 caps leverage at 6x under a seat at 9x. The seat is not changed
-    for its user: its openings are refused instead."""
+    """A stop of 15 caps leverage at 6x under a seat at 9x (RD.9a): the seat goes to 6x
+    in the stop's own transaction, and its owner gets an event."""
     strategy_id = await _register(client, stop_loss_pct="10", leverage=9)
 
     response = await client.patch(
@@ -1808,7 +1808,34 @@ async def test_widening_the_level_leaves_the_authors_seat_where_it_was(
     )
 
     assert response.status_code == 200
-    assert await _stored_seat_leverage(pg_session_factory, strategy_id) == 9
+    assert await _stored_seat_leverage(pg_session_factory, strategy_id) == 6
+    async with pg_session_factory() as session:
+        events = (
+            await session.execute(
+                text(
+                    "SELECT old_leverage, new_leverage FROM leverage_lowered_events "
+                    "WHERE strategy_id = :id"
+                ),
+                {"id": strategy_id},
+            )
+        ).all()
+    assert [tuple(e) for e in events] == [(9, 6)]
+
+
+async def test_widening_the_level_leaves_a_seat_under_the_new_cap_where_it_was(
+    client: AsyncClient, pg_session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    strategy_id = await _register(client, stop_loss_pct="10", leverage=5)
+
+    response = await client.patch(
+        f"/strategies/{strategy_id}", json={"stop_loss_pct": "15"}, headers=ADMIN_HEADERS
+    )
+
+    assert response.status_code == 200
+    assert await _stored_seat_leverage(pg_session_factory, strategy_id) == 5
+    async with pg_session_factory() as session:
+        count = await session.scalar(text("SELECT count(*) FROM leverage_lowered_events"))
+    assert count == 0
 
 
 async def _stored_strategy_count(pg_session_factory: async_sessionmaker[AsyncSession]) -> int:
