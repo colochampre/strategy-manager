@@ -419,6 +419,17 @@ The owner's words (2026-11-24) are quoted as written.
       - `Subscribe` checks the cap against an unlocked read of the stop, so a join racing a widening can leave one seat above the new cap. That seat's openings are refused, as before. The window existed before this change.
       - The lowered-seat source reads all of a user's events on each read.
       - `account_deletion.py` never deletes a user row: it ends seats and closes strategies. The new table's plain user FK, like `subscriptions.user_id`, is therefore safe.
+  - *Delivered 2026-11-28 as PR #154*, four commits: the contract (L68, L69), RD.9b, RD.9a and the record of the build. The owner merged it with a merge commit, `f76014f079db`.
+    - **Rehearsal, run by the owner**, by `rehearse_0048.sh`, on `sm_rehearsal_0048` restored from `pre-0048-rehearsal-20261128T151820Z.dump` (4.0M; production at `0047`, 4 users, 7 subscriptions):
+      - the upgrade reached `0048` with the table, its index and its CHECK, and no row;
+      - the CHECK refused an equal leverage and one above 20, and accepted a lowering;
+      - the downgrade to `0047` left nothing behind, and the upgrade ran again;
+      - every existing row was the same after each step; the copy was dropped, production still at `0047`.
+    - **Deploy, run by the owner**, by `deploy_f76014f079db.sh`, at 15:23 UTC (203 minutes into the 4h candle):
+      - backup `pre-0048-deploy-20261128T152331Z.dump` (4.0M), then `alembic upgrade head`: production at `0048`, the table with 0 rows, index and CHECK 1/1;
+      - both services restarted, `strategy-api` and `strategy-worker` `active`;
+      - the bundle (pps.6), built from a clean worktree of `origin/main` at `f76014f079db`: 29 entries, SHA-256 `c8822cfc397bf1566fd5db03dd22646adf954fed5ee076cc643630d7a48ab995`. The VPS answered the checksum `OK`, `readable`, `bundle f76014f079db`, `panel: 200 text/html`;
+      - `GET /api/notifications` without identity `401`, and 0 ERROR, CRITICAL or Traceback lines since the restart.
 ## Log
 
 - L1 (2026-11-24, owner): "Quiero hacer un rediseño general de la app. Comentame si te parece bien, qué cambiarías o si falta algo:" followed by S1 to S8 as quoted, with screenshots of Edelap's home, Binance's assets overview and Edelap's "Mis facturas".
